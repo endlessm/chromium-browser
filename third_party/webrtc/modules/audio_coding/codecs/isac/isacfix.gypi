@@ -77,7 +77,7 @@
         'fix/source/structs.h',
       ],
       'conditions': [
-        ['target_arch=="arm" and arm_version>=7', {
+        ['target_arch=="arm" and arm_version>=7 and arm_neon==1', {
           'sources': [
             'fix/source/lattice_armv7.S',
             'fix/source/pitch_filter_armv6.S',
