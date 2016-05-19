@@ -26,6 +26,8 @@ class VIEWS_EXPORT NativeWidget {
  public:
   virtual ~NativeWidget() {}
 
+  virtual void SetSessionID(uint32_t sessionid) = 0;
+
  private:
   friend class Widget;
 
