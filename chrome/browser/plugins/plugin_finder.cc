@@ -153,11 +153,48 @@ void RecordBuiltInPluginListError(PluginListError error_code) {
                             static_cast<int>(PluginListError::NUM_VALUES));
 }
 
+base::DictionaryValue* LoadPlatformPluginListWithId(int resourceId) {
+#if defined(OS_WIN) || defined(OS_MACOSX) || defined(OS_LINUX)
+  base::StringPiece json_resource(
+      ResourceBundle::GetSharedInstance().GetRawDataResource(
+          resourceId));
+  std::string error_str;
+  scoped_ptr<base::Value> value(base::JSONReader::ReadAndReturnError(
+      json_resource,
+      base::JSON_PARSE_RFC,
+      NULL,
+      &error_str));
+  if (!value.get()) {
+    DLOG(ERROR) << error_str;
+    return NULL;
+  }
+  if (value->GetType() != base::Value::TYPE_DICTIONARY)
+    return NULL;
+  return static_cast<base::DictionaryValue*>(value.release());
+#else
+  return new DictionaryValue();
+#endif
+}
+
 }  // namespace
+
+base::DictionaryValue* PluginFinder::LoadPlatformPluginList() {
+  return LoadPlatformPluginListWithId(IDR_PLATFORM_PLUGIN_DB_JSON);
+}
 
 // static
 void PluginFinder::RegisterPrefs(PrefRegistrySimple* registry) {
   registry->RegisterBooleanPref(prefs::kDisablePluginFinder, false);
+}
+
+void PluginFinder::MergePlatformSpecifiPlugins (base::DictionaryValue * plugin_list) {
+  if (!plugin_list)
+    return;
+  scoped_ptr<base::DictionaryValue> platform_plugin_list =
+    scoped_ptr<base::DictionaryValue>(LoadPlatformPluginList());
+  if (platform_plugin_list) {
+    plugin_list->MergeDictionary(platform_plugin_list.get());
+  }
 }
 
 // static
@@ -188,6 +225,8 @@ void PluginFinder::Init() {
 
 // static
 base::DictionaryValue* PluginFinder::LoadBuiltInPluginList() {
+  return LoadPlatformPluginListWithId(IDR_PLUGIN_DB_JSON);
+
   base::StringPiece json_resource(
       ResourceBundle::GetSharedInstance().GetRawDataResource(
           IDR_PLUGIN_DB_JSON));
@@ -322,15 +361,19 @@ void PluginFinder::ReinitializePlugins(
   if (version <= version_)
     return;
 
+  // Load the platform specific plugins (if any)
+  scoped_ptr<DictionaryValue> final_plugin_list(plugin_list->DeepCopy());
+  MergePlatformSpecifiPlugins(final_plugin_list.get());
+
   version_ = version;
 
   STLDeleteValues(&identifier_plugin_);
 
-  for (base::DictionaryValue::Iterator plugin_it(*plugin_list);
+  for (base::DictionaryValue::Iterator plugin_it(*final_plugin_list);
       !plugin_it.IsAtEnd(); plugin_it.Advance()) {
     const base::DictionaryValue* plugin = NULL;
     const std::string& identifier = plugin_it.key();
-    if (plugin_list->GetDictionaryWithoutPathExpansion(identifier, &plugin)) {
+    if (final_plugin_list->GetDictionaryWithoutPathExpansion(identifier, &plugin)) {
       DCHECK(!identifier_plugin_[identifier]);
       identifier_plugin_[identifier] = CreatePluginMetadata(identifier, plugin);
 

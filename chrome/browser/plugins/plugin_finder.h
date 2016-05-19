@@ -86,6 +86,15 @@ class PluginFinder {
   // Returns NULL if the plugin list couldn't be parsed.
   static base::DictionaryValue* LoadBuiltInPluginList();
 
+  // Loads platform specific whitelisted plugins from the browser
+  // resources and parses it.
+  // Returns NULL if the plug-in list couldn't be parsed.
+  static base::DictionaryValue* LoadPlatformPluginList();
+
+  // Merges the platform specific plugins to the list of plugins
+  // passed as parameters.
+  static void MergePlatformSpecifiPlugins(base::DictionaryValue * plugin_list);
+
 #if defined(ENABLE_PLUGIN_INSTALLATION)
   std::map<std::string, PluginInstaller*> installers_;
 #endif
