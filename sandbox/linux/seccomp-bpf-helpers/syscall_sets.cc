@@ -401,10 +401,11 @@ bool SyscallSets::IsAllowedProcessStartOrDeath(int sysno) {
 bool SyscallSets::IsAllowedFutex(int sysno) {
   switch (sysno) {
     case __NR_get_robust_list:
-    case __NR_set_robust_list:
     case __NR_futex:
     default:
       return false;
+    case __NR_set_robust_list:
+      return true;
   }
 }
 

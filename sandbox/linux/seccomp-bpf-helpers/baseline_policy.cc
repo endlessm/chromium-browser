@@ -164,7 +164,7 @@ ResultExpr EvaluateSyscallImpl(int fs_denied_errno,
     return RestrictFutex();
 
   if (sysno == __NR_set_robust_list)
-    return Error(EPERM);
+    return Allow();
 
   if (sysno == __NR_getpriority || sysno ==__NR_setpriority)
     return RestrictGetSetpriority(current_pid);
