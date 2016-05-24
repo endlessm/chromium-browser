@@ -14,48 +14,7 @@ namespace gl {
 
 NativeViewGLSurfaceEGLX11GLES2::NativeViewGLSurfaceEGLX11GLES2(
     EGLNativeWindowType window)
-    : NativeViewGLSurfaceEGLX11(0), parent_window_(window) {}
-
-bool NativeViewGLSurfaceEGLX11GLES2::InitializeNativeWindow() {
-  Display* x11_display = GetXNativeDisplay();
-  XWindowAttributes attributes;
-  if (!XGetWindowAttributes(x11_display, parent_window_, &attributes)) {
-    LOG(ERROR) << "XGetWindowAttributes failed for window " << parent_window_
-               << ".";
-    return false;
-  }
-
-  size_ = gfx::Size(attributes.width, attributes.height);
-
-  // Create a child window, with a CopyFromParent visual (to avoid inducing
-  // extra blits in the driver), that we can resize exactly in Resize(),
-  // correctly ordered with GL, so that we don't have invalid transient states.
-  // See https://crbug.com/326995.
-  XSetWindowAttributes swa;
-  memset(&swa, 0, sizeof(swa));
-  swa.background_pixmap = 0;
-  swa.bit_gravity = NorthWestGravity;
-  window_ = XCreateWindow(x11_display, parent_window_, 0, 0, size_.width(),
-                          size_.height(), 0, 0 /* CopyFromParent */,
-                          1 /* InputOutput */, 0 /* CopyFromParent */,
-                          CWBackPixmap | CWBitGravity, &swa);
-  XMapWindow(x11_display, window_);
-  XSelectInput(x11_display, window_, ExposureMask);
-  XFlush(x11_display);
-
-  return true;
-}
-
-void NativeViewGLSurfaceEGLX11GLES2::Destroy() {
-  NativeViewGLSurfaceEGLX11::Destroy();
-
-  if (window_) {
-    Display* x11_display = GetXNativeDisplay();
-    XDestroyWindow(x11_display, window_);
-    window_ = 0;
-    XFlush(x11_display);
-  }
-}
+    : NativeViewGLSurfaceEGLX11(window) {}
 
 EGLConfig NativeViewGLSurfaceEGLX11GLES2::GetConfig() {
   if (!config_) {
@@ -119,34 +78,6 @@ EGLConfig NativeViewGLSurfaceEGLX11GLES2::GetConfig() {
     }
   }
   return config_;
-}
-
-bool NativeViewGLSurfaceEGLX11GLES2::Resize(const gfx::Size& size,
-                                            float scale_factor,
-                                            const gfx::ColorSpace& color_space,
-                                            bool has_alpha) {
-  if (size == GetSize())
-    return true;
-
-  size_ = size;
-
-  eglWaitGL();
-  XResizeWindow(GetXNativeDisplay(), window_, size.width(), size.height());
-  eglWaitNative(EGL_CORE_NATIVE_ENGINE);
-
-  return true;
-}
-
-bool NativeViewGLSurfaceEGLX11GLES2::DispatchXEvent(XEvent* xev) {
-  if (xev->type != Expose ||
-      xev->xexpose.window != static_cast<Window>(window_))
-    return false;
-
-  xev->xexpose.window = parent_window_;
-  Display* x11_display = GetXNativeDisplay();
-  XSendEvent(x11_display, parent_window_, x11::False, ExposureMask, xev);
-  XFlush(x11_display);
-  return true;
 }
 
 NativeViewGLSurfaceEGLX11GLES2::~NativeViewGLSurfaceEGLX11GLES2() {
