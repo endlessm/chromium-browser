@@ -188,9 +188,10 @@ void TabManager::Start() {
     }
   }
 
-#elif defined(OS_CHROMEOS)
+#elif defined(OS_CHROMEOS) || defined(OS_LINUX)
   // On Chrome OS, tab manager is always started and tabs can be discarded more
-  // than once.
+  // than once. On Endless OS, tab manager is only started if the relevant
+  // feature is enabled, but tabs can be discarded more than once too.
   discard_once_ = false;
 #endif
 
