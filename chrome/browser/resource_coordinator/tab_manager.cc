@@ -184,7 +184,7 @@ TabManager::~TabManager() {
 void TabManager::Start() {
   background_tab_loading_mode_ = BackgroundTabLoadingMode::kStaggered;
 
-#if defined(OS_WIN) || defined(OS_MACOSX)
+#if defined(OS_WIN) || defined(OS_MACOSX) || defined(OS_LINUX)
   // Note that discarding is now enabled by default. This check is kept as a
   // kill switch.
   // TODO(georgesak): remote this when deemed not needed anymore.
