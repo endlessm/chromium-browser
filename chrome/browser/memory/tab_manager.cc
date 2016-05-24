@@ -169,13 +169,15 @@ TabManager::~TabManager() {
 }
 
 void TabManager::Start() {
-#if defined(OS_WIN) || defined(OS_MACOSX)
+#if defined(OS_WIN) || defined(OS_MACOSX) || defined(OS_LINUX)
   // Note that discarding is now enabled by default. This check is kept as a
   // kill switch.
   // TODO(georgesak): remote this when deemed not needed anymore.
   if (!base::FeatureList::IsEnabled(features::kAutomaticTabDiscarding))
     return;
+#endif
 
+#if defined(OS_WIN) || defined(OS_MACOSX)
   // Check the variation parameter to see if a tab is to be protected for an
   // amount of time after being backgrounded. The value is in seconds. Default
   // is 10 minutes if the variation is absent.
