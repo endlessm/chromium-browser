@@ -160,11 +160,13 @@ TabManager::~TabManager() {
 }
 
 void TabManager::Start() {
-#if defined(OS_WIN) || defined(OS_MACOSX)
+#if defined(OS_WIN) || defined(OS_MACOSX) || defined(OS_LINUX)
   // If the feature is not enabled, do nothing.
   if (!base::FeatureList::IsEnabled(features::kAutomaticTabDiscarding))
     return;
+#endif
 
+#if defined(OS_WIN) || defined(OS_MACOSX)
   // Check the variation parameter to see if a tab is to be protected for an
   // amount of time after being backgrounded. The value is in seconds.
   std::string minimum_protection_time_string =
