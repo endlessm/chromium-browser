@@ -157,11 +157,13 @@ TabManager::~TabManager() {
 }
 
 void TabManager::Start() {
-#if defined(OS_WIN) || defined(OS_MACOSX)
+#if defined(OS_WIN) || defined(OS_MACOSX) || defined(OS_LINUX)
   // If the feature is not enabled, do nothing.
   if (!base::FeatureList::IsEnabled(features::kAutomaticTabDiscarding))
     return;
+#endif
 
+#if defined(OS_WIN) || defined(OS_MACOSX)
   // Check the variation parameter to see if a tab be discarded more than once.
   // Default is to only discard once per tab.
   std::string allow_multiple_discards = variations::GetVariationParamValue(
