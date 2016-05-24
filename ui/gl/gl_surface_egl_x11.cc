@@ -4,7 +4,7 @@
 
 #include "ui/gl/gl_surface_egl_x11.h"
 
-#include "ui/events/platform/platform_event_source.h"
+#include "ui/gfx/x/x11_types.h"
 #include "ui/gl/egl_util.h"
 
 extern "C" {
@@ -12,60 +12,11 @@ extern "C" {
 }
 
 using ui::GetLastEGLErrorString;
-using ui::PlatformEvent;
-using ui::PlatformEventSource;
 
 namespace gl {
 
 NativeViewGLSurfaceEGLX11::NativeViewGLSurfaceEGLX11(EGLNativeWindowType window)
-    : NativeViewGLSurfaceEGL(0, nullptr), parent_window_(window) {}
-
-bool NativeViewGLSurfaceEGLX11::InitializeNativeWindow() {
-  Display* x11_display = GetNativeDisplay();
-  XWindowAttributes attributes;
-  if (!XGetWindowAttributes(x11_display, parent_window_, &attributes)) {
-    LOG(ERROR) << "XGetWindowAttributes failed for window " << parent_window_
-        << ".";
-    return false;
-  }
-
-  size_ = gfx::Size(attributes.width, attributes.height);
-
-  // Create a child window, with a CopyFromParent visual (to avoid inducing
-  // extra blits in the driver), that we can resize exactly in Resize(),
-  // correctly ordered with GL, so that we don't have invalid transient states.
-  // See https://crbug.com/326995.
-  XSetWindowAttributes swa;
-  memset(&swa, 0, sizeof(swa));
-  swa.background_pixmap = 0;
-  swa.bit_gravity = NorthWestGravity;
-  window_ = XCreateWindow(x11_display, parent_window_, 0, 0, size_.width(),
-                          size_.height(), 0, CopyFromParent, InputOutput,
-                          CopyFromParent, CWBackPixmap | CWBitGravity, &swa);
-  XMapWindow(x11_display, window_);
-
-  // The event source can be nullptr in tests, when we don't care about Exposes.
-  if (PlatformEventSource* source = PlatformEventSource::GetInstance()) {
-    XSelectInput(x11_display, window_, ExposureMask);
-    source->AddPlatformEventDispatcher(this);
-  }
-  XFlush(x11_display);
-
-  return true;
-}
-
-void NativeViewGLSurfaceEGLX11::Destroy() {
-  if (window_) {
-    if (PlatformEventSource* source = PlatformEventSource::GetInstance())
-      source->RemovePlatformEventDispatcher(this);
-
-    Display* x11_display = GetNativeDisplay();
-    XDestroyWindow(x11_display, window_);
-    window_ = 0;
-    XFlush(x11_display);
-  }
-
-  NativeViewGLSurfaceEGL::Destroy();
+    : NativeViewGLSurfaceEGL(window, nullptr) {
 }
 
 EGLConfig NativeViewGLSurfaceEGLX11::GetConfig() {
@@ -140,36 +91,6 @@ EGLConfig NativeViewGLSurfaceEGLX11::GetConfig() {
     }
   }
   return config_;
-}
-
-bool NativeViewGLSurfaceEGLX11::Resize(const gfx::Size& size,
-                                       float scale_factor,
-                                       ColorSpace color_space,
-                                       bool has_alpha) {
-  if (size == GetSize())
-    return true;
-
-  size_ = size;
-
-  eglWaitGL();
-  XResizeWindow(GetNativeDisplay(), window_, size.width(), size.height());
-  eglWaitNative(EGL_CORE_NATIVE_ENGINE);
-
-  return true;
-}
-
-bool NativeViewGLSurfaceEGLX11::CanDispatchEvent(const PlatformEvent& event) {
-  return event->type == Expose && event->xexpose.window == window_;
-}
-
-uint32_t NativeViewGLSurfaceEGLX11::DispatchEvent(const PlatformEvent& event) {
-  XEvent x_event = *event;
-  x_event.xexpose.window = parent_window_;
-
-  Display* x11_display = GetNativeDisplay();
-  XSendEvent(x11_display, parent_window_, False, ExposureMask, &x_event);
-  XFlush(x11_display);
-  return ui::POST_DISPATCH_STOP_PROPAGATION;
 }
 
 NativeViewGLSurfaceEGLX11::~NativeViewGLSurfaceEGLX11() {
