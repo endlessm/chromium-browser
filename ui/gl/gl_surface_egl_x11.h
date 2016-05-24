@@ -22,21 +22,9 @@ class GL_EXPORT NativeViewGLSurfaceEGLX11 : public NativeViewGLSurfaceEGL {
 
   // NativeViewGLSurfaceEGL overrides.
   EGLConfig GetConfig() override;
-  void Destroy() override;
-  bool Resize(const gfx::Size& size,
-              float scale_factor,
-              ColorSpace color_space,
-              bool has_alpha) override;
-  bool InitializeNativeWindow() override;
 
  private:
   ~NativeViewGLSurfaceEGLX11() override;
-
-  EGLNativeWindowType parent_window_;
-
-  // PlatformEventDispatcher implementation.
-  bool CanDispatchEvent(const ui::PlatformEvent& event) override;
-  uint32_t DispatchEvent(const ui::PlatformEvent& event) override;
 
   DISALLOW_COPY_AND_ASSIGN(NativeViewGLSurfaceEGLX11);
 };
