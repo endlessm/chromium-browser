@@ -22,20 +22,9 @@ class GL_EXPORT NativeViewGLSurfaceEGLX11GLES2 : public NativeViewGLSurfaceEGL {
 
   // NativeViewGLSurfaceEGL overrides.
   EGLConfig GetConfig() override;
-  void Destroy() override;
-  bool Resize(const gfx::Size& size,
-              float scale_factor,
-              const gfx::ColorSpace& color_space,
-              bool has_alpha) override;
-  bool InitializeNativeWindow() override;
 
  private:
   ~NativeViewGLSurfaceEGLX11GLES2() override;
-
-  // XEventDispatcher:
-  bool DispatchXEvent(XEvent* xev) override;
-
-  EGLNativeWindowType parent_window_;
 
   DISALLOW_COPY_AND_ASSIGN(NativeViewGLSurfaceEGLX11GLES2);
 };
