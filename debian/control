@@ -20,6 +20,7 @@ Build-Depends:
 	libcups2-dev | libcupsys2-dev,
 	libasound2-dev,
 	libnss3-dev,
+	mesa-common-dev,
 	libgles2-mesa-dev [armel armhf],
 	libpci-dev,
 	libxtst-dev,
