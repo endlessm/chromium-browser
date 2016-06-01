@@ -36,6 +36,7 @@ Build-Depends:
 	libxkbcommon-dev,
 	libssl-dev,
 	libpam0g-dev,
+	libffi-dev,
 	chrpath,
 	xdg-utils
 Standards-Version: 3.9.6
