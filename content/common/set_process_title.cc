@@ -69,6 +69,9 @@ void SetProcessTitleFromCommandLine(const char** main_argv) {
     // when the full command line is not being displayed in most process
     // listings.
     prctl(PR_SET_NAME, base::FilePath(title).BaseName().value().c_str());
+
+    // Limits the exe path part in the title
+    title = base::FilePath(title).BaseName().value().c_str();
   }
 #endif  // defined(OS_LINUX)
 
