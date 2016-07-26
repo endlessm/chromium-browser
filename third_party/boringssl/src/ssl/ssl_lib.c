@@ -141,7 +141,6 @@
 #include <openssl/ssl.h>
 
 #include <assert.h>
-#include <stdio.h>
 #include <string.h>
 
 #include <openssl/bytestring.h>
@@ -150,7 +149,6 @@
 #include <openssl/err.h>
 #include <openssl/lhash.h>
 #include <openssl/mem.h>
-#include <openssl/obj.h>
 #include <openssl/rand.h>
 #include <openssl/x509v3.h>
 
@@ -550,6 +548,9 @@ BIO *SSL_get_rbio(const SSL *ssl) { return ssl->rbio; }
 BIO *SSL_get_wbio(const SSL *ssl) { return ssl->wbio; }
 
 int SSL_do_handshake(SSL *ssl) {
+  /* Functions which use SSL_get_error must clear the error queue on entry. */
+  ERR_clear_error();
+
   if (ssl->handshake_func == NULL) {
     OPENSSL_PUT_ERROR(SSL, SSL_R_CONNECTION_TYPE_NOT_SET);
     return -1;
@@ -563,35 +564,33 @@ int SSL_do_handshake(SSL *ssl) {
 }
 
 int SSL_connect(SSL *ssl) {
-  if (ssl->handshake_func == 0) {
+  if (ssl->handshake_func == NULL) {
     /* Not properly initialized yet */
     SSL_set_connect_state(ssl);
   }
 
-  if (ssl->handshake_func != ssl->method->ssl_connect) {
-    OPENSSL_PUT_ERROR(SSL, ERR_R_INTERNAL_ERROR);
-    return -1;
-  }
+  assert(ssl->handshake_func == ssl->method->ssl_connect);
 
-  return ssl->handshake_func(ssl);
+  return SSL_do_handshake(ssl);
 }
 
 int SSL_accept(SSL *ssl) {
-  if (ssl->handshake_func == 0) {
+  if (ssl->handshake_func == NULL) {
     /* Not properly initialized yet */
     SSL_set_accept_state(ssl);
   }
 
-  if (ssl->handshake_func != ssl->method->ssl_accept) {
-    OPENSSL_PUT_ERROR(SSL, ERR_R_INTERNAL_ERROR);
-    return -1;
-  }
+  assert(ssl->handshake_func == ssl->method->ssl_accept);
 
-  return ssl->handshake_func(ssl);
+  return SSL_do_handshake(ssl);
 }
 
-int SSL_read(SSL *ssl, void *buf, int num) {
-  if (ssl->handshake_func == 0) {
+static int ssl_read_impl(SSL *ssl, void *buf, int num, int peek) {
+  /* Functions which use SSL_get_error must clear the error queue on entry. */
+  ERR_clear_error();
+  ERR_clear_system_error();
+
+  if (ssl->handshake_func == NULL) {
     OPENSSL_PUT_ERROR(SSL, SSL_R_UNINITIALIZED);
     return -1;
   }
@@ -601,26 +600,37 @@ int SSL_read(SSL *ssl, void *buf, int num) {
     return 0;
   }
 
-  ERR_clear_system_error();
-  return ssl->method->ssl_read_app_data(ssl, buf, num, 0);
+  /* This may require multiple iterations. False Start will cause
+   * |ssl->handshake_func| to signal success one step early, but the handshake
+   * must be completely finished before other modes are accepted. */
+  while (SSL_in_init(ssl)) {
+    int ret = SSL_do_handshake(ssl);
+    if (ret < 0) {
+      return ret;
+    }
+    if (ret == 0) {
+      OPENSSL_PUT_ERROR(SSL, SSL_R_SSL_HANDSHAKE_FAILURE);
+      return -1;
+    }
+  }
+
+  return ssl->method->ssl_read_app_data(ssl, buf, num, peek);
+}
+
+int SSL_read(SSL *ssl, void *buf, int num) {
+  return ssl_read_impl(ssl, buf, num, 0 /* consume bytes */);
 }
 
 int SSL_peek(SSL *ssl, void *buf, int num) {
-  if (ssl->handshake_func == 0) {
-    OPENSSL_PUT_ERROR(SSL, SSL_R_UNINITIALIZED);
-    return -1;
-  }
-
-  if (ssl->shutdown & SSL_RECEIVED_SHUTDOWN) {
-    return 0;
-  }
-
-  ERR_clear_system_error();
-  return ssl->method->ssl_read_app_data(ssl, buf, num, 1);
+  return ssl_read_impl(ssl, buf, num, 1 /* peek */);
 }
 
 int SSL_write(SSL *ssl, const void *buf, int num) {
-  if (ssl->handshake_func == 0) {
+  /* Functions which use SSL_get_error must clear the error queue on entry. */
+  ERR_clear_error();
+  ERR_clear_system_error();
+
+  if (ssl->handshake_func == NULL) {
     OPENSSL_PUT_ERROR(SSL, SSL_R_UNINITIALIZED);
     return -1;
   }
@@ -631,23 +641,39 @@ int SSL_write(SSL *ssl, const void *buf, int num) {
     return -1;
   }
 
-  ERR_clear_system_error();
+  /* If necessary, complete the handshake implicitly. */
+  if (SSL_in_init(ssl) && !SSL_in_false_start(ssl)) {
+    int ret = SSL_do_handshake(ssl);
+    if (ret < 0) {
+      return ret;
+    }
+    if (ret == 0) {
+      OPENSSL_PUT_ERROR(SSL, SSL_R_SSL_HANDSHAKE_FAILURE);
+      return -1;
+    }
+  }
+
   return ssl->method->ssl_write_app_data(ssl, buf, num);
 }
 
 int SSL_shutdown(SSL *ssl) {
+  /* Functions which use SSL_get_error must clear the error queue on entry. */
+  ERR_clear_error();
+
   /* Note that this function behaves differently from what one might expect.
    * Return values are 0 for no success (yet), 1 for success; but calling it
    * once is usually not enough, even if blocking I/O is used (see
    * ssl3_shutdown). */
 
-  if (ssl->handshake_func == 0) {
+  if (ssl->handshake_func == NULL) {
     OPENSSL_PUT_ERROR(SSL, SSL_R_UNINITIALIZED);
     return -1;
   }
 
+  /* We can't shutdown properly if we are in the middle of a handshake. */
   if (SSL_in_init(ssl)) {
-    return 1;
+    OPENSSL_PUT_ERROR(SSL, SSL_R_SHUTDOWN_WHILE_IN_INIT);
+    return -1;
   }
 
   /* Do nothing if configured not to send a close_notify. */
@@ -710,8 +736,7 @@ int SSL_get_error(const SSL *ssl, int ret_code) {
   }
 
   if (ret_code == 0) {
-    if ((ssl->shutdown & SSL_RECEIVED_SHUTDOWN) &&
-        (ssl->s3->warn_alert == SSL_AD_CLOSE_NOTIFY)) {
+    if ((ssl->shutdown & SSL_RECEIVED_SHUTDOWN) && ssl->s3->clean_shutdown) {
       /* The socket was cleanly shut down with a close_notify. */
       return SSL_ERROR_ZERO_RETURN;
     }
@@ -997,7 +1022,7 @@ int SSL_get_wfd(const SSL *ssl) {
 }
 
 int SSL_set_fd(SSL *ssl, int fd) {
-  BIO *bio = BIO_new(BIO_s_fd());
+  BIO *bio = BIO_new(BIO_s_socket());
   if (bio == NULL) {
     OPENSSL_PUT_ERROR(SSL, ERR_R_BUF_LIB);
     return 0;
@@ -1009,9 +1034,9 @@ int SSL_set_fd(SSL *ssl, int fd) {
 
 int SSL_set_wfd(SSL *ssl, int fd) {
   if (ssl->rbio == NULL ||
-      BIO_method_type(ssl->rbio) != BIO_TYPE_FD ||
+      BIO_method_type(ssl->rbio) != BIO_TYPE_SOCKET ||
       BIO_get_fd(ssl->rbio, NULL) != fd) {
-    BIO *bio = BIO_new(BIO_s_fd());
+    BIO *bio = BIO_new(BIO_s_socket());
     if (bio == NULL) {
       OPENSSL_PUT_ERROR(SSL, ERR_R_BUF_LIB);
       return 0;
@@ -1026,9 +1051,9 @@ int SSL_set_wfd(SSL *ssl, int fd) {
 }
 
 int SSL_set_rfd(SSL *ssl, int fd) {
-  if (ssl->wbio == NULL || BIO_method_type(ssl->wbio) != BIO_TYPE_FD ||
+  if (ssl->wbio == NULL || BIO_method_type(ssl->wbio) != BIO_TYPE_SOCKET ||
       BIO_get_fd(ssl->wbio, NULL) != fd) {
-    BIO *bio = BIO_new(BIO_s_fd());
+    BIO *bio = BIO_new(BIO_s_socket());
     if (bio == NULL) {
       OPENSSL_PUT_ERROR(SSL, ERR_R_BUF_LIB);
       return 0;
@@ -1258,17 +1283,15 @@ STACK_OF(SSL_CIPHER) *SSL_get_ciphers(const SSL *ssl) {
     return ssl->cipher_list->ciphers;
   }
 
-  if (ssl->version >= TLS1_1_VERSION && ssl->ctx != NULL &&
-      ssl->ctx->cipher_list_tls11 != NULL) {
+  if (ssl->version >= TLS1_1_VERSION && ssl->ctx->cipher_list_tls11 != NULL) {
     return ssl->ctx->cipher_list_tls11->ciphers;
   }
 
-  if (ssl->version >= TLS1_VERSION && ssl->ctx != NULL &&
-      ssl->ctx->cipher_list_tls10 != NULL) {
+  if (ssl->version >= TLS1_VERSION && ssl->ctx->cipher_list_tls10 != NULL) {
     return ssl->ctx->cipher_list_tls10->ciphers;
   }
 
-  if (ssl->ctx != NULL && ssl->ctx->cipher_list != NULL) {
+  if (ssl->ctx->cipher_list != NULL) {
     return ssl->ctx->cipher_list->ciphers;
   }
 
@@ -1286,7 +1309,7 @@ STACK_OF(SSL_CIPHER) *ssl_get_ciphers_by_id(SSL *ssl) {
     return ssl->cipher_list_by_id;
   }
 
-  if (ssl->ctx != NULL && ssl->ctx->cipher_list_by_id != NULL) {
+  if (ssl->ctx->cipher_list_by_id != NULL) {
     return ssl->ctx->cipher_list_by_id;
   }
 
@@ -1857,6 +1880,8 @@ const COMP_METHOD *SSL_get_current_compression(SSL *ssl) { return NULL; }
 
 const COMP_METHOD *SSL_get_current_expansion(SSL *ssl) { return NULL; }
 
+int *SSL_get_server_tmp_key(SSL *ssl, EVP_PKEY **out_key) { return 0; }
+
 int ssl_init_wbio_buffer(SSL *ssl, int push) {
   BIO *bbio;
 
@@ -1979,6 +2004,14 @@ void (*SSL_get_info_callback(const SSL *ssl))(const SSL *ssl, int type,
 int SSL_state(const SSL *ssl) { return ssl->state; }
 
 void SSL_set_state(SSL *ssl, int state) { }
+
+char *SSL_get_shared_ciphers(const SSL *ssl, char *buf, int len) {
+  if (len <= 0) {
+    return NULL;
+  }
+  buf[0] = '\0';
+  return buf;
+}
 
 void SSL_set_verify_result(SSL *ssl, long result) {
   ssl->verify_result = result;

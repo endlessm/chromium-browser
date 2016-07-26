@@ -17,6 +17,7 @@ import android.util.Log;
 
 import org.appspot.apprtc.AppRTCClient.SignalingParameters;
 import org.appspot.apprtc.util.LooperExecutor;
+import org.webrtc.AudioTrack;
 import org.webrtc.CameraEnumerationAndroid;
 import org.webrtc.DataChannel;
 import org.webrtc.EglBase;
@@ -124,6 +125,9 @@ public class PeerConnectionClient {
   private boolean renderVideo;
   private VideoTrack localVideoTrack;
   private VideoTrack remoteVideoTrack;
+  // enableAudio is set to true if audio should be sent.
+  private boolean enableAudio;
+  private AudioTrack localAudioTrack;
 
   /**
    * Peer connection parameters.
@@ -182,6 +186,11 @@ public class PeerConnectionClient {
      * Callback fired once local Ice candidate is generated.
      */
     public void onIceCandidate(final IceCandidate candidate);
+
+    /**
+     * Callback fired once local ICE candidates are removed.
+     */
+    public void onIceCandidatesRemoved(final IceCandidate[] candidates);
 
     /**
      * Callback fired once connection is established (IceConnectionState is
@@ -247,6 +256,8 @@ public class PeerConnectionClient {
     renderVideo = true;
     localVideoTrack = null;
     remoteVideoTrack = null;
+    enableAudio = true;
+    localAudioTrack = null;
     statsTimer = new Timer();
 
     executor.execute(new Runnable() {
@@ -454,6 +465,7 @@ public class PeerConnectionClient {
     rtcConfig.tcpCandidatePolicy = PeerConnection.TcpCandidatePolicy.DISABLED;
     rtcConfig.bundlePolicy = PeerConnection.BundlePolicy.MAXBUNDLE;
     rtcConfig.rtcpMuxPolicy = PeerConnection.RtcpMuxPolicy.REQUIRE;
+    rtcConfig.continualGatheringPolicy = PeerConnection.ContinualGatheringPolicy.GATHER_CONTINUALLY;
     // Use ECDSA encryption.
     rtcConfig.keyType = PeerConnection.KeyType.ECDSA;
 
@@ -486,9 +498,7 @@ public class PeerConnectionClient {
       mediaStream.addTrack(createVideoTrack(videoCapturer));
     }
 
-    mediaStream.addTrack(factory.createAudioTrack(
-        AUDIO_TRACK_ID,
-        factory.createAudioSource(audioConstraints)));
+    mediaStream.addTrack(createAudioTrack());
     peerConnection.addStream(mediaStream);
 
     if (peerConnectionParameters.aecDump) {
@@ -599,6 +609,18 @@ public class PeerConnectionClient {
     }
   }
 
+  public void setAudioEnabled(final boolean enable) {
+    executor.execute(new Runnable() {
+      @Override
+      public void run() {
+        enableAudio = enable;
+        if (localAudioTrack != null) {
+          localAudioTrack.setEnabled(enableAudio);
+        }
+      }
+    });
+  }
+
   public void setVideoEnabled(final boolean enable) {
     executor.execute(new Runnable() {
       @Override
@@ -651,6 +673,21 @@ public class PeerConnectionClient {
             peerConnection.addIceCandidate(candidate);
           }
         }
+      }
+    });
+  }
+
+  public void removeRemoteIceCandidates(final IceCandidate[] candidates) {
+    executor.execute(new Runnable() {
+      @Override
+      public void run() {
+        if (peerConnection == null || isError) {
+          return;
+        }
+        // Drain the queued remote candidates if there is any so that
+        // they are processed in the proper order.
+        drainCandidates();
+        peerConnection.removeIceCandidates(candidates);
       }
     });
   }
@@ -726,6 +763,14 @@ public class PeerConnectionClient {
         }
       }
     });
+  }
+
+  private AudioTrack createAudioTrack() {
+    localAudioTrack = factory.createAudioTrack(
+        AUDIO_TRACK_ID,
+        factory.createAudioSource(audioConstraints));
+    localAudioTrack.setEnabled(enableAudio);
+    return localAudioTrack;
   }
 
   private VideoTrack createVideoTrack(VideoCapturerAndroid capturer) {
@@ -908,6 +953,7 @@ public class PeerConnectionClient {
           + isError);
       return;
     }
+    Log.d(TAG, "changeCaptureFormat: " + width + "x" + height + "@" + framerate);
     videoCapturer.onOutputFormatRequest(width, height, framerate);
   }
 
@@ -919,6 +965,16 @@ public class PeerConnectionClient {
         @Override
         public void run() {
           events.onIceCandidate(candidate);
+        }
+      });
+    }
+
+    @Override
+    public void onIceCandidatesRemoved(final IceCandidate[] candidates) {
+      executor.execute(new Runnable() {
+        @Override
+        public void run() {
+          events.onIceCandidatesRemoved(candidates);
         }
       });
     }

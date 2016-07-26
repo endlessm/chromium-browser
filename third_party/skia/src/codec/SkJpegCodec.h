@@ -9,6 +9,7 @@
 #define SkJpegCodec_DEFINED
 
 #include "SkCodec.h"
+#include "SkColorSpace.h"
 #include "SkImageInfo.h"
 #include "SkSwizzler.h"
 #include "SkStream.h"
@@ -45,9 +46,9 @@ protected:
     Result onGetPixels(const SkImageInfo& dstInfo, void* dst, size_t dstRowBytes, const Options&,
             SkPMColor*, int*, int*) override;
 
-    bool onQueryYUV8(YUVSizeInfo* sizeInfo, SkYUVColorSpace* colorSpace) const override;
+    bool onQueryYUV8(SkYUVSizeInfo* sizeInfo, SkYUVColorSpace* colorSpace) const override;
 
-    Result onGetYUV8Planes(const YUVSizeInfo& sizeInfo, void* pixels[3]) override;
+    Result onGetYUV8Planes(const SkYUVSizeInfo& sizeInfo, void* planes[3]) override;
 
     SkEncodedFormat onGetEncodedFormat() const override {
         return kJPEG_SkEncodedFormat;
@@ -90,7 +91,8 @@ private:
      * @param decoderMgr holds decompress struct, src manager, and error manager
      *                   takes ownership
      */
-    SkJpegCodec(const SkImageInfo& srcInfo, SkStream* stream, JpegDecoderMgr* decoderMgr);
+    SkJpegCodec(const SkImageInfo& srcInfo, SkStream* stream, JpegDecoderMgr* decoderMgr,
+            sk_sp<SkColorSpace> colorSpace, Origin origin);
 
     /*
      * Checks if the conversion between the input image and the requested output

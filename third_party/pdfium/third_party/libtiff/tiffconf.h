@@ -7,7 +7,7 @@
 #ifndef _TIFFCONF_
 #define _TIFFCONF_
 
-#include "core/include/fxcrt/fx_system.h"
+#include "core/fxcrt/include/fx_system.h"
 
 //NOTE: The tiff codec requires an ANSI C compiler environment for building and 
 //		presumes an ANSI C environment for use.
@@ -39,7 +39,11 @@
 //fx_system.h already include the string.h in ANSIC
 
 /* Define to 1 if you have the <search.h> header file. */
-/*#define HAVE_SEARCH_H 1 */
+#if _FXM_PLATFORM_ == _FXM_PLATFORM_WINDOWS_ && _MSC_VER >= 1900
+// search.h is always available in VS 2015 and above, and may be
+// available in earlier versions.
+#define HAVE_SEARCH_H 1
+#endif
 
 /* The size of a `int', as computed by sizeof. */
 /* According typedef int	int32_t; in the fx_system.h*/

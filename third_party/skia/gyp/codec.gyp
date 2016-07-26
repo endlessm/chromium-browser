@@ -24,7 +24,7 @@
       ],
       'cflags':[   
         # FIXME: This gets around a warning: "Argument might be clobbered by longjmp". 
-        '-Wno-clobbered -Wno-error',   
+        '-Wno-clobbered -Wno-error',
       ],
       'include_dirs': [
         '../include/codec',
@@ -44,7 +44,7 @@
         '../src/codec/SkIcoCodec.cpp',
         '../src/codec/SkJpegCodec.cpp',
         '../src/codec/SkJpegDecoderMgr.cpp',
-        '../src/codec/SkJpegUtility_codec.cpp',
+        '../src/codec/SkJpegUtility.cpp',
         '../src/codec/SkMaskSwizzler.cpp',
         '../src/codec/SkMasks.cpp',
         '../src/codec/SkPngCodec.cpp',

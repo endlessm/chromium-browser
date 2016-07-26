@@ -10,7 +10,6 @@
   'target_defaults': {
     'defines' : [
       'PNG_PREFIX',
-      'PNGPREFIX_H',
       'PNG_USE_READ_MACROS',
     ],
     'include_dirs': [
@@ -57,6 +56,21 @@
           ],
           'sources': [
             'pdf_xml_fuzzer.cc',
+            'unittest_main.cc',
+          ],
+        },
+      ],
+    }],
+    ['OS=="linux"', {
+      'targets': [
+        {
+          'target_name': 'pdf_jpx_fuzzer',
+          'type': 'executable',
+          'dependencies': [
+            '../../pdfium.gyp:pdfium',
+          ],
+          'sources': [
+            'pdf_jpx_fuzzer.cc',
             'unittest_main.cc',
           ],
         },

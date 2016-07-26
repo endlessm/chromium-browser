@@ -47,7 +47,6 @@ RTCPReceiver::RTCPReceiver(
     : TMMBRHelp(),
       _clock(clock),
       receiver_only_(receiver_only),
-      _method(RtcpMode::kOff),
       _lastReceived(0),
       _rtpRtcp(*owner),
       _criticalSectionFeedbacks(
@@ -67,7 +66,6 @@ RTCPReceiver::RTCPReceiver(
       xr_rrtr_status_(false),
       xr_rr_rtt_ms_(0),
       _receivedInfoMap(),
-      _packetTimeOutMS(0),
       _lastReceivedRrMs(0),
       _lastIncreasedSequenceNumberMs(0),
       stats_callback_(NULL),
@@ -102,16 +100,6 @@ RTCPReceiver::~RTCPReceiver() {
     delete first->second;
     _receivedCnameMap.erase(first);
   }
-}
-
-RtcpMode RTCPReceiver::Status() const {
-  CriticalSectionScoped lock(_criticalSectionRTCPReceiver);
-  return _method;
-}
-
-void RTCPReceiver::SetRTCPStatus(RtcpMode method) {
-  CriticalSectionScoped lock(_criticalSectionRTCPReceiver);
-  _method = method;
 }
 
 int64_t RTCPReceiver::LastReceived() {
@@ -1113,8 +1101,7 @@ RTCPReceiver::HandleRPSI(RTCPUtility::RTCPParserV2& rtcpParser,
 {
     const RTCPUtility::RTCPPacket& rtcpPacket = rtcpParser.Packet();
     RTCPUtility::RTCPPacketTypes pktType = rtcpParser.Iterate();
-    if (pktType == RTCPPacketTypes::kPsfbRpsi) {
-        rtcpPacketInformation.rtcpPacketTypeFlags |= kRtcpRpsi; // received signal that we have a confirmed reference picture
+    if (pktType == RTCPPacketTypes::kPsfbRpsiItem) {
         if(rtcpPacket.RPSI.NumberOfValidBits%8 != 0)
         {
             // to us unknown
@@ -1122,6 +1109,8 @@ RTCPReceiver::HandleRPSI(RTCPUtility::RTCPParserV2& rtcpParser,
             rtcpParser.Iterate();
             return;
         }
+        // Received signal that we have a confirmed reference picture.
+        rtcpPacketInformation.rtcpPacketTypeFlags |= kRtcpRpsi;
         rtcpPacketInformation.rpsiPictureId = 0;
 
         // convert NativeBitString to rpsiPictureId

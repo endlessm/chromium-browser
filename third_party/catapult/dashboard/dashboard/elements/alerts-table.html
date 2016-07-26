@@ -1,3 +1,10 @@
+<!DOCTYPE html>
+<!--
+Copyright 2016 The Chromium Authors. All rights reserved.
+Use of this source code is governed by a BSD-style license that can be
+found in the LICENSE file.
+-->
+
 <link rel="import" href="/components/paper-button/paper-button.html">
 
 <link rel="import" href="/dashboard/elements/bisect-status.html">
@@ -7,7 +14,8 @@
 <link rel="import" href="/dashboard/static/uri.html">
 
 <polymer-element name="alerts-table"
-                 attributes="sortBy sortDirection xsrfToken">
+                 attributes="sortBy sortDirection
+                             xsrfToken alertList extraColumns">
   <template>
     <style>
       #alerts {
@@ -273,7 +281,7 @@
           <input type="checkbox" id="header-checkbox" on-change="{{onHeaderCheckboxChange}}">
         </th>
         <th id="graphheader"></th>
-        <th id="bug_id" on-click="{{columnHeaderClicked}}">Bug ID</valth>
+        <th id="bug_id" on-click="{{columnHeaderClicked}}">Bug ID</th>
         <th id="end_revision" on-click="{{columnHeaderClicked}}">Revisions</th>
         <th id="master" on-click="{{columnHeaderClicked}}">Master</th>
         <th id="bot" on-click="{{columnHeaderClicked}}">Bot</th>
@@ -388,21 +396,29 @@
        */
       ready: function() {
         this.checkedAlerts = [];
-        if (this.alertList) {
-          this.initialize();
+      },
+
+      isRecursiveChange: function() {
+        if (this.isRecursingIntoChange) {
+          return true;
         }
+        this.isRecursingIntoChange = true;
+        setTimeout(function() {
+          this.isRecursingIntoChange = false;
+        }.bind(this), 10);
+        return false;
       },
 
       /**
        * Initializes the table.
        * This should be called after this.alertList has been set.
        */
-      initialize: function() {
-        this.alertList.forEach(function(alert) {
-          // The XSRF token is set for each row of the table here so that the
-          // alert-remove-box in each row can also have the XSRF token.
-          alert.xsrfToken = this.xsrfToken;
-        }, this);
+      alertListChanged: function() {
+        // Some calls to alertListChanged can change the alert list.
+        // If that happens, don't do anything.
+        if (this.isRecursiveChange()) {
+          return;
+        }
         this.initRowsBasedOnQueryParameters();
         this.showAlertsGrouped();
         this.updateBugColumn();
@@ -583,6 +599,13 @@
        * triaged alerts listed in the table.
        */
       updateBugColumn: function() {
+        // We need the xsrf token to be set in the individual bug-info-span
+        // element, and this can be done by setting it in the alert objects,
+        // and binding xsrfToken in the template above.
+        var alertsTable = this;
+        this.alertList.forEach(function(alertRow) {
+          alertRow.xsrfToken = alertsTable.xsrfToken;
+        });
         // Make a list of all bug IDs that indicate an alert is triaged.
         // This includes the pseudo-bug-ids indicating invalid or ignored.
         // Note: The 'hideRow' parameter is set in static/alerts.js, and it

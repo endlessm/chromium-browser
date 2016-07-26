@@ -14,7 +14,6 @@
 #include <vector>
 
 #include "webrtc/media/base/testutils.h"
-#include "webrtc/media/engine/fakewebrtcdeviceinfo.h"
 #include "webrtc/media/engine/webrtcvideocapturer.h"
 
 class FakeWebRtcVcmFactory;
@@ -29,6 +28,7 @@ class FakeWebRtcVideoCaptureModule : public webrtc::VideoCaptureModule {
         running_(false),
         delay_(0) {
   }
+  ~FakeWebRtcVideoCaptureModule();
   int64_t TimeUntilNextProcess() override { return 0; }
   void Process() override {}
   void RegisterCaptureDataCallback(
@@ -84,23 +84,15 @@ class FakeWebRtcVideoCaptureModule : public webrtc::VideoCaptureModule {
       const webrtc::VideoCodec& codec) override {
     return NULL;  // not implemented
   }
-  int32_t AddRef() const override { return 0; }
-  int32_t Release() const override {
-    delete this;
-    return 0;
-  }
 
-  bool SendFrame(int w, int h) {
-    if (!running_) return false;
+  void SendFrame(int w, int h) {
+    if (!running_) return;
     webrtc::VideoFrame sample;
     // Setting stride based on width.
-    if (sample.CreateEmptyFrame(w, h, w, (w + 1) / 2, (w + 1) / 2) < 0) {
-      return false;
-    }
+    sample.CreateEmptyFrame(w, h, w, (w + 1) / 2, (w + 1) / 2);
     if (callback_) {
       callback_->OnIncomingCapturedFrame(id_, sample);
     }
-    return true;
   }
 
   const webrtc::VideoCaptureCapability& cap() const {
@@ -108,9 +100,6 @@ class FakeWebRtcVideoCaptureModule : public webrtc::VideoCaptureModule {
   }
 
  private:
-  // Ref-counted, use Release() instead.
-  ~FakeWebRtcVideoCaptureModule();
-
   FakeWebRtcVcmFactory* factory_;
   int id_;
   webrtc::VideoCaptureDataCallback* callback_;

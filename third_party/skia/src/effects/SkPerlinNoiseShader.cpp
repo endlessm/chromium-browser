@@ -249,18 +249,21 @@ public:
 #endif
 };
 
-SkShader* SkPerlinNoiseShader::CreateFractalNoise(SkScalar baseFrequencyX, SkScalar baseFrequencyY,
-                                                  int numOctaves, SkScalar seed,
-                                                  const SkISize* tileSize) {
-    return new SkPerlinNoiseShader(kFractalNoise_Type, baseFrequencyX, baseFrequencyY, numOctaves,
-                                   seed, tileSize);
+sk_sp<SkShader> SkPerlinNoiseShader::MakeFractalNoise(SkScalar baseFrequencyX,
+                                                      SkScalar baseFrequencyY,
+                                                      int numOctaves, SkScalar seed,
+                                                      const SkISize* tileSize) {
+    return sk_sp<SkShader>(new SkPerlinNoiseShader(kFractalNoise_Type, baseFrequencyX,
+                                                   baseFrequencyY, numOctaves,
+                                                   seed, tileSize));
 }
 
-SkShader* SkPerlinNoiseShader::CreateTurbulence(SkScalar baseFrequencyX, SkScalar baseFrequencyY,
-                                              int numOctaves, SkScalar seed,
-                                              const SkISize* tileSize) {
-    return new SkPerlinNoiseShader(kTurbulence_Type, baseFrequencyX, baseFrequencyY, numOctaves,
-                                   seed, tileSize);
+sk_sp<SkShader> SkPerlinNoiseShader::MakeTurbulence(SkScalar baseFrequencyX,
+                                                    SkScalar baseFrequencyY,
+                                                    int numOctaves, SkScalar seed,
+                                                    const SkISize* tileSize) {
+    return sk_sp<SkShader>(new SkPerlinNoiseShader(kTurbulence_Type, baseFrequencyX, baseFrequencyY,
+                                                   numOctaves, seed, tileSize));
 }
 
 SkPerlinNoiseShader::SkPerlinNoiseShader(SkPerlinNoiseShader::Type type,
@@ -283,7 +286,7 @@ SkPerlinNoiseShader::SkPerlinNoiseShader(SkPerlinNoiseShader::Type type,
 SkPerlinNoiseShader::~SkPerlinNoiseShader() {
 }
 
-SkFlattenable* SkPerlinNoiseShader::CreateProc(SkReadBuffer& buffer) {
+sk_sp<SkFlattenable> SkPerlinNoiseShader::CreateProc(SkReadBuffer& buffer) {
     Type type = (Type)buffer.readInt();
     SkScalar freqX = buffer.readScalar();
     SkScalar freqY = buffer.readScalar();
@@ -295,9 +298,11 @@ SkFlattenable* SkPerlinNoiseShader::CreateProc(SkReadBuffer& buffer) {
 
     switch (type) {
         case kFractalNoise_Type:
-            return SkPerlinNoiseShader::CreateFractalNoise(freqX, freqY, octaves, seed, &tileSize);
+            return SkPerlinNoiseShader::MakeFractalNoise(freqX, freqY, octaves, seed,
+                                                         &tileSize);
         case kTurbulence_Type:
-            return SkPerlinNoiseShader::CreateTubulence(freqX, freqY, octaves, seed, &tileSize);
+            return SkPerlinNoiseShader::MakeTurbulence(freqX, freqY, octaves, seed,
+                                                       &tileSize);
         default:
             return nullptr;
     }
@@ -434,7 +439,7 @@ SkShader::Context* SkPerlinNoiseShader::onCreateContext(const ContextRec& rec,
     return new (storage) PerlinNoiseShaderContext(*this, rec);
 }
 
-size_t SkPerlinNoiseShader::contextSize(const ContextRec&) const {
+size_t SkPerlinNoiseShader::onContextSize(const ContextRec&) const {
     return sizeof(PerlinNoiseShaderContext);
 }
 
@@ -580,11 +585,11 @@ const GrFragmentProcessor* GrPerlinNoiseEffect::TestCreate(GrProcessorTestData* 
     SkScalar baseFrequencyY = d->fRandom->nextRangeScalar(0.01f,
                                                           0.99f);
 
-    SkAutoTUnref<SkShader> shader(d->fRandom->nextBool() ?
-        SkPerlinNoiseShader::CreateFractalNoise(baseFrequencyX, baseFrequencyY, numOctaves, seed,
-                                                stitchTiles ? &tileSize : nullptr) :
-        SkPerlinNoiseShader::CreateTurbulence(baseFrequencyX, baseFrequencyY, numOctaves, seed,
-                                             stitchTiles ? &tileSize : nullptr));
+    sk_sp<SkShader> shader(d->fRandom->nextBool() ?
+        SkPerlinNoiseShader::MakeFractalNoise(baseFrequencyX, baseFrequencyY, numOctaves, seed,
+                                              stitchTiles ? &tileSize : nullptr) :
+        SkPerlinNoiseShader::MakeTurbulence(baseFrequencyX, baseFrequencyY, numOctaves, seed,
+                                            stitchTiles ? &tileSize : nullptr));
 
     return shader->asFragmentProcessor(d->fContext,
                                        GrTest::TestMatrix(d->fRandom), nullptr,

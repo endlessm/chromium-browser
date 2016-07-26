@@ -16,11 +16,13 @@
 #include "webrtc/modules/rtp_rtcp/include/rtp_receiver.h"
 #include "webrtc/modules/rtp_rtcp/include/rtp_rtcp.h"
 #include "webrtc/modules/video_coding/include/video_coding.h"
+#include "webrtc/system_wrappers/include/clock.h"
 #include "webrtc/video/stream_synchronization.h"
+#include "webrtc/video_frame.h"
 #include "webrtc/voice_engine/include/voe_video_sync.h"
 
 namespace webrtc {
-
+namespace {
 int UpdateMeasurements(StreamSynchronization::Measurements* stream,
                        const RtpRtcp& rtp_rtcp, const RtpReceiver& receiver) {
   if (!receiver.Timestamp(&stream->latest_timestamp))
@@ -31,11 +33,8 @@ int UpdateMeasurements(StreamSynchronization::Measurements* stream,
   uint32_t ntp_secs = 0;
   uint32_t ntp_frac = 0;
   uint32_t rtp_timestamp = 0;
-  if (0 != rtp_rtcp.RemoteNTP(&ntp_secs,
-                              &ntp_frac,
-                              NULL,
-                              NULL,
-                              &rtp_timestamp)) {
+  if (rtp_rtcp.RemoteNTP(&ntp_secs, &ntp_frac, nullptr, nullptr,
+                         &rtp_timestamp) != 0) {
     return -1;
   }
 
@@ -47,16 +46,17 @@ int UpdateMeasurements(StreamSynchronization::Measurements* stream,
 
   return 0;
 }
+}  // namespace
 
 ViESyncModule::ViESyncModule(VideoCodingModule* vcm)
     : vcm_(vcm),
-      video_receiver_(NULL),
-      video_rtp_rtcp_(NULL),
+      clock_(Clock::GetRealTimeClock()),
+      video_receiver_(nullptr),
+      video_rtp_rtcp_(nullptr),
       voe_channel_id_(-1),
-      voe_sync_interface_(NULL),
+      voe_sync_interface_(nullptr),
       last_sync_time_(TickTime::Now()),
-      sync_() {
-}
+      sync_() {}
 
 ViESyncModule::~ViESyncModule() {
 }
@@ -110,10 +110,10 @@ void ViESyncModule::Process() {
   const int current_audio_delay_ms = audio_jitter_buffer_delay_ms +
       playout_buffer_delay_ms;
 
-  RtpRtcp* voice_rtp_rtcp = NULL;
-  RtpReceiver* voice_receiver = NULL;
-  if (0 != voe_sync_interface_->GetRtpRtcp(voe_channel_id_, &voice_rtp_rtcp,
-                                           &voice_receiver)) {
+  RtpRtcp* voice_rtp_rtcp = nullptr;
+  RtpReceiver* voice_receiver = nullptr;
+  if (voe_sync_interface_->GetRtpRtcp(voe_channel_id_, &voice_rtp_rtcp,
+                                      &voice_receiver) != 0) {
     return;
   }
   assert(voice_rtp_rtcp);
@@ -155,6 +155,39 @@ void ViESyncModule::Process() {
     LOG(LS_ERROR) << "Error setting voice delay.";
   }
   vcm_->SetMinimumPlayoutDelay(target_video_delay_ms);
+}
+
+bool ViESyncModule::GetStreamSyncOffsetInMs(const VideoFrame& frame,
+                                            int64_t* stream_offset_ms) const {
+  rtc::CritScope lock(&data_cs_);
+  if (voe_channel_id_ == -1)
+    return false;
+
+  uint32_t playout_timestamp = 0;
+  if (voe_sync_interface_->GetPlayoutTimestamp(voe_channel_id_,
+                                               playout_timestamp) != 0) {
+    return false;
+  }
+
+  int64_t latest_audio_ntp;
+  if (!RtpToNtpMs(playout_timestamp, audio_measurement_.rtcp,
+                  &latest_audio_ntp)) {
+    return false;
+  }
+
+  int64_t latest_video_ntp;
+  if (!RtpToNtpMs(frame.timestamp(), video_measurement_.rtcp,
+                  &latest_video_ntp)) {
+    return false;
+  }
+
+  int64_t time_to_render_ms =
+      frame.render_time_ms() - clock_->TimeInMilliseconds();
+  if (time_to_render_ms > 0)
+    latest_video_ntp += time_to_render_ms;
+
+  *stream_offset_ms = latest_audio_ntp - latest_video_ntp;
+  return true;
 }
 
 }  // namespace webrtc

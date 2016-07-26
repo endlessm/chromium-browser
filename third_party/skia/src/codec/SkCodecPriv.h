@@ -117,13 +117,9 @@ inline bool valid_alpha(SkAlphaType dstAlpha, SkAlphaType srcAlpha) {
  */
 inline bool conversion_possible(const SkImageInfo& dst, const SkImageInfo& src) {
     // FIXME: skbug.com/4895
-    // Currently, we treat both kLinear and ksRGB encoded images as if they are kLinear.
-    // This makes sense while we do not have proper support for ksRGB.  This is also
-    // the reason why we always allow the client to request kLinear.
-    if (dst.profileType() != src.profileType() &&
-            kLinear_SkColorProfileType != dst.profileType()) {
-        return false;
-    }
+    // Currently, we ignore the SkColorProfileType on the SkImageInfo.  We
+    // will treat the encoded data as linear regardless of what the client
+    // requests.
 
     // Ensure the alpha type is valid
     if (!valid_alpha(dst.alphaType(), src.alphaType())) {
@@ -249,6 +245,30 @@ inline uint32_t get_int(uint8_t* buffer, uint32_t i) {
 #else
     return result;
 #endif
+}
+
+/*
+ * @param data           Buffer to read bytes from
+ * @param isLittleEndian Output parameter
+ *                       Indicates if the data is little endian
+ *                       Is unaffected on false returns
+ */
+inline bool is_valid_endian_marker(const uint8_t* data, bool* isLittleEndian) {
+    // II indicates Intel (little endian) and MM indicates motorola (big endian).
+    if (('I' != data[0] || 'I' != data[1]) && ('M' != data[0] || 'M' != data[1])) {
+        return false;
+    }
+
+    *isLittleEndian = ('I' == data[0]);
+    return true;
+}
+
+inline uint16_t get_endian_short(const uint8_t* data, bool littleEndian) {
+    if (littleEndian) {
+        return (data[1] << 8) | (data[0]);
+    }
+
+    return (data[0] << 8) | (data[1]);
 }
 
 #endif // SkCodecPriv_DEFINED

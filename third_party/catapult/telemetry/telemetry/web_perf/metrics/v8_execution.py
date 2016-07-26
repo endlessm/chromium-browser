@@ -3,7 +3,6 @@
 # found in the LICENSE file.
 from telemetry.util import statistics
 from telemetry.value import scalar
-from telemetry.value import list_of_scalar_values
 from telemetry.web_perf.metrics import timeline_based_metric
 
 
@@ -17,9 +16,12 @@ class V8ExecutionMetric(timeline_based_metric.TimelineBasedMetric):
     self._stats = [
       V8TotalTimeStats('v8_execution_time_total', ['V8.Execute']),
       V8SelfTimeStats('v8_execution_time_self', ['V8.Execute']),
-      V8SelfTimeStats('v8_parse_lazy_total', ['V8.ParseLazyMicroSeconds']),
+      V8SelfTimeStats('v8_parse_lazy_total',
+                      ['V8.ParseLazy', 'V8.ParseLazyMicroSeconds']),
       V8SelfTimeStats('v8_compile_fullcode_total',
                       ['V8.CompileFullCode']),
+      V8SelfTimeStats('v8_compile_ignition_total',
+                      ['V8.CompileIgnition']),
       V8TotalTimeStats('v8_recompile_total',
                        ['V8.RecompileSynchronous',
                          'V8.RecompileConcurrent']),
@@ -98,14 +100,6 @@ class V8TimeStats(object):
           "%s_count" % self.name, 'count', self.Count(),
           description=self.description,
           tir_label=label))
-    if self.Count() > 0:
-      results.AddValue(
-        list_of_scalar_values.ListOfScalarValues(
-            results.current_page,
-            "%s_distribution" % self.name, 'ms',
-            self.durations,
-            description=self.description,
-            tir_label=label))
     results.AddValue(
       scalar.ScalarValue(
           results.current_page,
@@ -131,7 +125,7 @@ class V8OptimizeParseLazyStats(V8TimeStats):
   def __init__(self, name):
     super(V8OptimizeParseLazyStats, self).__init__(
       name,
-      ['V8.ParseLazyMicroSeconds'],
+      ['V8.ParseLazy', 'V8.ParseLazyMicroSeconds'],
       'Time spent in lazy-parsing due to optimizing code')
 
   def CollectEvent(self, event):

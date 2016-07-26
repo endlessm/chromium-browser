@@ -1,4 +1,3 @@
-
 /*
  * Copyright 2006 The Android Open Source Project
  *
@@ -106,7 +105,7 @@ public:
         }
     }
 
-    CFRef detach() {
+    CFRef release() {
         CFRef self = fCFRef;
         fCFRef = nullptr;
         return self;
@@ -277,10 +276,19 @@ static CGFloat ScalarToCG(SkScalar scalar) {
 
 static SkScalar CGToScalar(CGFloat cgFloat) {
     if (sizeof(CGFloat) == sizeof(float)) {
-        return cgFloat;
+        return SkFloatToScalar(cgFloat);
     } else {
         SkASSERT(sizeof(CGFloat) == sizeof(double));
         return SkDoubleToScalar(cgFloat);
+    }
+}
+
+static float CGToFloat(CGFloat cgFloat) {
+    if (sizeof(CGFloat) == sizeof(float)) {
+        return cgFloat;
+    } else {
+        SkASSERT(sizeof(CGFloat) == sizeof(double));
+        return static_cast<float>(cgFloat);
     }
 }
 
@@ -551,7 +559,7 @@ static SkTypeface* NewFromName(const char familyName[], const SkFontStyle& theSt
 
     SkTypeface* face = SkTypefaceCache::FindByProcAndRef(find_by_CTFontRef, (void*)ctFont.get());
     if (!face) {
-        face = NewFromFontRef(ctFont.detach(), nullptr, nullptr, false);
+        face = NewFromFontRef(ctFont.release(), nullptr, nullptr, false);
         SkTypefaceCache::Add(face, face->fontStyle());
     }
     return face;
@@ -1043,8 +1051,8 @@ void SkScalerContext_Mac::generateMetrics(SkGlyph* glyph) {
                                    &cgGlyph, &cgAdvance, 1);
     }
     cgAdvance = CGSizeApplyAffineTransform(cgAdvance, fTransform);
-    glyph->fAdvanceX =  SkFloatToFixed_Check(cgAdvance.width);
-    glyph->fAdvanceY = -SkFloatToFixed_Check(cgAdvance.height);
+    glyph->fAdvanceX =  CGToFloat(cgAdvance.width);
+    glyph->fAdvanceY = -CGToFloat(cgAdvance.height);
 
     // The following produces skBounds in SkGlyph units (pixels, y down),
     // or returns early if skBounds would be empty.
@@ -1351,13 +1359,10 @@ void SkScalerContext_Mac::generatePath(const SkGlyph& glyph, SkPath* path) {
      *  direction, ask for the path, and then scale the path back down.
      */
     if (fDoSubPosition) {
-        SkMatrix m;
-        fRec.getSingleMatrix(&m);
-
         // start out by assuming that we want no hining in X and Y
         scaleX = scaleY = kScaleForSubPixelPositionHinting;
         // now see if we need to restore hinting for axis-aligned baselines
-        switch (SkComputeAxisAlignmentForHText(m)) {
+        switch (this->computeAxisAlignmentForHText()) {
             case kX_SkAxisAlignment:
                 scaleY = SK_Scalar1; // want hinting in the Y direction
                 break;
@@ -1862,9 +1867,9 @@ SkFontData* SkTypeface_Mac::onCreateFontData() const {
     CFIndex cgAxisCount;
     SkAutoSTMalloc<4, SkFixed> axisValues;
     if (get_variations(fFontRef, &cgAxisCount, &axisValues)) {
-        return new SkFontData(stream.detach(), index, axisValues.get(), cgAxisCount);
+        return new SkFontData(stream.release(), index, axisValues.get(), cgAxisCount);
     }
-    return new SkFontData(stream.detach(), index, nullptr, 0);
+    return new SkFontData(stream.release(), index, nullptr, 0);
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -2194,7 +2199,7 @@ static SkTypeface* createFromDesc(CFStringRef cfFamilyName, CTFontDescriptorRef 
     bool isFixedPitch;
     (void)computeStyleBits(ctFont, &isFixedPitch);
 
-    face = new SkTypeface_Mac(ctFont.detach(), nullptr, cacheRequest.fStyle, isFixedPitch,
+    face = new SkTypeface_Mac(ctFont.release(), nullptr, cacheRequest.fStyle, isFixedPitch,
                               skFamilyName.c_str(), false);
     SkTypefaceCache::Add(face, face->fontStyle());
     return face;
@@ -2492,14 +2497,14 @@ protected:
         if (cgVariations) {
             cgVariant.reset(CGFontCreateCopyWithVariations(cg, cgVariations));
         } else {
-            cgVariant.reset(cg.detach());
+            cgVariant.reset(cg.release());
         }
 
         CTFontRef ct = CTFontCreateWithGraphicsFont(cgVariant, 0, nullptr, nullptr);
         if (!ct) {
             return nullptr;
         }
-        return NewFromFontRef(ct, cg.detach(), nullptr, true);
+        return NewFromFontRef(ct, cg.release(), nullptr, true);
     }
 
     static CFDictionaryRef get_axes(CGFontRef cg, SkFontData* fontData) {
@@ -2575,14 +2580,14 @@ protected:
         if (cgVariations) {
             cgVariant.reset(CGFontCreateCopyWithVariations(cg, cgVariations));
         } else {
-            cgVariant.reset(cg.detach());
+            cgVariant.reset(cg.release());
         }
 
         CTFontRef ct = CTFontCreateWithGraphicsFont(cgVariant, 0, nullptr, nullptr);
         if (!ct) {
             return nullptr;
         }
-        return NewFromFontRef(ct, cg.detach(), nullptr, true);
+        return NewFromFontRef(ct, cg.release(), nullptr, true);
     }
 
     SkTypeface* onCreateFromFile(const char path[], int ttcIndex) const override {

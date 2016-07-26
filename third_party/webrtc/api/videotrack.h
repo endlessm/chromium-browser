@@ -12,35 +12,43 @@
 #define WEBRTC_API_VIDEOTRACK_H_
 
 #include <string>
+#include <vector>
 
 #include "webrtc/api/mediastreamtrack.h"
-#include "webrtc/api/videosourceinterface.h"
-#include "webrtc/api/videotrackrenderers.h"
 #include "webrtc/base/scoped_ref_ptr.h"
+#include "webrtc/base/thread_checker.h"
+#include "webrtc/media/base/videosourcebase.h"
 
 namespace webrtc {
 
-class VideoTrack : public MediaStreamTrack<VideoTrackInterface> {
+class VideoTrack : public MediaStreamTrack<VideoTrackInterface>,
+                   public rtc::VideoSourceBase,
+                   public ObserverInterface {
  public:
   static rtc::scoped_refptr<VideoTrack> Create(
-      const std::string& label, VideoSourceInterface* source);
+      const std::string& label,
+      VideoTrackSourceInterface* source);
 
-  virtual void AddRenderer(VideoRendererInterface* renderer);
-  virtual void RemoveRenderer(VideoRendererInterface* renderer);
-  virtual VideoSourceInterface* GetSource() const {
+  void AddOrUpdateSink(rtc::VideoSinkInterface<cricket::VideoFrame>* sink,
+                       const rtc::VideoSinkWants& wants) override;
+  void RemoveSink(rtc::VideoSinkInterface<cricket::VideoFrame>* sink) override;
+
+  virtual VideoTrackSourceInterface* GetSource() const {
     return video_source_.get();
   }
-  rtc::VideoSinkInterface<cricket::VideoFrame>* GetSink() override;
   virtual bool set_enabled(bool enable);
   virtual std::string kind() const;
 
  protected:
-  VideoTrack(const std::string& id, VideoSourceInterface* video_source);
+  VideoTrack(const std::string& id, VideoTrackSourceInterface* video_source);
   ~VideoTrack();
 
  private:
-  VideoTrackRenderers renderers_;
-  rtc::scoped_refptr<VideoSourceInterface> video_source_;
+  // Implements ObserverInterface. Observes |video_source_| state.
+  void OnChanged() override;
+
+  rtc::ThreadChecker thread_checker_;
+  rtc::scoped_refptr<VideoTrackSourceInterface> video_source_;
 };
 
 }  // namespace webrtc

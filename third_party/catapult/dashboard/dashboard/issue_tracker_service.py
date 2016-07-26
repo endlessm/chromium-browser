@@ -4,6 +4,7 @@
 
 """Provides a layer of abstraction for the issue tracker API."""
 
+import json
 import logging
 
 from apiclient import discovery
@@ -81,22 +82,42 @@ class IssueTrackerService(object):
     return self._MakeCommentRequest(bug_id, body)
 
   def List(self, **kwargs):
-    """Make a request to the issue tracker to list bugs."""
+    """Makes a request to the issue tracker to list bugs."""
     request = self._service.issues().list(projectId='chromium', **kwargs)
     return self._ExecuteRequest(request)
 
-  def _MakeCommentRequest(self, bug_id, body):
-    """Make a request to the issue tracker to update a bug."""
+  def _MakeCommentRequest(self, bug_id, body, retry=True):
+    """Makes a request to the issue tracker to update a bug.
+
+    Args:
+      bug_id: Bug ID of the issue.
+      body: Dict of comment parameters.
+      retry: True to retry on failure, False otherwise.
+
+    Returns:
+      True if successful posted a comment or issue was deleted.  False if
+      making a comment failed unexpectedly.
+    """
     request = self._service.issues().comments().insert(
         projectId='chromium',
         issueId=bug_id,
         sendEmail=True,
         body=body)
-    response = self._ExecuteRequest(request)
-    if not response:
-      logging.error('Error updating bug %s with body %s', bug_id, body)
-      return False
-    return True
+    try:
+      if self._ExecuteRequest(request, ignore_error=False):
+        return True
+    except errors.HttpError as e:
+      reason = _GetErrorReason(e)
+      # Retry without owner if we cannot set owner to this issue.
+      if retry and 'The user does not exist' in reason:
+        _RemoveOwnerAndCC(body)
+        return self._MakeCommentRequest(bug_id, body, retry=False)
+      # This error reason is received when issue is deleted.
+      elif 'User is not allowed to view this issue' in reason:
+        logging.warning('Unable to update bug %s with body %s', bug_id, body)
+        return True
+    logging.error('Error updating bug %s with body %s', bug_id, body)
+    return False
 
   def NewBug(self, title, description, labels=None, components=None,
              owner=None):
@@ -165,7 +186,7 @@ class IssueTrackerService(object):
     return None
 
   def _MakeGetCommentsRequest(self, bug_id):
-    """Make a request to the issue tracker to get comments in the bug."""
+    """Makes a request to the issue tracker to get comments in the bug."""
     # TODO (prasadv): By default the max number of comments retrieved in
     # one request is 100. Since bisect-fyi jobs may have more then 100
     # comments for now we set this maxResults count as 10000.
@@ -177,8 +198,8 @@ class IssueTrackerService(object):
         maxResults=10000)
     return self._ExecuteRequest(request)
 
-  def _ExecuteRequest(self, request):
-    """Make a request to the issue tracker.
+  def _ExecuteRequest(self, request, ignore_error=True):
+    """Makes a request to the issue tracker.
 
     Args:
       request: The request object, which has a execute method.
@@ -191,4 +212,23 @@ class IssueTrackerService(object):
       return response
     except errors.HttpError as e:
       logging.error(e)
-      return None
+      if ignore_error:
+        return None
+      raise e
+
+
+def _RemoveOwnerAndCC(request_body):
+  if 'updates' not in request_body:
+    return
+  if 'owner' in request_body['updates']:
+    del request_body['updates']['owner']
+  if 'cc' in request_body['updates']:
+    del request_body['updates']['cc']
+
+
+def _GetErrorReason(request_error):
+  if request_error.resp.get('content-type', '').startswith('application/json'):
+    error_json = json.loads(request_error.content).get('error')
+    if error_json:
+      return error_json.get('message')
+  return None

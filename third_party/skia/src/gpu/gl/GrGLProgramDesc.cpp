@@ -8,6 +8,7 @@
 
 #include "GrProcessor.h"
 #include "GrPipeline.h"
+#include "GrRenderTargetPriv.h"
 #include "SkChecksum.h"
 #include "gl/GrGLDefines.h"
 #include "gl/GrGLTexture.h"
@@ -120,6 +121,7 @@ bool GrGLProgramDescBuilder::Build(GrProgramDesc* desc,
         glDesc->key().reset();
         return false;
     }
+    GrProcessor::RequiredFeatures requiredFeatures = primProc.requiredFeatures();
 
     for (int i = 0; i < pipeline.numFragmentProcessors(); ++i) {
         const GrFragmentProcessor& fp = pipeline.getFragmentProcessor(i);
@@ -127,6 +129,7 @@ bool GrGLProgramDescBuilder::Build(GrProgramDesc* desc,
             glDesc->key().reset();
             return false;
         }
+        requiredFeatures |= fp.requiredFeatures();
     }
 
     const GrXferProcessor& xp = pipeline.getXferProcessor();
@@ -135,6 +138,7 @@ bool GrGLProgramDescBuilder::Build(GrProgramDesc* desc,
         glDesc->key().reset();
         return false;
     }
+    requiredFeatures |= xp.requiredFeatures();
 
     // --------DO NOT MOVE HEADER ABOVE THIS LINE--------------------------------------------------
     // Because header is a pointer into the dynamic array, we can't push any new data into the key
@@ -144,15 +148,24 @@ bool GrGLProgramDescBuilder::Build(GrProgramDesc* desc,
     // make sure any padding in the header is zeroed.
     memset(header, 0, kHeaderSize);
 
-    if (pipeline.readsFragPosition()) {
-        header->fFragPosKey =
-                GrGLSLFragmentShaderBuilder::KeyForFragmentPosition(pipeline.getRenderTarget());
+    GrRenderTarget* rt = pipeline.getRenderTarget();
+
+    if (requiredFeatures & (GrProcessor::kFragmentPosition_RequiredFeature |
+                            GrProcessor::kSampleLocations_RequiredFeature)) {
+        header->fSurfaceOriginKey = GrGLSLFragmentShaderBuilder::KeyForSurfaceOrigin(rt->origin());
     } else {
-        header->fFragPosKey = 0;
+        header->fSurfaceOriginKey = 0;
     }
 
-    header->fOutputSwizzle =
-        glslCaps.configOutputSwizzle(pipeline.getRenderTarget()->config()).asKey();
+    if (requiredFeatures & GrProcessor::kSampleLocations_RequiredFeature) {
+        SkASSERT(pipeline.isHWAntialiasState());
+        header->fSamplePatternKey =
+            rt->renderTargetPriv().getMultisampleSpecs(pipeline.getStencil()).fUniqueID;
+    } else {
+        header->fSamplePatternKey = 0;
+    }
+
+    header->fOutputSwizzle = glslCaps.configOutputSwizzle(rt->config()).asKey();
 
     if (pipeline.ignoresCoverage()) {
         header->fIgnoresCoverage = 1;

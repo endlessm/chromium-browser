@@ -148,7 +148,7 @@ class Renderer11 : public RendererD3D
                                GLenum mode,
                                GLenum type,
                                TranslatedIndexData *indexInfo) override;
-    void applyTransformFeedbackBuffers(const gl::State &state) override;
+    gl::Error applyTransformFeedbackBuffers(const gl::State &state) override;
 
     // lost device
     bool testDeviceLost() override;
@@ -239,6 +239,9 @@ class Renderer11 : public RendererD3D
     // Transform Feedback creation
     virtual TransformFeedbackImpl* createTransformFeedback();
 
+    // Stream Creation
+    StreamImpl *createStream(const egl::AttributeMap &attribs) override;
+
     // D3D11-renderer specific methods
     ID3D11Device *getDevice() { return mDevice; }
     void *getD3DDevice() override;
@@ -257,8 +260,6 @@ class Renderer11 : public RendererD3D
                                               GLenum destinationFormat, GLenum sourcePixelsType, const gl::Box &destArea);
 
     void markAllStateDirty();
-    void unapplyRenderTargets();
-    void setOneTimeRenderTarget(ID3D11RenderTargetView *renderTargetView);
     gl::Error packPixels(const TextureHelper11 &textureHelper,
                          const PackPixelsParams &params,
                          uint8_t *pixelsOut);
@@ -266,6 +267,9 @@ class Renderer11 : public RendererD3D
     bool getLUID(LUID *adapterLuid) const override;
     VertexConversionType getVertexConversionType(gl::VertexFormatType vertexFormatType) const override;
     GLenum getVertexComponentType(gl::VertexFormatType vertexFormatType) const override;
+    gl::ErrorOrResult<unsigned int> getVertexSpaceRequired(const gl::VertexAttribute &attrib,
+                                                           GLsizei count,
+                                                           GLsizei instances) const override;
 
     gl::Error readFromAttachment(const gl::FramebufferAttachment &srcAttachment,
                                  const gl::Rectangle &sourceArea,
@@ -302,6 +306,7 @@ class Renderer11 : public RendererD3D
   private:
     gl::Error drawArraysImpl(const gl::Data &data,
                              GLenum mode,
+                             GLint startVertex,
                              GLsizei count,
                              GLsizei instances) override;
     gl::Error drawElementsImpl(const gl::Data &data,
@@ -386,10 +391,6 @@ class Renderer11 : public RendererD3D
     d3d11::ANGLED3D11DeviceType getDeviceType() const;
 
     RenderStateCache mStateCache;
-
-    // current render target states
-    uintptr_t mAppliedRTVs[gl::IMPLEMENTATION_MAX_DRAW_BUFFERS];
-    uintptr_t mAppliedDSV;
 
     // Currently applied sampler states
     std::vector<bool> mForceSetVertexSamplerStates;

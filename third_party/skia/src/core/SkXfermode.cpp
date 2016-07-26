@@ -246,7 +246,7 @@ static inline void clipColor(float* r, float* g, float* b, float a) {
         *g = L + (*g - L) * scale;
         *b = L + (*b - L) * scale;
     }
-    
+
     if ((x > a) && (denom = x - L)) { // Compute denom and make sure it's non zero
         float scale = (a - L) / denom;
         *r = L + (*r - L) * scale;
@@ -268,7 +268,7 @@ static Sk4f hue_4f(const Sk4f& s, const Sk4f& d) {
     float sr = s[SkPM4f::R];
     float sg = s[SkPM4f::G];
     float sb = s[SkPM4f::B];
-    
+
     float da = d[SkPM4f::A];
     float dr = d[SkPM4f::R];
     float dg = d[SkPM4f::G];
@@ -289,18 +289,18 @@ static Sk4f saturation_4f(const Sk4f& s, const Sk4f& d) {
     float sr = s[SkPM4f::R];
     float sg = s[SkPM4f::G];
     float sb = s[SkPM4f::B];
-    
+
     float da = d[SkPM4f::A];
     float dr = d[SkPM4f::R];
     float dg = d[SkPM4f::G];
     float db = d[SkPM4f::B];
-    
+
     float Dr = dr;
     float Dg = dg;
     float Db = db;
     SetSat(&Dr, &Dg, &Db, Sat(sr, sg, sb) * da);
     SetLum(&Dr, &Dg, &Db, sa * da, Lum(dr, dg, db) * sa);
-    
+
     return color_alpha(s * inv_alpha(d) + d * inv_alpha(s) + set_argb(0, Dr, Dg, Db),
                        sa + da - sa * da);
 }
@@ -310,7 +310,7 @@ static Sk4f color_4f(const Sk4f& s, const Sk4f& d) {
     float sr = s[SkPM4f::R];
     float sg = s[SkPM4f::G];
     float sb = s[SkPM4f::B];
-    
+
     float da = d[SkPM4f::A];
     float dr = d[SkPM4f::R];
     float dg = d[SkPM4f::G];
@@ -320,7 +320,7 @@ static Sk4f color_4f(const Sk4f& s, const Sk4f& d) {
     float Sg = sg;
     float Sb = sb;
     SetLum(&Sr, &Sg, &Sb, sa * da, Lum(dr, dg, db) * sa);
-    
+
     Sk4f res = color_alpha(s * inv_alpha(d) + d * inv_alpha(s) + set_argb(0, Sr, Sg, Sb),
                            sa + da - sa * da);
     // Can return tiny negative values ...
@@ -332,17 +332,17 @@ static Sk4f luminosity_4f(const Sk4f& s, const Sk4f& d) {
     float sr = s[SkPM4f::R];
     float sg = s[SkPM4f::G];
     float sb = s[SkPM4f::B];
-    
+
     float da = d[SkPM4f::A];
     float dr = d[SkPM4f::R];
     float dg = d[SkPM4f::G];
     float db = d[SkPM4f::B];
-    
+
     float Dr = dr;
     float Dg = dg;
     float Db = db;
     SetLum(&Dr, &Dg, &Db, sa * da, Lum(sr, sg, sb) * da);
-    
+
     Sk4f res = color_alpha(s * inv_alpha(d) + d * inv_alpha(s) + set_argb(0, Dr, Dg, Db),
                            sa + da - sa * da);
     // Can return tiny negative values ...
@@ -1092,12 +1092,12 @@ bool SkXfermode::isOpaque(SkXfermode::SrcColorOpacity opacityType) const {
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
 
-SkFlattenable* SkProcCoeffXfermode::CreateProc(SkReadBuffer& buffer) {
+sk_sp<SkFlattenable> SkProcCoeffXfermode::CreateProc(SkReadBuffer& buffer) {
     uint32_t mode32 = buffer.read32();
     if (!buffer.validate(mode32 < SK_ARRAY_COUNT(gProcCoeffs))) {
         return nullptr;
     }
-    return SkXfermode::Create((SkXfermode::Mode)mode32);
+    return SkXfermode::Make((SkXfermode::Mode)mode32);
 }
 
 void SkProcCoeffXfermode::flatten(SkWriteBuffer& buffer) const {
@@ -1305,7 +1305,7 @@ void SkProcCoeffXfermode::toString(SkString* str) const {
 
 SK_DECLARE_STATIC_ONCE_PTR(SkXfermode, cached[SkXfermode::kLastMode + 1]);
 
-SkXfermode* SkXfermode::Create(Mode mode) {
+sk_sp<SkXfermode> SkXfermode::Make(Mode mode) {
     SkASSERT(SK_ARRAY_COUNT(gProcCoeffs) == kModeCount);
 
     if ((unsigned)mode >= kModeCount) {
@@ -1319,7 +1319,7 @@ SkXfermode* SkXfermode::Create(Mode mode) {
         return nullptr;
     }
 
-    return SkSafeRef(cached[mode].get([=]{
+    return sk_ref_sp(cached[mode].get([=]{
         ProcCoeff rec = gProcCoeffs[mode];
         if (auto xfermode = SkOpts::create_xfermode(rec, mode)) {
             return xfermode;

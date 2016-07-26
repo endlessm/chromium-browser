@@ -8,6 +8,7 @@
 #include "SkBmpCodec.h"
 #include "SkCodec.h"
 #include "SkCodecPriv.h"
+#include "SkColorSpace.h"
 #include "SkData.h"
 #include "SkGifCodec.h"
 #include "SkIcoCodec.h"
@@ -87,19 +88,19 @@ SkCodec* SkCodec::NewFromStream(SkStream* stream,
     // But this code follows the same pattern as the loop.
 #ifdef SK_CODEC_DECODES_PNG
     if (SkPngCodec::IsPng(buffer, bytesRead)) {
-        return SkPngCodec::NewFromStream(streamDeleter.detach(), chunkReader);
+        return SkPngCodec::NewFromStream(streamDeleter.release(), chunkReader);
     } else
 #endif
     {
         for (DecoderProc proc : gDecoderProcs) {
             if (proc.IsFormat(buffer, bytesRead)) {
-                return proc.NewFromStream(streamDeleter.detach());
+                return proc.NewFromStream(streamDeleter.release());
             }
         }
 
 #ifdef SK_CODEC_DECODES_RAW
         // Try to treat the input as RAW if all the other checks failed.
-        return SkRawCodec::NewFromStream(streamDeleter.detach());
+        return SkRawCodec::NewFromStream(streamDeleter.release());
 #endif
     }
 
@@ -113,10 +114,13 @@ SkCodec* SkCodec::NewFromData(SkData* data, SkPngChunkReader* reader) {
     return NewFromStream(new SkMemoryStream(data), reader);
 }
 
-SkCodec::SkCodec(const SkImageInfo& info, SkStream* stream)
+SkCodec::SkCodec(const SkImageInfo& info, SkStream* stream, sk_sp<SkColorSpace> colorSpace,
+        Origin origin)
     : fSrcInfo(info)
     , fStream(stream)
     , fNeedsRewind(false)
+    , fColorSpace(colorSpace)
+    , fOrigin(origin)
     , fDstInfo()
     , fOptions()
     , fCurrScanline(-1)

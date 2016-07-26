@@ -20,6 +20,7 @@ class _MockRenderingStats(object):
            'gesture_scroll_update_latency']
 
   def __init__(self, **kwargs):
+    self.input_event_latency = None  # to avoid pylint no-member error
     self.errors = {}
     for stat in self.stats:
       value = kwargs[stat] if stat in kwargs else None
@@ -43,7 +44,7 @@ class SmoothnessMetricUnitTest(unittest.TestCase):
       setattr(stats, stat, [[10, 20], [30, 40, 50]])
     results = page_test_results.PageTestResults()
     results.WillRunPage(self.page)
-    self.metric._PopulateResultsFromStats(results, stats, False, 'tir_label')
+    self.metric._PopulateResultsFromStats(results, stats, False)
     current_page_run = results.current_page_run
     self.assertTrue(current_page_run.ok)
     expected_values_count = 12

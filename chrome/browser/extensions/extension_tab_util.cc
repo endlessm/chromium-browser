@@ -331,7 +331,7 @@ int ExtensionTabUtil::GetWindowIdOfTab(const WebContents* web_contents) {
 }
 
 // static
-scoped_ptr<api::tabs::Tab> ExtensionTabUtil::CreateTabObject(
+std::unique_ptr<api::tabs::Tab> ExtensionTabUtil::CreateTabObject(
     WebContents* contents,
     TabStripModel* tab_strip,
     int tab_index,
@@ -343,7 +343,7 @@ scoped_ptr<api::tabs::Tab> ExtensionTabUtil::CreateTabObject(
       (!extension || controller->IsVisibleToExtension(extension))) {
     return controller->CreateTabObject(extension, tab_index);
   }
-  scoped_ptr<api::tabs::Tab> result =
+  std::unique_ptr<api::tabs::Tab> result =
       CreateTabObject(contents, tab_strip, tab_index);
   ScrubTabForExtension(extension, contents, result.get());
   return result;
@@ -365,7 +365,7 @@ base::ListValue* ExtensionTabUtil::CreateTabList(
 }
 
 // static
-scoped_ptr<api::tabs::Tab> ExtensionTabUtil::CreateTabObject(
+std::unique_ptr<api::tabs::Tab> ExtensionTabUtil::CreateTabObject(
     content::WebContents* contents,
     TabStripModel* tab_strip,
     int tab_index) {
@@ -378,7 +378,7 @@ scoped_ptr<api::tabs::Tab> ExtensionTabUtil::CreateTabObject(
   if (!tab_strip)
     ExtensionTabUtil::GetTabStripModel(contents, &tab_strip, &tab_index);
   bool is_loading = contents->IsLoading();
-  scoped_ptr<api::tabs::Tab> tab_object(new api::tabs::Tab);
+  std::unique_ptr<api::tabs::Tab> tab_object(new api::tabs::Tab);
   tab_object->id.reset(new int(GetTabIdForExtensions(contents)));
   tab_object->index = tab_index;
   tab_object->window_id = GetWindowIdOfTab(contents);
@@ -412,22 +412,22 @@ scoped_ptr<api::tabs::Tab> ExtensionTabUtil::CreateTabObject(
 }
 
 // static
-scoped_ptr<api::tabs::MutedInfo> ExtensionTabUtil::CreateMutedInfo(
+std::unique_ptr<api::tabs::MutedInfo> ExtensionTabUtil::CreateMutedInfo(
     content::WebContents* contents) {
   DCHECK(contents);
-  scoped_ptr<api::tabs::MutedInfo> info(new api::tabs::MutedInfo);
+  std::unique_ptr<api::tabs::MutedInfo> info(new api::tabs::MutedInfo);
   info->muted = contents->IsAudioMuted();
   switch (chrome::GetTabAudioMutedReason(contents)) {
-    case TAB_MUTED_REASON_NONE:
+    case TabMutedReason::NONE:
       break;
-    case TAB_MUTED_REASON_CONTEXT_MENU:
-    case TAB_MUTED_REASON_AUDIO_INDICATOR:
+    case TabMutedReason::CONTEXT_MENU:
+    case TabMutedReason::AUDIO_INDICATOR:
       info->reason = api::tabs::MUTED_INFO_REASON_USER;
       break;
-    case TAB_MUTED_REASON_MEDIA_CAPTURE:
+    case TabMutedReason::MEDIA_CAPTURE:
       info->reason = api::tabs::MUTED_INFO_REASON_CAPTURE;
       break;
-    case TAB_MUTED_REASON_EXTENSION:
+    case TabMutedReason::EXTENSION:
       info->reason = api::tabs::MUTED_INFO_REASON_EXTENSION;
       info->extension_id.reset(
           new std::string(chrome::GetExtensionIdForMutedTab(contents)));
@@ -627,7 +627,7 @@ bool ExtensionTabUtil::OpenOptionsPage(const Extension* extension,
 
   // Force the options page to open in non-OTR window, because it won't be
   // able to save settings from OTR.
-  scoped_ptr<chrome::ScopedTabbedBrowserDisplayer> displayer;
+  std::unique_ptr<chrome::ScopedTabbedBrowserDisplayer> displayer;
   if (browser->profile()->IsOffTheRecord()) {
     displayer.reset(new chrome::ScopedTabbedBrowserDisplayer(
         browser->profile()->GetOriginalProfile()));

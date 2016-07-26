@@ -1,4 +1,3 @@
-
 /*
  * Copyright 2014 Google Inc.
  *
@@ -7,7 +6,7 @@
  */
 
 
-#include "GrGLAssembleInterface.h"
+#include "gl/GrGLAssembleInterface.h"
 #include "GrGLUtil.h"
 
 #define GET_PROC(F) functions->f ## F = (GrGL ## F ## Proc) get(ctx, "gl" #F)
@@ -162,6 +161,9 @@ const GrGLInterface* GrGLAssembleGLInterface(void* ctx, GrGLGetProc get) {
     GET_PROC(GetBufferParameteriv);
     GET_PROC(GetError);
     GET_PROC(GetIntegerv);
+    if (glVer >= GR_GL_VER(3,2) || extensions.has("GL_ARB_texture_multisample")) {
+        GET_PROC(GetMultisamplefv);
+    }
     GET_PROC(GetQueryObjectiv);
     GET_PROC(GetQueryObjectuiv);
     if (glVer >= GR_GL_VER(3,3) || extensions.has("GL_ARB_timer_query")) {
@@ -202,6 +204,9 @@ const GrGLInterface* GrGLAssembleGLInterface(void* ctx, GrGLGetProc get) {
     GET_PROC(StencilMaskSeparate);
     GET_PROC(StencilOp);
     GET_PROC(StencilOpSeparate);
+    if (glVer >= GR_GL_VER(3,1)) {
+        GET_PROC(TexBuffer);
+    }
     GET_PROC(TexImage2D);
     GET_PROC(TexParameteri);
     GET_PROC(TexParameteriv);
@@ -488,6 +493,9 @@ const GrGLInterface* GrGLAssembleGLInterface(void* ctx, GrGLGetProc get) {
             GET_PROC_SUFFIX(MapNamedBufferRange, EXT);
             GET_PROC_SUFFIX(FlushMappedNamedBufferRange, EXT);
         }
+        if (glVer >= GR_GL_VER(3,1)) {
+            GET_PROC_SUFFIX(TextureBuffer, EXT);
+        }
     }
 
     if (glVer >= GR_GL_VER(4,3) || extensions.has("GL_KHR_debug")) {
@@ -504,6 +512,10 @@ const GrGLInterface* GrGLAssembleGLInterface(void* ctx, GrGLGetProc get) {
     if (extensions.has("EGL_KHR_image") || extensions.has("EGL_KHR_image_base")) {
         GET_EGL_PROC_SUFFIX(CreateImage, KHR);
         GET_EGL_PROC_SUFFIX(DestroyImage, KHR);
+    }
+
+    if (glVer >= GR_GL_VER(4,0) || extensions.has("GL_ARB_sample_shading")) {
+        GET_PROC(MinSampleShading);
     }
 
     interface->fStandard = kGL_GrGLStandard;
@@ -609,6 +621,11 @@ const GrGLInterface* GrGLAssembleGLESInterface(void* ctx, GrGLGetProc get) {
     GET_PROC(GetBufferParameteriv);
     GET_PROC(GetError);
     GET_PROC(GetIntegerv);
+
+    if (version >= GR_GL_VER(3,1)) {
+        GET_PROC(GetMultisamplefv);
+    }
+
     GET_PROC(GetProgramInfoLog);
     GET_PROC(GetProgramiv);
     GET_PROC(GetShaderInfoLog);
@@ -635,6 +652,15 @@ const GrGLInterface* GrGLAssembleGLESInterface(void* ctx, GrGLGetProc get) {
     GET_PROC(StencilMaskSeparate);
     GET_PROC(StencilOp);
     GET_PROC(StencilOpSeparate);
+
+    if (version >= GR_GL_VER(3,2)) {
+        GET_PROC(TexBuffer);
+    } else if (extensions.has("GL_OES_texture_buffer")) {
+        GET_PROC_SUFFIX(TexBuffer, OES);
+    } else if (extensions.has("GL_EXT_texture_buffer")) {
+        GET_PROC_SUFFIX(TexBuffer, EXT);
+    }
+
     GET_PROC(TexImage2D);
     GET_PROC(TexParameteri);
     GET_PROC(TexParameteriv);
@@ -868,6 +894,10 @@ const GrGLInterface* GrGLAssembleGLESInterface(void* ctx, GrGLGetProc get) {
     if (extensions.has("EGL_KHR_image") || extensions.has("EGL_KHR_image_base")) {
         GET_EGL_PROC_SUFFIX(CreateImage, KHR);
         GET_EGL_PROC_SUFFIX(DestroyImage, KHR);
+    }
+
+    if (extensions.has("GL_OES_sample_shading")) {
+        GET_PROC_SUFFIX(MinSampleShading, OES);
     }
 
     interface->fStandard = kGLES_GrGLStandard;

@@ -229,16 +229,17 @@ class DtlsTestClient : public sigslot::has_slots<> {
     }
   }
 
-  void CheckSsl(int expected_cipher) {
+  void CheckSsl() {
     for (std::vector<cricket::DtlsTransportChannelWrapper*>::iterator it =
            channels_.begin(); it != channels_.end(); ++it) {
       int cipher;
 
       bool rv = (*it)->GetSslCipherSuite(&cipher);
-      if (negotiated_dtls_ && expected_cipher) {
+      if (negotiated_dtls_) {
         ASSERT_TRUE(rv);
 
-        ASSERT_EQ(cipher, expected_cipher);
+        EXPECT_TRUE(
+            rtc::SSLStreamAdapter::IsAcceptableCipher(cipher, rtc::KT_DEFAULT));
       } else {
         ASSERT_FALSE(rv);
       }
@@ -473,10 +474,9 @@ class DtlsTransportChannelTest : public testing::Test {
       client1_.CheckSrtp(rtc::SRTP_INVALID_CRYPTO_SUITE);
       client2_.CheckSrtp(rtc::SRTP_INVALID_CRYPTO_SUITE);
     }
-    client1_.CheckSsl(rtc::SSLStreamAdapter::GetDefaultSslCipherForTest(
-        ssl_expected_version_, rtc::KT_DEFAULT));
-    client2_.CheckSsl(rtc::SSLStreamAdapter::GetDefaultSslCipherForTest(
-        ssl_expected_version_, rtc::KT_DEFAULT));
+
+    client1_.CheckSsl();
+    client2_.CheckSsl();
 
     return true;
   }
@@ -855,12 +855,8 @@ TEST_F(DtlsTransportChannelTest, TestCertificatesBeforeConnect) {
   ASSERT_TRUE(client2_.transport()->GetLocalCertificate(&certificate2));
   ASSERT_NE(certificate1->ssl_certificate().ToPEMString(),
             certificate2->ssl_certificate().ToPEMString());
-  ASSERT_FALSE(
-      client1_.transport()->GetRemoteSSLCertificate(remote_cert1.accept()));
-  ASSERT_FALSE(remote_cert1 != NULL);
-  ASSERT_FALSE(
-      client2_.transport()->GetRemoteSSLCertificate(remote_cert2.accept()));
-  ASSERT_FALSE(remote_cert2 != NULL);
+  ASSERT_FALSE(client1_.transport()->GetRemoteSSLCertificate());
+  ASSERT_FALSE(client2_.transport()->GetRemoteSSLCertificate());
 }
 
 // Test Certificates state after connection.
@@ -871,8 +867,6 @@ TEST_F(DtlsTransportChannelTest, TestCertificatesAfterConnect) {
 
   rtc::scoped_refptr<rtc::RTCCertificate> certificate1;
   rtc::scoped_refptr<rtc::RTCCertificate> certificate2;
-  rtc::scoped_ptr<rtc::SSLCertificate> remote_cert1;
-  rtc::scoped_ptr<rtc::SSLCertificate> remote_cert2;
 
   // After connection, each side has a distinct local certificate.
   ASSERT_TRUE(client1_.transport()->GetLocalCertificate(&certificate1));
@@ -881,12 +875,14 @@ TEST_F(DtlsTransportChannelTest, TestCertificatesAfterConnect) {
             certificate2->ssl_certificate().ToPEMString());
 
   // Each side's remote certificate is the other side's local certificate.
-  ASSERT_TRUE(
-      client1_.transport()->GetRemoteSSLCertificate(remote_cert1.accept()));
+  rtc::scoped_ptr<rtc::SSLCertificate> remote_cert1 =
+      client1_.transport()->GetRemoteSSLCertificate();
+  ASSERT_TRUE(remote_cert1);
   ASSERT_EQ(remote_cert1->ToPEMString(),
             certificate2->ssl_certificate().ToPEMString());
-  ASSERT_TRUE(
-      client2_.transport()->GetRemoteSSLCertificate(remote_cert2.accept()));
+  rtc::scoped_ptr<rtc::SSLCertificate> remote_cert2 =
+      client2_.transport()->GetRemoteSSLCertificate();
+  ASSERT_TRUE(remote_cert2);
   ASSERT_EQ(remote_cert2->ToPEMString(),
             certificate1->ssl_certificate().ToPEMString());
 }

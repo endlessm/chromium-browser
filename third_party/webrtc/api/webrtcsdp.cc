@@ -25,12 +25,12 @@
 #include "webrtc/base/messagedigest.h"
 #include "webrtc/base/stringutils.h"
 #include "webrtc/media/base/codec.h"
-#include "webrtc/media/base/constants.h"
 #include "webrtc/media/base/cryptoparams.h"
+#include "webrtc/media/base/mediaconstants.h"
 #include "webrtc/media/base/rtputils.h"
 #include "webrtc/media/sctp/sctpdataengine.h"
 #include "webrtc/p2p/base/candidate.h"
-#include "webrtc/p2p/base/constants.h"
+#include "webrtc/p2p/base/p2pconstants.h"
 #include "webrtc/p2p/base/port.h"
 #include "webrtc/pc/mediasession.h"
 
@@ -127,6 +127,7 @@ static const char kAttributeCandidateRport[] = "rport";
 static const char kAttributeCandidateUfrag[] = "ufrag";
 static const char kAttributeCandidatePwd[] = "pwd";
 static const char kAttributeCandidateGeneration[] = "generation";
+static const char kAttributeCandidateNetworkId[] = "network-id";
 static const char kAttributeCandidateNetworkCost[] = "network-cost";
 static const char kAttributeFingerprint[] = "fingerprint";
 static const char kAttributeSetup[] = "setup";
@@ -154,8 +155,7 @@ static const char kValueConference[] = "conference";
 // Candidate
 static const char kCandidateHost[] = "host";
 static const char kCandidateSrflx[] = "srflx";
-// TODO: How to map the prflx with circket candidate type
-// static const char kCandidatePrflx[] = "prflx";
+static const char kCandidatePrflx[] = "prflx";
 static const char kCandidateRelay[] = "relay";
 static const char kTcpCandidateType[] = "tcptype";
 
@@ -871,11 +871,14 @@ std::string SdpSerialize(const JsepSessionDescription& jdesc,
 
 // Serializes the passed in IceCandidateInterface to a SDP string.
 // candidate - The candidate to be serialized.
-std::string SdpSerializeCandidate(
-    const IceCandidateInterface& candidate) {
+std::string SdpSerializeCandidate(const IceCandidateInterface& candidate) {
+  return SdpSerializeCandidate(candidate.candidate());
+}
+
+// Serializes a cricket Candidate.
+std::string SdpSerializeCandidate(const cricket::Candidate& candidate) {
   std::string message;
-  std::vector<cricket::Candidate> candidates;
-  candidates.push_back(candidate.candidate());
+  std::vector<cricket::Candidate> candidates(1, candidate);
   BuildCandidate(candidates, true, &message);
   // From WebRTC draft section 4.8.1.1 candidate-attribute will be
   // just candidate:<candidate> not a=candidate:<blah>CRLF
@@ -935,6 +938,18 @@ bool SdpDeserializeCandidate(const std::string& message,
     return false;
   }
   jcandidate->SetCandidate(candidate);
+  return true;
+}
+
+bool SdpDeserializeCandidate(const std::string& transport_name,
+                             const std::string& message,
+                             cricket::Candidate* candidate,
+                             SdpParseError* error) {
+  ASSERT(candidate != nullptr);
+  if (!ParseCandidate(message, candidate, error, true)) {
+    return false;
+  }
+  candidate->set_transport_name(transport_name);
   return true;
 }
 
@@ -1026,6 +1041,8 @@ bool ParseCandidate(const std::string& message, Candidate* candidate,
     candidate_type = cricket::STUN_PORT_TYPE;
   } else if (type == kCandidateRelay) {
     candidate_type = cricket::RELAY_PORT_TYPE;
+  } else if (type == kCandidatePrflx) {
+    candidate_type = cricket::PRFLX_PORT_TYPE;
   } else {
     return ParseFailed(first_line, "Unsupported candidate type.", error);
   }
@@ -1076,7 +1093,8 @@ bool ParseCandidate(const std::string& message, Candidate* candidate,
   std::string username;
   std::string password;
   uint32_t generation = 0;
-  uint32_t network_cost = 0;
+  uint16_t network_id = 0;
+  uint16_t network_cost = 0;
   for (size_t i = current_position; i + 1 < fields.size(); ++i) {
     // RFC 5245
     // *(SP extension-att-name SP extension-att-value)
@@ -1088,10 +1106,15 @@ bool ParseCandidate(const std::string& message, Candidate* candidate,
       username = fields[++i];
     } else if (fields[i] == kAttributeCandidatePwd) {
       password = fields[++i];
+    } else if (fields[i] == kAttributeCandidateNetworkId) {
+      if (!GetValueFromString(first_line, fields[++i], &network_id, error)) {
+        return false;
+      }
     } else if (fields[i] == kAttributeCandidateNetworkCost) {
       if (!GetValueFromString(first_line, fields[++i], &network_cost, error)) {
         return false;
       }
+      network_cost = std::min(network_cost, cricket::kMaxNetworkCost);
     } else {
       // Skip the unknown extension.
       ++i;
@@ -1100,10 +1123,9 @@ bool ParseCandidate(const std::string& message, Candidate* candidate,
 
   *candidate = Candidate(component_id, cricket::ProtoToString(protocol),
                          address, priority, username, password, candidate_type,
-                         generation, foundation);
+                         generation, foundation, network_id, network_cost);
   candidate->set_related_address(related_address);
   candidate->set_tcptype(tcptype);
-  candidate->set_network_cost(std::min(network_cost, cricket::kMaxNetworkCost));
   return true;
 }
 
@@ -1541,26 +1563,40 @@ void WriteFmtpParameters(const cricket::CodecParameterMap& parameters,
                          std::ostringstream* os) {
   for (cricket::CodecParameterMap::const_iterator fmtp = parameters.begin();
        fmtp != parameters.end(); ++fmtp) {
-    // Each new parameter, except the first one starts with ";" and " ".
-    if (fmtp != parameters.begin()) {
+    // Parameters are a semicolon-separated list, no spaces.
+    // The list is separated from the header by a space.
+    if (fmtp == parameters.begin()) {
+      *os << kSdpDelimiterSpace;
+    } else {
       *os << kSdpDelimiterSemicolon;
     }
-    *os << kSdpDelimiterSpace;
     WriteFmtpParameter(fmtp->first, fmtp->second, os);
   }
 }
 
 bool IsFmtpParam(const std::string& name) {
   const char* kFmtpParams[] = {
-    kCodecParamMinPTime, kCodecParamSPropStereo,
-    kCodecParamStereo, kCodecParamUseInbandFec, kCodecParamUseDtx,
-    kCodecParamStartBitrate, kCodecParamMaxBitrate, kCodecParamMinBitrate,
-    kCodecParamMaxQuantization, kCodecParamSctpProtocol, kCodecParamSctpStreams,
-    kCodecParamMaxAverageBitrate, kCodecParamMaxPlaybackRate,
-    kCodecParamAssociatedPayloadType
-  };
+      // TODO(hta): Split FMTP parameters apart from parameters in general.
+      // FMTP parameters are codec specific, not generic.
+      kCodecParamMinPTime,
+      kCodecParamSPropStereo,
+      kCodecParamStereo,
+      kCodecParamUseInbandFec,
+      kCodecParamUseDtx,
+      kCodecParamStartBitrate,
+      kCodecParamMaxBitrate,
+      kCodecParamMinBitrate,
+      kCodecParamMaxQuantization,
+      kCodecParamSctpProtocol,
+      kCodecParamSctpStreams,
+      kCodecParamMaxAverageBitrate,
+      kCodecParamMaxPlaybackRate,
+      kCodecParamAssociatedPayloadType,
+      cricket::kH264FmtpPacketizationMode,
+      cricket::kH264FmtpLevelAsymmetryAllowed,
+      cricket::kH264FmtpProfileLevelId};
   for (size_t i = 0; i < arraysize(kFmtpParams); ++i) {
-    if (_stricmp(name.c_str(), kFmtpParams[i]) == 0) {
+    if (name.compare(kFmtpParams[i]) == 0) {
       return true;
     }
   }
@@ -1761,6 +1797,9 @@ void BuildCandidate(const std::vector<Candidate>& candidates,
       type = kCandidateSrflx;
     } else if (it->type() == cricket::RELAY_PORT_TYPE) {
       type = kCandidateRelay;
+    } else if (it->type() == cricket::PRFLX_PORT_TYPE) {
+      type = kCandidatePrflx;
+      // Peer reflexive candidate may be signaled for being removed.
     } else {
       ASSERT(false);
       // Never write out candidates if we don't know the type.
@@ -1794,6 +1833,9 @@ void BuildCandidate(const std::vector<Candidate>& candidates,
     os << kAttributeCandidateGeneration << " " << it->generation();
     if (include_ufrag && !it->username().empty()) {
       os << " " << kAttributeCandidateUfrag << " " << it->username();
+    }
+    if (it->network_id() > 0) {
+      os << " " << kAttributeCandidateNetworkId << " " << it->network_id();
     }
     if (it->network_cost() > 0) {
       os << " " << kAttributeCandidateNetworkCost << " " << it->network_cost();

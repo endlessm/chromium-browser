@@ -189,6 +189,11 @@ func (hc *halfConn) changeCipherSpec(config *Config) error {
 	hc.nextMac = nil
 	hc.config = config
 	hc.incEpoch()
+
+	if config.Bugs.NullAllCiphers {
+		hc.cipher = nil
+		hc.mac = nil
+	}
 	return nil
 }
 
@@ -851,7 +856,7 @@ func (c *Conn) sendAlertLocked(level byte, err alert) error {
 // L < c.out.Mutex.
 func (c *Conn) sendAlert(err alert) error {
 	level := byte(alertLevelError)
-	if err == alertNoRenegotiation || err == alertCloseNotify {
+	if err == alertNoRenegotiation || err == alertCloseNotify || err == alertNoCertficate {
 		level = alertLevelWarning
 	}
 	return c.SendAlert(level, err)

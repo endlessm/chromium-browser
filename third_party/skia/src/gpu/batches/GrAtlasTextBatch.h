@@ -90,7 +90,7 @@ public:
     SkString dumpInfo() const override;
 
 protected:
-    void computePipelineOptimizations(GrInitInvariantOutput* color, 
+    void computePipelineOptimizations(GrInitInvariantOutput* color,
                                       GrInitInvariantOutput* coverage,
                                       GrBatchToXPOverrides* overrides) const override;
 
@@ -99,10 +99,11 @@ private:
     void initBatchTracker(const GrXPOverridesForBatch& overrides) override;
 
     struct FlushInfo {
-        SkAutoTUnref<const GrVertexBuffer> fVertexBuffer;
-        SkAutoTUnref<const GrIndexBuffer> fIndexBuffer;
-        int fGlyphsToFlush;
-        int fVertexOffset;
+        SkAutoTUnref<const GrBuffer>            fVertexBuffer;
+        SkAutoTUnref<const GrBuffer>            fIndexBuffer;
+        SkAutoTUnref<const GrGeometryProcessor> fGeometryProcessor;
+        int                                     fGlyphsToFlush;
+        int                                     fVertexOffset;
     };
 
     void onPrepareDraws(Target* target) const override;
@@ -195,12 +196,10 @@ class GrBlobRegenHelper {
 public:
     GrBlobRegenHelper(const GrAtlasTextBatch* batch,
                       GrVertexBatch::Target* target,
-                      GrAtlasTextBatch::FlushInfo* flushInfo,
-                      const GrGeometryProcessor* gp)
+                      GrAtlasTextBatch::FlushInfo* flushInfo)
         : fBatch(batch)
         , fTarget(target)
-        , fFlushInfo(flushInfo)
-        , fGP(gp) {}
+        , fFlushInfo(flushInfo) {}
 
     void flush();
 
@@ -212,7 +211,6 @@ private:
     const GrAtlasTextBatch* fBatch;
     GrVertexBatch::Target* fTarget;
     GrAtlasTextBatch::FlushInfo* fFlushInfo;
-    const GrGeometryProcessor* fGP;
 };
 
 #endif

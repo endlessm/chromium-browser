@@ -14,6 +14,7 @@ found in the LICENSE file.
 <link rel="import" href="/tracing/core/auditor.html">
 <link rel="import" href="/tracing/core/filter.html">
 <link rel="import" href="/tracing/model/alert.html">
+<link rel="import" href="/tracing/model/clock_sync_manager.html">
 <link rel="import" href="/tracing/model/constants.html">
 <link rel="import" href="/tracing/model/device.html">
 <link rel="import" href="/tracing/model/flow_event.html">
@@ -81,6 +82,9 @@ tr.exportTo('tr', function() {
     this.categories = [];
     this.instantEvents = [];
     this.flowEvents = [];
+    this.clockSyncManager = new tr.model.ClockSyncManager();
+    // TODO(charliea): Remove clockSyncRecords once we move over to using the
+    // clockSyncManager.
     this.clockSyncRecords = [];
     this.intrinsicTimeUnit_ = undefined;
 
@@ -90,10 +94,7 @@ tr.exportTo('tr', function() {
     this.alerts = [];
     this.userModel = new tr.model.um.UserModel(this);
 
-    this.flowIntervalTree = new tr.b.IntervalTree(
-        function(f) { return f.start; },
-        function(f) { return f.end; });
-
+    this.flowIntervalTree = new tr.b.IntervalTree((f) => f.start, (f) => f.end);
     this.globalMemoryDumps = [];
 
     this.userFriendlyCategoryDrivers_ = [];
@@ -235,10 +236,6 @@ tr.exportTo('tr', function() {
       return this.processes[pid];
     },
 
-    pushInstantEvent: function(instantEvent) {
-      this.instantEvents.push(instantEvent);
-    },
-
     addStackFrame: function(stackFrame) {
       if (this.stackFrames[stackFrame.id])
         throw new Error('Stack frame already exists');
@@ -246,9 +243,9 @@ tr.exportTo('tr', function() {
       return stackFrame;
     },
 
-    getClockSyncRecordsNamed: function(name) {
+    getClockSyncRecordsWithSyncId: function(syncId) {
       return this.clockSyncRecords.filter(function(x) {
-        return x.name === name;
+        return x.syncId === syncId;
       });
     },
 
@@ -413,16 +410,16 @@ tr.exportTo('tr', function() {
      * This is NOT the URL of a site being traced, but instead an indicator of
      * where the data is stored.
      */
-    get canonicalUrlThatCreatedThisTrace() {
-      return this.canonicalUrlThatCreatedThisTrace_;
+    get canonicalUrl() {
+      return this.canonicalUrl_;
     },
 
-    set canonicalUrlThatCreatedThisTrace(value) {
-      if (this.canonicalUrlThatCreatedThisTrace_ === value)
+    set canonicalUrl(value) {
+      if (this.canonicalUrl_ === value)
         return;
-      if (this.canonicalUrlThatCreatedThisTrace_ !== undefined)
-        throw new Error('canonicalUrlThatCreatedThisTrace already set');
-      this.canonicalUrlThatCreatedThisTrace_ = value;
+      if (this.canonicalUrl_ !== undefined)
+        throw new Error('canonicalUrl already set');
+      this.canonicalUrl_ = value;
     },
 
     /**

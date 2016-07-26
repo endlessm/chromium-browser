@@ -9,11 +9,11 @@
 #define GrVkCommandBuffer_DEFINED
 
 #include "GrVkGpu.h"
-#include "GrVkPipeline.h"
 #include "GrVkResource.h"
 #include "GrVkUtil.h"
-#include "vulkan/vulkan.h"
+#include "vk/GrVkDefines.h"
 
+class GrVkPipeline;
 class GrVkRenderPass;
 class GrVkRenderTarget;
 class GrVkTransferBuffer;
@@ -37,15 +37,6 @@ public:
 
     void submitToQueue(const GrVkGpu* gpu, VkQueue queue, GrVkGpu::SyncQueue sync);
     bool finished(const GrVkGpu* gpu) const;
-
-    ////////////////////////////////////////////////////////////////////////////
-    // CommandBuffer State/Object bindings
-    ////////////////////////////////////////////////////////////////////////////
-#if 0
-    void bindPipeline(const GrVkGpu* gpu) const;
-    void bindDynamicState(const GrVkGpu* gpu) const;
-    void bindDescriptorSet(const GrVkGpu* gpu) const;
-#endif
 
     ////////////////////////////////////////////////////////////////////////////
     // CommandBuffer commands
@@ -91,21 +82,26 @@ public:
         }
     }
 
-    void bindPipeline(const GrVkGpu* gpu, const GrVkPipeline* pipeline) {
-        GR_VK_CALL(gpu->vkInterface(), CmdBindPipeline(fCmdBuffer,
-                                                       VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                                       pipeline->pipeline()));
-        addResource(pipeline);
-    }
-
     void bindDescriptorSets(const GrVkGpu* gpu,
-                            GrVkProgram*,
+                            GrVkPipelineState*,
                             VkPipelineLayout layout,
                             uint32_t firstSet,
                             uint32_t setCount,
                             const VkDescriptorSet* descriptorSets,
                             uint32_t dynamicOffsetCount,
                             const uint32_t* dynamicOffsets);
+
+    void setViewport(const GrVkGpu* gpu,
+                     uint32_t firstViewport,
+                     uint32_t viewportCount,
+                     const VkViewport* viewports);
+
+    void setScissor(const GrVkGpu* gpu,
+                    uint32_t firstScissor,
+                    uint32_t scissorCount,
+                    const VkRect2D* scissors);
+
+    void setBlendConstants(const GrVkGpu* gpu, const float blendConstants[4]);
 
     // Commands that only work outside of a render pass
     void clearColorImage(const GrVkGpu* gpu,
@@ -114,6 +110,12 @@ public:
                          uint32_t subRangeCount,
                          const VkImageSubresourceRange* subRanges);
 
+    void clearDepthStencilImage(const GrVkGpu* gpu,
+                                GrVkImage* image,
+                                const VkClearDepthStencilValue* color,
+                                uint32_t subRangeCount,
+                                const VkImageSubresourceRange* subRanges);
+
     void copyImage(const GrVkGpu* gpu,
                    GrVkImage* srcImage,
                    VkImageLayout srcLayout,
@@ -121,6 +123,15 @@ public:
                    VkImageLayout dstLayout,
                    uint32_t copyRegionCount,
                    const VkImageCopy* copyRegions);
+
+    void blitImage(const GrVkGpu* gpu,
+                   GrVkImage* srcImage,
+                   VkImageLayout srcLayout,
+                   GrVkImage* dstImage,
+                   VkImageLayout dstLayout,
+                   uint32_t blitRegionCount,
+                   const VkImageBlit* blitRegions,
+                   VkFilter filter);
 
     void copyImageToBuffer(const GrVkGpu* gpu,
                            GrVkImage* srcImage,
@@ -143,6 +154,9 @@ public:
                           int numRects,
                           const VkClearRect* clearRects) const;
 
+    void bindPipeline(const GrVkGpu* gpu, const GrVkPipeline* pipeline);
+
+
     void drawIndexed(const GrVkGpu* gpu,
                      uint32_t indexCount,
                      uint32_t instanceCount,
@@ -155,7 +169,7 @@ public:
               uint32_t instanceCount,
               uint32_t firstVertex,
               uint32_t firstInstance) const;
-    
+
     // Add ref-counted resource that will be tracked and released when this
     // command buffer finishes execution
     void addResource(const GrVkResource* resource) {
@@ -199,8 +213,12 @@ private:
     // A nullptr means there is no active render pass. The GrVKCommandBuffer does not own the render
     // pass.
     const GrVkRenderPass*     fActiveRenderPass;
+
+    // Cached values used for dynamic state updates
+    VkViewport fCachedViewport;
+    VkRect2D   fCachedScissor;
+    float      fCachedBlendConstant[4];
 };
 
 
 #endif
-

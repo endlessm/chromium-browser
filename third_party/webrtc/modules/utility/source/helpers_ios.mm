@@ -15,13 +15,18 @@
 #import <sys/sysctl.h>
 #import <UIKit/UIKit.h>
 
+#include <memory>
+
 #include "webrtc/base/checks.h"
 #include "webrtc/base/logging.h"
-#include "webrtc/base/scoped_ptr.h"
 #include "webrtc/modules/utility/include/helpers_ios.h"
 
 namespace webrtc {
 namespace ios {
+
+bool isOperatingSystemAtLeastVersion(double version) {
+  return GetSystemVersion() >= version;
+}
 
 // Internal helper method used by GetDeviceName() to return device name.
 const char* LookUpRealName(const char* raw_name) {
@@ -126,14 +131,18 @@ std::string GetSystemName() {
   return StdStringFromNSString(osName);
 }
 
-std::string GetSystemVersion() {
+std::string GetSystemVersionAsString() {
   NSString* osVersion = [[UIDevice currentDevice] systemVersion];
   return StdStringFromNSString(osVersion);
 }
 
-float GetSystemVersionAsFloat() {
-  NSString* osVersion = [[UIDevice currentDevice] systemVersion];
-  return osVersion.floatValue;
+double GetSystemVersion() {
+  static dispatch_once_t once_token;
+  static double system_version;
+  dispatch_once(&once_token, ^{
+    system_version = [UIDevice currentDevice].systemVersion.doubleValue;
+  });
+  return system_version;
 }
 
 std::string GetDeviceType() {
@@ -144,7 +153,7 @@ std::string GetDeviceType() {
 std::string GetDeviceName() {
   size_t size;
   sysctlbyname("hw.machine", NULL, &size, NULL, 0);
-  rtc::scoped_ptr<char[]> machine;
+  std::unique_ptr<char[]> machine;
   machine.reset(new char[size]);
   sysctlbyname("hw.machine", machine.get(), &size, NULL, 0);
   return std::string(LookUpRealName(machine.get()));
@@ -169,9 +178,17 @@ int GetProcessorCount() {
   return [NSProcessInfo processInfo].processorCount;
 }
 
+#if defined(__IPHONE_9_0) && __IPHONE_OS_VERSION_MAX_ALLOWED >= __IPHONE_9_0
 bool GetLowPowerModeEnabled() {
-  return [NSProcessInfo processInfo].lowPowerModeEnabled;
+  if (isOperatingSystemAtLeastVersion(9.0)) {
+    // lowPoweredModeEnabled is only available on iOS9+.
+    return [NSProcessInfo processInfo].lowPowerModeEnabled;
+  }
+  LOG(LS_WARNING) << "webrtc::ios::GetLowPowerModeEnabled() is not "
+                     "supported. Requires at least iOS 9.0";
+  return false;
 }
+#endif
 
 }  // namespace ios
 }  // namespace webrtc

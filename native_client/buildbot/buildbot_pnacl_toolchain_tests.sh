@@ -166,8 +166,7 @@ tc-test-bot() {
                      --packages-file ${TEMP_PACKAGES}
 
   # Extract the built packages using the packages script.
-  python ${PACKAGES_SCRIPT} extract --overlay-packages --skip-missing \
-                            --packages ${TEMP_PACKAGES}
+  python ${PACKAGES_SCRIPT} extract --skip-missing --packages ${TEMP_PACKAGES}
 
   # Linking the tests require additional sdk libraries like libnacl.
   # Do this once and for all early instead of attempting to do it within
@@ -222,7 +221,8 @@ tc-test-bot() {
     # all 4 combinations would be run, plus more for Subzero.
     if [[ ${archset} =~ x86 ]]; then
       optset[2]="--opt O3f --opt O0b"
-      if [[ ${archset} == x86-32 || ${archset} == x86-64 ]]; then
+      if [[ ${archset} == arm || ${archset} == x86-32 || \
+            ${archset} == x86-64 ]]; then
         # Run a Subzero -O2 test set on x86-32.
         optset[3]="--opt O3f --opt O2b_sz"
       fi

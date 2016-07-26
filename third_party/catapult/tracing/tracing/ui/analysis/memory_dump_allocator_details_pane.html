@@ -71,12 +71,12 @@ tr.exportTo('tr.ui.analysis', function() {
   // Constant representing the context in suballocation rows.
   var SUBALLOCATION_CONTEXT = true;
 
-  // Size attribute names.
-  var SizeAttributeInfoType = tr.model.SizeAttributeInfoType;
+  // Size numeric info types.
+  var MemoryAllocatorDumpInfoType = tr.model.MemoryAllocatorDumpInfoType;
   var PROVIDED_SIZE_LESS_THAN_AGGREGATED_CHILDREN =
-      SizeAttributeInfoType.PROVIDED_SIZE_LESS_THAN_AGGREGATED_CHILDREN;
+      MemoryAllocatorDumpInfoType.PROVIDED_SIZE_LESS_THAN_AGGREGATED_CHILDREN;
   var PROVIDED_SIZE_LESS_THAN_LARGEST_OWNER =
-      SizeAttributeInfoType.PROVIDED_SIZE_LESS_THAN_LARGEST_OWNER;
+      MemoryAllocatorDumpInfoType.PROVIDED_SIZE_LESS_THAN_LARGEST_OWNER;
 
   // Unicode symbols used for memory cell info icons and messages.
   var LEFTWARDS_OPEN_HEADED_ARROW = String.fromCharCode(0x21FD);
@@ -98,7 +98,8 @@ tr.exportTo('tr.ui.analysis', function() {
       return tr.ui.b.createSpan({
         textContent: row.title,
         italic: true,
-        tooltip: row.fullName
+        tooltip: row.fullNames === undefined ?
+            undefined : row.fullNames.join(', ')
       });
     }
   };
@@ -223,17 +224,15 @@ tr.exportTo('tr.ui.analysis', function() {
   };
 
   /** @constructor */
-  function EffectiveSizeColumn(name, units, cellGetter, aggregationMode) {
-    if (units !== 'bytes')
-      throw new Error('Invalid effective size column units: ' + units);
-    tr.ui.analysis.ScalarMemoryColumn.call(
-        this, name, units, cellGetter, aggregationMode);
+  function EffectiveSizeColumn(name, cellPath, aggregationMode) {
+    tr.ui.analysis.NumericMemoryColumn.call(
+        this, name, cellPath, aggregationMode);
   }
 
   EffectiveSizeColumn.prototype = {
-    __proto__: tr.ui.analysis.ScalarMemoryColumn.prototype,
+    __proto__: tr.ui.analysis.NumericMemoryColumn.prototype,
 
-    addInfos: function(attrs, memoryAllocatorDumps, infos) {
+    addInfos: function(numerics, memoryAllocatorDumps, infos) {
       if (memoryAllocatorDumps === undefined)
         return;
 
@@ -247,8 +246,8 @@ tr.exportTo('tr.ui.analysis', function() {
       // importanceRange}.
       var ownedNameToEntry = new Map();
 
-      for (var i = 0; i < attrs.length; i++) {
-        if (attrs[i] === undefined)
+      for (var i = 0; i < numerics.length; i++) {
+        if (numerics[i] === undefined)
           continue;
         var dump = memoryAllocatorDumps[i];
         if (dump === SUBALLOCATION_CONTEXT)
@@ -289,7 +288,7 @@ tr.exportTo('tr.ui.analysis', function() {
             undefined /* emptyText */,
             function(ownerName, ownerEntry) {
               messageBuilder.append(ownerName);
-              if (ownerEntry.count < attrs.length)
+              if (ownerEntry.count < numerics.length)
                 messageBuilder.appendSomeTimestampsQuantifier();
               messageBuilder.appendImportanceRange(ownerEntry.importanceRange);
             }, this);
@@ -312,7 +311,7 @@ tr.exportTo('tr.ui.analysis', function() {
             function(ownedName, ownedEntry) {
               messageBuilder.append(ownedName);
               var ownedCount = ownedEntry.count;
-              if (ownedCount < attrs.length)
+              if (ownedCount < numerics.length)
                 messageBuilder.appendSomeTimestampsQuantifier();
               messageBuilder.appendImportanceRange(ownedEntry.importanceRange);
             messageBuilder.append(' with');
@@ -350,30 +349,27 @@ tr.exportTo('tr.ui.analysis', function() {
   };
 
   /** @constructor */
-  function SizeColumn(name, units, cellGetter, aggregationMode) {
-    if (units !== 'bytes')
-      throw new Error('Invalid size column units: ' + units);
-    tr.ui.analysis.ScalarMemoryColumn.call(
-        this, name, units, cellGetter, aggregationMode);
+  function SizeColumn(name, cellPath, aggregationMode) {
+    tr.ui.analysis.NumericMemoryColumn.call(
+        this, name, cellPath, aggregationMode);
   }
 
   SizeColumn.prototype = {
-    __proto__: tr.ui.analysis.ScalarMemoryColumn.prototype,
+    __proto__: tr.ui.analysis.NumericMemoryColumn.prototype,
 
-    addInfos: function(attrs, memoryAllocatorDumps, infos) {
-      this.addOverlapInfo_(attrs, memoryAllocatorDumps, infos);
-      this.addProvidedSizeWarningInfos_(attrs, infos);
-    },
-
-    addOverlapInfo_: function(attrs, memoryAllocatorDumps, infos) {
+    addInfos: function(numerics, memoryAllocatorDumps, infos) {
       if (memoryAllocatorDumps === undefined)
         return;
+      this.addOverlapInfo_(numerics, memoryAllocatorDumps, infos);
+      this.addProvidedSizeWarningInfos_(numerics, memoryAllocatorDumps, infos);
+    },
 
+    addOverlapInfo_: function(numerics, memoryAllocatorDumps, infos) {
       // Sibling allocator dump name -> {count, size}. The latter field (size)
       // is omitted in multi-selection mode.
       var siblingNameToEntry = new Map();
-      for (var i = 0; i < attrs.length; i++) {
-        if (attrs[i] === undefined)
+      for (var i = 0; i < numerics.length; i++) {
+        if (numerics[i] === undefined)
           continue;
         var dump = memoryAllocatorDumps[i];
         if (dump === SUBALLOCATION_CONTEXT)
@@ -383,7 +379,7 @@ tr.exportTo('tr.ui.analysis', function() {
           var siblingName = siblingDump.name;
           getAndUpdateEntry(siblingNameToEntry, siblingName,
               function(newEntry) {
-                if (attrs.length === 1 /* single-selection mode */)
+                if (numerics.length === 1 /* single-selection mode */)
                   newEntry.size = ownedBySiblingSizes.get(siblingDump);
               });
         }
@@ -401,7 +397,7 @@ tr.exportTo('tr.ui.analysis', function() {
             function(siblingName, siblingEntry) {
               messageBuilder.append('\'', siblingName, '\'');
               messageBuilder.appendSizeIfDefined(siblingEntry.size);
-              if (siblingEntry.count < attrs.length)
+              if (siblingEntry.count < numerics.length)
                 messageBuilder.appendSomeTimestampsQuantifier();
             }, this);
         infos.push({
@@ -412,20 +408,23 @@ tr.exportTo('tr.ui.analysis', function() {
       }
     },
 
-    addProvidedSizeWarningInfos_: function(attrs, infos) {
-      // Info type (see SizeAttributeInfoType) -> {count, providedSize,
+    addProvidedSizeWarningInfos_: function(numerics, memoryAllocatorDumps,
+        infos) {
+      // Info type (see MemoryAllocatorDumpInfoType) -> {count, providedSize,
       // dependencySize}. The latter two fields (providedSize and
       // dependencySize) are omitted in multi-selection mode.
       var infoTypeToEntry = new Map();
-      for (var i = 0; i < attrs.length; i++) {
-        var attr = attrs[i];
-        if (attr === undefined)
+      for (var i = 0; i < numerics.length; i++) {
+        if (numerics[i] === undefined)
           continue;
-        attr.infos.forEach(function(attrInfo) {
-          getAndUpdateEntry(infoTypeToEntry, attrInfo.type, function(newEntry) {
-            if (attrs.length === 1 /* single-selection mode */) {
-              newEntry.providedSize = attrInfo.providedSize;
-              newEntry.dependencySize = attrInfo.dependencySize;
+        var dump = memoryAllocatorDumps[i];
+        if (dump === SUBALLOCATION_CONTEXT)
+          return;  // Suballocation internal rows have no provided size.
+        dump.infos.forEach(function(dumpInfo) {
+          getAndUpdateEntry(infoTypeToEntry, dumpInfo.type, function(newEntry) {
+            if (numerics.length === 1 /* single-selection mode */) {
+              newEntry.providedSize = dumpInfo.providedSize;
+              newEntry.dependencySize = dumpInfo.dependencySize;
             }
           });
         });
@@ -451,35 +450,45 @@ tr.exportTo('tr.ui.analysis', function() {
         }
         messageBuilder.append(' was less than ', dependencyName);
         messageBuilder.appendSizeIfDefined(entry.dependencySize);
-        if (entry.count < attrs.length)
+        if (entry.count < numerics.length)
           messageBuilder.appendSomeTimestampsQuantifier();
         infos.push(tr.ui.analysis.createWarningInfo(messageBuilder.build()));
       }
     }
   };
 
-  var RULES = [
+  var NUMERIC_COLUMN_RULES = [
     {
-      condition: tr.model.MemoryAllocatorDump.EFFECTIVE_SIZE_ATTRIBUTE_NAME,
+      condition: tr.model.MemoryAllocatorDump.EFFECTIVE_SIZE_NUMERIC_NAME,
       importance: 10,
       columnConstructor: EffectiveSizeColumn
     },
     {
-      condition: tr.model.MemoryAllocatorDump.SIZE_ATTRIBUTE_NAME,
+      condition: tr.model.MemoryAllocatorDump.SIZE_NUMERIC_NAME,
       importance: 9,
       columnConstructor: SizeColumn
     },
     {
       condition: 'page_size',
-      importance: 0
+      importance: 0,
+      columnConstructor: tr.ui.analysis.NumericMemoryColumn
     },
     {
       condition: /size/,
-      importance: 5
+      importance: 5,
+      columnConstructor: tr.ui.analysis.NumericMemoryColumn
     },
     {
       // All other columns.
-      importance: 0
+      importance: 0,
+      columnConstructor: tr.ui.analysis.NumericMemoryColumn
+    }
+  ];
+
+  var DIAGNOSTIC_COLUMN_RULES = [
+    {
+      importance: 0,
+      columnConstructor: tr.ui.analysis.StringMemoryColumn
     }
   ];
 
@@ -554,6 +563,17 @@ tr.exportTo('tr.ui.analysis', function() {
 
       var rows = this.createRows_();
       var columns = this.createColumns_(rows);
+      rows.forEach(function(rootRow) {
+        tr.ui.analysis.aggregateTableRowCellsRecursively(rootRow, columns,
+            function(contexts) {
+              // Only aggregate suballocation rows (numerics of regular rows
+              // corresponding to MADs have already been aggregated by the
+              // model in MemoryAllocatorDump.aggregateNumericsRecursively).
+              return contexts !== undefined && contexts.some(function(context) {
+                return context === SUBALLOCATION_CONTEXT;
+              });
+            });
+      });
 
       this.$.table.tableRows = rows;
       this.$.table.tableColumns = columns;
@@ -587,11 +607,14 @@ tr.exportTo('tr.ui.analysis', function() {
       var title = definedDump.name;
       var fullName = definedDump.fullName;
 
-      // Transform a chronological list of memory allocator dumps into a
-      // dictionary of cells (where each cell contains a chronological list
-      // of the values of its attribute).
-      var cells = tr.ui.analysis.createCells(dumps, function(dump) {
-        return dump.attributes;
+      // Transform a chronological list of memory allocator dumps into two
+      // dictionaries of cells (where each cell contains a chronological list
+      // of the values of one of its numerics or diagnostics).
+      var numericCells = tr.ui.analysis.createCells(dumps, function(dump) {
+        return dump.numerics;
+      });
+      var diagnosticCells = tr.ui.analysis.createCells(dumps, function(dump) {
+        return dump.diagnostics;
       });
 
       // Determine whether the memory allocator dump is a suballocation. A
@@ -632,9 +655,10 @@ tr.exportTo('tr.ui.analysis', function() {
 
       var row = {
         title: title,
-        fullName: fullName,
+        fullNames: [fullName],
         contexts: dumps,
-        cells: cells,
+        numericCells: numericCells,
+        diagnosticCells: diagnosticCells,
         suballocatedBy: suballocatedBy
       };
 
@@ -667,8 +691,6 @@ tr.exportTo('tr.ui.analysis', function() {
       if (suballocationClassificationRootNode !== undefined) {
         var suballocationRow = this.createSuballocationRowRecursively_(
             'suballocations', suballocationClassificationRootNode);
-        tr.ui.analysis.aggregateTableRowCellsRecursively(
-            suballocationRow, 'cells');
         subRows.push(suballocationRow);
       }
 
@@ -700,9 +722,55 @@ tr.exportTo('tr.ui.analysis', function() {
         var currentNode = nextNode;
       }
 
-      if (currentNode.row !== undefined)
-        throw new Error('Multiple suballocations with the same owner name');
-      currentNode.row = suballocationRow;
+      var existingRow = currentNode.row;
+      if (existingRow !== undefined) {
+        // On rare occasions it can happen that one dump (e.g. sqlite) owns
+        // different suballocations at different timestamps (e.g.
+        // malloc/allocated_objects/_7d35 and malloc/allocated_objects/_511e).
+        // When this happens, we merge the two suballocations into a single row
+        // (malloc/allocated_objects/suballocations/sqlite).
+        for (var i = 0; i < suballocationRow.contexts.length; i++) {
+          var newContext = suballocationRow.contexts[i];
+          if (newContext === undefined)
+            continue;
+
+          if (existingRow.contexts[i] !== undefined)
+            throw new Error('Multiple suballocations with the same owner name');
+
+          existingRow.contexts[i] = newContext;
+          ['numericCells', 'diagnosticCells'].forEach(function(cellKey) {
+            var suballocationCells = suballocationRow[cellKey];
+            if (suballocationCells === undefined)
+              return;
+            tr.b.iterItems(suballocationCells, function(cellName, cell) {
+              if (cell === undefined)
+                return;
+              var fields = cell.fields;
+              if (fields === undefined)
+                return;
+              var field = fields[i];
+              if (field === undefined)
+                return;
+              var existingCells = existingRow[cellKey];
+              if (existingCells === undefined) {
+                existingCells = {};
+                existingRow[cellKey] = existingCells;
+              }
+              var existingCell = existingCells[cellName];
+              if (existingCell === undefined) {
+                existingCell = new tr.ui.analysis.MemoryCell(
+                    new Array(fields.length));
+                existingCells[cellName] = existingCell;
+              }
+              existingCell.fields[i] = field;
+            });
+          });
+        }
+        existingRow.fullNames.push.apply(
+            existingRow.fullNames, suballocationRow.fullNames);
+      } else {
+        currentNode.row = suballocationRow;
+      }
 
       return rootNode;
     },
@@ -732,7 +800,7 @@ tr.exportTo('tr.ui.analysis', function() {
         // this case, the suballocation from the ancestor must be mapped to
         // 'malloc/allocated_objects/suballocations/skia/<unspecified>' so
         // that 'malloc/allocated_objects/suballocations/skia' could
-        // aggregate the attributes of the two suballocations properly.
+        // aggregate the numerics of the two suballocations properly.
         var row = node.row;
         row.title = '<unspecified>';
         row.suballocation = true;
@@ -754,7 +822,6 @@ tr.exportTo('tr.ui.analysis', function() {
         title: name,
         suballocation: true,
         contexts: contexts,
-        cells: {},
         subRows: subRows
       };
     },
@@ -763,12 +830,15 @@ tr.exportTo('tr.ui.analysis', function() {
       var titleColumn = new AllocatorDumpNameColumn();
       titleColumn.width = '200px';
 
-      var attributeColumns = tr.ui.analysis.MemoryColumn.fromRows(
-          rows, 'cells', this.aggregationMode_, RULES);
-      tr.ui.analysis.MemoryColumn.spaceEqually(attributeColumns);
-      tr.ui.analysis.MemoryColumn.sortByImportance(attributeColumns, RULES);
+      var numericColumns = tr.ui.analysis.MemoryColumn.fromRows(
+          rows, 'numericCells', this.aggregationMode_, NUMERIC_COLUMN_RULES);
+      var diagnosticColumns = tr.ui.analysis.MemoryColumn.fromRows(
+          rows, 'diagnosticCells', this.aggregationMode_,
+          DIAGNOSTIC_COLUMN_RULES);
+      var fieldColumns = numericColumns.concat(diagnosticColumns);
+      tr.ui.analysis.MemoryColumn.spaceEqually(fieldColumns);
 
-      var columns = [titleColumn].concat(attributeColumns);
+      var columns = [titleColumn].concat(fieldColumns);
       return columns;
     }
   });

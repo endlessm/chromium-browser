@@ -15,6 +15,8 @@
 #include "GrVkResourceProvider.h"
 #include "GrVkUtil.h"
 
+#include "vk/GrVkTypes.h"
+
 #define VK_CALL(GPU, X) GR_VK_CALL(GPU->vkInterface(), X)
 
 // We're virtually derived from GrSurface (via GrRenderTarget) so its
@@ -118,7 +120,7 @@ GrVkRenderTarget::Create(GrVkGpu* gpu,
                          const GrVkImage::Resource* imageResource) {
     VkFormat pixelFormat;
     GrPixelConfigToVkFormat(desc.fConfig, &pixelFormat);
-    
+
     VkImage colorImage;
 
     // create msaa surface if necessary
@@ -196,7 +198,6 @@ GrVkRenderTarget::CreateNewRenderTarget(GrVkGpu* gpu,
     GrVkRenderTarget* rt = GrVkRenderTarget::Create(gpu, desc, lifeCycle, imageResource);
     // Create() will increment the refCount of the image resource if it succeeds
     imageResource->unref(gpu);
-
     return rt;
 }
 
@@ -204,12 +205,33 @@ GrVkRenderTarget*
 GrVkRenderTarget::CreateWrappedRenderTarget(GrVkGpu* gpu,
                                             const GrSurfaceDesc& desc,
                                             GrGpuResource::LifeCycle lifeCycle,
-                                            const GrVkImage::Resource* imageResource) {
-    SkASSERT(imageResource);
+                                            const GrVkTextureInfo* info) {
+    SkASSERT(info);
+    // We can wrap a rendertarget without its allocation, as long as we don't take ownership
+    SkASSERT(VK_NULL_HANDLE != info->fImage);
+    SkASSERT(VK_NULL_HANDLE != info->fAlloc || kAdopted_LifeCycle != lifeCycle);
 
-    // Note: we assume the caller will unref the imageResource
-    // Create() will increment the refCount, and we'll unref when we're done with it
-    return GrVkRenderTarget::Create(gpu, desc, lifeCycle, imageResource);
+    GrVkImage::Resource::Flags flags = (VK_IMAGE_TILING_LINEAR == info->fImageTiling)
+                                     ? Resource::kLinearTiling_Flag : Resource::kNo_Flags;
+
+    const GrVkImage::Resource* imageResource;
+    if (kBorrowed_LifeCycle == lifeCycle) {
+        imageResource = new GrVkImage::BorrowedResource(info->fImage, info->fAlloc, flags);
+    } else {
+        imageResource = new GrVkImage::Resource(info->fImage, info->fAlloc, flags);
+    }
+    if (!imageResource) {
+        return nullptr;
+    }
+
+    GrVkRenderTarget* rt = GrVkRenderTarget::Create(gpu, desc, lifeCycle, imageResource);
+    if (rt) {
+        rt->fCurrentLayout = info->fImageLayout;
+    }
+    // Create() will increment the refCount of the image resource if it succeeds
+    imageResource->unref(gpu);
+
+    return rt;
 }
 
 bool GrVkRenderTarget::completeStencilAttachment() {
@@ -388,4 +410,3 @@ GrVkGpu* GrVkRenderTarget::getVkGpu() const {
     SkASSERT(!this->wasDestroyed());
     return static_cast<GrVkGpu*>(this->getGpu());
 }
-

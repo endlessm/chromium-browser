@@ -67,6 +67,25 @@ class TabTest(tab_test_case.TabTestCase):
                       lambda: self._tab.Navigate('chrome://crash',
                                                  timeout=30))
 
+  def testTimeoutExceptionIncludeConsoleMessage(self):
+    self._tab.EvaluateJavaScript("""
+        window.__set_timeout_called = false;
+        function buggyReference() {
+          window.__set_timeout_called = true;
+          if (window.__one.not_defined === undefined)
+             window.__one = 1;
+        }
+        setTimeout(buggyReference, 200);""")
+    self._tab.WaitForJavaScriptExpression(
+        'window.__set_timeout_called === true', 5)
+    with self.assertRaises(exceptions.TimeoutException) as context:
+      self._tab.WaitForJavaScriptExpression(
+          'window.__one === 1', 1)
+      self.assertIn(
+        ("(error) :5: Uncaught TypeError: Cannot read property 'not_defined' "
+        'of undefined\n'),
+        context.exception.message)
+
   @decorators.Enabled('has tabs')
   def testActivateTab(self):
     util.WaitFor(lambda: _IsDocumentVisible(self._tab), timeout=5)
@@ -100,7 +119,6 @@ class TabTest(tab_test_case.TabTestCase):
   # Test failing on android: http://crbug.com/437057
   # and mac: http://crbug.com/468675
   @decorators.Disabled('android', 'chromeos', 'mac')
-  @decorators.Disabled('win')  # crbug.com/570955
   def testHighlight(self):
     self.assertEquals(self._tab.url, 'about:blank')
     config = tracing_config.TracingConfig()
@@ -122,7 +140,6 @@ class TabTest(tab_test_case.TabTestCase):
 
   @decorators.Enabled('has tabs')
   @decorators.Disabled('mac', 'linux')  # crbug.com/499207.
-  @decorators.Disabled('win')  # crbug.com/570955.
   def testGetRendererThreadFromTabId(self):
     self.assertEquals(self._tab.url, 'about:blank')
     # Create 3 tabs. The third tab is closed before we call
@@ -213,8 +230,9 @@ class MediaRouterDialogTabTest(tab_test_case.TabTestCase):
   def CustomizeBrowserOptions(cls, options):
     options.AppendExtraBrowserArgs('--media-router=1')
 
-  # There is no media router dialog on android, it is only desktop feature.
-  @decorators.Disabled('android')
+  # There is no media router dialog on android/chromeos, it is a desktop-only
+  # feature.
+  @decorators.Disabled('android', 'chromeos')
   def testMediaRouterDialog(self):
     self._tab.Navigate(self.UrlOfUnittestFile('cast.html'))
     self._tab.WaitForDocumentReadyStateToBeComplete()

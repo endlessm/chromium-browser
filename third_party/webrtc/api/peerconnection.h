@@ -12,6 +12,8 @@
 #define WEBRTC_API_PEERCONNECTION_H_
 
 #include <string>
+#include <map>
+#include <vector>
 
 #include "webrtc/api/dtlsidentitystore.h"
 #include "webrtc/api/peerconnectionfactory.h"
@@ -26,19 +28,27 @@
 namespace webrtc {
 
 class MediaStreamObserver;
-class RemoteMediaStreamFactory;
+class VideoRtpReceiver;
 
 // Populates |session_options| from |rtc_options|, and returns true if options
 // are valid.
 // |session_options|->transport_options map entries must exist in order for
 // them to be populated from |rtc_options|.
-bool ConvertRtcOptionsForOffer(
+bool ExtractMediaSessionOptions(
     const PeerConnectionInterface::RTCOfferAnswerOptions& rtc_options,
+    bool is_offer,
     cricket::MediaSessionOptions* session_options);
 
 // Populates |session_options| from |constraints|, and returns true if all
 // mandatory constraints are satisfied.
 // Assumes that |session_options|->transport_options map entries exist.
+// Will also set defaults if corresponding constraints are not present:
+// recv_audio=true, recv_video=true, bundle_enabled=true.
+// Other fields will be left with existing values.
+//
+// Deprecated. Will be removed once callers that use constraints are gone.
+// TODO(hta): Remove when callers are gone.
+// https://bugs.chromium.org/p/webrtc/issues/detail?id=5617
 bool ParseConstraintsForAnswer(const MediaConstraintsInterface* constraints,
                                cricket::MediaSessionOptions* session_options);
 
@@ -58,8 +68,8 @@ class PeerConnection : public PeerConnectionInterface,
   explicit PeerConnection(PeerConnectionFactory* factory);
 
   bool Initialize(
+      const cricket::MediaConfig& media_config,
       const PeerConnectionInterface::RTCConfiguration& configuration,
-      const MediaConstraintsInterface* constraints,
       rtc::scoped_ptr<cricket::PortAllocator> allocator,
       rtc::scoped_ptr<DtlsIdentityStoreInterface> dtls_identity_store,
       PeerConnectionObserver* observer);
@@ -106,12 +116,16 @@ class PeerConnection : public PeerConnectionInterface,
   const SessionDescriptionInterface* remote_description() const override;
 
   // JSEP01
+  // Deprecated, use version without constraints.
   void CreateOffer(CreateSessionDescriptionObserver* observer,
                    const MediaConstraintsInterface* constraints) override;
   void CreateOffer(CreateSessionDescriptionObserver* observer,
                    const RTCOfferAnswerOptions& options) override;
+  // Deprecated, use version without constraints.
   void CreateAnswer(CreateSessionDescriptionObserver* observer,
                     const MediaConstraintsInterface* constraints) override;
+  void CreateAnswer(CreateSessionDescriptionObserver* observer,
+                    const RTCOfferAnswerOptions& options) override;
   void SetLocalDescription(SetSessionDescriptionObserver* observer,
                            SessionDescriptionInterface* desc) override;
   void SetRemoteDescription(SetSessionDescriptionObserver* observer,
@@ -119,6 +133,8 @@ class PeerConnection : public PeerConnectionInterface,
   bool SetConfiguration(
       const PeerConnectionInterface::RTCConfiguration& config) override;
   bool AddIceCandidate(const IceCandidateInterface* candidate) override;
+  bool RemoveIceCandidates(
+      const std::vector<cricket::Candidate>& candidates) override;
 
   void RegisterUMAObserver(UMAObserver* observer) override;
 
@@ -128,7 +144,7 @@ class PeerConnection : public PeerConnectionInterface,
   virtual const std::vector<rtc::scoped_refptr<DataChannel>>&
   sctp_data_channels() const {
     return sctp_data_channels_;
-  };
+  }
 
  protected:
   ~PeerConnection() override;
@@ -154,15 +170,14 @@ class PeerConnection : public PeerConnectionInterface,
   void OnMessage(rtc::Message* msg) override;
 
   void CreateAudioReceiver(MediaStreamInterface* stream,
-                           AudioTrackInterface* audio_track,
+                           const std::string& track_id,
                            uint32_t ssrc);
+
   void CreateVideoReceiver(MediaStreamInterface* stream,
-                           VideoTrackInterface* video_track,
+                           const std::string& track_id,
                            uint32_t ssrc);
-  void DestroyAudioReceiver(MediaStreamInterface* stream,
-                            AudioTrackInterface* audio_track);
-  void DestroyVideoReceiver(MediaStreamInterface* stream,
-                            VideoTrackInterface* video_track);
+  void StopReceivers(cricket::MediaType media_type);
+  void DestroyReceiver(const std::string& track_id);
   void DestroyAudioSender(MediaStreamInterface* stream,
                           AudioTrackInterface* audio_track,
                           uint32_t ssrc);
@@ -173,6 +188,8 @@ class PeerConnection : public PeerConnectionInterface,
   void OnIceConnectionChange(IceConnectionState new_state) override;
   void OnIceGatheringChange(IceGatheringState new_state) override;
   void OnIceCandidate(const IceCandidateInterface* candidate) override;
+  void OnIceCandidatesRemoved(
+      const std::vector<cricket::Candidate>& candidates) override;
   void OnIceConnectionReceivingChange(bool receiving) override;
 
   // Signals from WebRtcSession.
@@ -211,8 +228,17 @@ class PeerConnection : public PeerConnectionInterface,
 
   // Returns a MediaSessionOptions struct with options decided by
   // |constraints|, the local MediaStreams and DataChannels.
+  // Deprecated, use version without constraints.
   virtual bool GetOptionsForAnswer(
       const MediaConstraintsInterface* constraints,
+      cricket::MediaSessionOptions* session_options);
+  virtual bool GetOptionsForAnswer(
+      const RTCOfferAnswerOptions& options,
+      cricket::MediaSessionOptions* session_options);
+
+  // Helper function for options processing.
+  // Deprecated.
+  virtual void FinishOptionsForAnswer(
       cricket::MediaSessionOptions* session_options);
 
   // Remove all local and remote tracks of type |media_type|.
@@ -250,10 +276,6 @@ class PeerConnection : public PeerConnectionInterface,
   // |remote_streams_| and notifies the observer that the MediaStreams no longer
   // exist.
   void UpdateEndedRemoteMediaStreams();
-
-  // Set the MediaStreamTrackInterface::TrackState to |kEnded| on all remote
-  // tracks of type |media_type|.
-  void EndRemoteTracks(cricket::MediaType media_type);
 
   // Loops through the vector of |streams| and finds added and removed
   // StreamParams since last time this method was called.
@@ -317,7 +339,7 @@ class PeerConnection : public PeerConnectionInterface,
   std::vector<rtc::scoped_refptr<RtpSenderInterface>>::iterator
   FindSenderForTrack(MediaStreamTrackInterface* track);
   std::vector<rtc::scoped_refptr<RtpReceiverInterface>>::iterator
-  FindReceiverForTrack(MediaStreamTrackInterface* track);
+  FindReceiverForTrack(const std::string& track_id);
 
   TrackInfos* GetRemoteTracks(cricket::MediaType media_type);
   TrackInfos* GetLocalTracks(cricket::MediaType media_type);
@@ -367,7 +389,6 @@ class PeerConnection : public PeerConnectionInterface,
   std::vector<rtc::scoped_refptr<DataChannel>> sctp_data_channels_to_free_;
 
   bool remote_peer_supports_msid_ = false;
-  rtc::scoped_ptr<RemoteMediaStreamFactory> remote_stream_factory_;
 
   std::vector<rtc::scoped_refptr<RtpSenderInterface>> senders_;
   std::vector<rtc::scoped_refptr<RtpReceiverInterface>> receivers_;

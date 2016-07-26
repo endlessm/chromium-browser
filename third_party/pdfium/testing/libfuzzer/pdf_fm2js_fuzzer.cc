@@ -5,9 +5,9 @@
 #include <cstddef>
 #include <cstdint>
 
-#include "core/include/fxcrt/fx_basic.h"
-#include "core/include/fxcrt/fx_string.h"
-#include "xfa/src/fxfa/src/fm2js/xfa_fm2js.h"
+#include "core/fxcrt/include/fx_basic.h"
+#include "core/fxcrt/include/fx_string.h"
+#include "xfa/fxfa/fm2js/xfa_program.h"
 
 extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
   if (size > std::numeric_limits<FX_STRSIZE>::max())
@@ -16,7 +16,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
   CFX_WideString input = CFX_WideString::FromUTF8(
       reinterpret_cast<const char*>(data), static_cast<FX_STRSIZE>(size));
   CXFA_FMProgram program;
-  if (program.Init(input) || program.ParseProgram())
+  if (program.Init(input.AsWideStringC()) || program.ParseProgram())
     return 0;
 
   CFX_WideTextBuf js;

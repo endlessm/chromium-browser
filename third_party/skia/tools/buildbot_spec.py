@@ -227,6 +227,7 @@ def device_cfg(builder_dict):
       'Nexus5':        'arm_v7_neon',
       'Nexus6':        'arm_v7_neon',
       'Nexus7':        'arm_v7_neon',
+      'Nexus7v2':      'arm_v7_neon',
       'Nexus9':        'arm64',
       'NexusPlayer':   'x86',
     }[builder_dict['model']]
@@ -243,6 +244,31 @@ def device_cfg(builder_dict):
       'Daisy': 'daisy',
     }[builder_dict['model']]
 
+  # iOS.
+  if 'iOS' in builder_dict.get('os', ''):
+    return {
+      'iPad4': 'iPad4,1',
+    }[builder_dict['model']]
+
+  return None
+
+
+cov_skip.extend([lineno(), lineno() + 1])
+def product_board(builder_dict):
+  if 'Android' in builder_dict.get('os', ''):
+    return {
+      'AndroidOne':    None,  # TODO(borenet,kjlubick)
+      'GalaxyS3':      'smdk4x12',
+      'GalaxyS4':      None,  # TODO(borenet,kjlubick)
+      'NVIDIA_Shield': None,  # TODO(borenet,kjlubick)
+      'Nexus10':       'manta',
+      'Nexus5':        'hammerhead',
+      'Nexus6':        'shamu',
+      'Nexus7':        'grouper',
+      'Nexus7v2':      'flo',
+      'Nexus9':        'flounder',
+      'NexusPlayer':   'fugu',
+    }[builder_dict['model']]
   return None
 
 
@@ -263,6 +289,9 @@ def get_builder_spec(builder_name):
   device = device_cfg(builder_dict)
   if device:
     rv['device_cfg'] = device
+  board = product_board(builder_dict)
+  if board:
+    rv['product.board'] = board
 
   role = builder_dict['role']
   if role == builder_name_schema.BUILDER_ROLE_HOUSEKEEPER:
@@ -278,7 +307,7 @@ def get_builder_spec(builder_name):
   rv['do_perf_steps'] = (role == builder_name_schema.BUILDER_ROLE_PERF or
                          (role == builder_name_schema.BUILDER_ROLE_TEST and
                           configuration == CONFIG_DEBUG))
-  if 'Valgrind' in builder_name:
+  if rv['do_test_steps'] and 'Valgrind' in builder_name:
     rv['do_perf_steps'] = True
   if 'GalaxyS4' in builder_name:
     rv['do_perf_steps'] = False

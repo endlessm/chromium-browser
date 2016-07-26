@@ -9,6 +9,7 @@ found in the LICENSE file.
 <link rel="import" href="/tracing/model/model.html">
 <link rel="import" href="/tracing/model/power_series.html">
 <link rel="import" href="/tracing/ui/analysis/power_sample_table.html">
+<link rel="import" href="/tracing/value/unit.html">
 
 <script>
 'use strict';
@@ -80,12 +81,16 @@ tr.b.unittest.testSuite(function() {
     assert.equal(columns[0].title, 'Time');
     assert.equal(columns[0].width, '100px');
     var timestampSpan = columns[0].value(series.samples[0]);
-    assert.equal(timestampSpan.tagName, 'TR-V-UI-TIME-STAMP-SPAN');
-    assert.equal(timestampSpan.timestamp, 0);
+    assert.equal(timestampSpan.tagName, 'TR-V-UI-SCALAR-SPAN');
+    assert.equal(timestampSpan.value, 0);
+    assert.equal(timestampSpan.unit, tr.v.Unit.byName.timeStampInMs);
 
-    assert.equal(columns[1].title, 'Power (mW)');
+    assert.equal(columns[1].title, 'Power');
     assert.equal(columns[1].width, '100%');
-    assert.equal(columns[1].value(series.samples[0]), 1000);
+    var powerSpan = columns[1].value(series.samples[0]);
+    assert.equal(powerSpan.tagName, 'TR-V-UI-SCALAR-SPAN');
+    assert.equal(powerSpan.value, 1);
+    assert.equal(powerSpan.unit, tr.v.Unit.byName.powerInWatts);
   });
 });
 </script>

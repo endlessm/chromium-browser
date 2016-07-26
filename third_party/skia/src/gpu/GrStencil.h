@@ -1,4 +1,3 @@
-
 /*
  * Copyright 2011 Google Inc.
  *
@@ -12,6 +11,8 @@
 
 #include "GrTypes.h"
 #include "SkRegion.h"
+
+class GrProcessorKeyBuilder;
 
 /**
  * Gr uses the stencil buffer to implement complex clipping inside the
@@ -284,6 +285,8 @@ public:
     bool isValid() const {
         return fPassOps[0] < kStencilOpCount;
     }
+
+    void genKey(GrProcessorKeyBuilder* b) const;
 
     bool operator == (const GrStencilSettings& s) const {
         static const size_t gCompareSize = sizeof(GrStencilSettings) -

@@ -25,11 +25,11 @@ extern "C" {
 #include "webrtc/common_audio/signal_processing/include/signal_processing_library.h"
 }
 #include "webrtc/modules/audio_processing/aec/aec_core.h"
-extern "C" {
 #include "webrtc/modules/audio_processing/aec/aec_resampler.h"
-}
 #include "webrtc/modules/audio_processing/aec/echo_cancellation_internal.h"
 #include "webrtc/typedefs.h"
+
+namespace webrtc {
 
 // Measured delays [ms]
 // Device                Chrome  GTP
@@ -452,7 +452,8 @@ int WebRtcAec_GetMetrics(void* handle, AecMetrics* metrics) {
     return AEC_UNINITIALIZED_ERROR;
   }
 
-  WebRtcAec_GetEchoStats(self->aec, &erl, &erle, &a_nlp);
+  WebRtcAec_GetEchoStats(self->aec, &erl, &erle, &a_nlp,
+                         &metrics->divergent_filter_fraction);
 
   // ERL
   metrics->erl.instant = static_cast<int>(erl.instant);
@@ -883,3 +884,4 @@ static void EstBufDelayExtended(Aec* self) {
     self->knownDelay = WEBRTC_SPL_MAX((int)self->filtDelay - 256, 0);
   }
 }
+}  // namespace webrtc

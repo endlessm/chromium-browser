@@ -11,7 +11,10 @@
 #ifdef HAVE_WEBRTC_VIDEO
 
 #include <stdio.h>
+
+#include <memory>
 #include <vector>
+
 #include "webrtc/base/gunit.h"
 #include "webrtc/base/logging.h"
 #include "webrtc/base/stringutils.h"
@@ -46,7 +49,7 @@ class WebRtcVideoCapturerTest : public testing::Test {
 
  protected:
   FakeWebRtcVcmFactory* factory_;  // owned by capturer_
-  rtc::scoped_ptr<cricket::WebRtcVideoCapturer> capturer_;
+  std::unique_ptr<cricket::WebRtcVideoCapturer> capturer_;
   cricket::VideoCapturerListener listener_;
 };
 
@@ -87,7 +90,7 @@ TEST_F(WebRtcVideoCapturerTest, TestCapture) {
   ASSERT_TRUE(capturer_->GetCaptureFormat() != NULL);
   EXPECT_EQ(format, *capturer_->GetCaptureFormat());
   EXPECT_EQ_WAIT(cricket::CS_RUNNING, listener_.last_capture_state(), 1000);
-  EXPECT_TRUE(factory_->modules[0]->SendFrame(640, 480));
+  factory_->modules[0]->SendFrame(640, 480);
   EXPECT_TRUE_WAIT(listener_.frame_count() > 0, 5000);
   EXPECT_EQ(capturer_->GetCaptureFormat()->fourcc, listener_.frame_fourcc());
   EXPECT_EQ(640, listener_.frame_width());
@@ -114,7 +117,7 @@ TEST_F(WebRtcVideoCapturerTest, TestCaptureVcm) {
   ASSERT_TRUE(capturer_->GetCaptureFormat() != NULL);
   EXPECT_EQ(format, *capturer_->GetCaptureFormat());
   EXPECT_EQ_WAIT(cricket::CS_RUNNING, listener_.last_capture_state(), 1000);
-  EXPECT_TRUE(factory_->modules[0]->SendFrame(640, 480));
+  factory_->modules[0]->SendFrame(640, 480);
   EXPECT_TRUE_WAIT(listener_.frame_count() > 0, 5000);
   EXPECT_EQ(capturer_->GetCaptureFormat()->fourcc, listener_.frame_fourcc());
   EXPECT_EQ(640, listener_.frame_width());
@@ -127,7 +130,7 @@ TEST_F(WebRtcVideoCapturerTest, TestCaptureVcm) {
 
 TEST_F(WebRtcVideoCapturerTest, TestCaptureWithoutInit) {
   cricket::VideoFormat format;
-  EXPECT_EQ(cricket::CS_NO_DEVICE, capturer_->Start(format));
+  EXPECT_EQ(cricket::CS_FAILED, capturer_->Start(format));
   EXPECT_TRUE(capturer_->GetCaptureFormat() == NULL);
   EXPECT_FALSE(capturer_->IsRunning());
 }

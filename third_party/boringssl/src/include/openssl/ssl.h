@@ -251,25 +251,39 @@ OPENSSL_EXPORT int SSL_get_fd(const SSL *ssl);
 
 /* SSL_get_rfd returns the file descriptor that |ssl| is configured to read
  * from. If |ssl|'s read |BIO| is not configured or doesn't wrap a file
- * descriptor then it returns -1. */
+ * descriptor then it returns -1.
+ *
+ * Note: On Windows, this may return either a file descriptor or a socket (cast
+ * to int), depending on whether |ssl| was configured with a file descriptor or
+ * socket |BIO|. */
 OPENSSL_EXPORT int SSL_get_rfd(const SSL *ssl);
 
 /* SSL_get_wfd returns the file descriptor that |ssl| is configured to write
  * to. If |ssl|'s write |BIO| is not configured or doesn't wrap a file
- * descriptor then it returns -1. */
+ * descriptor then it returns -1.
+ *
+ * Note: On Windows, this may return either a file descriptor or a socket (cast
+ * to int), depending on whether |ssl| was configured with a file descriptor or
+ * socket |BIO|. */
 OPENSSL_EXPORT int SSL_get_wfd(const SSL *ssl);
 
 /* SSL_set_fd configures |ssl| to read from and write to |fd|. It returns one
  * on success and zero on allocation error. The caller retains ownership of
- * |fd|. */
+ * |fd|.
+ *
+ * On Windows, |fd| is cast to a |SOCKET| and used with Winsock APIs. */
 OPENSSL_EXPORT int SSL_set_fd(SSL *ssl, int fd);
 
 /* SSL_set_rfd configures |ssl| to read from |fd|. It returns one on success and
- * zero on allocation error. The caller retains ownership of |fd|. */
+ * zero on allocation error. The caller retains ownership of |fd|.
+ *
+ * On Windows, |fd| is cast to a |SOCKET| and used with Winsock APIs. */
 OPENSSL_EXPORT int SSL_set_rfd(SSL *ssl, int fd);
 
 /* SSL_set_wfd configures |ssl| to write to |fd|. It returns one on success and
- * zero on allocation error. The caller retains ownership of |fd|. */
+ * zero on allocation error. The caller retains ownership of |fd|.
+ *
+ * On Windows, |fd| is cast to a |SOCKET| and used with Winsock APIs. */
 OPENSSL_EXPORT int SSL_set_wfd(SSL *ssl, int fd);
 
 /* SSL_do_handshake continues the current handshake. If there is none or the
@@ -465,7 +479,8 @@ OPENSSL_EXPORT int SSL_get_error(const SSL *ssl, int ret_code);
  * a private key operation was unfinished. The caller may retry the operation
  * when the private key operation is complete.
  *
- * See also |SSL_set_private_key_method|. */
+ * See also |SSL_set_private_key_method| and
+ * |SSL_CTX_set_private_key_method|. */
 #define SSL_ERROR_WANT_PRIVATE_KEY_OPERATION 13
 
 /* SSL_set_mtu sets the |ssl|'s MTU in DTLS to |mtu|. It returns one on success
@@ -1003,6 +1018,11 @@ typedef struct ssl_private_key_method_st {
 OPENSSL_EXPORT void SSL_set_private_key_method(
     SSL *ssl, const SSL_PRIVATE_KEY_METHOD *key_method);
 
+/* SSL_CTX_set_private_key_method configures a custom private key on |ctx|.
+ * |key_method| must remain valid for the lifetime of |ctx|. */
+OPENSSL_EXPORT void SSL_CTX_set_private_key_method(
+    SSL_CTX *ctx, const SSL_PRIVATE_KEY_METHOD *key_method);
+
 
 /* Cipher suites.
  *
@@ -1028,6 +1048,9 @@ OPENSSL_EXPORT int SSL_CIPHER_has_MD5_HMAC(const SSL_CIPHER *cipher);
 
 /* SSL_CIPHER_has_SHA1_HMAC returns one if |cipher| uses HMAC-SHA1. */
 OPENSSL_EXPORT int SSL_CIPHER_has_SHA1_HMAC(const SSL_CIPHER *cipher);
+
+/* SSL_CIPHER_has_SHA256_HMAC returns one if |cipher| uses HMAC-SHA256. */
+OPENSSL_EXPORT int SSL_CIPHER_has_SHA256_HMAC(const SSL_CIPHER *cipher);
 
 /* SSL_CIPHER_is_AESGCM returns one if |cipher| uses AES-GCM. */
 OPENSSL_EXPORT int SSL_CIPHER_is_AESGCM(const SSL_CIPHER *cipher);
@@ -2062,6 +2085,28 @@ OPENSSL_EXPORT int SSL_enable_ocsp_stapling(SSL *ssl);
  * handshake. */
 OPENSSL_EXPORT void SSL_CTX_enable_ocsp_stapling(SSL_CTX *ctx);
 
+/* SSL_CTX_set0_verify_cert_store sets an |X509_STORE| that will be used
+ * exclusively for certificate verification and returns one. Ownership of
+ * |store| is transferred to the |SSL_CTX|. */
+OPENSSL_EXPORT int SSL_CTX_set0_verify_cert_store(SSL_CTX *ctx,
+                                                  X509_STORE *store);
+
+/* SSL_CTX_set1_verify_cert_store sets an |X509_STORE| that will be used
+ * exclusively for certificate verification and returns one. An additional
+ * reference to |store| will be taken. */
+OPENSSL_EXPORT int SSL_CTX_set1_verify_cert_store(SSL_CTX *ctx,
+                                                  X509_STORE *store);
+
+/* SSL_set0_verify_cert_store sets an |X509_STORE| that will be used
+ * exclusively for certificate verification and returns one. Ownership of
+ * |store| is transferred to the |SSL|. */
+OPENSSL_EXPORT int SSL_set0_verify_cert_store(SSL *ssl, X509_STORE *store);
+
+/* SSL_set1_verify_cert_store sets an |X509_STORE| that will be used
+ * exclusively for certificate verification and returns one. An additional
+ * reference to |store| will be taken. */
+OPENSSL_EXPORT int SSL_set1_verify_cert_store(SSL *ssl, X509_STORE *store);
+
 
 /* Client certificate CA list.
  *
@@ -3061,6 +3106,10 @@ OPENSSL_EXPORT int SSL_renegotiate(SSL *ssl);
 /* SSL_set_state does nothing. */
 OPENSSL_EXPORT void SSL_set_state(SSL *ssl, int state);
 
+/* SSL_get_shared_ciphers writes an empty string to |buf| and returns a
+ * pointer to |buf|, or NULL if |len| is less than or equal to zero. */
+OPENSSL_EXPORT char *SSL_get_shared_ciphers(const SSL *ssl, char *buf, int len);
+
 /* SSL_MODE_HANDSHAKE_CUTTHROUGH is the same as SSL_MODE_ENABLE_FALSE_START. */
 #define SSL_MODE_HANDSHAKE_CUTTHROUGH SSL_MODE_ENABLE_FALSE_START
 
@@ -3118,6 +3167,9 @@ OPENSSL_EXPORT const COMP_METHOD *SSL_get_current_compression(SSL *s);
 
 /* SSL_get_current_expansion returns NULL. */
 OPENSSL_EXPORT const COMP_METHOD *SSL_get_current_expansion(SSL *s);
+
+/* SSL_get_server_tmp_key returns zero. */
+OPENSSL_EXPORT int *SSL_get_server_tmp_key(SSL *ssl, EVP_PKEY **out_key);
 
 #define SSL_set_app_data(s, arg) (SSL_set_ex_data(s, 0, (char *)arg))
 #define SSL_get_app_data(s) (SSL_get_ex_data(s, 0))
@@ -3909,10 +3961,6 @@ struct ssl_st {
   EVP_CIPHER_CTX *enc_read_ctx;
   EVP_MD_CTX *read_hash;
 
-  /* in_handshake is non-zero when we are actually in SSL_accept() or
-   * SSL_connect() */
-  int in_handshake;
-
   /* verify_mode is a bitmask of |SSL_VERIFY_*| values. */
   uint8_t verify_mode;
 
@@ -4006,8 +4054,10 @@ typedef struct ssl3_state_st {
    * the handshake hash for TLS 1.1 and below. */
   EVP_MD_CTX handshake_md5;
 
-  int warn_alert;
-  int fatal_alert;
+  /* clean_shutdown is one if the connection was cleanly shutdown with a
+   * close_notify and zero otherwise. */
+  char clean_shutdown;
+
   /* we allow one fatal and one warning alert to be outstanding, send close
    * alert via the warning alert */
   int alert_dispatch;
@@ -4506,6 +4556,7 @@ OPENSSL_EXPORT int SSL_set_ssl_method(SSL *s, const SSL_METHOD *method);
 #define SSL_R_WRONG_VERSION_NUMBER 247
 #define SSL_R_X509_LIB 248
 #define SSL_R_X509_VERIFICATION_SETUP_PROBLEMS 249
+#define SSL_R_SHUTDOWN_WHILE_IN_INIT 250
 #define SSL_R_SSLV3_ALERT_CLOSE_NOTIFY 1000
 #define SSL_R_SSLV3_ALERT_UNEXPECTED_MESSAGE 1010
 #define SSL_R_SSLV3_ALERT_BAD_RECORD_MAC 1020

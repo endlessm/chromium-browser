@@ -11,7 +11,7 @@
 #include "GrDrawContext.h"
 #include "gl/GrGLGpu.h"
 #include "gl/GrGLUtil.h"
-#include "gl/SkGLContext.h"
+#include "gl/GLTestContext.h"
 
 static void test_read_pixels(skiatest::Reporter* reporter, GrContext* context,
                              GrTexture* rectangleTexture, uint32_t expectedPixelValues[]) {
@@ -137,7 +137,9 @@ static void test_clear(skiatest::Reporter* reporter, GrContext* context,
     }
 }
 
-DEF_GPUTEST_FOR_RENDERING_CONTEXTS(RectangleTexture, reporter, context, glContext) {    
+DEF_GPUTEST_FOR_GL_RENDERING_CONTEXTS(RectangleTexture, reporter, ctxInfo) {
+    GrContext* context = ctxInfo.fGrContext;
+    sk_gpu_test::GLTestContext* glContext = ctxInfo.fGLContext;
     static const int kWidth = 13;
     static const int kHeight = 13;
 

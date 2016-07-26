@@ -15,7 +15,9 @@
 #include "SkSize.h"
 #include "SkStream.h"
 #include "SkTypes.h"
+#include "SkYUVSizeInfo.h"
 
+class SkColorSpace;
 class SkData;
 class SkPngChunkReader;
 class SkSampler;
@@ -97,6 +99,32 @@ public:
      *  Return the ImageInfo associated with this codec.
      */
     const SkImageInfo& getInfo() const { return fSrcInfo; }
+
+    /**
+     *  Returns the color space associated with the codec.
+     *  Does not affect ownership.
+     *  Might be NULL.
+     */
+    SkColorSpace* getColorSpace() const { return fColorSpace.get(); }
+
+    enum Origin {
+        kTopLeft_Origin     = 1, // Default
+        kTopRight_Origin    = 2, // Reflected across y-axis
+        kBottomRight_Origin = 3, // Rotated 180
+        kBottomLeft_Origin  = 4, // Reflected across x-axis
+        kLeftTop_Origin     = 5, // Reflected across x-axis, Rotated 90 CCW
+        kRightTop_Origin    = 6, // Rotated 90 CW
+        kRightBottom_Origin = 7, // Reflected across x-axis, Rotated 90 CW
+        kLeftBottom_Origin  = 8, // Rotated 90 CCW
+        kDefault_Origin     = kTopLeft_Origin,
+        kLast_Origin        = kLeftBottom_Origin,
+    };
+
+    /**
+     *  Returns the image orientation stored in the EXIF data.
+     *  If there is no EXIF data, or if we cannot read the EXIF data, returns kTopLeft.
+     */
+    Origin getOrigin() const { return fOrigin; }
 
     /**
      *  Return a size that approximately supports the desired scale factor.
@@ -277,28 +305,6 @@ public:
      */
     Result getPixels(const SkImageInfo& info, void* pixels, size_t rowBytes);
 
-    struct YUVSizeInfo {
-        SkISize fYSize;
-        SkISize fUSize;
-        SkISize fVSize;
-
-        /**
-         * While the widths of the Y, U, and V planes are not restricted, the
-         * implementation requires that the width of the memory allocated for
-         * each plane be a multiple of DCTSIZE (which is always 8).
-         *
-         * This struct allows us to inform the client how many "widthBytes"
-         * that we need.  Note that we use the new idea of "widthBytes"
-         * because this idea is distinct from "rowBytes" (used elsewhere in
-         * Skia).  "rowBytes" allow the last row of the allocation to not
-         * include any extra padding, while, in this case, every single row of
-         * the allocation must be at least "widthBytes".
-         */
-        size_t fYWidthBytes;
-        size_t fUWidthBytes;
-        size_t fVWidthBytes;
-    };
-
     /**
      *  If decoding to YUV is supported, this returns true.  Otherwise, this
      *  returns false and does not modify any of the parameters.
@@ -308,7 +314,7 @@ public:
      *  @param colorSpace Output parameter.  If non-NULL this is set to kJPEG,
      *                    otherwise this is ignored.
      */
-    bool queryYUV8(YUVSizeInfo* sizeInfo, SkYUVColorSpace* colorSpace) const {
+    bool queryYUV8(SkYUVSizeInfo* sizeInfo, SkYUVColorSpace* colorSpace) const {
         if (nullptr == sizeInfo) {
             return false;
         }
@@ -326,7 +332,7 @@ public:
      *                    recommendation (but not smaller).
      *  @param planes     Memory for each of the Y, U, and V planes.
      */
-    Result getYUV8Planes(const YUVSizeInfo& sizeInfo, void* planes[3]) {
+    Result getYUV8Planes(const SkYUVSizeInfo& sizeInfo, void* planes[3]) {
         if (nullptr == planes || nullptr == planes[0] || nullptr == planes[1] ||
                 nullptr == planes[2]) {
             return kInvalidInput;
@@ -502,7 +508,13 @@ public:
     int outputScanline(int inputScanline) const;
 
 protected:
-    SkCodec(const SkImageInfo&, SkStream*);
+    /**
+     *  Takes ownership of SkStream*
+     */
+    SkCodec(const SkImageInfo&,
+            SkStream*,
+            sk_sp<SkColorSpace> = nullptr,
+            Origin = kTopLeft_Origin);
 
     virtual SkISize onGetScaledDimensions(float /*desiredScale*/) const {
         // By default, scaling is not supported.
@@ -531,11 +543,11 @@ protected:
                                SkPMColor ctable[], int* ctableCount,
                                int* rowsDecoded) = 0;
 
-    virtual bool onQueryYUV8(YUVSizeInfo*, SkYUVColorSpace*) const {
+    virtual bool onQueryYUV8(SkYUVSizeInfo*, SkYUVColorSpace*) const {
         return false;
     }
 
-    virtual Result onGetYUV8Planes(const YUVSizeInfo&, void*[3] /*planes*/) {
+    virtual Result onGetYUV8Planes(const SkYUVSizeInfo&, void*[3] /*planes*/) {
         return kUnimplemented;
     }
 
@@ -630,13 +642,16 @@ protected:
     virtual int onOutputScanline(int inputScanline) const;
 
 private:
-    const SkImageInfo       fSrcInfo;
-    SkAutoTDelete<SkStream> fStream;
-    bool                    fNeedsRewind;
+    const SkImageInfo           fSrcInfo;
+    SkAutoTDelete<SkStream>     fStream;
+    bool                        fNeedsRewind;
+    sk_sp<SkColorSpace>         fColorSpace;
+    const Origin                fOrigin;
+
     // These fields are only meaningful during scanline decodes.
-    SkImageInfo             fDstInfo;
-    SkCodec::Options        fOptions;
-    int                     fCurrScanline;
+    SkImageInfo                 fDstInfo;
+    SkCodec::Options            fOptions;
+    int                         fCurrScanline;
 
     /**
      *  Return whether these dimensions are supported as a scale.

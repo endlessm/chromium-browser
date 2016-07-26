@@ -97,8 +97,8 @@ class SharedPageState(story.SharedState):
     else:
       wpr_mode = wpr_modes.WPR_REPLAY
 
-    self.platform.network_controller.Open(
-        wpr_mode, browser_options.netsim, browser_options.extra_wpr_args)
+    self.platform.network_controller.Open(wpr_mode,
+                                          browser_options.extra_wpr_args)
 
 
   @property
@@ -221,6 +221,13 @@ class SharedPageState(story.SharedState):
         logging.warning('System info not supported')
 
   def WillRunStory(self, page):
+    if not self.platform.tracing_controller.is_tracing_running:
+      # For TimelineBasedMeasurement benchmarks, tracing has already started.
+      # For PageTest benchmarks, tracing has not yet started. We need to make
+      # sure no tracing state is left before starting the browser for PageTest
+      # benchmarks.
+      self.platform.tracing_controller.ClearStateIfNeeded()
+
     if self._ShouldDownloadPregeneratedProfileArchive():
       self._DownloadPregeneratedProfileArchive()
 
@@ -229,7 +236,13 @@ class SharedPageState(story.SharedState):
 
     page_set = page.page_set
     self._current_page = page
-    if self._test.RestartBrowserBeforeEachPage() or page.startup_url:
+    if self._browser and (self._test.RestartBrowserBeforeEachPage()
+                          or page.startup_url):
+      assert not self.platform.tracing_controller.is_tracing_running, (
+          'Should not restart browser when tracing is already running. For '
+          'TimelineBasedMeasurement (TBM) benchmarks, you should not use '
+          'startup_url. Use benchmark.ShouldTearDownStateAfterEachStoryRun '
+          'instead.')
       self._StopBrowser()
     started_browser = not self.browser
 

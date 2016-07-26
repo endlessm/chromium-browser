@@ -22,7 +22,7 @@ from dashboard import stored_object
 from dashboard import utils
 from dashboard.models import graph_data
 
-_QUEUE_YAML_DIR = os.path.join(os.path.dirname(__file__), os.path.pardir)
+_QUEUE_YAML_DIR = os.path.join(os.path.dirname(__file__), '..')
 
 
 class FakeRequestObject(object):
@@ -129,6 +129,9 @@ class TestCase(unittest.TestCase):
                     (var_name, javascript_value))
           return None
     return None
+
+  def GetJsonValue(self, response, key):
+    return json.loads(response.body).get(key)
 
   def PatchDatastoreHooksRequest(self, remote_addr=None):
     """This patches the request object to allow IP address to be set.

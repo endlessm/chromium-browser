@@ -11,7 +11,7 @@
 #include "webrtc/api/rtpsender.h"
 
 #include "webrtc/api/localaudiosource.h"
-#include "webrtc/api/videosourceinterface.h"
+#include "webrtc/api/mediastreaminterface.h"
 #include "webrtc/base/helpers.h"
 
 namespace webrtc {
@@ -36,7 +36,7 @@ void LocalAudioSinkAdapter::OnData(const void* audio_data,
   }
 }
 
-void LocalAudioSinkAdapter::SetSink(cricket::AudioRenderer::Sink* sink) {
+void LocalAudioSinkAdapter::SetSink(cricket::AudioSource::Sink* sink) {
   rtc::CritScope lock(&lock_);
   ASSERT(!sink || !sink_);
   sink_ = sink;
@@ -194,9 +194,17 @@ void AudioRtpSender::SetAudioSend() {
   }
 #endif
 
-  cricket::AudioRenderer* renderer = sink_adapter_.get();
-  ASSERT(renderer != nullptr);
-  provider_->SetAudioSend(ssrc_, track_->enabled(), options, renderer);
+  cricket::AudioSource* source = sink_adapter_.get();
+  ASSERT(source != nullptr);
+  provider_->SetAudioSend(ssrc_, track_->enabled(), options, source);
+}
+
+RtpParameters AudioRtpSender::GetParameters() const {
+  return provider_->GetAudioRtpParameters(ssrc_);
+}
+
+bool AudioRtpSender::SetParameters(const RtpParameters& parameters) {
+  return provider_->SetAudioRtpParameters(ssrc_, parameters);
 }
 
 VideoRtpSender::VideoRtpSender(VideoTrackInterface* track,
@@ -268,7 +276,7 @@ bool VideoRtpSender::SetTrack(MediaStreamTrackInterface* track) {
 
   // Update video provider.
   if (can_send_track()) {
-    VideoSourceInterface* source = track_->GetSource();
+    VideoTrackSourceInterface* source = track_->GetSource();
     // TODO(deadbeef): If SetTrack is called with a disabled track, and the
     // previous track was enabled, this could cause a frame from the new track
     // to slip out. Really, what we need is for SetCaptureDevice and
@@ -296,7 +304,7 @@ void VideoRtpSender::SetSsrc(uint32_t ssrc) {
   }
   ssrc_ = ssrc;
   if (can_send_track()) {
-    VideoSourceInterface* source = track_->GetSource();
+    VideoTrackSourceInterface* source = track_->GetSource();
     provider_->SetCaptureDevice(ssrc_,
                                 source ? source->GetVideoCapturer() : nullptr);
     SetVideoSend();
@@ -320,12 +328,21 @@ void VideoRtpSender::Stop() {
 
 void VideoRtpSender::SetVideoSend() {
   RTC_DCHECK(!stopped_ && can_send_track());
-  const cricket::VideoOptions* options = nullptr;
-  VideoSourceInterface* source = track_->GetSource();
-  if (track_->enabled() && source) {
-    options = source->options();
+  cricket::VideoOptions options;
+  VideoTrackSourceInterface* source = track_->GetSource();
+  if (source) {
+    options.is_screencast = rtc::Optional<bool>(source->is_screencast());
+    options.video_noise_reduction = source->needs_denoising();
   }
-  provider_->SetVideoSend(ssrc_, track_->enabled(), options);
+  provider_->SetVideoSend(ssrc_, track_->enabled(), &options);
+}
+
+RtpParameters VideoRtpSender::GetParameters() const {
+  return provider_->GetVideoRtpParameters(ssrc_);
+}
+
+bool VideoRtpSender::SetParameters(const RtpParameters& parameters) {
+  return provider_->SetVideoRtpParameters(ssrc_, parameters);
 }
 
 }  // namespace webrtc

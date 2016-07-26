@@ -14,26 +14,27 @@
 #ifndef WEBRTC_MEDIA_DEVICES_GTKVIDEORENDERER_H_
 #define WEBRTC_MEDIA_DEVICES_GTKVIDEORENDERER_H_
 
+#include <memory>
+
 #include "webrtc/base/basictypes.h"
-#include "webrtc/base/scoped_ptr.h"
-#include "webrtc/media/base/videorenderer.h"
+#include "webrtc/media/base/videosinkinterface.h"
 
 typedef struct _GtkWidget GtkWidget;  // forward declaration, defined in gtk.h
 
 namespace cricket {
 
-class GtkVideoRenderer : public VideoRenderer {
+class VideoFrame;
+
+class GtkVideoRenderer : public rtc::VideoSinkInterface<VideoFrame> {
  public:
   GtkVideoRenderer(int x, int y);
   virtual ~GtkVideoRenderer();
 
-  // Implementation of pure virtual methods of VideoRenderer.
-  // These two methods may be executed in different threads.
-  // SetSize is called before RenderFrame.
-  virtual bool SetSize(int width, int height, int reserved);
-  virtual bool RenderFrame(const VideoFrame* frame);
+  // Implementation of VideoSinkInterface.
+  void OnFrame(const VideoFrame& frame) override;
 
  private:
+  bool SetSize(int width, int height);
   // Initialize the attributes when the first frame arrives.
   bool Initialize(int width, int height);
   // Pump the Gtk event loop until there are no events left.
@@ -41,7 +42,7 @@ class GtkVideoRenderer : public VideoRenderer {
   // Check if the window has been closed.
   bool IsClosed() const;
 
-  rtc::scoped_ptr<uint8_t[]> image_;
+  std::unique_ptr<uint8_t[]> image_;
   GtkWidget* window_;
   GtkWidget* draw_area_;
   // The initial position of the window.

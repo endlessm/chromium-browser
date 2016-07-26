@@ -19,6 +19,8 @@
 
 #include "webrtc/typedefs.h"
 
+namespace webrtc {
+
 #define FRAME_LEN 80
 #define PART_LEN 64               // Length of partition
 #define PART_LEN1 (PART_LEN + 1)  // Unique fft coefficients
@@ -93,7 +95,8 @@ int WebRtcAec_echo_state(AecCore* self);
 void WebRtcAec_GetEchoStats(AecCore* self,
                             Stats* erl,
                             Stats* erle,
-                            Stats* a_nlp);
+                            Stats* a_nlp,
+                            float* divergent_filter_fraction);
 #ifdef WEBRTC_AEC_DEBUG_DUMP
 void* WebRtcAec_far_time_buf(AecCore* self);
 #endif
@@ -112,10 +115,16 @@ void WebRtcAec_enable_delay_agnostic(AecCore* self, int enable);
 int WebRtcAec_delay_agnostic_enabled(AecCore* self);
 
 // Non-zero enables, zero disables.
-void WebRtcAec_enable_next_generation_aec(AecCore* self, int enable);
+void WebRtcAec_enable_aec3(AecCore* self, int enable);
 
 // Returns 1 if the next generation aec is enabled and zero if disabled.
-int WebRtcAec_next_generation_aec_enabled(AecCore* self);
+int WebRtcAec_aec3_enabled(AecCore* self);
+
+// Turns on/off the refined adaptive filter feature.
+void WebRtcAec_enable_refined_adaptive_filter(AecCore* self, bool enable);
+
+// Returns whether the refined adaptive filter is enabled.
+bool WebRtcAec_refined_adaptive_filter(const AecCore* self);
 
 // Enables or disables extended filter mode. Non-zero enables, zero disables.
 void WebRtcAec_enable_extended_filter(AecCore* self, int enable);
@@ -131,5 +140,7 @@ int WebRtcAec_system_delay(AecCore* self);
 // improperly, there can be a performance regression.  So it should be used with
 // care.
 void WebRtcAec_SetSystemDelay(AecCore* self, int delay);
+
+}  // namespace webrtc
 
 #endif  // WEBRTC_MODULES_AUDIO_PROCESSING_AEC_AEC_CORE_H_

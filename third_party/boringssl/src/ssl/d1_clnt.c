@@ -115,7 +115,6 @@
 #include <openssl/ssl.h>
 
 #include <assert.h>
-#include <stdio.h>
 #include <string.h>
 
 #include <openssl/bn.h>
@@ -125,7 +124,6 @@
 #include <openssl/err.h>
 #include <openssl/md5.h>
 #include <openssl/mem.h>
-#include <openssl/obj.h>
 #include <openssl/rand.h>
 
 #include "internal.h"
@@ -143,7 +141,6 @@ int dtls1_connect(SSL *ssl) {
   assert(!ssl->server);
   assert(SSL_IS_DTLS(ssl));
 
-  ERR_clear_error();
   ERR_clear_system_error();
 
   if (ssl->info_callback != NULL) {
@@ -151,8 +148,6 @@ int dtls1_connect(SSL *ssl) {
   } else if (ssl->ctx->info_callback != NULL) {
     cb = ssl->ctx->info_callback;
   }
-
-  ssl->in_handshake++;
 
   for (;;) {
     state = ssl->state;
@@ -503,8 +498,6 @@ int dtls1_connect(SSL *ssl) {
   }
 
 end:
-  ssl->in_handshake--;
-
   BUF_MEM_free(buf);
   if (cb != NULL) {
     cb(ssl, SSL_CB_CONNECT_EXIT, ret);

@@ -93,13 +93,14 @@ def Main(argv):
                                   output_formatters=[output_formatter])
     results = runner.Run()
 
-    # TODO: gsutil cp file_name gs://output
-    cloud_storage.Copy(file_name, args.output_url)
+    if args.map_function_handle:
+      results = runner.RunMapper()
+    elif args.reduce_function_handle:
+      results = runner.RunReducer(trace_handles)
 
-    if not results.had_failures:
-      return 0
-    else:
-      return 255
+    output_formatter.Format(results)
+
+    return results
   finally:
     ofile.close()
     os.unlink(map_file)

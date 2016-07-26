@@ -149,7 +149,6 @@
 #include <openssl/ssl.h>
 
 #include <assert.h>
-#include <stdio.h>
 #include <string.h>
 
 #include <openssl/buf.h>
@@ -158,7 +157,7 @@
 #include <openssl/err.h>
 #include <openssl/md5.h>
 #include <openssl/mem.h>
-#include <openssl/obj.h>
+#include <openssl/nid.h>
 
 #include "internal.h"
 
@@ -251,7 +250,7 @@ int SSL_CTX_need_tmp_RSA(const SSL_CTX *ctx) {
   return 0;
 }
 
-int SSL_need_rsa(const SSL *ssl) {
+int SSL_need_tmp_RSA(const SSL *ssl) {
   return 0;
 }
 
@@ -359,7 +358,9 @@ int SSL_set_tlsext_host_name(SSL *ssl, const char *name) {
   if (name == NULL) {
     return 1;
   }
-  if (strlen(name) > TLSEXT_MAXLEN_host_name) {
+
+  size_t len = strlen(name);
+  if (len == 0 || len > TLSEXT_MAXLEN_host_name) {
     OPENSSL_PUT_ERROR(SSL, SSL_R_SSL3_EXT_INVALID_SERVERNAME);
     return 0;
   }
@@ -446,17 +447,15 @@ struct ssl_cipher_preference_list_st *ssl_get_cipher_preferences(SSL *ssl) {
     return ssl->cipher_list;
   }
 
-  if (ssl->version >= TLS1_1_VERSION && ssl->ctx != NULL &&
-      ssl->ctx->cipher_list_tls11 != NULL) {
+  if (ssl->version >= TLS1_1_VERSION && ssl->ctx->cipher_list_tls11 != NULL) {
     return ssl->ctx->cipher_list_tls11;
   }
 
-  if (ssl->version >= TLS1_VERSION && ssl->ctx != NULL &&
-      ssl->ctx->cipher_list_tls10 != NULL) {
+  if (ssl->version >= TLS1_VERSION && ssl->ctx->cipher_list_tls10 != NULL) {
     return ssl->ctx->cipher_list_tls10;
   }
 
-  if (ssl->ctx != NULL && ssl->ctx->cipher_list != NULL) {
+  if (ssl->ctx->cipher_list != NULL) {
     return ssl->ctx->cipher_list;
   }
 

@@ -120,7 +120,7 @@ class TriageBugs(object):
 
   @classmethod
   def UpdateRecoveredBugs(cls, bug_id):
-    """Checks whether anomalies with bug_id have recovered."""
+    """Checks whether Anomalies with a given bug ID have recovered."""
     anomalies = anomaly.Anomaly.query(
         anomaly.Anomaly.bug_id == bug_id).fetch()
     # If no anomalies found, mark this Bug entity as closed.
@@ -192,6 +192,12 @@ def _IsAnomalyRecovered(anomaly_entity):
     True if the Anomaly should be marked as recovered, False otherwise.
   """
   test = anomaly_entity.test.get()
+  if not test:
+    logging.error('Test %s not found for Anomaly %s, deleting test.',
+                  utils.TestPath(anomaly_entity.test),
+                  anomaly_entity)
+    anomaly_entity.key.delete()
+    return False
   config = anomaly_config.GetAnomalyConfigDict(test)
   max_num_rows = config.get(
       'max_window_size', find_anomalies.DEFAULT_NUM_POINTS)

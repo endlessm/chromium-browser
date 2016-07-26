@@ -63,7 +63,7 @@ void GrDrawingManager::flush() {
     }
     fFlushing = true;
 
-    SkDEBUGCODE(bool result =) 
+    SkDEBUGCODE(bool result =)
                         SkTTopoSort<GrDrawTarget, GrDrawTarget::TopoSortTraits>(&fDrawTargets);
     SkASSERT(result);
 
@@ -84,7 +84,7 @@ void GrDrawingManager::flush() {
         fDrawTargets[i]->drawBatches(&fFlushState);
     }
 
-    SkASSERT(fFlushState.lastFlushedToken() == fFlushState.currentToken());
+    SkASSERT(fFlushState.nextDrawToken() == fFlushState.nextTokenToFlush());
 
     for (int i = 0; i < fDrawTargets.count(); ++i) {
         fDrawTargets[i]->reset();
@@ -129,7 +129,7 @@ GrDrawTarget* GrDrawingManager::newDrawTarget(GrRenderTarget* rt) {
 
     *fDrawTargets.append() = dt;
 
-    // DrawingManager gets the creation ref - this ref is for the caller 
+    // DrawingManager gets the creation ref - this ref is for the caller
     return SkRef(dt);
 }
 

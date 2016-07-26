@@ -540,6 +540,8 @@ const char kErrorEapRemoteTlsFailed[] = "eap-remote-tls-failed";
 const char kSearchDomainsProperty[] = "SearchDomains";
 const char kVendorEncapsulatedOptionsProperty[] = "VendorEncapsulatedOptions";
 const char kWebProxyAutoDiscoveryUrlProperty[] = "WebProxyAutoDiscoveryUrl";
+// DHCP Option for iSNS (RFC 4174)
+const char kiSNSOptionDataProperty[] = "iSNSOptionData";
 
 // Manager property names.
 const char kDefaultServiceProperty[] = "DefaultService";
@@ -703,6 +705,7 @@ const char kDomainSearchParameterThirdPartyVpn[] = "domain_search";
 const char kDnsServersParameterThirdPartyVpn[] = "dns_servers";
 const char kInclusionListParameterThirdPartyVpn[] = "inclusion_list";
 const char kExclusionListParameterThirdPartyVpn[] = "exclusion_list";
+const char kReconnectParameterThirdPartyVpn[] = "reconnect";
 const char kObjectPathSuffixProperty[] = "ObjectPathSuffix";
 const char kExtensionNameProperty[] = "ExtensionName";
 const char kConfigurationNameProperty[] = "ConfigurationName";

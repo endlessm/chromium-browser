@@ -39,7 +39,7 @@ public:
         kANGLE_DeviceType,
 #endif // SK_ANGLE
 #if SK_COMMAND_BUFFER
-        kCommandBufferES2_DeviceType,
+        kCommandBuffer_DeviceType,
 #endif // SK_COMMAND_BUFFER
 #endif // SK_SUPPORT_GPU
         kDeviceTypeCnt
@@ -53,7 +53,7 @@ public:
             case kANGLE_DeviceType:
     #endif // SK_ANGLE
     #if SK_COMMAND_BUFFER
-            case kCommandBufferES2_DeviceType:
+            case kCommandBuffer_DeviceType:
     #endif // SK_COMMAND_BUFFER
                 return true;
             default:
@@ -72,7 +72,7 @@ public:
      */
     class DeviceManager : public SkRefCnt {
     public:
-        
+
 
         virtual void setUpBackend(SampleWindow* win, int msaaSampleCount) = 0;
 
@@ -124,11 +124,13 @@ public:
     void toggleFPS();
     void showOverview();
     void toggleDistanceFieldFonts();
+    void setPixelGeometry(int pixelGeometryIndex);
 
     GrContext* getGrContext() const { return fDevManager->getGrContext(); }
 
     void setZoomCenter(float x, float y);
     void changeZoomLevel(float delta);
+    void changeOffset(SkVector delta);
     bool nextSample();
     bool previousSample();
     bool goToSample(int i);
@@ -172,6 +174,7 @@ private:
     SkTouchGesture fGesture;
     SkScalar fZoomLevel;
     SkScalar fZoomScale;
+    SkVector fOffset;
 
     DeviceType fDeviceType;
     DeviceManager* fDevManager;
@@ -204,12 +207,12 @@ private:
     SkOSMenu::TriState fAAState;
     SkOSMenu::TriState fSubpixelState;
     int fHintingState;
+    int fPixelGeometryIndex;
     int fFilterQualityIndex;
     unsigned   fFlipAxis;
 
     int fMSAASampleCount;
 
-    int fScrollTestX, fScrollTestY;
     SkScalar fZoomCenterX, fZoomCenterY;
 
     //Stores global settings

@@ -5,12 +5,12 @@
 {
   'variables': {
     'pdf_enable_xfa%': 0,  # Set to 1 by standalone.gypi in standalone builds.
+    'pdf_use_skia%': 0,
   },
   'target_defaults': {
     'defines': [
       'OPJ_STATIC',
       'PNG_PREFIX',
-      'PNGPREFIX_H',
       'PNG_USE_READ_MACROS',
       '_CRT_SECURE_NO_WARNINGS',
     ],
@@ -80,6 +80,15 @@
         'freetype/src/smooth/smooth.c',
         'freetype/src/truetype/truetype.c',
         'freetype/src/type1/type1.c',
+      ],
+      'conditions': [
+        ['pdf_use_skia==1', {
+          'sources': [
+           'freetype/src/base/ftfntfmt.c',
+           'freetype/src/base/ftfstype.c',
+           'freetype/src/base/fttype1.c',
+          ],
+        }],
       ],
       'variables': {
         'clang_warning_flags': [
@@ -240,6 +249,12 @@
           ],
         }],
       ],
+      'variables': {
+        'clang_warning_flags': [
+          # Avoid warning for undefined behaviour.
+          '-Wno-shift-negative-value',
+        ],
+      }
     },
     {
       'target_name': 'fx_libopenjpeg',
@@ -280,6 +295,7 @@
         'libpng16/pnglibconf.h',
         'libpng16/pngmem.c',
         'libpng16/pngpread.c',
+        'libpng16/pngprefix.h',
         'libpng16/pngpriv.h',
         'libpng16/pngread.c',
         'libpng16/pngrio.c',
@@ -321,8 +337,20 @@
             '-Wno-shift-negative-value',
           ],
         }],
+        ['OS == "win"', {
+          'direct_dependent_settings': {
+            'include_dirs': [
+              'zlib_v128',
+            ],
+          }
+        }],
       ],
-
+      'variables': {
+        'clang_warning_flags': [
+          # Avoid warning for undefined behaviour. https://crbug.com/507712
+          '-Wno-shift-negative-value',
+        ]
+      },
     },
     {
       'target_name': 'pdfium_base',

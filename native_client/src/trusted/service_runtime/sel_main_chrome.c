@@ -234,6 +234,7 @@ static int LoadApp(struct NaClApp *nap, struct NaClChromeMainArgs *args) {
       nap->module_load_status = errcode;
       fprintf(stderr, "Error while loading in SelMain: %s\n",
               NaClErrorString(errcode));
+      goto error;
     }
   }
 
@@ -272,7 +273,7 @@ static int LoadApp(struct NaClApp *nap, struct NaClChromeMainArgs *args) {
   NaClGdbHook(nap);
 
   CHECK(args->nexe_desc != NULL);
-  NaClAppLoadModule(nap, args->nexe_desc, NULL, NULL);
+  NaClAppLoadModule(nap, args->nexe_desc);
   NaClDescUnref(args->nexe_desc);
   args->nexe_desc = NULL;
 
@@ -281,11 +282,9 @@ static int LoadApp(struct NaClApp *nap, struct NaClChromeMainArgs *args) {
   /*
    * error reporting done; can quit now if there was an error earlier.
    */
-  if (LOAD_OK == errcode) {
-    errcode = NaClGetLoadStatus(nap);
-  }
+  errcode = NaClGetLoadStatus(nap);
   if (LOAD_OK != errcode) {
-    goto done;
+    goto error;
   }
 
   /*
@@ -323,7 +322,7 @@ static int LoadApp(struct NaClApp *nap, struct NaClChromeMainArgs *args) {
     }
 #endif
     if (!NaClDebugInit(nap)) {
-      goto done;
+      goto error;
     }
 #if NACL_WINDOWS
     if (args->debug_stub_pipe_fd == NACL_INVALID_HANDLE &&
@@ -339,7 +338,7 @@ static int LoadApp(struct NaClApp *nap, struct NaClChromeMainArgs *args) {
   }
   return LOAD_OK;
 
-done:
+error:
   fflush(stdout);
 
   /* Don't return LOAD_OK if we had some failure loading. */

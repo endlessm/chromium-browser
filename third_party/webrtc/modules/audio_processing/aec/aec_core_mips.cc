@@ -24,6 +24,8 @@ extern "C" {
 #include "webrtc/modules/audio_processing/aec/aec_rdft.h"
 }
 
+namespace webrtc {
+
 extern const float WebRtcAec_weightCurve[65];
 extern const float WebRtcAec_overDriveCurve[65];
 
@@ -707,15 +709,10 @@ void WebRtcAec_OverdriveAndSuppress_mips(AecCore* aec,
   }
 }
 
-void WebRtcAec_ScaleErrorSignal_mips(int extended_filter_enabled,
-                                     float normal_mu,
-                                     float normal_error_threshold,
+void WebRtcAec_ScaleErrorSignal_mips(float mu,
+                                     float error_threshold,
                                      float x_pow[PART_LEN1],
                                      float ef[2][PART_LEN1]) {
-  const float mu = extended_filter_enabled ? kExtendedMu : normal_mu;
-  const float error_threshold = extended_filter_enabled
-                                    ? kExtendedErrorThreshold
-                                    : normal_error_threshold;
   int len = (PART_LEN1);
   float* ef0 = ef[0];
   float* ef1 = ef[1];
@@ -781,3 +778,4 @@ void WebRtcAec_InitAec_mips(void) {
   WebRtcAec_ComfortNoise = WebRtcAec_ComfortNoise_mips;
   WebRtcAec_OverdriveAndSuppress = WebRtcAec_OverdriveAndSuppress_mips;
 }
+}  // namespace webrtc

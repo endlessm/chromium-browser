@@ -19,7 +19,6 @@ from webapp2 import Route, RedirectHandler
 from dashboard_build import dashboard_dev_server_config
 from perf_insights_build import perf_insights_dev_server_config
 from tracing_build import tracing_dev_server_config
-from lighthouse_build import lighthouse_dev_server_config
 
 _MAIN_HTML = """<html><body>
 <h1>Run Unit Tests</h1>
@@ -36,8 +35,10 @@ _MAIN_HTML = """<html><body>
 _QUICK_LINKS = [
     ('Trace File Viewer',
      '/tracing_examples/trace_viewer.html'),
+    ('Metrics debugger',
+     '/tracing_examples/metrics_debugger.html'),
     ('Perf Insights Viewer',
-     '/perf_insights_examples/perf_insights_viewer.html')
+     '/perf_insights_examples/perf_insights_viewer.html'),
 ]
 
 _LINK_ITEM = '<li><a href="%s">%s</a></li>'
@@ -231,7 +232,6 @@ class DevServerApp(webapp2.WSGIApplication):
 
   def GetAbsFilenameForHref(self, href):
     for source_path in self._all_source_paths:
-      print source_path
       full_source_path = os.path.abspath(source_path)
       expanded_href_path = os.path.abspath(os.path.join(full_source_path,
                                                         href.lstrip('/')))
@@ -305,7 +305,6 @@ def Main(argv):
       dashboard_dev_server_config.DashboardDevServerConfig(),
       perf_insights_dev_server_config.PerfInsightsDevServerConfig(),
       tracing_dev_server_config.TracingDevServerConfig(),
-      lighthouse_dev_server_config.LighthouseDevServerConfig(),
   ]
 
   args = _AddCommandLineArguments(pds, argv)

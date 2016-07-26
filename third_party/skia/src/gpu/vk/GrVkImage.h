@@ -11,7 +11,7 @@
 #include "GrVkResource.h"
 #include "SkTypes.h"
 
-#include "vulkan/vulkan.h"
+#include "vk/GrVkDefines.h"
 
 class GrVkGpu;
 
@@ -29,7 +29,7 @@ public:
         VkDeviceMemory fAlloc;
         Flags          fFlags;
 
-        Resource() : INHERITED(), fImage(nullptr), fAlloc(nullptr), fFlags(kNo_Flags) {}
+        Resource() : INHERITED(), fImage(VK_NULL_HANDLE), fAlloc(VK_NULL_HANDLE), fFlags(kNo_Flags) {}
 
         Resource(VkImage image, VkDeviceMemory alloc, Flags flags)
             : fImage(image), fAlloc(alloc), fFlags(flags) {}
@@ -41,6 +41,14 @@ public:
         typedef GrVkResource INHERITED;
     };
 
+    // for wrapped textures
+    class BorrowedResource : public Resource {
+    public:
+        BorrowedResource(VkImage image, VkDeviceMemory alloc, Flags flags)
+            : Resource(image, alloc, flags) {}
+    private:
+        void freeGPUData(const GrVkGpu* gpu) const override;
+    };
 
     GrVkImage(const Resource* imageResource) : fResource(imageResource) {
         if (imageResource->fFlags & Resource::kLinearTiling_Flag) {

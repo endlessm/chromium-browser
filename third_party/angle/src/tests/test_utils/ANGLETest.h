@@ -12,6 +12,7 @@
 
 #include <gtest/gtest.h>
 #include <algorithm>
+#include <array>
 
 #include "angle_gl.h"
 #include "angle_test_configs.h"
@@ -114,6 +115,15 @@ class ANGLETest : public ::testing::TestWithParam<angle::PlatformParameters>
                          const std::string &positionAttribName,
                          GLfloat positionAttribZ,
                          GLfloat positionAttribXYScale);
+    static std::array<Vector3, 6> GetQuadVertices();
+    void drawIndexedQuad(GLuint program,
+                         const std::string &positionAttribName,
+                         GLfloat positionAttribZ);
+    void drawIndexedQuad(GLuint program,
+                         const std::string &positionAttribName,
+                         GLfloat positionAttribZ,
+                         GLfloat positionAttribXYScale);
+
     static GLuint compileShader(GLenum type, const std::string &source);
     static bool extensionEnabled(const std::string &extName);
     static bool eglClientExtensionEnabled(const std::string &extName);
@@ -137,17 +147,7 @@ class ANGLETest : public ::testing::TestWithParam<angle::PlatformParameters>
     int getWindowHeight() const;
     bool isMultisampleEnabled() const;
 
-    bool isIntel() const;
-    bool isAMD() const;
-    bool isNVidia() const;
-    // Note: FL9_3 is explicitly *not* considered D3D11.
-    bool isD3D11() const;
-    bool isD3D11_FL93() const;
-    // Is a D3D9-class renderer.
-    bool isD3D9() const;
-    // Is D3D9 or SM9_3 renderer.
-    bool isD3DSM3() const;
-    bool isOSX() const;
+    bool isOpenGL() const;
     EGLint getPlatformRenderer() const;
 
     void ignoreD3D11SDKLayersWarnings();
@@ -164,6 +164,9 @@ class ANGLETest : public ::testing::TestWithParam<angle::PlatformParameters>
 
     bool mIgnoreD3D11SDKLayersWarnings;
 
+    // Used for indexed quad rendering
+    GLuint mQuadVertexBuffer;
+
     static OSWindow *mOSWindow;
 };
 
@@ -173,5 +176,18 @@ class ANGLETestEnvironment : public testing::Environment
     virtual void SetUp();
     virtual void TearDown();
 };
+
+bool IsIntel();
+bool IsAMD();
+bool IsNVIDIA();
+// Note: FL9_3 is explicitly *not* considered D3D11.
+bool IsD3D11();
+bool IsD3D11_FL93();
+// Is a D3D9-class renderer.
+bool IsD3D9();
+// Is D3D9 or SM9_3 renderer.
+bool IsD3DSM3();
+bool IsLinux();
+bool IsOSX();
 
 #endif  // ANGLE_TESTS_ANGLE_TEST_H_

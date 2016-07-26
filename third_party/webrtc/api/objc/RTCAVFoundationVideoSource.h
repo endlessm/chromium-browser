@@ -25,8 +25,10 @@ NS_ASSUME_NONNULL_BEGIN
  */
 @interface RTCAVFoundationVideoSource : RTCVideoSource
 
-- (instancetype)initWithFactory:(RTCPeerConnectionFactory *)factory
-                    constraints:(RTCMediaConstraints *)constraints;
+- (instancetype)init NS_UNAVAILABLE;
+
+/** Returns whether rear-facing camera is available for use. */
+@property(nonatomic, readonly) BOOL canUseBackCamera;
 
 /** Switches the camera being used (either front or back). */
 @property(nonatomic, assign) BOOL useBackCamera;
@@ -35,6 +37,5 @@ NS_ASSUME_NONNULL_BEGIN
 @property(nonatomic, readonly) AVCaptureSession *captureSession;
 
 @end
-
 
 NS_ASSUME_NONNULL_END

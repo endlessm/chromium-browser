@@ -38,6 +38,15 @@ class TracingController(tracing_agent.TracingAgent):
     """Stops tracing and returns a TraceValue."""
     return self._tracing_controller_backend.StopTracing()
 
+  def FlushTracing(self):
+    """Flush tracing buffer and continue tracing.
+
+    Warning: This method is a temporary hack to enable multi-tab benchmarks
+    (see https://goo.gl/8Gjstr). Please contact Telemetry owners before using
+    it.
+    """
+    self._tracing_controller_backend.FlushTracing()
+
   @property
   def is_tracing_running(self):
     return self._tracing_controller_backend.is_tracing_running
@@ -50,12 +59,23 @@ class TracingController(tracing_agent.TracingAgent):
     """ Starts agent tracing for tracing controller"""
     return self._tracing_controller_backend.StartAgentTracing(config, timeout)
 
-  def StopAgentTracing(self, trace_data_builder):
+  def StopAgentTracing(self):
     """ Stops agent tracing for tracing controller. """
-    return self._tracing_controller_backend.StopAgentTracing(trace_data_builder)
+    return self._tracing_controller_backend.StopAgentTracing()
+
+  def CollectAgentTraceData(self, trace_data_builder, timeout=None):
+    """ Collect tracing data. """
+    return self._tracing_controller_backend.CollectTraceData(trace_data_builder,
+                                                             timeout=timeout)
 
   def SupportsExplicitClockSync(self):
     return self._tracing_controller_backend.SupportsExplicitClockSync()
 
-  def RecordClockSyncMarker(self, sync_id):
-    return self._tracing_controller_backend.RecordClockSyncMarker(sync_id)
+  def RecordClockSyncMarker(self, sync_id,
+                            record_controller_clocksync_marker_callback):
+    return self._tracing_controller_backend.RecordClockSyncMarker(
+        sync_id, record_controller_clocksync_marker_callback)
+
+  def ClearStateIfNeeded(self):
+    """Clear tracing state if needed."""
+    self._tracing_controller_backend.ClearStateIfNeeded()

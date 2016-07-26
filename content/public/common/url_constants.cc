@@ -11,10 +11,8 @@ namespace content {
 // There are security implications associated with introducing new schemes.
 const char kChromeDevToolsScheme[] = "chrome-devtools";
 const char kChromeUIScheme[] = "chrome";
-const char kExeScheme[] = "exe";
 const char kGuestScheme[] = "chrome-guest";
 const char kMetadataScheme[] = "metadata";
-const char kMojoScheme[] = "mojo";
 const char kSwappedOutScheme[] = "swappedout";
 const char kViewSourceScheme[] = "view-source";
 #if defined(OS_CHROMEOS)
@@ -54,8 +52,6 @@ const char kChromeUINetworkErrorURL[] = "chrome://network-error";
 const char kChromeUINetworkErrorsListingURL[] = "chrome://network-errors";
 const char kChromeUIPpapiFlashCrashURL[] = "chrome://ppapiflashcrash";
 const char kChromeUIPpapiFlashHangURL[] = "chrome://ppapiflashhang";
-const char kChromeUIServiceWorkerInternalsURL[] =
-    "chrome://serviceworker-internals";
 
 // This error URL is loaded in normal web renderer processes, so it should not
 // have a chrome:// scheme that might let it be confused with a WebUI page.
@@ -64,10 +60,5 @@ const char kUnreachableWebDataURL[] = "data:text/html,chromewebdata";
 const char kChromeUINetworkViewCacheURL[] = "chrome://view-http-cache/";
 const char kChromeUIResourcesURL[] = "chrome://resources/";
 const char kChromeUIShorthangURL[] = "chrome://shorthang";
-
-// This URL is loaded when a page is swapped out and replaced by a page in a
-// different renderer process.  It must have a unique origin that cannot be
-// scripted by other pages in the process.
-const char kSwappedOutURL[] = "swappedout://";
 
 }  // namespace content

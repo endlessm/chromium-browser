@@ -55,7 +55,7 @@
 #include "webrtc/api/peerconnectioninterface.h"
 #include "webrtc/api/rtpreceiverinterface.h"
 #include "webrtc/api/rtpsenderinterface.h"
-#include "webrtc/api/videosourceinterface.h"
+#include "webrtc/api/webrtcsdp.h"
 #include "webrtc/base/bind.h"
 #include "webrtc/base/checks.h"
 #include "webrtc/base/event_tracer.h"
@@ -66,7 +66,6 @@
 #include "webrtc/base/ssladapter.h"
 #include "webrtc/base/stringutils.h"
 #include "webrtc/media/base/videocapturer.h"
-#include "webrtc/media/base/videorenderer.h"
 #include "webrtc/media/devices/videorendererfactory.h"
 #include "webrtc/media/engine/webrtcvideodecoderfactory.h"
 #include "webrtc/media/engine/webrtcvideoencoderfactory.h"
@@ -106,8 +105,7 @@ using webrtc::SetSessionDescriptionObserver;
 using webrtc::StatsObserver;
 using webrtc::StatsReport;
 using webrtc::StatsReports;
-using webrtc::VideoRendererInterface;
-using webrtc::VideoSourceInterface;
+using webrtc::VideoTrackSourceInterface;
 using webrtc::VideoTrackInterface;
 using webrtc::VideoTrackVector;
 using webrtc::kVideoCodecVP8;
@@ -195,13 +193,24 @@ class PCOJava : public PeerConnectionObserver {
         "<init>", "(Ljava/lang/String;ILjava/lang/String;)V");
     jstring j_mid = JavaStringFromStdString(jni(), candidate->sdp_mid());
     jstring j_sdp = JavaStringFromStdString(jni(), sdp);
-    jobject j_candidate = jni()->NewObject(
-        candidate_class, ctor, j_mid, candidate->sdp_mline_index(), j_sdp);
+    jobject j_candidate = jni()->NewObject(candidate_class, ctor, j_mid,
+                                           candidate->sdp_mline_index(), j_sdp);
     CHECK_EXCEPTION(jni()) << "error during NewObject";
     jmethodID m = GetMethodID(jni(), *j_observer_class_,
                               "onIceCandidate", "(Lorg/webrtc/IceCandidate;)V");
     jni()->CallVoidMethod(*j_observer_global_, m, j_candidate);
     CHECK_EXCEPTION(jni()) << "error during CallVoidMethod";
+  }
+
+  void OnIceCandidatesRemoved(
+      const std::vector<cricket::Candidate>& candidates) {
+    ScopedLocalRefFrame local_ref_frame(jni());
+    jobjectArray candidates_array = ToJavaCandidateArray(jni(), candidates);
+    jmethodID m =
+        GetMethodID(jni(), *j_observer_class_, "onIceCandidatesRemoved",
+                    "([Lorg/webrtc/IceCandidate;)V");
+    jni()->CallVoidMethod(*j_observer_global_, m, candidates_array);
+    CHECK_EXCEPTION(jni()) << "Error during CallVoidMethod";
   }
 
   void OnSignalingChange(
@@ -371,6 +380,36 @@ class PCOJava : public PeerConnectionObserver {
     DeleteGlobalRef(jni(), j_stream);
   }
 
+  jobject ToJavaCandidate(JNIEnv* jni,
+                          jclass* candidate_class,
+                          const cricket::Candidate& candidate) {
+    std::string sdp = webrtc::SdpSerializeCandidate(candidate);
+    RTC_CHECK(!sdp.empty()) << "got an empty ICE candidate";
+    jmethodID ctor = GetMethodID(jni, *candidate_class, "<init>",
+                                 "(Ljava/lang/String;ILjava/lang/String;)V");
+    jstring j_mid = JavaStringFromStdString(jni, candidate.transport_name());
+    jstring j_sdp = JavaStringFromStdString(jni, sdp);
+    // sdp_mline_index is not used, pass an invalid value -1.
+    jobject j_candidate =
+        jni->NewObject(*candidate_class, ctor, j_mid, -1, j_sdp);
+    CHECK_EXCEPTION(jni) << "error during Java Candidate NewObject";
+    return j_candidate;
+  }
+
+  jobjectArray ToJavaCandidateArray(
+      JNIEnv* jni,
+      const std::vector<cricket::Candidate>& candidates) {
+    jclass candidate_class = FindClass(jni, "org/webrtc/IceCandidate");
+    jobjectArray java_candidates =
+        jni->NewObjectArray(candidates.size(), candidate_class, NULL);
+    int i = 0;
+    for (const cricket::Candidate& candidate : candidates) {
+      jobject j_candidate = ToJavaCandidate(jni, &candidate_class, candidate);
+      jni->SetObjectArrayElement(java_candidates, i++, j_candidate);
+    }
+    return java_candidates;
+  }
+
   JNIEnv* jni() {
     return AttachCurrentThreadIfNeeded();
   }
@@ -417,18 +456,7 @@ class ConstraintsWrapper : public MediaConstraintsInterface {
     jfieldID j_id = GetFieldID(jni,
         GetObjectClass(jni, j_constraints), field_name, "Ljava/util/List;");
     jobject j_list = GetObjectField(jni, j_constraints, j_id);
-    jmethodID j_iterator_id = GetMethodID(jni,
-        GetObjectClass(jni, j_list), "iterator", "()Ljava/util/Iterator;");
-    jobject j_iterator = jni->CallObjectMethod(j_list, j_iterator_id);
-    CHECK_EXCEPTION(jni) << "error during CallObjectMethod";
-    jmethodID j_has_next = GetMethodID(jni,
-        GetObjectClass(jni, j_iterator), "hasNext", "()Z");
-    jmethodID j_next = GetMethodID(jni,
-        GetObjectClass(jni, j_iterator), "next", "()Ljava/lang/Object;");
-    while (jni->CallBooleanMethod(j_iterator, j_has_next)) {
-      CHECK_EXCEPTION(jni) << "error during CallBooleanMethod";
-      jobject entry = jni->CallObjectMethod(j_iterator, j_next);
-      CHECK_EXCEPTION(jni) << "error during CallObjectMethod";
+    for (jobject entry : Iterable(jni, j_list)) {
       jmethodID get_key = GetMethodID(jni,
           GetObjectClass(jni, entry), "getKey", "()Ljava/lang/String;");
       jstring j_key = reinterpret_cast<jstring>(
@@ -442,7 +470,6 @@ class ConstraintsWrapper : public MediaConstraintsInterface {
       field->push_back(Constraint(JavaToStdString(jni, j_key),
                                   JavaToStdString(jni, j_value)));
     }
-    CHECK_EXCEPTION(jni) << "error during CallBooleanMethod";
   }
 
   Constraints mandatory_;
@@ -690,32 +717,10 @@ class StatsObserverWrapper : public StatsObserver {
   const jmethodID j_value_ctor_;
 };
 
-// Adapter presenting a cricket::VideoRenderer as a
-// webrtc::VideoRendererInterface.
-class VideoRendererWrapper : public VideoRendererInterface {
- public:
-  static VideoRendererWrapper* Create(cricket::VideoRenderer* renderer) {
-    if (renderer)
-      return new VideoRendererWrapper(renderer);
-    return NULL;
-  }
-
-  virtual ~VideoRendererWrapper() {}
-
-  void RenderFrame(const cricket::VideoFrame* video_frame) override {
-    ScopedLocalRefFrame local_ref_frame(AttachCurrentThreadIfNeeded());
-    renderer_->RenderFrame(video_frame->GetCopyWithRotationApplied());
-  }
-
- private:
-  explicit VideoRendererWrapper(cricket::VideoRenderer* renderer)
-      : renderer_(renderer) {}
-  scoped_ptr<cricket::VideoRenderer> renderer_;
-};
-
-// Wrapper dispatching webrtc::VideoRendererInterface to a Java VideoRenderer
+// Wrapper dispatching rtc::VideoSinkInterface to a Java VideoRenderer
 // instance.
-class JavaVideoRendererWrapper : public VideoRendererInterface {
+class JavaVideoRendererWrapper
+    : public rtc::VideoSinkInterface<cricket::VideoFrame> {
  public:
   JavaVideoRendererWrapper(JNIEnv* jni, jobject j_callbacks)
       : j_callbacks_(jni, j_callbacks),
@@ -735,11 +740,11 @@ class JavaVideoRendererWrapper : public VideoRendererInterface {
 
   virtual ~JavaVideoRendererWrapper() {}
 
-  void RenderFrame(const cricket::VideoFrame* video_frame) override {
+  void OnFrame(const cricket::VideoFrame& video_frame) override {
     ScopedLocalRefFrame local_ref_frame(jni());
-    jobject j_frame = (video_frame->GetNativeHandle() != nullptr)
-                          ? CricketToJavaTextureFrame(video_frame)
-                          : CricketToJavaI420Frame(video_frame);
+    jobject j_frame = (video_frame.GetNativeHandle() != nullptr)
+                          ? CricketToJavaTextureFrame(&video_frame)
+                          : CricketToJavaI420Frame(&video_frame);
     // |j_callbacks_| is responsible for releasing |j_frame| with
     // VideoRenderer.renderFrameDone().
     jni()->CallVoidMethod(*j_callbacks_, j_render_frame_id_, j_frame);
@@ -766,16 +771,18 @@ class JavaVideoRendererWrapper : public VideoRendererInterface {
     jobject y_buffer =
         jni()->NewDirectByteBuffer(const_cast<uint8_t*>(frame->GetYPlane()),
                                    frame->GetYPitch() * frame->GetHeight());
+    size_t chroma_size =
+      ((frame->width() + 1) / 2) * ((frame->height() + 1) / 2);
     jobject u_buffer = jni()->NewDirectByteBuffer(
-        const_cast<uint8_t*>(frame->GetUPlane()), frame->GetChromaSize());
+        const_cast<uint8_t*>(frame->GetUPlane()), chroma_size);
     jobject v_buffer = jni()->NewDirectByteBuffer(
-        const_cast<uint8_t*>(frame->GetVPlane()), frame->GetChromaSize());
+        const_cast<uint8_t*>(frame->GetVPlane()), chroma_size);
     jni()->SetObjectArrayElement(planes, 0, y_buffer);
     jni()->SetObjectArrayElement(planes, 1, u_buffer);
     jni()->SetObjectArrayElement(planes, 2, v_buffer);
     return jni()->NewObject(
         *j_frame_class_, j_i420_frame_ctor_id_,
-        frame->GetWidth(), frame->GetHeight(),
+        frame->width(), frame->height(),
         static_cast<int>(frame->GetVideoRotation()),
         strides, planes, javaShallowCopy(frame));
   }
@@ -788,7 +795,7 @@ class JavaVideoRendererWrapper : public VideoRendererInterface {
     jni()->SetFloatArrayRegion(sampling_matrix, 0, 16, handle->sampling_matrix);
     return jni()->NewObject(
         *j_frame_class_, j_texture_frame_ctor_id_,
-        frame->GetWidth(), frame->GetHeight(),
+        frame->width(), frame->height(),
         static_cast<int>(frame->GetVideoRotation()),
         handle->oes_texture_id, sampling_matrix, javaShallowCopy(frame));
   }
@@ -851,7 +858,7 @@ JOW(jboolean, DataChannel_sendNative)(JNIEnv* jni, jobject j_dc,
                                       jbyteArray data, jboolean binary) {
   jbyte* bytes = jni->GetByteArrayElements(data, NULL);
   bool ret = ExtractNativeDC(jni, j_dc)->Send(DataBuffer(
-      rtc::Buffer(bytes, jni->GetArrayLength(data)),
+      rtc::CopyOnWriteBuffer(bytes, jni->GetArrayLength(data)),
       binary));
   jni->ReleaseByteArrayElements(data, bytes, JNI_ABORT);
   return ret;
@@ -1073,11 +1080,11 @@ void OwnedFactoryAndThreads::JavaCallbackOnFactoryThreads() {
   ScopedLocalRefFrame local_ref_frame(jni);
   jclass j_factory_class = FindClass(jni, "org/webrtc/PeerConnectionFactory");
   jmethodID m = nullptr;
-  if (Thread::Current() == worker_thread_) {
+  if (Thread::Current() == worker_thread_.get()) {
     LOG(LS_INFO) << "Worker thread JavaCallback";
     m = GetStaticMethodID(jni, j_factory_class, "onWorkerThreadReady", "()V");
   }
-  if (Thread::Current() == signaling_thread_) {
+  if (Thread::Current() == signaling_thread_.get()) {
     LOG(LS_INFO) << "Signaling thread JavaCallback";
     m = GetStaticMethodID(
         jni, j_factory_class, "onSignalingThreadReady", "()V");
@@ -1212,26 +1219,21 @@ JOW(jlong, PeerConnectionFactory_nativeCreateLocalMediaStream)(
 }
 
 JOW(jlong, PeerConnectionFactory_nativeCreateVideoSource)(
-    JNIEnv* jni, jclass, jlong native_factory, jobject j_video_capturer,
-    jobject j_constraints) {
+    JNIEnv* jni, jclass, jlong native_factory, jobject j_egl_context,
+    jobject j_video_capturer, jobject j_constraints) {
   // Create a cricket::VideoCapturer from |j_video_capturer|.
-  jobject j_surface_texture_helper = jni->CallObjectMethod(
-      j_video_capturer,
-      GetMethodID(jni, FindClass(jni, "org/webrtc/VideoCapturer"),
-                  "getSurfaceTextureHelper",
-                  "()Lorg/webrtc/SurfaceTextureHelper;"));
   rtc::scoped_refptr<webrtc::AndroidVideoCapturerDelegate> delegate =
       new rtc::RefCountedObject<AndroidVideoCapturerJni>(
-          jni, j_video_capturer, j_surface_texture_helper);
+          jni, j_video_capturer, j_egl_context);
   rtc::scoped_ptr<cricket::VideoCapturer> capturer(
       new webrtc::AndroidVideoCapturer(delegate));
-  // Create a webrtc::VideoSourceInterface from the cricket::VideoCapturer,
+  // Create a webrtc::VideoTrackSourceInterface from the cricket::VideoCapturer,
   // native factory and constraints.
   scoped_ptr<ConstraintsWrapper> constraints(
       new ConstraintsWrapper(jni, j_constraints));
   rtc::scoped_refptr<PeerConnectionFactoryInterface> factory(
       factoryFromJava(native_factory));
-  rtc::scoped_refptr<VideoSourceInterface> source(
+  rtc::scoped_refptr<VideoTrackSourceInterface> source(
       factory->CreateVideoSource(capturer.release(), constraints.get()));
   return (jlong)source.release();
 }
@@ -1241,10 +1243,9 @@ JOW(jlong, PeerConnectionFactory_nativeCreateVideoTrack)(
     jlong native_source) {
   rtc::scoped_refptr<PeerConnectionFactoryInterface> factory(
       factoryFromJava(native_factory));
-  rtc::scoped_refptr<VideoTrackInterface> track(
-      factory->CreateVideoTrack(
-          JavaToStdString(jni, id),
-          reinterpret_cast<VideoSourceInterface*>(native_source)));
+  rtc::scoped_refptr<VideoTrackInterface> track(factory->CreateVideoTrack(
+      JavaToStdString(jni, id),
+      reinterpret_cast<VideoTrackSourceInterface*>(native_source)));
   return (jlong)track.release();
 }
 
@@ -1339,8 +1340,7 @@ JOW(void, PeerConnectionFactory_nativeSetVideoHwAccelerationOptions)(
   MediaCodecVideoDecoderFactory* decoder_factory =
       static_cast<MediaCodecVideoDecoderFactory*>
           (owned_factory->decoder_factory());
-  if (decoder_factory &&
-      jni->IsInstanceOf(remote_egl_context, j_eglbase14_context_class)) {
+  if (decoder_factory) {
     LOG(LS_INFO) << "Set EGL context for HW decoding.";
     decoder_factory->SetEGLContext(jni, remote_egl_context);
   }
@@ -1453,19 +1453,7 @@ static PeerConnectionInterface::ContinualGatheringPolicy
 static void JavaIceServersToJsepIceServers(
     JNIEnv* jni, jobject j_ice_servers,
     PeerConnectionInterface::IceServers* ice_servers) {
-  jclass list_class = GetObjectClass(jni, j_ice_servers);
-  jmethodID iterator_id = GetMethodID(
-      jni, list_class, "iterator", "()Ljava/util/Iterator;");
-  jobject iterator = jni->CallObjectMethod(j_ice_servers, iterator_id);
-  CHECK_EXCEPTION(jni) << "error during CallObjectMethod";
-  jmethodID iterator_has_next = GetMethodID(
-      jni, GetObjectClass(jni, iterator), "hasNext", "()Z");
-  jmethodID iterator_next = GetMethodID(
-      jni, GetObjectClass(jni, iterator), "next", "()Ljava/lang/Object;");
-  while (jni->CallBooleanMethod(iterator, iterator_has_next)) {
-    CHECK_EXCEPTION(jni) << "error during CallBooleanMethod";
-    jobject j_ice_server = jni->CallObjectMethod(iterator, iterator_next);
-    CHECK_EXCEPTION(jni) << "error during CallObjectMethod";
+  for (jobject j_ice_server : Iterable(jni, j_ice_servers)) {
     jclass j_ice_server_class = GetObjectClass(jni, j_ice_server);
     jfieldID j_ice_server_uri_id =
         GetFieldID(jni, j_ice_server_class, "uri", "Ljava/lang/String;");
@@ -1485,7 +1473,6 @@ static void JavaIceServersToJsepIceServers(
     server.password = JavaToStdString(jni, password);
     ice_servers->push_back(server);
   }
-  CHECK_EXCEPTION(jni) << "error during CallBooleanMethod";
 }
 
 static void JavaRTCConfigurationToJsepRTCConfiguration(
@@ -1724,6 +1711,35 @@ JOW(jboolean, PeerConnection_nativeAddIceCandidate)(
   return ExtractNativePC(jni, j_pc)->AddIceCandidate(candidate.get());
 }
 
+static cricket::Candidate GetCandidateFromJava(JNIEnv* jni,
+                                               jobject j_candidate) {
+  jclass j_candidate_class = GetObjectClass(jni, j_candidate);
+  jfieldID j_sdp_mid_id =
+      GetFieldID(jni, j_candidate_class, "sdpMid", "Ljava/lang/String;");
+  std::string sdp_mid =
+      JavaToStdString(jni, GetStringField(jni, j_candidate, j_sdp_mid_id));
+  jfieldID j_sdp_id =
+      GetFieldID(jni, j_candidate_class, "sdp", "Ljava/lang/String;");
+  std::string sdp =
+      JavaToStdString(jni, GetStringField(jni, j_candidate, j_sdp_id));
+  cricket::Candidate candidate;
+  if (!webrtc::SdpDeserializeCandidate(sdp_mid, sdp, &candidate, NULL)) {
+    LOG(LS_ERROR) << "SdpDescrializeCandidate failed with sdp " << sdp;
+  }
+  return candidate;
+}
+
+JOW(jboolean, PeerConnection_nativeRemoveIceCandidates)
+(JNIEnv* jni, jobject j_pc, jobjectArray j_candidates) {
+  std::vector<cricket::Candidate> candidates;
+  size_t num_candidates = jni->GetArrayLength(j_candidates);
+  for (size_t i = 0; i < num_candidates; ++i) {
+    jobject j_candidate = jni->GetObjectArrayElement(j_candidates, i);
+    candidates.push_back(GetCandidateFromJava(jni, j_candidate));
+  }
+  return ExtractNativePC(jni, j_pc)->RemoveIceCandidates(candidates);
+}
+
 JOW(jboolean, PeerConnection_nativeAddLocalStream)(
     JNIEnv* jni, jobject j_pc, jlong native_stream) {
   return ExtractNativePC(jni, j_pc)->AddStream(
@@ -1887,12 +1903,12 @@ JOW(void, VideoRenderer_nativeCopyPlane)(
 }
 
 JOW(void, VideoSource_stop)(JNIEnv* jni, jclass, jlong j_p) {
-  reinterpret_cast<VideoSourceInterface*>(j_p)->Stop();
+  reinterpret_cast<VideoTrackSourceInterface*>(j_p)->Stop();
 }
 
 JOW(void, VideoSource_restart)(
     JNIEnv* jni, jclass, jlong j_p_source, jlong j_p_format) {
-  reinterpret_cast<VideoSourceInterface*>(j_p_source)->Restart();
+  reinterpret_cast<VideoTrackSourceInterface*>(j_p_source)->Restart();
 }
 
 JOW(jstring, MediaStreamTrack_nativeId)(JNIEnv* jni, jclass, jlong j_p) {
@@ -1916,14 +1932,6 @@ JOW(jobject, MediaStreamTrack_nativeState)(JNIEnv* jni, jclass, jlong j_p) {
       reinterpret_cast<MediaStreamTrackInterface*>(j_p)->state());
 }
 
-JOW(jboolean, MediaStreamTrack_nativeSetState)(
-    JNIEnv* jni, jclass, jlong j_p, jint j_new_state) {
-  MediaStreamTrackInterface::TrackState new_state =
-      (MediaStreamTrackInterface::TrackState)j_new_state;
-  return reinterpret_cast<MediaStreamTrackInterface*>(j_p)
-      ->set_state(new_state);
-}
-
 JOW(jboolean, MediaStreamTrack_nativeSetEnabled)(
     JNIEnv* jni, jclass, jlong j_p, jboolean enabled) {
   return reinterpret_cast<MediaStreamTrackInterface*>(j_p)
@@ -1933,15 +1941,20 @@ JOW(jboolean, MediaStreamTrack_nativeSetEnabled)(
 JOW(void, VideoTrack_nativeAddRenderer)(
     JNIEnv* jni, jclass,
     jlong j_video_track_pointer, jlong j_renderer_pointer) {
-  reinterpret_cast<VideoTrackInterface*>(j_video_track_pointer)->AddRenderer(
-      reinterpret_cast<VideoRendererInterface*>(j_renderer_pointer));
+  reinterpret_cast<VideoTrackInterface*>(j_video_track_pointer)
+      ->AddOrUpdateSink(
+          reinterpret_cast<rtc::VideoSinkInterface<cricket::VideoFrame>*>(
+              j_renderer_pointer),
+          rtc::VideoSinkWants());
 }
 
 JOW(void, VideoTrack_nativeRemoveRenderer)(
     JNIEnv* jni, jclass,
     jlong j_video_track_pointer, jlong j_renderer_pointer) {
-  reinterpret_cast<VideoTrackInterface*>(j_video_track_pointer)->RemoveRenderer(
-      reinterpret_cast<VideoRendererInterface*>(j_renderer_pointer));
+  reinterpret_cast<VideoTrackInterface*>(j_video_track_pointer)
+      ->RemoveSink(
+          reinterpret_cast<rtc::VideoSinkInterface<cricket::VideoFrame>*>(
+              j_renderer_pointer));
 }
 
 JOW(jlong, CallSessionFileRotatingLogSink_nativeAddSink)(
@@ -2012,6 +2025,102 @@ JOW(jlong, RtpSender_nativeGetTrack)(JNIEnv* jni,
       reinterpret_cast<RtpSenderInterface*>(j_rtp_sender_pointer)
           ->track()
           .release());
+}
+
+static bool JavaEncodingToJsepRtpEncodingParameters(
+    JNIEnv* jni,
+    jobject j_encodings,
+    std::vector<webrtc::RtpEncodingParameters>* encodings) {
+  const int kBitrateUnlimited = -1;
+  jclass j_encoding_parameters_class =
+      jni->FindClass("org/webrtc/RtpParameters$Encoding");
+  jfieldID active_id =
+      GetFieldID(jni, j_encoding_parameters_class, "active", "Z");
+  jfieldID bitrate_id = GetFieldID(jni, j_encoding_parameters_class,
+                                   "maxBitrateBps", "Ljava/lang/Integer;");
+  jclass j_integer_class = jni->FindClass("java/lang/Integer");
+  jmethodID int_value_id = GetMethodID(jni, j_integer_class, "intValue", "()I");
+
+  for (jobject j_encoding_parameters : Iterable(jni, j_encodings)) {
+    webrtc::RtpEncodingParameters encoding;
+    encoding.active = GetBooleanField(jni, j_encoding_parameters, active_id);
+    jobject j_bitrate =
+        GetNullableObjectField(jni, j_encoding_parameters, bitrate_id);
+    if (!IsNull(jni, j_bitrate)) {
+      int bitrate_value = jni->CallIntMethod(j_bitrate, int_value_id);
+      CHECK_EXCEPTION(jni) << "error during CallIntMethod";
+      encoding.max_bitrate_bps = bitrate_value;
+    } else {
+      encoding.max_bitrate_bps = kBitrateUnlimited;
+    }
+    encodings->push_back(encoding);
+  }
+  return true;
+}
+
+JOW(jboolean, RtpSender_nativeSetParameters)
+(JNIEnv* jni, jclass, jlong j_rtp_sender_pointer, jobject j_parameters) {
+  if (IsNull(jni, j_parameters)) {
+    return false;
+  }
+  jclass parameters_class = jni->FindClass("org/webrtc/RtpParameters");
+  jclass encoding_class = jni->FindClass("org/webrtc/RtpParameters$Encoding");
+  jfieldID encodings_id =
+      GetFieldID(jni, parameters_class, "encodings", "Ljava/util/LinkedList;");
+
+  jobject j_encodings = GetObjectField(jni, j_parameters, encodings_id);
+  webrtc::RtpParameters parameters;
+  JavaEncodingToJsepRtpEncodingParameters(jni, j_encodings,
+                                          &parameters.encodings);
+  return reinterpret_cast<RtpSenderInterface*>(j_rtp_sender_pointer)
+      ->SetParameters(parameters);
+}
+
+JOW(jobject, RtpSender_nativeGetParameters)
+(JNIEnv* jni, jclass, jlong j_rtp_sender_pointer) {
+  webrtc::RtpParameters parameters =
+      reinterpret_cast<RtpSenderInterface*>(j_rtp_sender_pointer)
+          ->GetParameters();
+
+  jclass parameters_class = jni->FindClass("org/webrtc/RtpParameters");
+  jmethodID parameters_ctor =
+      GetMethodID(jni, parameters_class, "<init>", "()V");
+  jobject j_parameters = jni->NewObject(parameters_class, parameters_ctor);
+  CHECK_EXCEPTION(jni) << "error during NewObject";
+
+  jclass encoding_class = jni->FindClass("org/webrtc/RtpParameters$Encoding");
+  jmethodID encoding_ctor = GetMethodID(jni, encoding_class, "<init>", "()V");
+  jfieldID encodings_id =
+      GetFieldID(jni, parameters_class, "encodings", "Ljava/util/LinkedList;");
+  jobject j_encodings = GetObjectField(jni, j_parameters, encodings_id);
+  jmethodID add = GetMethodID(jni, GetObjectClass(jni, j_encodings), "add",
+                              "(Ljava/lang/Object;)Z");
+  jfieldID active_id =
+      GetFieldID(jni, encoding_class, "active", "Z");
+  jfieldID bitrate_id =
+      GetFieldID(jni, encoding_class, "maxBitrateBps", "Ljava/lang/Integer;");
+
+  jclass integer_class = jni->FindClass("java/lang/Integer");
+  jmethodID integer_ctor = GetMethodID(jni, integer_class, "<init>", "(I)V");
+
+  for (const webrtc::RtpEncodingParameters& encoding : parameters.encodings) {
+    jobject j_encoding_parameters =
+        jni->NewObject(encoding_class, encoding_ctor);
+    CHECK_EXCEPTION(jni) << "error during NewObject";
+    jni->SetBooleanField(j_encoding_parameters, active_id, encoding.active);
+    CHECK_EXCEPTION(jni) << "error during SetBooleanField";
+    if (encoding.max_bitrate_bps > 0) {
+      jobject j_bitrate_value =
+          jni->NewObject(integer_class, integer_ctor, encoding.max_bitrate_bps);
+      CHECK_EXCEPTION(jni) << "error during NewObject";
+      jni->SetObjectField(j_encoding_parameters, bitrate_id, j_bitrate_value);
+      CHECK_EXCEPTION(jni) << "error during SetObjectField";
+    }
+    jboolean added =
+        jni->CallBooleanMethod(j_encodings, add, j_encoding_parameters);
+    CHECK_EXCEPTION(jni) << "error during CallBooleanMethod";
+  }
+  return j_parameters;
 }
 
 JOW(jstring, RtpSender_nativeId)(

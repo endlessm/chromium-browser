@@ -12,6 +12,7 @@
 
 #include <math.h>
 #include <algorithm>
+#include <memory>
 
 #include "webrtc/base/bytebuffer.h"
 #include "webrtc/base/fileutils.h"
@@ -31,7 +32,7 @@ namespace cricket {
 // Implementation of RawRtpPacket
 /////////////////////////////////////////////////////////////////////////
 void RawRtpPacket::WriteToByteBuffer(uint32_t in_ssrc,
-                                     rtc::ByteBuffer* buf) const {
+                                     rtc::ByteBufferWriter* buf) const {
   if (!buf) return;
 
   buf->WriteUInt8(ver_to_cc);
@@ -42,7 +43,7 @@ void RawRtpPacket::WriteToByteBuffer(uint32_t in_ssrc,
   buf->WriteBytes(payload, sizeof(payload));
 }
 
-bool RawRtpPacket::ReadFromByteBuffer(rtc::ByteBuffer* buf) {
+bool RawRtpPacket::ReadFromByteBuffer(rtc::ByteBufferReader* buf) {
   if (!buf) return false;
 
   bool ret = true;
@@ -70,7 +71,7 @@ bool RawRtpPacket::SameExceptSeqNumTimestampSsrc(const RawRtpPacket& packet,
 /////////////////////////////////////////////////////////////////////////
 // Implementation of RawRtcpPacket
 /////////////////////////////////////////////////////////////////////////
-void RawRtcpPacket::WriteToByteBuffer(rtc::ByteBuffer *buf) const {
+void RawRtcpPacket::WriteToByteBuffer(rtc::ByteBufferWriter *buf) const {
   if (!buf) return;
 
   buf->WriteUInt8(ver_to_count);
@@ -79,7 +80,7 @@ void RawRtcpPacket::WriteToByteBuffer(rtc::ByteBuffer *buf) const {
   buf->WriteBytes(payload, sizeof(payload));
 }
 
-bool RawRtcpPacket::ReadFromByteBuffer(rtc::ByteBuffer* buf) {
+bool RawRtcpPacket::ReadFromByteBuffer(rtc::ByteBufferReader* buf) {
   if (!buf) return false;
 
   bool ret = true;
@@ -128,7 +129,7 @@ bool RtpTestUtility::WriteTestPackets(size_t count,
   bool result = true;
   uint32_t elapsed_time_ms = 0;
   for (size_t i = 0; i < count && result; ++i) {
-    rtc::ByteBuffer buf;
+    rtc::ByteBufferWriter buf;
     if (rtcp) {
       kTestRawRtcpPackets[i].WriteToByteBuffer(&buf);
     } else {
@@ -163,7 +164,7 @@ bool RtpTestUtility::VerifyTestPacketsFromStream(size_t count,
     prev_elapsed_time = packet.elapsed_time;
 
     // Check the RTP or RTCP packet.
-    rtc::ByteBuffer buf(reinterpret_cast<const char*>(&packet.data[0]),
+    rtc::ByteBufferReader buf(reinterpret_cast<const char*>(&packet.data[0]),
                               packet.data.size());
     if (packet.is_rtcp()) {
       // RTCP packet.
@@ -193,7 +194,7 @@ bool RtpTestUtility::VerifyPacket(const RtpDumpPacket* dump,
                                   bool header_only) {
   if (!dump || !raw) return false;
 
-  rtc::ByteBuffer buf;
+  rtc::ByteBufferWriter buf;
   raw->WriteToByteBuffer(RtpTestUtility::kDefaultSsrc, &buf);
 
   if (header_only) {
@@ -265,7 +266,7 @@ bool LoadPlanarYuvTestImage(const std::string& prefix,
   std::stringstream ss;
   ss << prefix << "." << width << "x" << height << "_P420.yuv";
 
-  rtc::scoped_ptr<rtc::FileStream> stream(
+  std::unique_ptr<rtc::FileStream> stream(
       rtc::Filesystem::OpenFile(rtc::Pathname(
           GetTestFilePath(ss.str())), "rb"));
   if (!stream) {
@@ -303,38 +304,6 @@ void DumpPlanarArgbTestImage(const std::string& prefix,
                       prefix.c_str(), w, h);
   fs.Open(filename, "wb", NULL);
   fs.Write(img, ARGB_SIZE(w, h), NULL, NULL);
-}
-
-bool VideoFrameEqual(const VideoFrame* frame0, const VideoFrame* frame1) {
-  const uint8_t* y0 = frame0->GetYPlane();
-  const uint8_t* u0 = frame0->GetUPlane();
-  const uint8_t* v0 = frame0->GetVPlane();
-  const uint8_t* y1 = frame1->GetYPlane();
-  const uint8_t* u1 = frame1->GetUPlane();
-  const uint8_t* v1 = frame1->GetVPlane();
-
-  for (size_t i = 0; i < frame0->GetHeight(); ++i) {
-    if (0 != memcmp(y0, y1, frame0->GetWidth())) {
-      return false;
-    }
-    y0 += frame0->GetYPitch();
-    y1 += frame1->GetYPitch();
-  }
-
-  for (size_t i = 0; i < frame0->GetChromaHeight(); ++i) {
-    if (0 != memcmp(u0, u1, frame0->GetChromaWidth())) {
-      return false;
-    }
-    if (0 != memcmp(v0, v1, frame0->GetChromaWidth())) {
-      return false;
-    }
-    u0 += frame0->GetUPitch();
-    v0 += frame0->GetVPitch();
-    u1 += frame1->GetUPitch();
-    v1 += frame1->GetVPitch();
-  }
-
-  return true;
 }
 
 cricket::StreamParams CreateSimStreamParams(

@@ -13,8 +13,8 @@
 #include "SkMath.h"
 #include "SkTLogic.h"
 #include "SkTypes.h"
-#include "SkUniquePtr.h"
 #include <limits.h>
+#include <memory>
 #include <new>
 
 /** \file SkTemplates.h
@@ -53,34 +53,32 @@ template <typename R, typename T, R (*P)(T*)> struct SkFunctionWrapper {
 
     Call a function when this goes out of scope. The template uses two
     parameters, the object, and a function that is to be called in the destructor.
-    If detach() is called, the object reference is set to null. If the object
+    If release() is called, the object reference is set to null. If the object
     reference is null when the destructor is called, we do not call the
     function.
 */
 template <typename T, void (*P)(T*)> class SkAutoTCallVProc
-    : public skstd::unique_ptr<T, SkFunctionWrapper<void, T, P>> {
+    : public std::unique_ptr<T, SkFunctionWrapper<void, T, P>> {
 public:
-    SkAutoTCallVProc(T* obj): skstd::unique_ptr<T, SkFunctionWrapper<void, T, P>>(obj) {}
+    SkAutoTCallVProc(T* obj): std::unique_ptr<T, SkFunctionWrapper<void, T, P>>(obj) {}
 
     operator T*() const { return this->get(); }
-    T* detach() { return this->release(); }
 };
 
 /** \class SkAutoTCallIProc
 
 Call a function when this goes out of scope. The template uses two
 parameters, the object, and a function that is to be called in the destructor.
-If detach() is called, the object reference is set to null. If the object
+If release() is called, the object reference is set to null. If the object
 reference is null when the destructor is called, we do not call the
 function.
 */
 template <typename T, int (*P)(T*)> class SkAutoTCallIProc
-    : public skstd::unique_ptr<T, SkFunctionWrapper<int, T, P>> {
+    : public std::unique_ptr<T, SkFunctionWrapper<int, T, P>> {
 public:
-    SkAutoTCallIProc(T* obj): skstd::unique_ptr<T, SkFunctionWrapper<int, T, P>>(obj) {}
+    SkAutoTCallIProc(T* obj): std::unique_ptr<T, SkFunctionWrapper<int, T, P>>(obj) {}
 
     operator T*() const { return this->get(); }
-    T* detach() { return this->release(); }
 };
 
 /** \class SkAutoTDelete
@@ -93,21 +91,21 @@ public:
 
   The size of a SkAutoTDelete is small: sizeof(SkAutoTDelete<T>) == sizeof(T*)
 */
-template <typename T> class SkAutoTDelete : public skstd::unique_ptr<T> {
+template <typename T> class SkAutoTDelete : public std::unique_ptr<T> {
 public:
-    SkAutoTDelete(T* obj = NULL) : skstd::unique_ptr<T>(obj) {}
+    SkAutoTDelete(T* obj = NULL) : std::unique_ptr<T>(obj) {}
 
     operator T*() const { return this->get(); }
-    void free() { this->reset(nullptr); }
+
+#if defined(SK_BUILD_FOR_ANDROID_FRAMEWORK)
+    // Need to update graphics/BitmapRegionDecoder.cpp.
     T* detach() { return this->release(); }
+#endif
 };
 
-template <typename T> class SkAutoTDeleteArray : public skstd::unique_ptr<T[]> {
+template <typename T> class SkAutoTDeleteArray : public std::unique_ptr<T[]> {
 public:
-    SkAutoTDeleteArray(T array[]) : skstd::unique_ptr<T[]>(array) {}
-
-    void free() { this->reset(nullptr); }
-    T* detach() { return this->release(); }
+    SkAutoTDeleteArray(T array[]) : std::unique_ptr<T[]>(array) {}
 };
 
 /** Allocate an array of T elements, and free the array in the destructor
@@ -282,9 +280,9 @@ public:
     }
 
     /** Resize the memory area pointed to by the current ptr without preserving contents. */
-    T* reset(size_t count) {
+    T* reset(size_t count = 0) {
         sk_free(fPtr);
-        fPtr = (T*)sk_malloc_flags(count * sizeof(T), SK_MALLOC_THROW);
+        fPtr = count ? (T*)sk_malloc_flags(count * sizeof(T), SK_MALLOC_THROW) : nullptr;
         return fPtr;
     }
 
@@ -307,18 +305,11 @@ public:
     }
 
     /**
-     *  Releases the block back to the heap
-     */
-    void free() {
-        this->reset(0);
-    }
-
-    /**
      *  Transfer ownership of the ptr to the caller, setting the internal
      *  pointer to NULL. Note that this differs from get(), which also returns
      *  the pointer, but it does not transfer ownership.
      */
-    T* detach() {
+    T* release() {
         T* ptr = fPtr;
         fPtr = NULL;
         return ptr;

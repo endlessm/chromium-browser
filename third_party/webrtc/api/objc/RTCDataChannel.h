@@ -8,6 +8,7 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
+#import <AvailabilityMacros.h>
 #import <Foundation/Foundation.h>
 
 NS_ASSUME_NONNULL_BEGIN
@@ -32,7 +33,6 @@ NS_ASSUME_NONNULL_BEGIN
 
 
 @class RTCDataChannel;
-
 @protocol RTCDataChannelDelegate <NSObject>
 
 /** The data channel state changed. */
@@ -43,21 +43,21 @@ NS_ASSUME_NONNULL_BEGIN
     didReceiveMessageWithBuffer:(RTCDataBuffer *)buffer;
 
 @optional
-
 /** The data channel's |bufferedAmount| changed. */
 - (void)dataChannel:(RTCDataChannel *)dataChannel
-    didChangeBufferedAmount:(NSUInteger)amount;
+    didChangeBufferedAmount:(uint64_t)amount;
 
 @end
 
 
 /** Represents the state of the data channel. */
 typedef NS_ENUM(NSInteger, RTCDataChannelState) {
-    RTCDataChannelStateConnecting,
-    RTCDataChannelStateOpen,
-    RTCDataChannelStateClosing,
-    RTCDataChannelStateClosed,
+  RTCDataChannelStateConnecting,
+  RTCDataChannelStateOpen,
+  RTCDataChannelStateClosing,
+  RTCDataChannelStateClosed,
 };
+
 
 @interface RTCDataChannel : NSObject
 
@@ -67,8 +67,15 @@ typedef NS_ENUM(NSInteger, RTCDataChannelState) {
  */
 @property(nonatomic, readonly) NSString *label;
 
+/** Whether the data channel can send messages in unreliable mode. */
+@property(nonatomic, readonly) BOOL isReliable DEPRECATED_ATTRIBUTE;
+
 /** Returns whether this data channel is ordered or not. */
 @property(nonatomic, readonly) BOOL isOrdered;
+
+/** Deprecated. Use maxPacketLifeTime. */
+@property(nonatomic, readonly) NSUInteger maxRetransmitTime
+    DEPRECATED_ATTRIBUTE;
 
 /**
  * The length of the time window (in milliseconds) during which transmissions
@@ -92,8 +99,11 @@ typedef NS_ENUM(NSInteger, RTCDataChannelState) {
  */
 @property(nonatomic, readonly) BOOL isNegotiated;
 
+/** Deprecated. Use channelId. */
+@property(nonatomic, readonly) NSInteger streamId DEPRECATED_ATTRIBUTE;
+
 /** The identifier for this data channel. */
-@property(nonatomic, readonly) int id;
+@property(nonatomic, readonly) int channelId;
 
 /** The state of the data channel. */
 @property(nonatomic, readonly) RTCDataChannelState readyState;

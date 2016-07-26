@@ -1,4 +1,3 @@
-
 /*
  * Copyright 2014 Google Inc.
  *
@@ -31,11 +30,6 @@ private:
     }
 
     /**
-     * Is the resource object wrapping an externally allocated GPU resource?
-     */
-    bool isExternal() const { return fResource->isExternal(); }
-
-    /**
      * Is the resource object wrapping an externally allocated GPU resource that Skia has not taken
      * ownership of.
      */
@@ -46,7 +40,7 @@ private:
      * ownership of.
      */
     bool isAdopted() const { return GrGpuResource::kAdopted_LifeCycle == fResource->fLifeCycle; }
- 
+
     /**
      * Called by the cache to delete the resource under normal circumstances.
      */

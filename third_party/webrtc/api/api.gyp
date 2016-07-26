@@ -122,19 +122,19 @@
         }, # libjingle_peerconnection_java
       ]
     }],
-    ['OS=="ios"', {
+    ['OS=="ios" or (OS=="mac" and mac_deployment_target=="10.7")', {
       'targets': [
         {
           'target_name': 'rtc_api_objc',
           'type': 'static_library',
+          'includes': [
+            '../build/objc_common.gypi',
+          ],
           'dependencies': [
             '<(webrtc_root)/base/base.gyp:rtc_base_objc',
             'libjingle_peerconnection',
           ],
           'sources': [
-            'objc/RTCAVFoundationVideoSource+Private.h',
-            'objc/RTCAVFoundationVideoSource.h',
-            'objc/RTCAVFoundationVideoSource.mm',
             'objc/RTCAudioTrack+Private.h',
             'objc/RTCAudioTrack.h',
             'objc/RTCAudioTrack.mm',
@@ -191,14 +191,24 @@
             'objc/RTCVideoTrack+Private.h',
             'objc/RTCVideoTrack.h',
             'objc/RTCVideoTrack.mm',
-            'objc/avfoundationvideocapturer.h',
-            'objc/avfoundationvideocapturer.mm',
           ],
+          # TODO(hjon): Make this compile without linking to libstdc++
+          # See https://bugs.chromium.org/p/webrtc/issues/detail?id=5593
+          'link_settings': {
+            'libraries': [
+              '-lstdc++',
+            ],
+          },
           'conditions': [
             ['OS=="ios"', {
               'sources': [
+                'objc/RTCAVFoundationVideoSource+Private.h',
+                'objc/RTCAVFoundationVideoSource.h',
+                'objc/RTCAVFoundationVideoSource.mm',
                 'objc/RTCEAGLVideoView.h',
                 'objc/RTCEAGLVideoView.m',
+                'objc/avfoundationvideocapturer.h',
+                'objc/avfoundationvideocapturer.mm',
               ],
               'all_dependent_settings': {
                 'xcode_settings': {
@@ -226,13 +236,15 @@
                 'objc/RTCNSGLVideoView.h',
                 'objc/RTCNSGLVideoView.m',
               ],
+              'link_settings': {
+                'xcode_settings': {
+                  'OTHER_LDFLAGS': [
+                    '-framework OpenGL',
+                  ],
+                },
+              },
             }],
           ],
-          'xcode_settings': {
-            'CLANG_ENABLE_OBJC_ARC': 'YES',
-            'CLANG_WARN_OBJC_MISSING_PROPERTY_SYNTHESIS': 'YES',
-            'GCC_PREFIX_HEADER': 'objc/WebRTC-Prefix.pch',
-          },
         }
       ],
     }],  # OS=="ios"
@@ -287,8 +299,7 @@
         'proxy.h',
         'remoteaudiosource.cc',
         'remoteaudiosource.h',
-        'remotevideocapturer.cc',
-        'remotevideocapturer.h',
+        'rtpparameters.h',
         'rtpreceiver.cc',
         'rtpreceiver.h',
         'rtpreceiverinterface.h',
@@ -302,14 +313,13 @@
         'statstypes.cc',
         'statstypes.h',
         'streamcollection.h',
-        'videosource.cc',
-        'videosource.h',
-        'videosourceinterface.h',
+        'videocapturertracksource.cc',
+        'videocapturertracksource.h',
         'videosourceproxy.h',
         'videotrack.cc',
         'videotrack.h',
-        'videotrackrenderers.cc',
-        'videotrackrenderers.h',
+        'videotracksource.cc',
+        'videotracksource.h',
         'webrtcsdp.cc',
         'webrtcsdp.h',
         'webrtcsession.cc',

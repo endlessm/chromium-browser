@@ -199,11 +199,11 @@ void PeerConnectionDelegateAdapter::OnIceCandidate(
     _observer.reset(new webrtc::PeerConnectionDelegateAdapter(self));
     webrtc::PeerConnectionInterface::RTCConfiguration config =
         configuration.nativeConfiguration;
-    webrtc::MediaConstraints *nativeConstraints =
-        constraints.nativeConstraints.get();
+    rtc::scoped_ptr<webrtc::MediaConstraints> nativeConstraints =
+        constraints.nativeConstraints;
     _peerConnection =
         factory.nativeFactory->CreatePeerConnection(config,
-                                                    nativeConstraints,
+                                                    nativeConstraints.get(),
                                                     nullptr,
                                                     nullptr,
                                                     _observer.get());
@@ -248,6 +248,10 @@ void PeerConnectionDelegateAdapter::OnIceCandidate(
       _peerConnection->ice_gathering_state()];
 }
 
+- (BOOL)setConfiguration:(RTCConfiguration *)configuration {
+  return _peerConnection->SetConfiguration(configuration.nativeConfiguration);
+}
+
 - (void)close {
   _peerConnection->Close();
 }
@@ -259,7 +263,7 @@ void PeerConnectionDelegateAdapter::OnIceCandidate(
 }
 
 - (void)addStream:(RTCMediaStream *)stream {
-  if (_peerConnection->AddStream(stream.nativeMediaStream)) {
+  if (!_peerConnection->AddStream(stream.nativeMediaStream)) {
     RTCLogError(@"Failed to add stream: %@", stream);
     return;
   }
@@ -379,7 +383,7 @@ void PeerConnectionDelegateAdapter::OnIceCandidate(
       return webrtc::PeerConnectionInterface::kIceConnectionDisconnected;
     case RTCIceConnectionStateClosed:
       return webrtc::PeerConnectionInterface::kIceConnectionClosed;
-    case RTCIceConnectionStateMax:
+    case RTCIceConnectionStateCount:
       return webrtc::PeerConnectionInterface::kIceConnectionMax;
   }
 }
@@ -402,7 +406,7 @@ void PeerConnectionDelegateAdapter::OnIceCandidate(
     case webrtc::PeerConnectionInterface::kIceConnectionClosed:
       return RTCIceConnectionStateClosed;
     case webrtc::PeerConnectionInterface::kIceConnectionMax:
-      return RTCIceConnectionStateMax;
+      return RTCIceConnectionStateCount;
   }
 }
 
@@ -422,8 +426,8 @@ void PeerConnectionDelegateAdapter::OnIceCandidate(
       return @"DISCONNECTED";
     case RTCIceConnectionStateClosed:
       return @"CLOSED";
-    case RTCIceConnectionStateMax:
-      return @"MAX";
+    case RTCIceConnectionStateCount:
+      return @"COUNT";
   }
 }
 

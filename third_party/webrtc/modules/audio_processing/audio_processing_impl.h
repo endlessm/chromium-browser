@@ -83,11 +83,9 @@ class AudioProcessingImpl : public AudioProcessing {
   void set_delay_offset_ms(int offset) override;
   int delay_offset_ms() const override;
   void set_stream_key_pressed(bool key_pressed) override;
-  int input_sample_rate_hz() const override;
 
   // Render-side exclusive methods possibly running APM in a
   // multi-threaded manner. Acquire the render lock.
-  int AnalyzeReverseStream(AudioFrame* frame) override;
   int ProcessReverseStream(AudioFrame* frame) override;
   int AnalyzeReverseStream(const float* const* data,
                            size_t samples_per_channel,
@@ -196,19 +194,22 @@ class AudioProcessingImpl : public AudioProcessing {
       EXCLUSIVE_LOCKS_REQUIRED(crit_capture_);
   void InitializeVoiceDetection()
       EXCLUSIVE_LOCKS_REQUIRED(crit_capture_);
+  void InitializeEchoCanceller()
+      EXCLUSIVE_LOCKS_REQUIRED(crit_render_, crit_capture_);
+  void InitializeGainController()
+      EXCLUSIVE_LOCKS_REQUIRED(crit_render_, crit_capture_);
+  void InitializeEchoControlMobile()
+      EXCLUSIVE_LOCKS_REQUIRED(crit_render_, crit_capture_);
   int InitializeLocked(const ProcessingConfig& config)
       EXCLUSIVE_LOCKS_REQUIRED(crit_render_, crit_capture_);
 
   // Capture-side exclusive methods possibly running APM in a multi-threaded
   // manner that are called with the render lock already acquired.
   int ProcessStreamLocked() EXCLUSIVE_LOCKS_REQUIRED(crit_capture_);
-  bool output_copy_needed(bool is_data_processed) const
-      EXCLUSIVE_LOCKS_REQUIRED(crit_capture_);
-  bool is_data_processed() const EXCLUSIVE_LOCKS_REQUIRED(crit_capture_);
-  bool synthesis_needed(bool is_data_processed) const
-      EXCLUSIVE_LOCKS_REQUIRED(crit_capture_);
-  bool analysis_needed(bool is_data_processed) const
-      EXCLUSIVE_LOCKS_REQUIRED(crit_capture_);
+  bool output_copy_needed() const EXCLUSIVE_LOCKS_REQUIRED(crit_capture_);
+  bool is_fwd_processed() const EXCLUSIVE_LOCKS_REQUIRED(crit_capture_);
+  bool fwd_synthesis_needed() const EXCLUSIVE_LOCKS_REQUIRED(crit_capture_);
+  bool fwd_analysis_needed() const EXCLUSIVE_LOCKS_REQUIRED(crit_capture_);
   void MaybeUpdateHistograms() EXCLUSIVE_LOCKS_REQUIRED(crit_capture_);
 
   // Render-side exclusive methods possibly running APM in a multi-threaded
@@ -219,6 +220,8 @@ class AudioProcessingImpl : public AudioProcessing {
                                  const StreamConfig& output_config)
       EXCLUSIVE_LOCKS_REQUIRED(crit_render_);
   bool is_rev_processed() const EXCLUSIVE_LOCKS_REQUIRED(crit_render_);
+  bool rev_synthesis_needed() const EXCLUSIVE_LOCKS_REQUIRED(crit_render_);
+  bool rev_analysis_needed() const EXCLUSIVE_LOCKS_REQUIRED(crit_render_);
   int ProcessReverseStreamLocked() EXCLUSIVE_LOCKS_REQUIRED(crit_render_);
 
 // Debug dump methods that are internal and called without locks.

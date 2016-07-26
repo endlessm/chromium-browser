@@ -626,10 +626,26 @@ gl::Error Blit11::swizzleTexture(ID3D11ShaderResourceView *source,
     source->GetDesc(&sourceSRVDesc);
 
     const d3d11::DXGIFormat &dxgiFormatInfo = d3d11::GetDXGIFormatInfo(sourceSRVDesc.Format);
-    const gl::InternalFormat &sourceFormatInfo = gl::GetInternalFormatInfo(dxgiFormatInfo.internalFormat);
+    GLenum componentType = dxgiFormatInfo.componentType;
+    if (componentType == GL_NONE)
+    {
+        // We're swizzling the depth component of a depth-stencil texture.
+        switch (sourceSRVDesc.Format)
+        {
+            case DXGI_FORMAT_R24_UNORM_X8_TYPELESS:
+                componentType = GL_UNSIGNED_NORMALIZED;
+                break;
+            case DXGI_FORMAT_R32_FLOAT_X8X24_TYPELESS:
+                componentType = GL_FLOAT;
+                break;
+            default:
+                UNREACHABLE();
+                break;
+        }
+    }
 
     GLenum shaderType = GL_NONE;
-    switch (sourceFormatInfo.componentType)
+    switch (componentType)
     {
       case GL_UNSIGNED_NORMALIZED:
       case GL_SIGNED_NORMALIZED:
@@ -713,7 +729,7 @@ gl::Error Blit11::swizzleTexture(ID3D11ShaderResourceView *source,
     stateManager->setShaderResource(gl::SAMPLER_PIXEL, 0, nullptr);
 
     // Apply render target
-    mRenderer->setOneTimeRenderTarget(dest);
+    stateManager->setOneTimeRenderTarget(dest, nullptr);
 
     // Set the viewport
     D3D11_VIEWPORT viewport;
@@ -736,8 +752,6 @@ gl::Error Blit11::swizzleTexture(ID3D11ShaderResourceView *source,
 
     // Unbind textures and render targets and vertex buffer
     stateManager->setShaderResource(gl::SAMPLER_PIXEL, 0, nullptr);
-
-    mRenderer->unapplyRenderTargets();
 
     UINT zero = 0;
     ID3D11Buffer *const nullBuffer = nullptr;
@@ -774,9 +788,12 @@ gl::Error Blit11::copyTexture(ID3D11ShaderResourceView *source,
     source->GetDesc(&sourceSRVDesc);
 
     const d3d11::DXGIFormat &dxgiFormatInfo = d3d11::GetDXGIFormatInfo(sourceSRVDesc.Format);
-    const gl::InternalFormat &internalFormatInfo = gl::GetInternalFormatInfo(dxgiFormatInfo.internalFormat);
+    GLenum componentType                    = dxgiFormatInfo.componentType;
 
-    bool isSigned = (internalFormatInfo.componentType == GL_INT);
+    ASSERT(componentType != GL_NONE);
+    ASSERT(componentType != GL_SIGNED_NORMALIZED);
+    bool isSigned = (componentType == GL_INT);
+
     ShaderDimension dimension = (sourceSRVDesc.ViewDimension == D3D11_SRV_DIMENSION_TEXTURE3D) ? SHADER_3D : SHADER_2D;
 
     const Shader *shader = nullptr;
@@ -851,7 +868,7 @@ gl::Error Blit11::copyTexture(ID3D11ShaderResourceView *source,
     stateManager->setShaderResource(gl::SAMPLER_PIXEL, 0, nullptr);
 
     // Apply render target
-    mRenderer->setOneTimeRenderTarget(dest);
+    stateManager->setOneTimeRenderTarget(dest, nullptr);
 
     // Set the viewport
     D3D11_VIEWPORT viewport;
@@ -884,8 +901,6 @@ gl::Error Blit11::copyTexture(ID3D11ShaderResourceView *source,
 
     // Unbind textures and render targets and vertex buffer
     stateManager->setShaderResource(gl::SAMPLER_PIXEL, 0, nullptr);
-
-    mRenderer->unapplyRenderTargets();
 
     UINT zero = 0;
     ID3D11Buffer *const nullBuffer = nullptr;
@@ -979,7 +994,7 @@ gl::Error Blit11::copyDepth(ID3D11ShaderResourceView *source, const gl::Box &sou
     stateManager->setShaderResource(gl::SAMPLER_PIXEL, 0, nullptr);
 
     // Apply render target
-    deviceContext->OMSetRenderTargets(0, nullptr, dest);
+    stateManager->setOneTimeRenderTarget(nullptr, dest);
 
     // Set the viewport
     D3D11_VIEWPORT viewport;
@@ -1002,8 +1017,6 @@ gl::Error Blit11::copyDepth(ID3D11ShaderResourceView *source, const gl::Box &sou
 
     // Unbind textures and render targets and vertex buffer
     stateManager->setShaderResource(gl::SAMPLER_PIXEL, 0, nullptr);
-
-    mRenderer->unapplyRenderTargets();
 
     UINT zero = 0;
     ID3D11Buffer *const nullBuffer = nullptr;
@@ -1051,20 +1064,25 @@ gl::Error Blit11::copyDepthStencil(ID3D11Resource *source, unsigned int sourceSu
     DXGI_FORMAT format = GetTextureFormat(source);
     ASSERT(format == GetTextureFormat(dest));
 
-    const d3d11::DXGIFormat &dxgiFormatInfo = d3d11::GetDXGIFormatInfo(format);
     const d3d11::DXGIFormatSize &dxgiFormatSizeInfo = d3d11::GetDXGIFormatSizeInfo(format);
     unsigned int pixelSize                          = dxgiFormatSizeInfo.pixelBytes;
     unsigned int copyOffset = 0;
     unsigned int copySize = pixelSize;
     if (stencilOnly)
     {
-        copyOffset = dxgiFormatInfo.depthBits / 8;
-        copySize = dxgiFormatInfo.stencilBits / 8;
+        const d3d11::DXGIFormat &dxgiFormatInfo = d3d11::GetDXGIFormatInfo(format);
 
-        // It would be expensive to have non-byte sized stencil sizes since it would
-        // require reading from the destination, currently there aren't any though.
-        ASSERT(dxgiFormatInfo.stencilBits % 8 == 0 &&
-               dxgiFormatInfo.depthBits   % 8 == 0);
+        // Stencil channel should be right after the depth channel. Some views to depth/stencil
+        // resources have red channel for depth, in which case the depth channel bit width is in
+        // redBits.
+        ASSERT((dxgiFormatInfo.redBits != 0) != (dxgiFormatInfo.depthBits != 0));
+        GLuint depthBits = dxgiFormatInfo.redBits + dxgiFormatInfo.depthBits;
+        // Known formats have either 24 or 32 bits of depth.
+        ASSERT(depthBits == 24 || depthBits == 32);
+        copyOffset = depthBits / 8;
+
+        // Stencil is assumed to be 8-bit - currently this is true for all possible formats.
+        copySize = 1;
     }
 
     D3D11_MAPPED_SUBRESOURCE sourceMapping;

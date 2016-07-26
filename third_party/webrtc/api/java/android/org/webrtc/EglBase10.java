@@ -158,7 +158,8 @@ final class EglBase10 extends EglBase {
     int[] surfaceAttribs = {EGL10.EGL_WIDTH, width, EGL10.EGL_HEIGHT, height, EGL10.EGL_NONE};
     eglSurface = egl.eglCreatePbufferSurface(eglDisplay, eglConfig, surfaceAttribs);
     if (eglSurface == EGL10.EGL_NO_SURFACE) {
-      throw new RuntimeException("Failed to create pixel buffer surface");
+      throw new RuntimeException(
+          "Failed to create pixel buffer surface with size: " + width + "x" + height);
     }
   }
 
@@ -219,17 +220,21 @@ final class EglBase10 extends EglBase {
     if (eglSurface == EGL10.EGL_NO_SURFACE) {
       throw new RuntimeException("No EGLSurface - can't make current");
     }
-    if (!egl.eglMakeCurrent(eglDisplay, eglSurface, eglSurface, eglContext)) {
-      throw new RuntimeException("eglMakeCurrent failed");
+    synchronized (EglBase.lock) {
+      if (!egl.eglMakeCurrent(eglDisplay, eglSurface, eglSurface, eglContext)) {
+        throw new RuntimeException("eglMakeCurrent failed");
+      }
     }
   }
 
   // Detach the current EGL context, so that it can be made current on another thread.
   @Override
   public void detachCurrent() {
-    if (!egl.eglMakeCurrent(
-        eglDisplay, EGL10.EGL_NO_SURFACE, EGL10.EGL_NO_SURFACE, EGL10.EGL_NO_CONTEXT)) {
-      throw new RuntimeException("eglMakeCurrent failed");
+    synchronized (EglBase.lock) {
+      if (!egl.eglMakeCurrent(
+          eglDisplay, EGL10.EGL_NO_SURFACE, EGL10.EGL_NO_SURFACE, EGL10.EGL_NO_CONTEXT)) {
+        throw new RuntimeException("eglDetachCurrent failed");
+      }
     }
   }
 
@@ -239,7 +244,9 @@ final class EglBase10 extends EglBase {
     if (eglSurface == EGL10.EGL_NO_SURFACE) {
       throw new RuntimeException("No EGLSurface - can't swap buffers");
     }
-    egl.eglSwapBuffers(eglDisplay, eglSurface);
+    synchronized (EglBase.lock) {
+      egl.eglSwapBuffers(eglDisplay, eglSurface);
+    }
   }
 
   // Return an EGLDisplay, or die trying.
@@ -261,9 +268,16 @@ final class EglBase10 extends EglBase {
     int[] numConfigs = new int[1];
     if (!egl.eglChooseConfig(
         eglDisplay, configAttributes, configs, configs.length, numConfigs)) {
+      throw new RuntimeException("eglChooseConfig failed");
+    }
+    if (numConfigs[0] <= 0) {
       throw new RuntimeException("Unable to find any matching EGL config");
     }
-    return configs[0];
+    final EGLConfig eglConfig = configs[0];
+    if (eglConfig == null) {
+      throw new RuntimeException("eglChooseConfig returned null");
+    }
+    return eglConfig;
   }
 
   // Return an EGLConfig, or die trying.

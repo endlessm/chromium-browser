@@ -51,16 +51,6 @@
         }
       }
     },
-    "crash_service": {
-      "cloud_storage_base_folder": "binary_dependencies",
-      "cloud_storage_bucket": "chromium-telemetry",
-      "file_info": {
-        "win_AMD64": {
-          "cloud_storage_hash": "4a0961e972895f4af3b7cfab959c5bfd4de7174b",
-          "download_path": "bin/win/AMD64/crash_service.exe"
-        }
-      }
-    },
     "determine_if_keychain_entry_is_decryptable": {
       "cloud_storage_base_folder": "binary_dependencies",
       "cloud_storage_bucket": "chromium-telemetry",
@@ -124,16 +114,6 @@
         "android_x86": {
           "cloud_storage_hash": "bcf02af039713a48b69b89bd7f0f9c81ed8183a4",
           "download_path": "bin/android/x86/i686-linux-androideabi-gdb"
-        }
-      }
-    },
-    "horndis": {
-      "cloud_storage_base_folder": "binary_dependencies",
-      "cloud_storage_bucket": "chromium-telemetry",
-      "file_info": {
-        "mac_x86_64": {
-          "cloud_storage_hash": "12a74cec071017ba11655b5740b8a58e2f52a219",
-          "download_path": "bin/mac/x86_64/HoRNDIS-rel5.pkg"
         }
       }
     },

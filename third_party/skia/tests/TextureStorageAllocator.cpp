@@ -8,9 +8,9 @@
 #include "Test.h"
 #if SK_SUPPORT_GPU
 #include "gl/GrGLGpu.h"
+#include "gl/GLTestContext.h"
 #include "GrContext.h"
 #include "SkSurface_Gpu.h"
-#include "../include/gpu/gl/SkGLContext.h"
 #include "../include/gpu/GrTypes.h"
 #include "../include/private/SkTemplates.h"
 
@@ -53,7 +53,9 @@ class TestStorageAllocator {
   bool m_allowAllocation;
 };
 
-DEF_GPUTEST_FOR_RENDERING_CONTEXTS(CustomTexture, reporter, context, glContext) {
+DEF_GPUTEST_FOR_GL_RENDERING_CONTEXTS(CustomTexture, reporter, ctxInfo) {
+    GrContext* context = ctxInfo.fGrContext;
+    sk_gpu_test::GLTestContext* glContext = ctxInfo.fGLContext;
     static const int kWidth = 13;
     static const int kHeight = 13;
 
@@ -66,13 +68,13 @@ DEF_GPUTEST_FOR_RENDERING_CONTEXTS(CustomTexture, reporter, context, glContext) 
     grAllocator.fDeallocateTextureStorage= &TestStorageAllocator::deallocateTextureStorage;
     grAllocator.fCtx = &allocator;
 
-    SkAutoTUnref<SkSurface> surface(SkSurface_Gpu::NewRenderTarget(
+    auto surface(SkSurface_Gpu::MakeRenderTarget(
             context, SkBudgeted::kNo, SkImageInfo::MakeN32Premul(kWidth, kHeight), 0,
             NULL, grAllocator));
     REPORTER_ASSERT(reporter, surface);
     GrGLuint id = allocator.m_mostRecentlyAllocatedStorage;
 
-    SkAutoTUnref<SkImage> image(surface->newImageSnapshot());
+    sk_sp<SkImage> image(surface->makeImageSnapshot());
     REPORTER_ASSERT(reporter, image->isTextureBacked());
     SkImageInfo imageInfo = SkImageInfo::MakeN32Premul(1,1);
     GrColor dest = 0x11223344;
@@ -80,7 +82,7 @@ DEF_GPUTEST_FOR_RENDERING_CONTEXTS(CustomTexture, reporter, context, glContext) 
     REPORTER_ASSERT(reporter, GrColorUnpackG(dest) == 0);
 
     surface->getCanvas()->clear(SK_ColorGREEN);
-    SkAutoTUnref<SkImage> image2(surface->newImageSnapshot());
+    sk_sp<SkImage> image2(surface->makeImageSnapshot());
     REPORTER_ASSERT(reporter, image2->isTextureBacked());
     REPORTER_ASSERT(reporter, allocator.m_mostRecentlyAllocatedStorage != id);
 
@@ -88,11 +90,11 @@ DEF_GPUTEST_FOR_RENDERING_CONTEXTS(CustomTexture, reporter, context, glContext) 
     REPORTER_ASSERT(reporter, GrColorUnpackG(dest) == 255);
 }
 
-DEF_GPUTEST_FOR_RENDERING_CONTEXTS(CustomTextureFailure, reporter, context, glContext) {
+DEF_GPUTEST_FOR_GL_RENDERING_CONTEXTS(CustomTextureFailure, reporter, ctxInfo) {
     static const int kWidth = 13;
     static const int kHeight = 13;
 
-    const GrGLInterface* gl = glContext->gl();
+    const GrGLInterface* gl = ctxInfo.fGLContext->gl();
     TestStorageAllocator allocator;
     allocator.m_allowAllocation = false;
     allocator.m_gl = gl;
@@ -100,8 +102,8 @@ DEF_GPUTEST_FOR_RENDERING_CONTEXTS(CustomTextureFailure, reporter, context, glCo
     grAllocator.fAllocateTextureStorage = &TestStorageAllocator::allocateTextureStorage;
     grAllocator.fDeallocateTextureStorage= &TestStorageAllocator::deallocateTextureStorage;
     grAllocator.fCtx = &allocator;
-    SkAutoTUnref<SkSurface> surface(SkSurface_Gpu::NewRenderTarget(
-            context, SkBudgeted::kNo, SkImageInfo::MakeN32Premul(kWidth, kHeight), 0,
+    auto surface(SkSurface_Gpu::MakeRenderTarget(
+            ctxInfo.fGrContext, SkBudgeted::kNo, SkImageInfo::MakeN32Premul(kWidth, kHeight), 0,
             NULL, grAllocator));
     REPORTER_ASSERT(reporter, !surface);
 }

@@ -22,7 +22,6 @@
         'get_images_from_skps',
         'gpuveto',
         'imgblur',
-        'imgconv',
         'imgslice',
         'lua_app',
         'lua_pictures',
@@ -31,7 +30,6 @@
         'skhello',
         'skpinfo',
         'skpmaker',
-        'test_image_decoder',
         'test_public_includes',
         'whitelist_typefaces',
       ],
@@ -266,15 +264,19 @@
       ],
     },
     {
-        'target_name': 'get_images_from_skps',
-        'type': 'executable',
-        'sources': [
-            '../tools/get_images_from_skps.cpp',
-         ],
-         'dependencies': [
-            'flags.gyp:flags',
-            'skia_lib.gyp:skia_lib',
-         ],
+      'target_name': 'get_images_from_skps',
+      'type': 'executable',
+      'sources': [
+        '../tools/get_images_from_skps.cpp',
+      ],
+      'include_dirs': [
+        '../src/core',
+        '../include/private',
+      ],
+      'dependencies': [
+        'flags.gyp:flags',
+        'skia_lib.gyp:skia_lib',
+      ],
     },
     {
       'target_name': 'gpuveto',
@@ -367,27 +369,6 @@
       ],
     },
     {
-      'target_name': 'imgconv',
-      'type': 'executable',
-      'sources': [
-        '../tools/imgconv.cpp',
-      ],
-      'dependencies': [
-        'flags.gyp:flags',
-        'skia_lib.gyp:skia_lib',
-      ],
-    },
-    {
-      'target_name': 'test_image_decoder',
-      'type': 'executable',
-      'sources': [
-        '../tools/test_image_decoder.cpp',
-      ],
-      'dependencies': [
-        'skia_lib.gyp:skia_lib',
-      ],
-    },
-    {
       'target_name': 'proc_stats',
       'type': 'static_library',
       'sources': [
@@ -415,7 +396,7 @@
       'direct_dependent_settings': {
         'include_dirs': [
           '../include/private',
-          '../tools', 
+          '../tools',
         ],
       },
     },
@@ -476,7 +457,6 @@
           '<(skia_include_path)/utils/win',
           '<(skia_include_path)/utils/SkDebugUtils.h',
           '<(skia_include_path)/utils/SkJSONCPP.h',
-          '<(skia_include_path)/views/animated',
           '<(skia_include_path)/views/SkOSWindow_Android.h',
           '<(skia_include_path)/views/SkOSWindow_iOS.h',
           '<(skia_include_path)/views/SkOSWindow_Mac.h',
@@ -485,6 +465,9 @@
           '<(skia_include_path)/views/SkOSWindow_Win.h',
           '<(skia_include_path)/views/SkWindow.h',
           '<(skia_include_path)/gpu/vk',
+        ],
+        'output_file' : [
+          '<(INTERMEDIATE_DIR)/test_public_includes.cpp',
         ],
       },
       'include_dirs': [
@@ -500,15 +483,16 @@
           'inputs': [
             '../tools/generate_includes_cpp.py',
             '<@(includes_to_test)',
-            # This causes the gyp generator on mac to fail
-            #'<@(paths_to_ignore)',
           ],
           'outputs': [
-            '<(INTERMEDIATE_DIR)/test_public_includes.cpp',
+            '<@(output_file)',
+            # Force the script to always run so that we pick up when files have
+            # been deleted.
+            'filename_that_does_not_exists_but_forces_rebuild.txt',
           ],
           'action': ['python', '../tools/generate_includes_cpp.py',
                                '--ignore', '<(paths_to_ignore)',
-                               '<@(_outputs)', '<@(includes_to_test)'],
+                               '<@(output_file)', '<@(includes_to_test)'],
         },
       ],
     },

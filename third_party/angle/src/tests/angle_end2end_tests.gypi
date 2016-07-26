@@ -19,6 +19,7 @@
             '<(angle_path)/src/tests/gl_tests/BlitFramebufferANGLETest.cpp',
             '<(angle_path)/src/tests/gl_tests/BufferDataTest.cpp',
             '<(angle_path)/src/tests/gl_tests/ClearTest.cpp',
+            '<(angle_path)/src/tests/gl_tests/ColorMaskTest.cpp',
             '<(angle_path)/src/tests/gl_tests/CompressedTextureTest.cpp',
             '<(angle_path)/src/tests/gl_tests/CopyTexImageTest.cpp',
             '<(angle_path)/src/tests/gl_tests/CubeMapTextureTest.cpp',
@@ -68,6 +69,7 @@
             '<(angle_path)/src/tests/gl_tests/ViewportTest.cpp',
             '<(angle_path)/src/tests/egl_tests/EGLContextCompatibilityTest.cpp',
             '<(angle_path)/src/tests/egl_tests/EGLQueryContextTest.cpp',
+            '<(angle_path)/src/tests/egl_tests/EGLSanityCheckTest.cpp',
             '<(angle_path)/src/tests/egl_tests/EGLSurfaceTest.cpp',
             '<(angle_path)/src/tests/test_utils/ANGLETest.cpp',
             '<(angle_path)/src/tests/test_utils/ANGLETest.h',
@@ -84,6 +86,7 @@
             '<(angle_path)/src/tests/gl_tests/D3D11InputLayoutCacheTest.cpp',
             '<(angle_path)/src/tests/egl_tests/EGLDeviceTest.cpp',
             '<(angle_path)/src/tests/egl_tests/EGLPresentPathD3D11Test.cpp',
+            '<(angle_path)/src/tests/egl_tests/EGLStreamTest.cpp',
             # TODO(cwallez) for Linux, requires a portable implementation of threads
             '<(angle_path)/src/tests/egl_tests/EGLThreadTest.cpp',
         ],

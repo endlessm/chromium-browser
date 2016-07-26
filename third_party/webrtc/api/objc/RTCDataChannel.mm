@@ -34,8 +34,8 @@ class DataChannelDelegateAdapter : public DataChannelObserver {
 
   void OnBufferedAmountChange(uint64_t previousAmount) override {
     id<RTCDataChannelDelegate> delegate = channel_.delegate;
-    if ([delegate
-            respondsToSelector:@selector(channel:didChangeBufferedAmount:)]) {
+    SEL sel = @selector(dataChannel:didChangeBufferedAmount:);
+    if ([delegate respondsToSelector:sel]) {
       [delegate dataChannel:channel_ didChangeBufferedAmount:previousAmount];
     }
   }
@@ -53,8 +53,8 @@ class DataChannelDelegateAdapter : public DataChannelObserver {
 - (instancetype)initWithData:(NSData *)data isBinary:(BOOL)isBinary {
   NSParameterAssert(data);
   if (self = [super init]) {
-    rtc::Buffer buffer(reinterpret_cast<const uint8_t*>(data.bytes),
-                       data.length);
+    rtc::CopyOnWriteBuffer buffer(
+        reinterpret_cast<const uint8_t*>(data.bytes), data.length);
     _dataBuffer.reset(new webrtc::DataBuffer(buffer, isBinary));
   }
   return self;
@@ -86,7 +86,7 @@ class DataChannelDelegateAdapter : public DataChannelObserver {
 
 
 @implementation RTCDataChannel {
-  rtc::scoped_refptr<webrtc::DataChannelInterface> _nativDataChannel;
+  rtc::scoped_refptr<webrtc::DataChannelInterface> _nativeDataChannel;
   rtc::scoped_ptr<webrtc::DataChannelDelegateAdapter> _observer;
   BOOL _isObserverRegistered;
 }
@@ -100,40 +100,52 @@ class DataChannelDelegateAdapter : public DataChannelObserver {
 }
 
 - (NSString *)label {
-  return [NSString stringForStdString:_nativDataChannel->label()];
+  return [NSString stringForStdString:_nativeDataChannel->label()];
+}
+
+- (BOOL)isReliable {
+  return _nativeDataChannel->reliable();
 }
 
 - (BOOL)isOrdered {
-  return _nativDataChannel->ordered();
+  return _nativeDataChannel->ordered();
+}
+
+- (NSUInteger)maxRetransmitTime {
+  return self.maxPacketLifeTime;
 }
 
 - (uint16_t)maxPacketLifeTime {
-  return _nativDataChannel->maxRetransmitTime();
+  return _nativeDataChannel->maxRetransmitTime();
 }
 
 - (uint16_t)maxRetransmits {
-  return _nativDataChannel->maxRetransmits();
+  return _nativeDataChannel->maxRetransmits();
 }
 
 - (NSString *)protocol {
-  return [NSString stringForStdString:_nativDataChannel->protocol()];
+  return [NSString stringForStdString:_nativeDataChannel->protocol()];
 }
 
 - (BOOL)isNegotiated {
-  return _nativDataChannel->negotiated();
+  return _nativeDataChannel->negotiated();
 }
 
-- (int)id {
-  return _nativDataChannel->id();
+- (NSInteger)streamId {
+  return self.channelId;
+}
+
+- (int)channelId {
+  return _nativeDataChannel->id();
 }
 
 - (RTCDataChannelState)readyState {
   return [[self class] dataChannelStateForNativeState:
-      _nativDataChannel->state()];
+      _nativeDataChannel->state()];
 }
 
 - (uint64_t)bufferedAmount {
-  return _nativDataChannel->buffered_amount();
+  return _nativeDataChannel->buffered_amount();
 }
 
 - (void)setDelegate:(id<RTCDataChannelDelegate>)delegate {
@@ -141,27 +153,27 @@ class DataChannelDelegateAdapter : public DataChannelObserver {
     return;
   }
   if (_isObserverRegistered) {
-    _nativDataChannel->UnregisterObserver();
+    _nativeDataChannel->UnregisterObserver();
     _isObserverRegistered = NO;
   }
   _delegate = delegate;
   if (_delegate) {
-    _nativDataChannel->RegisterObserver(_observer.get());
+    _nativeDataChannel->RegisterObserver(_observer.get());
     _isObserverRegistered = YES;
   }
 }
 
 - (void)close {
-  _nativDataChannel->Close();
+  _nativeDataChannel->Close();
 }
 
 - (BOOL)sendData:(RTCDataBuffer *)data {
-  return _nativDataChannel->Send(*data.nativeDataBuffer);
+  return _nativeDataChannel->Send(*data.nativeDataBuffer);
 }
 
 - (NSString *)description {
   return [NSString stringWithFormat:@"RTCDataChannel:\n%ld\n%@\n%@",
-                                    (long)self.id,
+                                    (long)self.channelId,
                                     self.label,
                                     [[self class]
                                         stringForState:self.readyState]];
@@ -173,7 +185,7 @@ class DataChannelDelegateAdapter : public DataChannelObserver {
     (rtc::scoped_refptr<webrtc::DataChannelInterface>)nativeDataChannel {
   NSParameterAssert(nativeDataChannel);
   if (self = [super init]) {
-    _nativDataChannel = nativeDataChannel;
+    _nativeDataChannel = nativeDataChannel;
     _observer.reset(new webrtc::DataChannelDelegateAdapter(self));
   }
   return self;

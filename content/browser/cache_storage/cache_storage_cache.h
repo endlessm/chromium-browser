@@ -62,14 +62,16 @@ class CONTENT_EXPORT CacheStorageCache
 
   static scoped_refptr<CacheStorageCache> CreateMemoryCache(
       const GURL& origin,
-      const scoped_refptr<net::URLRequestContextGetter>& request_context_getter,
-      const scoped_refptr<storage::QuotaManagerProxy>& quota_manager_proxy,
+      const std::string& cache_name,
+      scoped_refptr<net::URLRequestContextGetter> request_context_getter,
+      scoped_refptr<storage::QuotaManagerProxy> quota_manager_proxy,
       base::WeakPtr<storage::BlobStorageContext> blob_context);
   static scoped_refptr<CacheStorageCache> CreatePersistentCache(
       const GURL& origin,
+      const std::string& cache_name,
       const base::FilePath& path,
-      const scoped_refptr<net::URLRequestContextGetter>& request_context_getter,
-      const scoped_refptr<storage::QuotaManagerProxy>& quota_manager_proxy,
+      scoped_refptr<net::URLRequestContextGetter> request_context_getter,
+      scoped_refptr<storage::QuotaManagerProxy> quota_manager_proxy,
       base::WeakPtr<storage::BlobStorageContext> blob_context);
 
   // Returns ERROR_TYPE_NOT_FOUND if not found.
@@ -152,9 +154,10 @@ class CONTENT_EXPORT CacheStorageCache
 
   CacheStorageCache(
       const GURL& origin,
+      const std::string& cache_name,
       const base::FilePath& path,
-      const scoped_refptr<net::URLRequestContextGetter>& request_context_getter,
-      const scoped_refptr<storage::QuotaManagerProxy>& quota_manager_proxy,
+      scoped_refptr<net::URLRequestContextGetter> request_context_getter,
+      scoped_refptr<storage::QuotaManagerProxy> quota_manager_proxy,
       base::WeakPtr<storage::BlobStorageContext> blob_context);
 
   // Async operations in progress will cancel and not run their callbacks.
@@ -295,6 +298,7 @@ class CONTENT_EXPORT CacheStorageCache
   scoped_ptr<disk_cache::Backend> backend_;
 
   GURL origin_;
+  const std::string cache_name_;
   base::FilePath path_;
   scoped_refptr<net::URLRequestContextGetter> request_context_getter_;
   scoped_refptr<storage::QuotaManagerProxy> quota_manager_proxy_;

@@ -23,14 +23,14 @@
 #include "webrtc/base/basictypes.h"
 #include "webrtc/base/criticalsection.h"
 #include "webrtc/base/scoped_ptr.h"
-#include "webrtc/media/base/audiorenderer.h"
+#include "webrtc/media/base/audiosource.h"
 
 namespace webrtc {
 
 // LocalAudioSinkAdapter receives data callback as a sink to the local
-// AudioTrack, and passes the data to the sink of AudioRenderer.
+// AudioTrack, and passes the data to the sink of AudioSource.
 class LocalAudioSinkAdapter : public AudioTrackSinkInterface,
-                              public cricket::AudioRenderer {
+                              public cricket::AudioSource {
  public:
   LocalAudioSinkAdapter();
   virtual ~LocalAudioSinkAdapter();
@@ -43,10 +43,10 @@ class LocalAudioSinkAdapter : public AudioTrackSinkInterface,
               size_t number_of_channels,
               size_t number_of_frames) override;
 
-  // cricket::AudioRenderer implementation.
-  void SetSink(cricket::AudioRenderer::Sink* sink) override;
+  // cricket::AudioSource implementation.
+  void SetSink(cricket::AudioSource::Sink* sink) override;
 
-  cricket::AudioRenderer::Sink* sink_;
+  cricket::AudioSource::Sink* sink_;
   // Critical section protecting |sink_|.
   rtc::CriticalSection lock_;
 };
@@ -97,7 +97,12 @@ class AudioRtpSender : public ObserverInterface,
 
   void Stop() override;
 
+  RtpParameters GetParameters() const;
+  bool SetParameters(const RtpParameters& parameters);
+
  private:
+  // TODO(nisse): Since SSRC == 0 is technically valid, figure out
+  // some other way to test if we have a valid SSRC.
   bool can_send_track() const { return track_ && ssrc_; }
   // Helper function to construct options for
   // AudioProviderInterface::SetAudioSend.
@@ -113,7 +118,7 @@ class AudioRtpSender : public ObserverInterface,
   bool stopped_ = false;
 
   // Used to pass the data callback from the |track_| to the other end of
-  // cricket::AudioRenderer.
+  // cricket::AudioSource.
   rtc::scoped_ptr<LocalAudioSinkAdapter> sink_adapter_;
 };
 
@@ -157,6 +162,9 @@ class VideoRtpSender : public ObserverInterface,
   std::string stream_id() const override { return stream_id_; }
 
   void Stop() override;
+
+  RtpParameters GetParameters() const;
+  bool SetParameters(const RtpParameters& parameters);
 
  private:
   bool can_send_track() const { return track_ && ssrc_; }

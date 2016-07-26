@@ -10,7 +10,6 @@
 #include "SkAlphaThresholdFilter.h"
 #include "SkArithmeticMode.h"
 #include "SkArcToPathEffect.h"
-#include "SkAvoidXfermode.h"
 #include "SkBitmapSourceDeserializer.h"
 #include "SkBlurDrawLooper.h"
 #include "SkBlurImageFilter.h"
@@ -31,6 +30,7 @@
 #include "SkLayerRasterizer.h"
 #include "SkLightingImageFilter.h"
 #include "SkLightingShader.h"
+#include "SkLocalMatrixImageFilter.h"
 #include "SkLumaColorFilter.h"
 #include "SkMagnifierImageFilter.h"
 #include "SkMatrixConvolutionImageFilter.h"
@@ -40,7 +40,6 @@
 #include "SkPaintImageFilter.h"
 #include "SkPerlinNoiseShader.h"
 #include "SkPictureImageFilter.h"
-#include "SkPixelXorXfermode.h"
 #include "SkTableColorFilter.h"
 #include "SkTestImageFilters.h"
 #include "SkTileImageFilter.h"
@@ -90,10 +89,6 @@ void SkFlattenable::PrivateInitializer::InitEffects() {
     SkGradientShader::InitializeFlattenables();
     SkLightingShader::InitializeFlattenables();
 
-    // Xfermode
-    SK_DEFINE_FLATTENABLE_REGISTRAR_ENTRY(SkPixelXorXfermode)
-    SK_DEFINE_FLATTENABLE_REGISTRAR_ENTRY(SkAvoidXfermode)
-
     // PathEffect
     SK_DEFINE_FLATTENABLE_REGISTRAR_ENTRY(SkArcToPathEffect)
     SK_DEFINE_FLATTENABLE_REGISTRAR_ENTRY(SkCornerPathEffect)
@@ -111,6 +106,7 @@ void SkFlattenable::PrivateInitializer::InitEffects() {
     SK_DEFINE_FLATTENABLE_REGISTRAR_ENTRY(SkDropShadowImageFilter)
     SK_DEFINE_FLATTENABLE_REGISTRAR_ENTRY(SkErodeImageFilter)
     SK_DEFINE_FLATTENABLE_REGISTRAR_ENTRY(SkImageSource)
+    SK_DEFINE_FLATTENABLE_REGISTRAR_ENTRY(SkLocalMatrixImageFilter)
     SK_DEFINE_FLATTENABLE_REGISTRAR_ENTRY(SkPaintImageFilter)
     SK_DEFINE_FLATTENABLE_REGISTRAR_ENTRY(SkPictureImageFilter)
     SK_DEFINE_FLATTENABLE_REGISTRAR_ENTRY(SkTileImageFilter)

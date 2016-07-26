@@ -112,7 +112,6 @@ public:
         kStripe_Mode, // Tests the skipping of scanlines
         kCroppedScanline_Mode, // Tests (jpeg) cropped scanline optimization
         kSubset_Mode, // For codecs that support subsets directly.
-        kGen_Mode,    // Test SkCodecImageGenerator (includes YUV)
     };
     enum DstColorType {
         kGetFromCanvas_DstColorType,
@@ -187,6 +186,27 @@ private:
     uint32_t                                 fSampleSize;
 };
 
+class ImageGenSrc : public Src {
+public:
+    enum Mode {
+        kCodec_Mode,    // Use CodecImageGenerator
+        kPlatform_Mode, // Uses CG or WIC
+    };
+    ImageGenSrc(Path, Mode, SkAlphaType, bool);
+
+    Error draw(SkCanvas*) const override;
+    SkISize size() const override;
+    Name name() const override;
+    bool veto(SinkFlags) const override;
+    bool serial() const override { return fRunSerially; }
+private:
+    Path        fPath;
+    Mode        fMode;
+    SkAlphaType fDstAlphaType;
+    bool        fIsGpu;
+    bool        fRunSerially;
+};
+
 class SKPSrc : public Src {
 public:
     explicit SKPSrc(Path path);
@@ -212,30 +232,30 @@ public:
 
 class GPUSink : public Sink {
 public:
-    GPUSink(GrContextFactory::GLContextType, GrContextFactory::GLContextOptions,
-            int samples, bool diText, bool threaded);
+    GPUSink(sk_gpu_test::GrContextFactory::ContextType,
+            sk_gpu_test::GrContextFactory::ContextOptions,
+            int samples, bool diText, SkColorType colorType, SkColorProfileType profileType,
+            bool threaded);
 
     Error draw(const Src&, SkBitmap*, SkWStream*, SkString*) const override;
     bool serial() const override { return !fThreaded; }
     const char* fileExtension() const override { return "png"; }
     SinkFlags flags() const override { return SinkFlags{ SinkFlags::kGPU, SinkFlags::kDirect }; }
 private:
-    GrContextFactory::GLContextType    fContextType;
-    GrContextFactory::GLContextOptions fContextOptions;
-    int                                fSampleCount;
-    bool                               fUseDIText;
-    bool                               fThreaded;
+    sk_gpu_test::GrContextFactory::ContextType      fContextType;
+    sk_gpu_test::GrContextFactory::ContextOptions   fContextOptions;
+    int                                             fSampleCount;
+    bool                                            fUseDIText;
+    SkColorType                                     fColorType;
+    SkColorProfileType                              fProfileType;
+    bool                                            fThreaded;
 };
 
 class PDFSink : public Sink {
 public:
-    PDFSink(const char* rasterizer);
-
     Error draw(const Src&, SkBitmap*, SkWStream*, SkString*) const override;
     const char* fileExtension() const override { return "pdf"; }
     SinkFlags flags() const override { return SinkFlags{ SinkFlags::kVector, SinkFlags::kDirect }; }
-private:
-    const char* fRasterizer;
 };
 
 class XPSSink : public Sink {
@@ -249,13 +269,14 @@ public:
 
 class RasterSink : public Sink {
 public:
-    explicit RasterSink(SkColorType);
+    explicit RasterSink(SkColorType, SkColorProfileType=kLinear_SkColorProfileType);
 
     Error draw(const Src&, SkBitmap*, SkWStream*, SkString*) const override;
     const char* fileExtension() const override { return "png"; }
     SinkFlags flags() const override { return SinkFlags{ SinkFlags::kRaster, SinkFlags::kDirect }; }
 private:
-    SkColorType    fColorType;
+    SkColorType        fColorType;
+    SkColorProfileType fProfileType;
 };
 
 class SKPSink : public Sink {
@@ -307,14 +328,6 @@ public:
     Error draw(const Src&, SkBitmap*, SkWStream*, SkString*) const override;
 private:
     const SkMatrix fMatrix;
-};
-
-class ViaRemote : public Via {
-public:
-    ViaRemote(bool cache, Sink* sink) : Via(sink), fCache(cache) {}
-    Error draw(const Src&, SkBitmap*, SkWStream*, SkString*) const override;
-private:
-    bool fCache;
 };
 
 class ViaSerialization : public Via {

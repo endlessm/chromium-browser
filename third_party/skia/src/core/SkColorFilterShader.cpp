@@ -15,26 +15,26 @@
 #include "GrFragmentProcessor.h"
 #endif
 
-SkColorFilterShader::SkColorFilterShader(SkShader* shader, SkColorFilter* filter)
-    : fShader(SkRef(shader))
-    , fFilter(SkRef(filter))
+SkColorFilterShader::SkColorFilterShader(sk_sp<SkShader> shader, sk_sp<SkColorFilter> filter)
+    : fShader(std::move(shader))
+    , fFilter(std::move(filter))
 {
-    SkASSERT(shader);
-    SkASSERT(filter);
+    SkASSERT(fShader);
+    SkASSERT(fFilter);
 }
 
-SkFlattenable* SkColorFilterShader::CreateProc(SkReadBuffer& buffer) {
-    SkAutoTUnref<SkShader> shader(buffer.readShader());
-    SkAutoTUnref<SkColorFilter> filter(buffer.readColorFilter());
-    if (!shader.get() || !filter.get()) {
+sk_sp<SkFlattenable> SkColorFilterShader::CreateProc(SkReadBuffer& buffer) {
+    auto shader = buffer.readShader();
+    auto filter = buffer.readColorFilter();
+    if (!shader || !filter) {
         return nullptr;
     }
-    return new SkColorFilterShader(shader, filter);
+    return sk_make_sp<SkColorFilterShader>(shader, filter);
 }
 
 void SkColorFilterShader::flatten(SkWriteBuffer& buffer) const {
-    buffer.writeFlattenable(fShader);
-    buffer.writeFlattenable(fFilter);
+    buffer.writeFlattenable(fShader.get());
+    buffer.writeFlattenable(fFilter.get());
 }
 
 uint32_t SkColorFilterShader::FilterShaderContext::getFlags() const {
@@ -62,7 +62,7 @@ SkShader::Context* SkColorFilterShader::onCreateContext(const ContextRec& rec,
     return new (storage) FilterShaderContext(*this, shaderContext, rec);
 }
 
-size_t SkColorFilterShader::contextSize(const ContextRec& rec) const {
+size_t SkColorFilterShader::onContextSize(const ContextRec& rec) const {
     return sizeof(FilterShaderContext) + fShader->contextSize(rec);
 }
 
@@ -137,10 +137,10 @@ void SkColorFilterShader::toString(SkString* str) const {
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
-SkShader* SkShader::newWithColorFilter(SkColorFilter* filter) const {
+sk_sp<SkShader> SkShader::makeWithColorFilter(sk_sp<SkColorFilter> filter) const {
     SkShader* base = const_cast<SkShader*>(this);
     if (!filter) {
-        return SkRef(base);
+        return sk_ref_sp(base);
     }
-    return new SkColorFilterShader(base, filter);
+    return sk_make_sp<SkColorFilterShader>(sk_ref_sp(base), filter);
 }

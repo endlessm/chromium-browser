@@ -7,6 +7,15 @@
 #ifndef FPDFSDK_INCLUDE_FPDFXFA_FPDFXFA_PAGE_H_
 #define FPDFSDK_INCLUDE_FPDFXFA_FPDFXFA_PAGE_H_
 
+#include "core/fpdfapi/fpdf_parser/include/cpdf_dictionary.h"
+#include "core/fpdfapi/include/cpdf_modulemgr.h"
+#include "core/fxcrt/include/fx_coordinates.h"
+#include "core/fxcrt/include/fx_system.h"
+
+class CPDFXFA_Document;
+class CPDF_Page;
+class CXFA_FFPageView;
+
 class CPDFXFA_Page {
  public:
   CPDFXFA_Page(CPDFXFA_Document* pDoc, int page_index);
@@ -19,8 +28,10 @@ class CPDFXFA_Page {
   CPDFXFA_Document* GetDocument() { return m_pDocument; }
   int GetPageIndex() { return m_iPageIndex; }
   CPDF_Page* GetPDFPage() { return m_pPDFPage; }
-  IXFA_PageView* GetXFAPageView() { return m_pXFAPageView; }
-  void SetXFAPageView(IXFA_PageView* pPageView) { m_pXFAPageView = pPageView; }
+  CXFA_FFPageView* GetXFAPageView() { return m_pXFAPageView; }
+  void SetXFAPageView(CXFA_FFPageView* pPageView) {
+    m_pXFAPageView = pPageView;
+  }
 
   FX_FLOAT GetPageWidth();
   FX_FLOAT GetPageHeight();
@@ -57,7 +68,7 @@ class CPDFXFA_Page {
 
  private:
   CPDF_Page* m_pPDFPage;
-  IXFA_PageView* m_pXFAPageView;
+  CXFA_FFPageView* m_pXFAPageView;
   int m_iPageIndex;
   CPDFXFA_Document* m_pDocument;
   int m_iRef;

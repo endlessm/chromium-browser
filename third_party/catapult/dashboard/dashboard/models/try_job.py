@@ -59,10 +59,13 @@ class TryJob(internal_only_model.InternalOnlyModel):
   # job_name attribute is used by try jobs of bisect FYI.
   job_name = ndb.StringProperty(default=None)
 
-  # Results data comming from bisect bots.
+  # Results data coming from bisect bots.
   results_data = ndb.JsonProperty(indexed=False)
 
   log_record_id = ndb.StringProperty(indexed=False)
+
+  # Sets of emails of users who has confirmed this TryJob result is bad.
+  bad_result_emails = ndb.PickleProperty()
 
   def SetStarted(self):
     self.status = 'started'

@@ -5,9 +5,6 @@
  * found in the LICENSE file.
  */
 
-#include "GrCaps.h"
-#include "GrContextFactory.h"
-
 #include "Request.h"
 #include "Response.h"
 
@@ -16,16 +13,15 @@
 #include "microhttpd.h"
 
 #include "urlhandlers/UrlHandler.h"
+
+#include <errno.h>
 #include <sys/socket.h>
+#include <arpa/inet.h>
 
 using namespace Response;
 
-// To get image decoders linked in we have to do the below magic
-#include "SkForceLinking.h"
-#include "SkImageDecoder.h"
-__SK_FORCE_IMAGE_DECODER_LINKING;
-
 DEFINE_int32(port, 8888, "The port to listen on.");
+DEFINE_string(address, "127.0.0.1", "The address to bind to.");
 
 class UrlManager {
 public:
@@ -41,6 +37,8 @@ public:
         fHandlers.push_back(new DownloadHandler);
         fHandlers.push_back(new DataHandler);
         fHandlers.push_back(new BreakHandler);
+        fHandlers.push_back(new BatchesHandler);
+        fHandlers.push_back(new BatchBoundsHandler);
     }
 
     ~UrlManager() {
@@ -83,17 +81,29 @@ int answer_to_connection(void* cls, struct MHD_Connection* connection,
 int skiaserve_main() {
     Request request(SkString("/data")); // This simple server has one request
 
-    // create surface
-    GrContextOptions grContextOpts;
-    request.fContextFactory.reset(new GrContextFactory(grContextOpts));
-    request.fSurface.reset(request.createCPUSurface());
+    struct sockaddr_in address;
+    address.sin_family = AF_INET;
+    address.sin_port = htons(FLAGS_port);
+    int result = inet_pton(AF_INET, FLAGS_address[0], &address.sin_addr);
+    if (result != 1) {
+        printf("inet_pton for %s:%d failed with return %d %s\n",
+                FLAGS_address[0], FLAGS_port, result, strerror(errno));
+        return 1;
+    }
+
+    printf("Visit http://%s:%d in your browser.\n", FLAGS_address[0], FLAGS_port);
 
     struct MHD_Daemon* daemon;
-    // TODO Add option to bind this strictly to an address, e.g. localhost, for security.
-    daemon = MHD_start_daemon(MHD_USE_SELECT_INTERNALLY, FLAGS_port, nullptr, nullptr,
+    daemon = MHD_start_daemon(MHD_USE_SELECT_INTERNALLY
+#ifdef SK_DEBUG
+                              | MHD_USE_DEBUG
+#endif
+                              , FLAGS_port, nullptr, nullptr,
                               &answer_to_connection, &request,
+                              MHD_OPTION_SOCK_ADDR, &address,
                               MHD_OPTION_END);
     if (NULL == daemon) {
+        SkDebugf("Could not initialize daemon\n");
         return 1;
     }
 

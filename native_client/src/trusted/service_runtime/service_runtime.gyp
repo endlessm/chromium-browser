@@ -16,6 +16,7 @@
         'sources': [
           'dyn_array.c',
           'elf_util.c',
+          'filename_util.cc',
           'load_file.c',
           'nacl_all_modules.c',
           'nacl_app_thread.c',
@@ -34,7 +35,7 @@
           'nacl_valgrind_hooks.c',
           'sel_addrspace.c',
           'sel_ldr.c',
-          'sel_ldr_filename.c',
+          'sel_ldr_filename.cc',
           'sel_ldr_standard.c',
           # TODO(mseaborn): Move sel_main_chrome.c to the
           # "sel_main_chrome" library once Chromium is changed to

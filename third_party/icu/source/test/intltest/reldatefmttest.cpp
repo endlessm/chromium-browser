@@ -1,6 +1,6 @@
 /*
 *******************************************************************************
-* Copyright (C) 2013-2014, International Business Machines Corporation and    *
+* Copyright (C) 2013-2015, International Business Machines Corporation and    *
 * others. All Rights Reserved.                                                *
 *******************************************************************************
 *
@@ -231,9 +231,9 @@ static WithQuantityExpected kSerbian[] = {
 };
 
 static WithQuantityExpected kSerbianNarrow[] = {
-        {0.0, UDAT_DIRECTION_NEXT, UDAT_RELATIVE_MONTHS, "\\u0437\\u0430 0 \\u043c\\u0435\\u0441."},
-        {1.2, UDAT_DIRECTION_NEXT, UDAT_RELATIVE_MONTHS, "\\u0437\\u0430 1,2 \\u043c\\u0435\\u0441."},
-        {21.0, UDAT_DIRECTION_NEXT, UDAT_RELATIVE_MONTHS, "\\u0437\\u0430 21 \\u043c\\u0435\\u0441."}
+        {0.0, UDAT_DIRECTION_NEXT, UDAT_RELATIVE_MONTHS, "\\u0437\\u0430 0 \\u043c."},
+        {1.2, UDAT_DIRECTION_NEXT, UDAT_RELATIVE_MONTHS, "\\u0437\\u0430 1,2 \\u043c."},
+        {21.0, UDAT_DIRECTION_NEXT, UDAT_RELATIVE_MONTHS, "\\u0437\\u0430 21 \\u043c."}
 };
 
 static WithoutQuantityExpected kEnglishNoQuantity[] = {
@@ -462,7 +462,7 @@ static WithoutQuantityExpected kEnglishNoQuantityNarrow[] = {
 
 static WithoutQuantityExpected kSpanishNoQuantity[] = {
         {UDAT_DIRECTION_NEXT_2, UDAT_ABSOLUTE_DAY, "pasado ma\\u00F1ana"},
-        {UDAT_DIRECTION_LAST_2, UDAT_ABSOLUTE_DAY, "antes de ayer"}
+        {UDAT_DIRECTION_LAST_2, UDAT_ABSOLUTE_DAY, "anteayer"}
 };
 
 class RelativeDateTimeFormatterTest : public IntlTest {

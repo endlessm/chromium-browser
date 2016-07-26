@@ -11,13 +11,15 @@
 #ifndef WEBRTC_MEDIA_ENGINE_WEBRTCVIDEOCAPTURER_H_
 #define WEBRTC_MEDIA_ENGINE_WEBRTCVIDEOCAPTURER_H_
 
+#include <memory>
 #include <string>
 #include <vector>
 
 #include "webrtc/base/asyncinvoker.h"
 #include "webrtc/base/messagehandler.h"
-#include "webrtc/base/scoped_ptr.h"
+#include "webrtc/base/scoped_ref_ptr.h"
 #include "webrtc/common_video/libyuv/include/webrtc_libyuv.h"
+#include "webrtc/media/base/device.h"
 #include "webrtc/media/base/videocapturer.h"
 #include "webrtc/media/engine/webrtcvideoframe.h"
 #include "webrtc/modules/video_capture/video_capture.h"
@@ -29,8 +31,9 @@ namespace cricket {
 class WebRtcVcmFactoryInterface {
  public:
   virtual ~WebRtcVcmFactoryInterface() {}
-  virtual webrtc::VideoCaptureModule* Create(
-      int id, const char* device) = 0;
+  virtual rtc::scoped_refptr<webrtc::VideoCaptureModule> Create(
+      int id,
+      const char* device) = 0;
   virtual webrtc::VideoCaptureModule::DeviceInfo* CreateDeviceInfo(int id) = 0;
   virtual void DestroyDeviceInfo(
       webrtc::VideoCaptureModule::DeviceInfo* info) = 0;
@@ -45,7 +48,7 @@ class WebRtcVideoCapturer : public VideoCapturer,
   virtual ~WebRtcVideoCapturer();
 
   bool Init(const Device& device);
-  bool Init(webrtc::VideoCaptureModule* module);
+  bool Init(const rtc::scoped_refptr<webrtc::VideoCaptureModule>& module);
 
   // Override virtual methods of the parent class VideoCapturer.
   bool GetBestCaptureFormat(const VideoFormat& desired,
@@ -75,13 +78,13 @@ class WebRtcVideoCapturer : public VideoCapturer,
   // to follow the same contract.
   void SignalFrameCapturedOnStartThread(const webrtc::VideoFrame& frame);
 
-  rtc::scoped_ptr<WebRtcVcmFactoryInterface> factory_;
-  webrtc::VideoCaptureModule* module_;
+  std::unique_ptr<WebRtcVcmFactoryInterface> factory_;
+  rtc::scoped_refptr<webrtc::VideoCaptureModule> module_;
   int captured_frames_;
   std::vector<uint8_t> capture_buffer_;
   rtc::Thread* start_thread_;  // Set in Start(), unset in Stop();
 
-  rtc::scoped_ptr<rtc::AsyncInvoker> async_invoker_;
+  std::unique_ptr<rtc::AsyncInvoker> async_invoker_;
 };
 
 struct WebRtcCapturedFrame : public CapturedFrame {

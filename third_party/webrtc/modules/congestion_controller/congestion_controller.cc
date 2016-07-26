@@ -11,6 +11,7 @@
 #include "webrtc/modules/congestion_controller/include/congestion_controller.h"
 
 #include <algorithm>
+#include <memory>
 #include <vector>
 
 #include "webrtc/base/checks.h"
@@ -123,8 +124,8 @@ class WrappingBitrateEstimator : public RemoteBitrateEstimator {
 
   RemoteBitrateObserver* observer_;
   Clock* const clock_;
-  rtc::scoped_ptr<CriticalSectionWrapper> crit_sect_;
-  rtc::scoped_ptr<RemoteBitrateEstimator> rbe_;
+  std::unique_ptr<CriticalSectionWrapper> crit_sect_;
+  std::unique_ptr<RemoteBitrateEstimator> rbe_;
   bool using_absolute_send_time_;
   uint32_t packets_since_absolute_send_time_;
   int min_bitrate_bps_;
@@ -168,7 +169,6 @@ CongestionController::~CongestionController() {
 void CongestionController::SetBweBitrates(int min_bitrate_bps,
                                           int start_bitrate_bps,
                                           int max_bitrate_bps) {
-  RTC_DCHECK(config_thread_checker_.CalledOnValidThread());
   // TODO(holmer): We should make sure the default bitrates are set to 10 kbps,
   // and that we don't try to set the min bitrate to 0 from any applications.
   // The congestion controller should allow a min bitrate of 0.
@@ -204,7 +204,6 @@ RemoteBitrateEstimator* CongestionController::GetRemoteBitrateEstimator(
 
 TransportFeedbackObserver*
 CongestionController::GetTransportFeedbackObserver() {
-  RTC_DCHECK(config_thread_checker_.CalledOnValidThread());
   return &transport_feedback_adapter_;
 }
 

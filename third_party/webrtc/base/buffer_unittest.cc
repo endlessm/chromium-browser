@@ -64,23 +64,6 @@ TEST(BufferTest, TestConstructArray) {
   EXPECT_EQ(0, memcmp(buf.data(), kTestData, 16));
 }
 
-TEST(BufferTest, TestConstructCopy) {
-  Buffer buf1(kTestData), buf2(buf1);
-  EXPECT_EQ(buf2.size(), 16u);
-  EXPECT_EQ(buf2.capacity(), 16u);
-  EXPECT_EQ(0, memcmp(buf2.data(), kTestData, 16));
-  EXPECT_NE(buf1.data(), buf2.data());
-  EXPECT_EQ(buf1, buf2);
-}
-
-TEST(BufferTest, TestAssign) {
-  Buffer buf1, buf2(kTestData, sizeof(kTestData), 256);
-  EXPECT_NE(buf1, buf2);
-  buf1 = buf2;
-  EXPECT_EQ(buf1, buf2);
-  EXPECT_NE(buf1.data(), buf2.data());
-}
-
 TEST(BufferTest, TestSetData) {
   Buffer buf(kTestData + 4, 7);
   buf.SetData(kTestData, 9);
@@ -138,7 +121,7 @@ TEST(BufferTest, TestEnsureCapacityLarger) {
 TEST(BufferTest, TestMoveConstruct) {
   Buffer buf1(kTestData, 3, 40);
   const uint8_t* data = buf1.data();
-  Buffer buf2(buf1.DEPRECATED_Pass());
+  Buffer buf2(std::move(buf1));
   EXPECT_EQ(buf2.size(), 3u);
   EXPECT_EQ(buf2.capacity(), 40u);
   EXPECT_EQ(buf2.data(), data);
@@ -152,7 +135,7 @@ TEST(BufferTest, TestMoveAssign) {
   Buffer buf1(kTestData, 3, 40);
   const uint8_t* data = buf1.data();
   Buffer buf2(kTestData);
-  buf2 = buf1.DEPRECATED_Pass();
+  buf2 = std::move(buf1);
   EXPECT_EQ(buf2.size(), 3u);
   EXPECT_EQ(buf2.capacity(), 40u);
   EXPECT_EQ(buf2.data(), data);
@@ -276,6 +259,45 @@ TEST(BufferTest, TestMutableLambdaSetAppend) {
 
   for (uint8_t i = 0; i != buf.size(); ++i) {
     EXPECT_EQ(buf.data()[i], magic_number + i);
+  }
+}
+
+TEST(BufferTest, TestBracketRead) {
+  Buffer buf(kTestData, 7);
+  EXPECT_EQ(buf.size(), 7u);
+  EXPECT_EQ(buf.capacity(), 7u);
+  EXPECT_NE(buf.data(), nullptr);
+
+  for (size_t i = 0; i != 7u; ++i) {
+    EXPECT_EQ(buf[i], kTestData[i]);
+  }
+}
+
+TEST(BufferTest, TestBracketReadConst) {
+  Buffer buf(kTestData, 7);
+  EXPECT_EQ(buf.size(), 7u);
+  EXPECT_EQ(buf.capacity(), 7u);
+  EXPECT_NE(buf.data(), nullptr);
+
+  const Buffer& cbuf = buf;
+
+  for (size_t i = 0; i != 7u; ++i) {
+    EXPECT_EQ(cbuf[i], kTestData[i]);
+  }
+}
+
+TEST(BufferTest, TestBracketWrite) {
+  Buffer buf(7);
+  EXPECT_EQ(buf.size(), 7u);
+  EXPECT_EQ(buf.capacity(), 7u);
+  EXPECT_NE(buf.data(), nullptr);
+
+  for (size_t i = 0; i != 7u; ++i) {
+    buf[i] = kTestData[i];
+  }
+
+  for (size_t i = 0; i != 7u; ++i) {
+    EXPECT_EQ(buf[i], kTestData[i]);
   }
 }
 

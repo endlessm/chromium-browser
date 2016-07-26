@@ -19,11 +19,10 @@
 
 #include "webrtc/api/jsepicecandidate.h"
 #include "webrtc/api/jsepsessiondescription.h"
-#include "webrtc/api/mediaconstraintsinterface.h"
 #include "webrtc/api/peerconnectioninterface.h"
 #include "webrtc/api/sctputils.h"
 #include "webrtc/api/webrtcsessiondescriptionfactory.h"
-#include "webrtc/audio/audio_sink.h"
+#include "webrtc/audio_sink.h"
 #include "webrtc/base/basictypes.h"
 #include "webrtc/base/checks.h"
 #include "webrtc/base/helpers.h"
@@ -31,7 +30,7 @@
 #include "webrtc/base/stringencode.h"
 #include "webrtc/base/stringutils.h"
 #include "webrtc/call.h"
-#include "webrtc/media/base/constants.h"
+#include "webrtc/media/base/mediaconstants.h"
 #include "webrtc/media/base/videocapturer.h"
 #include "webrtc/p2p/base/portallocator.h"
 #include "webrtc/p2p/base/transportchannel.h"
@@ -422,25 +421,6 @@ static std::string MakeTdErrorString(const std::string& desc) {
   return MakeErrorString(kPushDownTDFailed, desc);
 }
 
-// Set |option| to the highest-priority value of |key| in the optional
-// constraints if the key is found and has a valid value.
-template <typename T>
-static void SetOptionFromOptionalConstraint(
-    const MediaConstraintsInterface* constraints,
-    const std::string& key,
-    rtc::Optional<T>* option) {
-  if (!constraints) {
-    return;
-  }
-  std::string string_value;
-  T value;
-  if (constraints->GetOptional().FindFirst(key, &string_value)) {
-    if (rtc::FromString(string_value, &value)) {
-      *option = rtc::Optional<T>(value);
-    }
-  }
-}
-
 uint32_t ConvertIceTransportTypeToCandidateFilter(
     PeerConnectionInterface::IceTransportsType type) {
   switch (type) {
@@ -521,6 +501,8 @@ WebRtcSession::WebRtcSession(webrtc::MediaControllerInterface* media_controller,
       this, &WebRtcSession::OnTransportControllerGatheringState);
   transport_controller_->SignalCandidatesGathered.connect(
       this, &WebRtcSession::OnTransportControllerCandidatesGathered);
+  transport_controller_->SignalCandidatesRemoved.connect(
+      this, &WebRtcSession::OnTransportControllerCandidatesRemoved);
 }
 
 WebRtcSession::~WebRtcSession() {
@@ -546,7 +528,6 @@ WebRtcSession::~WebRtcSession() {
 
 bool WebRtcSession::Initialize(
     const PeerConnectionFactoryInterface::Options& options,
-    const MediaConstraintsInterface* constraints,
     rtc::scoped_ptr<DtlsIdentityStoreInterface> dtls_identity_store,
     const PeerConnectionInterface::RTCConfiguration& rtc_configuration) {
   bundle_policy_ = rtc_configuration.bundle_policy;
@@ -564,55 +545,33 @@ bool WebRtcSession::Initialize(
 
   SetIceConfig(ParseIceConfig(rtc_configuration));
 
-  // TODO(perkj): Take |constraints| into consideration. Return false if not all
-  // mandatory constraints can be fulfilled. Note that |constraints|
-  // can be null.
-  bool value;
-
   if (options.disable_encryption) {
     dtls_enabled_ = false;
   } else {
     // Enable DTLS by default if we have an identity store or a certificate.
     dtls_enabled_ = (dtls_identity_store || certificate);
-    // |constraints| can override the default |dtls_enabled_| value.
-    if (FindConstraint(constraints, MediaConstraintsInterface::kEnableDtlsSrtp,
-                       &value, nullptr)) {
-      dtls_enabled_ = value;
+    // |rtc_configuration| can override the default |dtls_enabled_| value.
+    if (rtc_configuration.enable_dtls_srtp) {
+      dtls_enabled_ = *(rtc_configuration.enable_dtls_srtp);
     }
   }
 
   // Enable creation of RTP data channels if the kEnableRtpDataChannels is set.
   // It takes precendence over the disable_sctp_data_channels
   // PeerConnectionFactoryInterface::Options.
-  if (FindConstraint(
-      constraints, MediaConstraintsInterface::kEnableRtpDataChannels,
-      &value, NULL) && value) {
-    LOG(LS_INFO) << "Allowing RTP data engine.";
+  if (rtc_configuration.enable_rtp_data_channel) {
     data_channel_type_ = cricket::DCT_RTP;
   } else {
     // DTLS has to be enabled to use SCTP.
     if (!options.disable_sctp_data_channels && dtls_enabled_) {
-      LOG(LS_INFO) << "Allowing SCTP data engine.";
       data_channel_type_ = cricket::DCT_SCTP;
     }
   }
 
-  // Find Suspend Below Min Bitrate constraint.
-  if (FindConstraint(
-          constraints,
-          MediaConstraintsInterface::kEnableVideoSuspendBelowMinBitrate,
-          &value,
-          NULL)) {
-    video_options_.suspend_below_min_bitrate = rtc::Optional<bool>(value);
-  }
-
-  SetOptionFromOptionalConstraint(constraints,
-      MediaConstraintsInterface::kScreencastMinBitrate,
-      &video_options_.screencast_min_bitrate_kbps);
-
-  SetOptionFromOptionalConstraint(constraints,
-      MediaConstraintsInterface::kCombinedAudioVideoBwe,
-      &audio_options_.combined_audio_video_bwe);
+  video_options_.screencast_min_bitrate_kbps =
+      rtc_configuration.screencast_min_bitrate;
+  audio_options_.combined_audio_video_bwe =
+      rtc_configuration.combined_audio_video_bwe;
 
   audio_options_.audio_jitter_buffer_max_packets =
       rtc::Optional<int>(rtc_configuration.audio_jitter_buffer_max_packets);
@@ -657,6 +616,7 @@ void WebRtcSession::Close() {
   ASSERT(!voice_channel_);
   ASSERT(!video_channel_);
   ASSERT(!data_channel_);
+  media_controller_->Close();
 }
 
 cricket::BaseChannel* WebRtcSession::GetChannel(
@@ -706,10 +666,8 @@ void WebRtcSession::CreateOffer(
 
 void WebRtcSession::CreateAnswer(
     CreateSessionDescriptionObserver* observer,
-    const MediaConstraintsInterface* constraints,
     const cricket::MediaSessionOptions& session_options) {
-  webrtc_session_desc_factory_->CreateAnswer(observer, constraints,
-                                             session_options);
+  webrtc_session_desc_factory_->CreateAnswer(observer, session_options);
 }
 
 bool WebRtcSession::SetLocalDescription(SessionDescriptionInterface* desc,
@@ -1081,10 +1039,10 @@ bool WebRtcSession::GetLocalCertificate(
                                                     certificate);
 }
 
-bool WebRtcSession::GetRemoteSSLCertificate(const std::string& transport_name,
-                                            rtc::SSLCertificate** cert) {
+rtc::scoped_ptr<rtc::SSLCertificate> WebRtcSession::GetRemoteSSLCertificate(
+    const std::string& transport_name) {
   ASSERT(signaling_thread()->IsCurrent());
-  return transport_controller_->GetRemoteSSLCertificate(transport_name, cert);
+  return transport_controller_->GetRemoteSSLCertificate(transport_name);
 }
 
 bool WebRtcSession::EnableBundle(const cricket::ContentGroup& bundle) {
@@ -1130,7 +1088,7 @@ bool WebRtcSession::ProcessIceMessage(const IceCandidateInterface* candidate) {
   if (!remote_desc_) {
     LOG(LS_ERROR) << "ProcessIceMessage: ICE candidates can't be added "
                   << "without any remote session description.";
-     return false;
+    return false;
   }
 
   if (!candidate) {
@@ -1158,6 +1116,35 @@ bool WebRtcSession::ProcessIceMessage(const IceCandidateInterface* candidate) {
   }
 }
 
+bool WebRtcSession::RemoveRemoteIceCandidates(
+    const std::vector<cricket::Candidate>& candidates) {
+  if (!remote_desc_) {
+    LOG(LS_ERROR) << "RemoveRemoteIceCandidates: ICE candidates can't be "
+                  << "removed without any remote session description.";
+    return false;
+  }
+
+  if (candidates.empty()) {
+    LOG(LS_ERROR) << "RemoveRemoteIceCandidates: candidates are empty.";
+    return false;
+  }
+
+  size_t number_removed = remote_desc_->RemoveCandidates(candidates);
+  if (number_removed != candidates.size()) {
+    LOG(LS_ERROR) << "RemoveRemoteIceCandidates: Failed to remove candidates. "
+                  << "Requested " << candidates.size() << " but only "
+                  << number_removed << " are removed.";
+  }
+
+  // Remove the candidates from the transport controller.
+  std::string error;
+  bool res = transport_controller_->RemoveRemoteCandidates(candidates, &error);
+  if (!res && !error.empty()) {
+    LOG(LS_ERROR) << "Error when removing remote candidates: " << error;
+  }
+  return true;
+}
+
 bool WebRtcSession::SetIceTransports(
     PeerConnectionInterface::IceTransportsType type) {
   return port_allocator()->set_candidate_filter(
@@ -1167,7 +1154,9 @@ bool WebRtcSession::SetIceTransports(
 cricket::IceConfig WebRtcSession::ParseIceConfig(
     const PeerConnectionInterface::RTCConfiguration& config) const {
   cricket::IceConfig ice_config;
-  ice_config.receiving_timeout_ms = config.ice_connection_receiving_timeout;
+  ice_config.receiving_timeout = config.ice_connection_receiving_timeout;
+  ice_config.prioritize_most_likely_candidate_pairs =
+      config.prioritize_most_likely_ice_candidate_pairs;
   ice_config.backup_connection_ping_interval =
       config.ice_backup_candidate_pair_ping_interval;
   ice_config.gather_continually = (config.continual_gathering_policy ==
@@ -1222,13 +1211,13 @@ void WebRtcSession::SetAudioPlayout(uint32_t ssrc, bool enable) {
 void WebRtcSession::SetAudioSend(uint32_t ssrc,
                                  bool enable,
                                  const cricket::AudioOptions& options,
-                                 cricket::AudioRenderer* renderer) {
+                                 cricket::AudioSource* source) {
   ASSERT(signaling_thread()->IsCurrent());
   if (!voice_channel_) {
     LOG(LS_ERROR) << "SetAudioSend: No audio channel exists.";
     return;
   }
-  if (!voice_channel_->SetAudioSend(ssrc, enable, &options, renderer)) {
+  if (!voice_channel_->SetAudioSend(ssrc, enable, &options, source)) {
     LOG(LS_ERROR) << "SetAudioSend: ssrc is incorrect: " << ssrc;
   }
 }
@@ -1252,7 +1241,24 @@ void WebRtcSession::SetRawAudioSink(uint32_t ssrc,
   if (!voice_channel_)
     return;
 
-  voice_channel_->SetRawAudioSink(ssrc, std::move(sink));
+  voice_channel_->SetRawAudioSink(ssrc, rtc::ScopedToUnique(std::move(sink)));
+}
+
+RtpParameters WebRtcSession::GetAudioRtpParameters(uint32_t ssrc) const {
+  ASSERT(signaling_thread()->IsCurrent());
+  if (voice_channel_) {
+    return voice_channel_->GetRtpParameters(ssrc);
+  }
+  return RtpParameters();
+}
+
+bool WebRtcSession::SetAudioRtpParameters(uint32_t ssrc,
+                                          const RtpParameters& parameters) {
+  ASSERT(signaling_thread()->IsCurrent());
+  if (!voice_channel_) {
+    return false;
+  }
+  return voice_channel_->SetRtpParameters(ssrc, parameters);
 }
 
 bool WebRtcSession::SetCaptureDevice(uint32_t ssrc,
@@ -1308,6 +1314,23 @@ void WebRtcSession::SetVideoSend(uint32_t ssrc,
   }
 }
 
+RtpParameters WebRtcSession::GetVideoRtpParameters(uint32_t ssrc) const {
+  ASSERT(signaling_thread()->IsCurrent());
+  if (video_channel_) {
+    return video_channel_->GetRtpParameters(ssrc);
+  }
+  return RtpParameters();
+}
+
+bool WebRtcSession::SetVideoRtpParameters(uint32_t ssrc,
+                                          const RtpParameters& parameters) {
+  ASSERT(signaling_thread()->IsCurrent());
+  if (!video_channel_) {
+    return false;
+  }
+  return video_channel_->SetRtpParameters(ssrc, parameters);
+}
+
 bool WebRtcSession::CanInsertDtmf(const std::string& track_id) {
   ASSERT(signaling_thread()->IsCurrent());
   if (!voice_channel_) {
@@ -1351,7 +1374,7 @@ sigslot::signal0<>* WebRtcSession::GetOnDestroyedSignal() {
 }
 
 bool WebRtcSession::SendData(const cricket::SendDataParams& params,
-                             const rtc::Buffer& payload,
+                             const rtc::CopyOnWriteBuffer& payload,
                              cricket::SendDataResult* result) {
   if (!data_channel_) {
     LOG(LS_ERROR) << "SendData called when data_channel_ is NULL.";
@@ -1565,6 +1588,27 @@ void WebRtcSession::OnTransportControllerCandidatesGathered(
   }
 }
 
+void WebRtcSession::OnTransportControllerCandidatesRemoved(
+    const std::vector<cricket::Candidate>& candidates) {
+  ASSERT(signaling_thread()->IsCurrent());
+  // Sanity check.
+  for (const cricket::Candidate& candidate : candidates) {
+    if (candidate.transport_name().empty()) {
+      LOG(LS_ERROR) << "OnTransportControllerCandidatesRemoved: "
+                    << "empty content name in candidate "
+                    << candidate.ToString();
+      return;
+    }
+  }
+
+  if (local_desc_) {
+    local_desc_->RemoveCandidates(candidates);
+  }
+  if (ice_observer_) {
+    ice_observer_->OnIceCandidatesRemoved(candidates);
+  }
+}
+
 // Enabling voice and video channel.
 void WebRtcSession::EnableChannels() {
   if (voice_channel_ && !voice_channel_->enabled())
@@ -1624,14 +1668,11 @@ bool WebRtcSession::UseCandidatesInSessionDescription(
   return ret;
 }
 
-bool WebRtcSession::UseCandidate(
-    const IceCandidateInterface* candidate) {
-
+bool WebRtcSession::UseCandidate(const IceCandidateInterface* candidate) {
   size_t mediacontent_index = static_cast<size_t>(candidate->sdp_mline_index());
   size_t remote_content_size = remote_desc_->description()->contents().size();
   if (mediacontent_index >= remote_content_size) {
-    LOG(LS_ERROR)
-        << "UseRemoteCandidateInSession: Invalid candidate media index.";
+    LOG(LS_ERROR) << "UseCandidate: Invalid candidate media index.";
     return false;
   }
 
@@ -1813,7 +1854,7 @@ void WebRtcSession::OnDtlsSetupFailure(cricket::BaseChannel*, bool rtcp) {
 void WebRtcSession::OnDataChannelMessageReceived(
     cricket::DataChannel* channel,
     const cricket::ReceiveDataParams& params,
-    const rtc::Buffer& payload) {
+    const rtc::CopyOnWriteBuffer& payload) {
   RTC_DCHECK(data_channel_type_ == cricket::DCT_SCTP);
   if (params.type == cricket::DMT_CONTROL && IsOpenMessage(payload)) {
     // Received OPEN message; parse and signal that a new data channel should
@@ -1972,8 +2013,8 @@ bool WebRtcSession::ReadyToUseRemoteCandidate(
   size_t remote_content_size =
       current_remote_desc->description()->contents().size();
   if (mediacontent_index >= remote_content_size) {
-    LOG(LS_ERROR)
-        << "ReadyToUseRemoteCandidate: Invalid candidate media index.";
+    LOG(LS_ERROR) << "ReadyToUseRemoteCandidate: Invalid candidate media index "
+                  << mediacontent_index;
 
     *valid = false;
     return false;

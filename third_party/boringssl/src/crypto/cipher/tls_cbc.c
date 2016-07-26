@@ -54,10 +54,11 @@
 #include <string.h>
 
 #include <openssl/digest.h>
-#include <openssl/obj.h>
+#include <openssl/nid.h>
 #include <openssl/sha.h>
 
 #include "../internal.h"
+#include "internal.h"
 
 
 /* TODO(davidben): unsigned should be size_t. The various constant_time

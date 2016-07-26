@@ -59,7 +59,6 @@
 
 #include <openssl/base.h>
 
-#include <openssl/asn1.h>
 #include <openssl/engine.h>
 #include <openssl/ex_data.h>
 #include <openssl/thread.h>
@@ -400,20 +399,16 @@ OPENSSL_EXPORT void *RSA_get_ex_data(const RSA *r, int idx);
  * API, like a platform key store. */
 #define RSA_FLAG_OPAQUE 1
 
-/* RSA_FLAG_CACHE_PUBLIC causes a precomputed Montgomery context to be created,
- * on demand, for the public key operations. */
+/* Deprecated and ignored. */
 #define RSA_FLAG_CACHE_PUBLIC 2
 
-/* RSA_FLAG_CACHE_PRIVATE causes a precomputed Montgomery context to be
- * created, on demand, for the private key operations. */
+/* Deprecated and ignored. */
 #define RSA_FLAG_CACHE_PRIVATE 4
 
 /* RSA_FLAG_NO_BLINDING disables blinding of private operations. */
 #define RSA_FLAG_NO_BLINDING 8
 
-/* RSA_FLAG_EXT_PKEY means that private key operations will be handled by
- * |mod_exp| and that they do not depend on the private key components being
- * present: for example a key stored in external hardware. */
+/* RSA_FLAG_EXT_PKEY is deprecated and ignored. */
 #define RSA_FLAG_EXT_PKEY 0x20
 
 /* RSA_FLAG_SIGN_VER causes the |sign| and |verify| functions of |rsa_meth_st|
@@ -467,14 +462,17 @@ OPENSSL_EXPORT RSA *d2i_RSAPrivateKey(RSA **out, const uint8_t **inp, long len);
  * not, or a negative value on error. */
 OPENSSL_EXPORT int i2d_RSAPrivateKey(const RSA *in, uint8_t **outp);
 
-typedef struct rsa_pss_params_st {
-  X509_ALGOR *hashAlgorithm;
-  X509_ALGOR *maskGenAlgorithm;
-  ASN1_INTEGER *saltLength;
-  ASN1_INTEGER *trailerField;
-} RSA_PSS_PARAMS;
+/* RSA_padding_add_PKCS1_PSS acts like |RSA_padding_add_PKCS1_PSS_mgf1| but the
+ * |mgf1Hash| parameter of the latter is implicitly set to |Hash|. */
+OPENSSL_EXPORT int RSA_padding_add_PKCS1_PSS(RSA *rsa, uint8_t *EM,
+                                             const uint8_t *mHash,
+                                             const EVP_MD *Hash, int sLen);
 
-DECLARE_ASN1_FUNCTIONS(RSA_PSS_PARAMS)
+/* RSA_verify_PKCS1_PSS acts like |RSA_verify_PKCS1_PSS_mgf1| but the
+ * |mgf1Hash| parameter of the latter is implicitly set to |Hash|. */
+OPENSSL_EXPORT int RSA_verify_PKCS1_PSS(RSA *rsa, const uint8_t *mHash,
+                                        const EVP_MD *Hash, const uint8_t *EM,
+                                        int sLen);
 
 
 struct rsa_meth_st {
@@ -521,8 +519,10 @@ struct rsa_meth_st {
   int (*private_transform)(RSA *rsa, uint8_t *out, const uint8_t *in,
                            size_t len);
 
-  int (*mod_exp)(BIGNUM *r0, const BIGNUM *I, RSA *rsa,
-                 BN_CTX *ctx); /* Can be null */
+  /* mod_exp is deprecated and ignored. Set it to NULL. */
+  int (*mod_exp)(BIGNUM *r0, const BIGNUM *I, RSA *rsa, BN_CTX *ctx);
+
+  /* bn_mod_exp is deprecated and ignored. Set it to NULL. */
   int (*bn_mod_exp)(BIGNUM *r, const BIGNUM *a, const BIGNUM *p,
                     const BIGNUM *m, BN_CTX *ctx,
                     const BN_MONT_CTX *mont);
@@ -587,51 +587,51 @@ struct rsa_st {
 }  /* extern C */
 #endif
 
-#define RSA_R_BAD_E_VALUE 100
-#define RSA_R_BAD_FIXED_HEADER_DECRYPT 101
-#define RSA_R_BAD_PAD_BYTE_COUNT 102
-#define RSA_R_BAD_RSA_PARAMETERS 103
-#define RSA_R_BAD_SIGNATURE 104
-#define RSA_R_BLOCK_TYPE_IS_NOT_01 105
-#define RSA_R_BN_NOT_INITIALIZED 106
-#define RSA_R_CRT_PARAMS_ALREADY_GIVEN 107
-#define RSA_R_CRT_VALUES_INCORRECT 108
-#define RSA_R_DATA_LEN_NOT_EQUAL_TO_MOD_LEN 109
-#define RSA_R_DATA_TOO_LARGE 110
-#define RSA_R_DATA_TOO_LARGE_FOR_KEY_SIZE 111
-#define RSA_R_DATA_TOO_LARGE_FOR_MODULUS 112
-#define RSA_R_DATA_TOO_SMALL 113
-#define RSA_R_DATA_TOO_SMALL_FOR_KEY_SIZE 114
-#define RSA_R_DIGEST_TOO_BIG_FOR_RSA_KEY 115
-#define RSA_R_D_E_NOT_CONGRUENT_TO_1 116
-#define RSA_R_EMPTY_PUBLIC_KEY 117
-#define RSA_R_FIRST_OCTET_INVALID 118
-#define RSA_R_INCONSISTENT_SET_OF_CRT_VALUES 119
-#define RSA_R_INTERNAL_ERROR 120
-#define RSA_R_INVALID_MESSAGE_LENGTH 121
-#define RSA_R_KEY_SIZE_TOO_SMALL 122
-#define RSA_R_LAST_OCTET_INVALID 123
-#define RSA_R_MODULUS_TOO_LARGE 124
-#define RSA_R_NO_PUBLIC_EXPONENT 125
-#define RSA_R_NULL_BEFORE_BLOCK_MISSING 126
-#define RSA_R_N_NOT_EQUAL_P_Q 127
-#define RSA_R_OAEP_DECODING_ERROR 128
-#define RSA_R_ONLY_ONE_OF_P_Q_GIVEN 129
-#define RSA_R_OUTPUT_BUFFER_TOO_SMALL 130
-#define RSA_R_PADDING_CHECK_FAILED 131
-#define RSA_R_PKCS_DECODING_ERROR 132
-#define RSA_R_SLEN_CHECK_FAILED 133
-#define RSA_R_SLEN_RECOVERY_FAILED 134
-#define RSA_R_TOO_LONG 135
-#define RSA_R_TOO_MANY_ITERATIONS 136
-#define RSA_R_UNKNOWN_ALGORITHM_TYPE 137
-#define RSA_R_UNKNOWN_PADDING_TYPE 138
-#define RSA_R_VALUE_MISSING 139
-#define RSA_R_WRONG_SIGNATURE_LENGTH 140
-#define RSA_R_MUST_HAVE_AT_LEAST_TWO_PRIMES 141
-#define RSA_R_CANNOT_RECOVER_MULTI_PRIME_KEY 142
-#define RSA_R_BAD_ENCODING 143
-#define RSA_R_ENCODE_ERROR 144
-#define RSA_R_BAD_VERSION 145
+#define RSA_R_BAD_ENCODING 100
+#define RSA_R_BAD_E_VALUE 101
+#define RSA_R_BAD_FIXED_HEADER_DECRYPT 102
+#define RSA_R_BAD_PAD_BYTE_COUNT 103
+#define RSA_R_BAD_RSA_PARAMETERS 104
+#define RSA_R_BAD_SIGNATURE 105
+#define RSA_R_BAD_VERSION 106
+#define RSA_R_BLOCK_TYPE_IS_NOT_01 107
+#define RSA_R_BN_NOT_INITIALIZED 108
+#define RSA_R_CANNOT_RECOVER_MULTI_PRIME_KEY 109
+#define RSA_R_CRT_PARAMS_ALREADY_GIVEN 110
+#define RSA_R_CRT_VALUES_INCORRECT 111
+#define RSA_R_DATA_LEN_NOT_EQUAL_TO_MOD_LEN 112
+#define RSA_R_DATA_TOO_LARGE 113
+#define RSA_R_DATA_TOO_LARGE_FOR_KEY_SIZE 114
+#define RSA_R_DATA_TOO_LARGE_FOR_MODULUS 115
+#define RSA_R_DATA_TOO_SMALL 116
+#define RSA_R_DATA_TOO_SMALL_FOR_KEY_SIZE 117
+#define RSA_R_DIGEST_TOO_BIG_FOR_RSA_KEY 118
+#define RSA_R_D_E_NOT_CONGRUENT_TO_1 119
+#define RSA_R_EMPTY_PUBLIC_KEY 120
+#define RSA_R_ENCODE_ERROR 121
+#define RSA_R_FIRST_OCTET_INVALID 122
+#define RSA_R_INCONSISTENT_SET_OF_CRT_VALUES 123
+#define RSA_R_INTERNAL_ERROR 124
+#define RSA_R_INVALID_MESSAGE_LENGTH 125
+#define RSA_R_KEY_SIZE_TOO_SMALL 126
+#define RSA_R_LAST_OCTET_INVALID 127
+#define RSA_R_MODULUS_TOO_LARGE 128
+#define RSA_R_MUST_HAVE_AT_LEAST_TWO_PRIMES 129
+#define RSA_R_NO_PUBLIC_EXPONENT 130
+#define RSA_R_NULL_BEFORE_BLOCK_MISSING 131
+#define RSA_R_N_NOT_EQUAL_P_Q 132
+#define RSA_R_OAEP_DECODING_ERROR 133
+#define RSA_R_ONLY_ONE_OF_P_Q_GIVEN 134
+#define RSA_R_OUTPUT_BUFFER_TOO_SMALL 135
+#define RSA_R_PADDING_CHECK_FAILED 136
+#define RSA_R_PKCS_DECODING_ERROR 137
+#define RSA_R_SLEN_CHECK_FAILED 138
+#define RSA_R_SLEN_RECOVERY_FAILED 139
+#define RSA_R_TOO_LONG 140
+#define RSA_R_TOO_MANY_ITERATIONS 141
+#define RSA_R_UNKNOWN_ALGORITHM_TYPE 142
+#define RSA_R_UNKNOWN_PADDING_TYPE 143
+#define RSA_R_VALUE_MISSING 144
+#define RSA_R_WRONG_SIGNATURE_LENGTH 145
 
 #endif  /* OPENSSL_HEADER_RSA_H */

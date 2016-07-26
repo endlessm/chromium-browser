@@ -21,7 +21,6 @@
     '<(skia_src_path)/effects/SkArithmeticMode.cpp',
     '<(skia_src_path)/effects/SkArithmeticMode_gpu.cpp',
     '<(skia_src_path)/effects/SkArithmeticMode_gpu.h',
-    '<(skia_src_path)/effects/SkAvoidXfermode.cpp',
     '<(skia_src_path)/effects/SkBlurDrawLooper.cpp',
     '<(skia_src_path)/effects/SkBlurMask.cpp',
     '<(skia_src_path)/effects/SkBlurMask.h',
@@ -59,7 +58,6 @@
     '<(skia_src_path)/effects/SkPaintImageFilter.cpp',
     '<(skia_src_path)/effects/SkPerlinNoiseShader.cpp',
     '<(skia_src_path)/effects/SkPictureImageFilter.cpp',
-    '<(skia_src_path)/effects/SkPixelXorXfermode.cpp',
     '<(skia_src_path)/effects/SkTableColorFilter.cpp',
     '<(skia_src_path)/effects/SkTableMaskFilter.cpp',
     '<(skia_src_path)/effects/SkTestImageFilters.cpp',
@@ -68,6 +66,7 @@
 
     '<(skia_src_path)/effects/gradients/Sk4fGradientBase.cpp',
     '<(skia_src_path)/effects/gradients/Sk4fGradientBase.h',
+    '<(skia_src_path)/effects/gradients/Sk4fGradientPriv.h',
     '<(skia_src_path)/effects/gradients/Sk4fLinearGradient.cpp',
     '<(skia_src_path)/effects/gradients/Sk4fLinearGradient.h',
     '<(skia_src_path)/effects/gradients/SkClampRange.cpp',
@@ -102,7 +101,6 @@
     '<(skia_include_path)/effects/SkDashPathEffect.h',
     '<(skia_include_path)/effects/SkDiscretePathEffect.h',
     '<(skia_include_path)/effects/SkDisplacementMapEffect.h',
-    '<(skia_include_path)/effects/SkDrawExtraPathEffect.h',
     '<(skia_include_path)/effects/SkDropShadowImageFilter.h',
     '<(skia_include_path)/effects/SkEmbossMaskFilter.h',
     '<(skia_include_path)/effects/SkGradientShader.h',
@@ -121,8 +119,5 @@
     '<(skia_include_path)/effects/SkTableMaskFilter.h',
     '<(skia_include_path)/effects/SkTileImageFilter.h',
     '<(skia_include_path)/effects/SkXfermodeImageFilter.h',
-
-    '<(skia_include_path)/client/android/SkAvoidXfermode.h',
-    '<(skia_include_path)/client/android/SkPixelXorXfermode.h',
   ],
 }

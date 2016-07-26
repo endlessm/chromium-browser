@@ -175,21 +175,6 @@ class AcmReceiver {
   void GetNetworkStatistics(NetworkStatistics* statistics);
 
   //
-  // Enable post-decoding VAD.
-  //
-  void EnableVad();
-
-  //
-  // Disable post-decoding VAD.
-  //
-  void DisableVad();
-
-  //
-  // Returns whether post-decoding VAD is enabled (true) or disabled (false).
-  //
-  bool vad_enabled() const { return vad_enabled_; }
-
-  //
   // Flushes the NetEq packet and speech buffers.
   //
   void FlushBuffers();
@@ -210,16 +195,9 @@ class AcmReceiver {
   //
   int RemoveAllCodecs();
 
-  //
-  // Set ID.
-  //
-  void set_id(int id);  // TODO(turajs): can be inline.
-
-  //
-  // Gets the RTP timestamp of the last sample delivered by GetAudio().
-  // Returns true if the RTP timestamp is valid, otherwise false.
-  //
-  bool GetPlayoutTimestamp(uint32_t* timestamp);
+  // Returns the RTP timestamp for the last sample delivered by GetAudio().
+  // The return value will be empty if no valid timestamp is available.
+  rtc::Optional<uint32_t> GetPlayoutTimestamp();
 
   //
   // Get the audio codec associated with the last non-CNG/non-DTMF received
@@ -282,19 +260,13 @@ class AcmReceiver {
   uint32_t NowInTimestamp(int decoder_sampling_rate) const;
 
   rtc::CriticalSection crit_sect_;
-  int id_;  // TODO(henrik.lundin) Make const.
   const Decoder* last_audio_decoder_ GUARDED_BY(crit_sect_);
-  AudioFrame::VADActivity previous_audio_activity_ GUARDED_BY(crit_sect_);
   ACMResampler resampler_ GUARDED_BY(crit_sect_);
-  // Used in GetAudio, declared as member to avoid allocating every 10ms.
-  // TODO(henrik.lundin) Stack-allocate in GetAudio instead?
-  std::unique_ptr<int16_t[]> audio_buffer_ GUARDED_BY(crit_sect_);
   std::unique_ptr<int16_t[]> last_audio_buffer_ GUARDED_BY(crit_sect_);
   CallStatistics call_stats_ GUARDED_BY(crit_sect_);
   NetEq* neteq_;
   // Decoders map is keyed by payload type
   std::map<uint8_t, Decoder> decoders_ GUARDED_BY(crit_sect_);
-  bool vad_enabled_;
   Clock* clock_;  // TODO(henrik.lundin) Make const if possible.
   bool resampled_last_output_frame_ GUARDED_BY(crit_sect_);
   rtc::Optional<int> last_packet_sample_rate_hz_ GUARDED_BY(crit_sect_);

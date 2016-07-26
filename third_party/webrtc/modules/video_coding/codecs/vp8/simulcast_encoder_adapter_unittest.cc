@@ -8,6 +8,7 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
+#include <memory>
 #include <vector>
 
 #include "testing/gmock/include/gmock/gmock.h"
@@ -173,7 +174,15 @@ class MockVideoEncoderFactory : public VideoEncoderFactory {
     return encoder;
   }
 
-  void Destroy(VideoEncoder* encoder) override { delete encoder; }
+  void Destroy(VideoEncoder* encoder) override {
+    for (size_t i = 0; i < encoders_.size(); ++i) {
+      if (encoders_[i] == encoder) {
+        encoders_.erase(encoders_.begin() + i);
+        break;
+      }
+    }
+    delete encoder;
+  }
 
   virtual ~MockVideoEncoderFactory() {}
 
@@ -340,8 +349,8 @@ class TestSimulcastEncoderAdapterFake : public ::testing::Test,
   }
 
  protected:
-  rtc::scoped_ptr<TestSimulcastEncoderAdapterFakeHelper> helper_;
-  rtc::scoped_ptr<VP8Encoder> adapter_;
+  std::unique_ptr<TestSimulcastEncoderAdapterFakeHelper> helper_;
+  std::unique_ptr<VP8Encoder> adapter_;
   VideoCodec codec_;
   int last_encoded_image_width_;
   int last_encoded_image_height_;
@@ -420,6 +429,14 @@ TEST_F(TestSimulcastEncoderAdapterFake, SupportsImplementationName) {
   EXPECT_EQ(0, adapter_->InitEncode(&codec_, 1, 1200));
   EXPECT_STREQ("SimulcastEncoderAdapter (codec1, codec2, codec3)",
                adapter_->ImplementationName());
+
+  // Single streams should not expose "SimulcastEncoderAdapter" in name.
+  adapter_->Release();
+  codec_.numberOfSimulcastStreams = 1;
+  EXPECT_EQ(0, adapter_->InitEncode(&codec_, 1, 1200));
+  adapter_->RegisterEncodeCompleteCallback(this);
+  ASSERT_EQ(1u, helper_->factory()->encoders().size());
+  EXPECT_STREQ("codec1", adapter_->ImplementationName());
 }
 
 TEST_F(TestSimulcastEncoderAdapterFake,

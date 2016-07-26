@@ -14,6 +14,7 @@
       'type': 'executable',
       'include_dirs': [
         '../src/core',
+        '../src/gpu',
         '../src/ports',
         '../tools/debugger',
         '../tools/json',
@@ -34,7 +35,6 @@
       'dependencies': [
         'flags.gyp:flags',
         'gputest.gyp:skgputest',
-        'json.gyp:json',
         'jsoncpp.gyp:jsoncpp',
         'libpng.gyp:libpng',
         'microhttpd.gyp:microhttpd',

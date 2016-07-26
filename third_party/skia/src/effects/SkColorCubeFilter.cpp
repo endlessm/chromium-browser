@@ -48,19 +48,19 @@ static bool is_valid_3D_lut(SkData* cubeData, int cubeDimension) {
            (nullptr != cubeData) && (cubeData->size() >= minMemorySize);
 }
 
-SkColorFilter* SkColorCubeFilter::Create(SkData* cubeData, int cubeDimension) {
-    if (!is_valid_3D_lut(cubeData, cubeDimension)) {
+sk_sp<SkColorFilter> SkColorCubeFilter::Make(sk_sp<SkData> cubeData, int cubeDimension) {
+    if (!is_valid_3D_lut(cubeData.get(), cubeDimension)) {
         return nullptr;
     }
 
-    return new SkColorCubeFilter(cubeData, cubeDimension);
+    return sk_sp<SkColorFilter>(new SkColorCubeFilter(std::move(cubeData), cubeDimension));
 }
 
-SkColorCubeFilter::SkColorCubeFilter(SkData* cubeData, int cubeDimension)
-  : fCubeData(SkRef(cubeData))
-  , fUniqueID(SkNextColorCubeUniqueID())
-  , fCache(cubeDimension) {
-}
+SkColorCubeFilter::SkColorCubeFilter(sk_sp<SkData> cubeData, int cubeDimension)
+    : fCubeData(std::move(cubeData))
+    , fUniqueID(SkNextColorCubeUniqueID())
+    , fCache(cubeDimension)
+{}
 
 uint32_t SkColorCubeFilter::getFlags() const {
     return this->INHERITED::getFlags() | kAlphaUnchanged_Flag;
@@ -136,19 +136,19 @@ void SkColorCubeFilter::filterSpan(const SkPMColor src[], int count, SkPMColor d
                                    (const SkColor*)fCubeData->data());
 }
 
-SkFlattenable* SkColorCubeFilter::CreateProc(SkReadBuffer& buffer) {
+sk_sp<SkFlattenable> SkColorCubeFilter::CreateProc(SkReadBuffer& buffer) {
     int cubeDimension = buffer.readInt();
-    SkAutoDataUnref cubeData(buffer.readByteArrayAsData());
-    if (!buffer.validate(is_valid_3D_lut(cubeData, cubeDimension))) {
+    auto cubeData(buffer.readByteArrayAsData());
+    if (!buffer.validate(is_valid_3D_lut(cubeData.get(), cubeDimension))) {
         return nullptr;
     }
-    return Create(cubeData, cubeDimension);
+    return Make(std::move(cubeData), cubeDimension);
 }
 
 void SkColorCubeFilter::flatten(SkWriteBuffer& buffer) const {
     this->INHERITED::flatten(buffer);
     buffer.writeInt(fCache.cubeDimension());
-    buffer.writeDataAsByteArray(fCubeData);
+    buffer.writeDataAsByteArray(fCubeData.get());
 }
 
 #ifndef SK_IGNORE_TO_STRING
@@ -310,6 +310,7 @@ const GrFragmentProcessor* SkColorCubeFilter::asFragmentProcessor(GrContext* con
     desc.fWidth = fCache.cubeDimension();
     desc.fHeight = fCache.cubeDimension() * fCache.cubeDimension();
     desc.fConfig = kRGBA_8888_GrPixelConfig;
+    desc.fIsMipMapped = false;
 
     SkAutoTUnref<GrTexture> textureCube(
         context->textureProvider()->findAndRefTextureByUniqueKey(key));

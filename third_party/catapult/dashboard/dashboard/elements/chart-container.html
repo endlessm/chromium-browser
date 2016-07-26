@@ -1,10 +1,16 @@
 <!DOCTYPE html>
 <!--
+Copyright 2016 The Chromium Authors. All rights reserved.
+Use of this source code is governed by a BSD-style license that can be
+found in the LICENSE file.
+-->
+<!--
 The chart-container element represents one chart and all related functionality,
 including a legend listing different traces that can be plotted on the same
 chart, a revision range selecting mini-chart at the bottom, and all of the alert
 triaging functionality in the chart.
 -->
+
 <link rel="import" href="/components/core-collapse/core-collapse.html">
 <link rel="import" href="/components/core-icon/core-icon.html">
 <link rel="import" href="/components/paper-button/paper-button.html">
@@ -14,14 +20,15 @@ triaging functionality in the chart.
 <link rel="import" href="/dashboard/elements/chart-slider.html">
 <link rel="import" href="/dashboard/elements/chart-title.html">
 <link rel="import" href="/dashboard/elements/chart-tooltip.html">
-<link rel="import" href="/dashboard/static/simple_xhr.html">
 <link rel="import" href="/dashboard/static/graph.html">
+<link rel="import" href="/dashboard/static/simple_xhr.html">
 <link rel="import" href="/dashboard/static/testselection.html">
 <link rel="import" href="/dashboard/static/uri.html">
 
 <polymer-element name="chart-container"
                  attributes="graphParams revisionInfo xsrfToken alertKey
-                             showCompact collapseLegend"
+                             showCompact collapseLegend testSuites
+                             isInternalUser"
                  on-drop="{{onDrop}}"
                  on-dragover="{{allowDrop}}">
 
@@ -143,7 +150,8 @@ triaging functionality in the chart.
     <div id="container" compact?="{{showCompact}}">
       <div id="top-bar" horizontal layout>
         <div flex horizontal center-justified layout>
-          <chart-title id="title" seriesGroupList={{seriesGroupList}}></chart-title>
+          <chart-title id="title" seriesGroupList="{{seriesGroupList}}"
+                       testSuites="{{testSuites}}"></chart-title>
         </div>
         <div horizontal layout center>
           <paper-button id="close-chart" on-click="{{closeChartClicked}}">
@@ -582,7 +590,7 @@ triaging functionality in the chart.
                 selectedTestPathDict[testPath] = [];
               } else {
                 // Create test data here for selected traces so they can
-                // be initialy shown in chart legend.
+                // be initially shown in chart legend.
                 for (var j = 0; j < selectedTraces.length; j++) {
                   var testData = {
                     name: selectedTraces[j],
@@ -669,7 +677,7 @@ triaging functionality in the chart.
          * Update loading counter for all series groups in a testPaths.
          *
          * @param {Array} testPaths List of test paths.
-         * @param {boolean} increment True to add one, False to subract one.
+         * @param {boolean} increment True to add one, False to subtract one.
          */
         updateSeriesGroupLoadingCounter: function(testPaths, increment) {
           var testPathToGroup = {};
@@ -684,7 +692,7 @@ triaging functionality in the chart.
         },
 
         checkForInternalUser: function() {
-          if (!window['IS_INTERNAL_USER']) {
+          if (!this.isInternalUser) {
              this.addWarnings(
                'Note that some data is only available when logged in.');
           }
@@ -703,7 +711,7 @@ triaging functionality in the chart.
         },
 
         /**
-         * Adds warnings for selected series that are staed or have no data.
+         * Adds warnings for selected series that are stale or have no data.
          */
         updateWarningsForSelectedSeries: function() {
           this.warnings = this.warnings.filter(function(value) {
@@ -834,7 +842,8 @@ triaging functionality in the chart.
               color: this.json.data[i].color,
               index: i,
               important: testselection.isImportant(
-                  series[i].path.split('/').slice(2).join('/'))
+                  series[i].path.split('/').slice(2).join('/'),
+                  this.testSuites)
             };
 
             testList.push(test);
@@ -851,7 +860,7 @@ triaging functionality in the chart.
         },
 
         /**
-         * Updates this.seriesGrouplist for a list of series object.
+         * Updates this.seriesGroupList for a list of series object.
          *
          * @param {Array} testList List of test object.
          */
@@ -1811,7 +1820,7 @@ triaging functionality in the chart.
         /**
          * Displays a tooltip for the given point on the graph.
          *
-         * TODO(qyearsley): Refactor. http://crbug.com/508991.
+         * TODO(qyearsley): Refactor. See catapult:#1348.
          *
          * NOTE: Instead of taking lists of alerts and triaged alerts, it
          * would be possible for this function to just take one alert, since
@@ -2085,10 +2094,6 @@ triaging functionality in the chart.
          * Returns an object with revision-related information for one type
          * of revision, for two revision numbers.
          *
-         * The property this.revisionInfo is set in graph.js from the global
-         * variable REVISION_INFO, which is embedded based on the content of
-         * chart_handler.py.
-         *
          * @param {string} revisionTypeKey A key in this.revisionInfo.
          *     This will be a string starting with "r_".
          * @param {(number|string|boolean)} start Optional start revision.
@@ -2119,7 +2124,7 @@ triaging functionality in the chart.
           }
 
           // If the substring R1_trim is found in the URL template, we assume
-          // that it's the URL template for Crome OS versions.
+          // that it's the URL template for Chrome OS versions.
           var url = '';
           if (urlTemplate.indexOf('{{R1_trim}}') != -1) {
             url = this.fillInChromeOSChangeLogURL(urlTemplate, start, end);
@@ -2381,7 +2386,7 @@ triaging functionality in the chart.
 
         /**
          * Gets the current state of the chart.
-         * This is called by 'report-container.html' to create page state.
+         * This is called by 'report-page.html' to create page state.
          *
          * @return {Array} List of pair of test path and selected series.
          */

@@ -95,6 +95,7 @@ void GrContext::initCommon(const GrContextOptions& options) {
     dtOptions.fClipBatchToBounds = options.fClipBatchToBounds;
     dtOptions.fDrawBatchBounds = options.fDrawBatchBounds;
     dtOptions.fMaxBatchLookback = options.fMaxBatchLookback;
+    dtOptions.fMaxBatchLookahead = options.fMaxBatchLookahead;
     fDrawingManager.reset(new GrDrawingManager(this, dtOptions, &fSingleOwner));
 
     // GrBatchFontCache will eventually replace GrFontCache
@@ -127,6 +128,13 @@ GrContext::~GrContext() {
     fCaps->unref();
 }
 
+GrContextThreadSafeProxy* GrContext::threadSafeProxy() {
+    if (!fThreadSafeProxy) {
+        fThreadSafeProxy.reset(new GrContextThreadSafeProxy(fCaps, this->uniqueID()));
+    }
+    return SkRef(fThreadSafeProxy.get());
+}
+
 void GrContext::abandonContext() {
     ASSERT_SINGLE_OWNER
 
@@ -140,7 +148,26 @@ void GrContext::abandonContext() {
     // don't try to free the resources in the API.
     fResourceCache->abandonAll();
 
-    fGpu->contextAbandoned();
+    fGpu->disconnect(GrGpu::DisconnectType::kAbandon);
+
+    fBatchFontCache->freeAll();
+    fLayerCache->freeAll();
+    fTextBlobCache->freeAll();
+}
+
+void GrContext::releaseResourcesAndAbandonContext() {
+    ASSERT_SINGLE_OWNER
+
+    fResourceProvider->abandon();
+
+    // Need to abandon the drawing manager first so all the render targets
+    // will be released/forgotten before they too are abandoned.
+    fDrawingManager->abandon();
+
+    // Release all resources in the backend 3D API.
+    fResourceCache->releaseAll();
+
+    fGpu->disconnect(GrGpu::DisconnectType::kCleanup);
 
     fBatchFontCache->freeAll();
     fLayerCache->freeAll();
@@ -339,6 +366,8 @@ bool GrContext::writeSurfacePixels(GrSurface* surface,
             if (!drawContext) {
                 return false;
             }
+            // SRGBTODO: AllowSRGBInputs? (We could force it on here, so we don't need the
+            // per-texture override in config conversion effect?)
             GrPaint paint;
             paint.addColorFragmentProcessor(fp);
             paint.setPorterDuffXPFactory(SkXfermode::kSrc_Mode);
@@ -449,6 +478,8 @@ bool GrContext::readSurfacePixels(GrSurface* src,
                     GrConfigConversionEffect::kNone_PMConversion, textureMatrix));
             }
             if (fp) {
+                // SRGBTODO: AllowSRGBInputs? (We could force it on here, so we don't need the
+                // per-texture override in config conversion effect?)
                 GrPaint paint;
                 paint.addColorFragmentProcessor(fp);
                 paint.setPorterDuffXPFactory(SkXfermode::kSrc_Mode);

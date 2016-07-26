@@ -57,7 +57,7 @@ remove_srcs (../src/ports/SkFontMgr_custom*.cpp)
 
 # Skia sure ships a lot of code no one uses.
 remove_srcs (../src/animator/* ../src/*nacl* ../src/svg/* ../src/views/* ../src/xml/*)
-foreach (include animator svg svg/parser views views/animated xml)
+foreach (include animator svg svg/parser views xml gpu/vk)
   file (GLOB globed_include ../include/${include})
   list (REMOVE_ITEM public_includes ${globed_include})
 endforeach()
@@ -71,7 +71,6 @@ if (NOT UNIX)
 endif()
 if (APPLE OR NOT UNIX)
     remove_srcs(../src/gpu/gl/glx/*
-                ../src/images/SkImageDecoder_FactoryDefault.cpp
                 ../src/ports/SkFontMgr_fontconfig*.cpp
                 ../src/ports/SkFontMgr_android*.cpp
                 ../src/*FreeType*)
@@ -91,9 +90,9 @@ remove_srcs(
     ../src/gpu/GrContextFactory.cpp                  # For internal testing only.
     ../src/gpu/gl/GrGLCreateNativeInterface_none.cpp
     ../src/gpu/gl/GrGLDefaultInterface_none.cpp
-    ../src/gpu/gl/SkCreatePlatformGLContext*.cpp     # For internal testing only.
     ../src/gpu/gl/command_buffer/*
     ../src/gpu/gl/egl/*
+    ../src/gpu/gl/glfw/*
     ../src/gpu/gl/iOS/*
     ../src/gpu/vk/*
     ../src/opts/SkBitmapProcState_opts_none.cpp
@@ -101,9 +100,17 @@ remove_srcs(
     ../src/opts/SkBlitRow_opts_none.cpp
     ../src/ports/SkFontMgr_empty_factory.cpp
     ../src/ports/SkGlobalInitialization_chromium.cpp
-    ../src/ports/SkImageDecoder_empty.cpp
+    ../src/ports/SkImageEncoder_none.cpp
     ../src/ports/SkImageGenerator_none.cpp
     ../src/ports/SkTLS_none.cpp)
+
+if (NOT APPLE)
+    remove_srcs(../src/ports/SkImageGeneratorCG.cpp)
+endif()
+
+if (NOT WIN32)
+    remove_srcs(../src/ports/SkImageGeneratorWIC.cpp)
+endif()
 
 if (WIN32)
     if(SKIA_GDI)
@@ -112,8 +119,6 @@ if (WIN32)
         remove_srcs(../src/ports/SkFontMgr_win_gdi_factory.cpp)
     endif()
 endif()
-
-remove_srcs(../src/gpu/gl/angle/*)  # TODO
 
 # Certain files must be compiled with support for SSSE3, SSE4.1, AVX, or AVX2 intrinsics.
 file (GLOB_RECURSE ssse3_srcs ../src/*ssse3*.cpp ../src/*SSSE3*.cpp)
@@ -163,7 +168,7 @@ if (GIF_FOUND)
     list (APPEND libs             ${GIF_LIBRARIES})
     add_definitions(-DSK_CODEC_DECODES_GIF)
 else()
-    remove_srcs(../src/images/*gif*)
+    remove_srcs(../src/images/*GIF*)
     remove_srcs(../src/codec/*Gif*)
 endif()
 
@@ -172,8 +177,7 @@ if (JPEG_FOUND)
     list (APPEND libs             ${JPEG_LIBRARIES})
     add_definitions(-DSK_CODEC_DECODES_JPEG)
 else()
-    remove_srcs(../src/images/*jpeg*)
-    remove_srcs(../src/images/*Jpeg*)
+    remove_srcs(../src/images/*JPEG*)
     remove_srcs(../src/codec/*Jpeg*)
 endif()
 
@@ -191,8 +195,7 @@ if (PNG_FOUND)
     add_definitions(-DPNG_SKIP_SKIA_OPTS)
     add_definitions(-DSK_CODEC_DECODES_PNG)
 else()
-    remove_srcs(../src/images/*png*)
-    remove_srcs(../src/images/*ico*)
+    remove_srcs(../src/images/*PNG*)
     remove_srcs(../src/codec/*Png*)
     remove_srcs(../src/codec/*Ico*)
 endif()
@@ -200,9 +203,10 @@ endif()
 if (ZLIB_FOUND)
     list (APPEND private_includes ${ZLIB_INCLUDE_DIRS})
     list (APPEND libs             ${ZLIB_LIBRARIES})
-    remove_srcs(../src/doc/SkDocument_PDF_None.cpp)
+    remove_srcs(../src/pdf/SkDocument_PDF_None.cpp)
 else()
-    remove_srcs(../src/pdf/*.cpp ../src/doc/SkDocument_PDF.cpp)
+    remove_srcs(../src/pdf/*.cpp)
+    set (srcs ${srcs} ../src/pdf/SkDocument_PDF_None.cpp)
 endif()
 
 if (WEBP_INCLUDE_DIRS AND WEBP_LIBRARIES)
@@ -210,7 +214,7 @@ if (WEBP_INCLUDE_DIRS AND WEBP_LIBRARIES)
     list (APPEND libs             ${WEBP_LIBRARIES})
     add_definitions(-DSK_CODEC_DECODES_WEBP)
 else()
-    remove_srcs(../src/images/*webp*)
+    remove_srcs(../src/images/*WEBP*)
     remove_srcs(../src/codec/*Webp*)
 endif()
 
@@ -283,6 +287,11 @@ if (CMAKE_BUILD_TYPE STREQUAL Release)
     set (SK_RELEASE 1)
 else()
     set (SK_RELEASE 0)
+endif()
+if (UNIX AND NOT APPLE)
+  set (SK_SAMPLES_FOR_X 1)
+else()
+  set (SK_SAMPLES_FOR_X 0)
 endif()
 configure_file ("SkUserConfig.h.in" "${userconfig_directory}/SkUserConfig.h")
 

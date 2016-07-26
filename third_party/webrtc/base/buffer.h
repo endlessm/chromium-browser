@@ -11,7 +11,6 @@
 #ifndef WEBRTC_BASE_BUFFER_H_
 #define WEBRTC_BASE_BUFFER_H_
 
-#include <cassert>
 #include <cstring>
 #include <memory>
 #include <utility>
@@ -19,7 +18,6 @@
 #include "webrtc/base/array_view.h"
 #include "webrtc/base/checks.h"
 #include "webrtc/base/constructormagic.h"
-#include "webrtc/base/deprecation.h"
 
 namespace rtc {
 
@@ -51,7 +49,6 @@ struct ByteType {
 class Buffer {
  public:
   Buffer();                   // An empty buffer.
-  Buffer(const Buffer& buf);  // Copy size and contents of an existing buffer.
   Buffer(Buffer&& buf);       // Move contents from an existing buffer.
 
   // Construct a buffer with the specified number of uninitialized bytes.
@@ -81,35 +78,29 @@ class Buffer {
   // but you may also use .data<int8_t>() and .data<char>().
   template <typename T = uint8_t, typename internal::ByteType<T>::t = 0>
   const T* data() const {
-    assert(IsConsistent());
+    RTC_DCHECK(IsConsistent());
     return reinterpret_cast<T*>(data_.get());
   }
 
   template <typename T = uint8_t, typename internal::ByteType<T>::t = 0>
   T* data() {
-    assert(IsConsistent());
+    RTC_DCHECK(IsConsistent());
     return reinterpret_cast<T*>(data_.get());
   }
 
   size_t size() const {
-    assert(IsConsistent());
+    RTC_DCHECK(IsConsistent());
     return size_;
   }
 
   size_t capacity() const {
-    assert(IsConsistent());
+    RTC_DCHECK(IsConsistent());
     return capacity_;
   }
 
-  Buffer& operator=(const Buffer& buf) {
-    if (&buf != this)
-      SetData(buf.data(), buf.size());
-    return *this;
-  }
-
   Buffer& operator=(Buffer&& buf) {
-    assert(IsConsistent());
-    assert(buf.IsConsistent());
+    RTC_DCHECK(IsConsistent());
+    RTC_DCHECK(buf.IsConsistent());
     size_ = buf.size_;
     capacity_ = buf.capacity_;
     data_ = std::move(buf.data_);
@@ -118,17 +109,27 @@ class Buffer {
   }
 
   bool operator==(const Buffer& buf) const {
-    assert(IsConsistent());
+    RTC_DCHECK(IsConsistent());
     return size_ == buf.size() && memcmp(data_.get(), buf.data(), size_) == 0;
   }
 
   bool operator!=(const Buffer& buf) const { return !(*this == buf); }
 
+  uint8_t& operator[](size_t index) {
+    RTC_DCHECK_LT(index, size_);
+    return data()[index];
+  }
+
+  uint8_t operator[](size_t index) const {
+    RTC_DCHECK_LT(index, size_);
+    return data()[index];
+  }
+
   // The SetData functions replace the contents of the buffer. They accept the
   // same input types as the constructors.
   template <typename T, typename internal::ByteType<T>::t = 0>
   void SetData(const T* data, size_t size) {
-    assert(IsConsistent());
+    RTC_DCHECK(IsConsistent());
     size_ = 0;
     AppendData(data, size);
   }
@@ -159,12 +160,12 @@ class Buffer {
   // the same input types as the constructors.
   template <typename T, typename internal::ByteType<T>::t = 0>
   void AppendData(const T* data, size_t size) {
-    assert(IsConsistent());
+    RTC_DCHECK(IsConsistent());
     const size_t new_size = size_ + size;
     EnsureCapacity(new_size);
     std::memcpy(data_.get() + size_, data, size);
     size_ = new_size;
-    assert(IsConsistent());
+    RTC_DCHECK(IsConsistent());
   }
 
   template <typename T, size_t N, typename internal::ByteType<T>::t = 0>
@@ -210,30 +211,21 @@ class Buffer {
   // further reallocation. (Of course, this operation might need to reallocate
   // the buffer.)
   void EnsureCapacity(size_t capacity) {
-    assert(IsConsistent());
+    RTC_DCHECK(IsConsistent());
     if (capacity <= capacity_)
       return;
     std::unique_ptr<uint8_t[]> new_data(new uint8_t[capacity]);
     std::memcpy(new_data.get(), data_.get(), size_);
     data_ = std::move(new_data);
     capacity_ = capacity;
-    assert(IsConsistent());
-  }
-
-  // b.Pass() does the same thing as std::move(b).
-  // Deprecated; remove in March 2016 (bug 5373).
-  RTC_DEPRECATED Buffer&& Pass() { return DEPRECATED_Pass(); }
-
-  Buffer&& DEPRECATED_Pass() {
-    assert(IsConsistent());
-    return std::move(*this);
+    RTC_DCHECK(IsConsistent());
   }
 
   // Resets the buffer to zero size without altering capacity. Works even if the
   // buffer has been moved from.
   void Clear() {
     size_ = 0;
-    assert(IsConsistent());
+    RTC_DCHECK(IsConsistent());
   }
 
   // Swaps two buffers. Also works for buffers that have been moved from.
@@ -271,6 +263,8 @@ class Buffer {
   size_t size_;
   size_t capacity_;
   std::unique_ptr<uint8_t[]> data_;
+
+  RTC_DISALLOW_COPY_AND_ASSIGN(Buffer);
 };
 
 }  // namespace rtc

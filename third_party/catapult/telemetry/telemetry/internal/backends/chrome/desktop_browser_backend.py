@@ -78,23 +78,49 @@ def GenerateBreakpadSymbols(minidump, arch, os_name, symbols_dir, browser_dir):
   logging.info('Dumping breakpad symbols.')
   generate_breakpad_symbols_command = binary_manager.FetchPath(
       'generate_breakpad_symbols', arch, os_name)
-  if generate_breakpad_symbols_command is None:
-    return
 
   for binary_path in GetSymbolBinaries(minidump, arch, os_name):
-    cmd = [
-        sys.executable,
-        generate_breakpad_symbols_command,
-        '--binary=%s' % binary_path,
-        '--symbols-dir=%s' % symbols_dir,
-        '--build-dir=%s' % browser_dir,
-        ]
+    symbols_found = False
+    # Check if we have a symbol file for this binary path. Breakpad symbol files
+    # are of the form "$BINARY.breakpad.$ARCH" next to the binary file. We can
+    # simply look for any files which match this pattern and copy the files into
+    # the symbol directory.
+    symbols = glob.glob('%s.breakpad*' % binary_path)
+    if symbols:
+      for symbol_file in sorted(symbols, key=os.path.getmtime, reverse=True):
+        if not os.path.isfile(symbol_file):
+          continue
+        if os.path.getmtime(symbol_file) < os.path.getmtime(binary_path):
+          continue
+        with open(symbol_file, 'r') as f:
+          fields = f.readline().split()
+          if not fields:
+            continue
+          sha = fields[3]
+          binary = ' '.join(fields[4:])
 
-    try:
-      subprocess.check_output(cmd, stderr=open(os.devnull, 'w'))
-    except subprocess.CalledProcessError:
-      logging.warning('Failed to execute "%s"' % ' '.join(cmd))
-      return
+        # The symbol directory has form: "$SYMBOL/$BINARY/$HASH/$BINARY.sym".
+        symbol_output = os.path.join(symbols_dir, binary, sha, binary + '.sym')
+        if not os.path.isfile(symbol_output):
+          os.makedirs(os.path.dirname(symbol_output))
+          shutil.copyfile(symbol_file, symbol_output)
+          symbols_found = True
+
+    # See if we can generate the symbols locally.
+    if not symbols_found and generate_breakpad_symbols_command:
+      cmd = [
+          sys.executable,
+          generate_breakpad_symbols_command,
+          '--binary=%s' % binary_path,
+          '--symbols-dir=%s' % symbols_dir,
+          '--build-dir=%s' % browser_dir,
+          ]
+
+      try:
+        subprocess.check_call(cmd, stderr=open(os.devnull, 'w'))
+      except subprocess.CalledProcessError:
+        logging.warning('Failed to execute "%s"' % ' '.join(cmd))
+        return
 
 
 class DesktopBrowserBackend(chrome_browser_backend.ChromeBrowserBackend):
@@ -133,7 +159,6 @@ class DesktopBrowserBackend(chrome_browser_backend.ChromeBrowserBackend):
     self._browser_directory = browser_directory
     self._port = None
     self._tmp_minidump_dir = tempfile.mkdtemp()
-    self._crash_service = None
     if self.browser_options.enable_logging:
       self._log_file_path = os.path.join(tempfile.mkdtemp(), 'chrome.log')
     else:
@@ -180,55 +205,27 @@ class DesktopBrowserBackend(chrome_browser_backend.ChromeBrowserBackend):
   def _GetDevToolsActivePortPath(self):
     return os.path.join(self.profile_directory, 'DevToolsActivePort')
 
-  def _GetCrashServicePipeName(self):
-    # Ensure a unique pipe name by using the name of the temp dir.
-    pipe = r'\\.\pipe\%s_service' % os.path.basename(self._tmp_minidump_dir)
-    return pipe
-
-  def _StartCrashService(self):
-    os_name = self.browser.platform.GetOSName()
-    if os_name != 'win':
-      return None
-    arch_name = self.browser.platform.GetArchName()
-    command = binary_manager.FetchPath('crash_service', arch_name, os_name)
-    if not command:
-      logging.warning('crash_service.exe not found for %s %s',
-                      arch_name, os_name)
-      return None
-    if not os.path.exists(command):
-      logging.warning('crash_service.exe not found for %s %s',
-                      arch_name, os_name)
-      return None
-
-    try:
-      crash_service = subprocess.Popen([
-          command,
-          '--no-window',
-          '--dumps-dir=%s' % self._tmp_minidump_dir,
-          '--pipe-name=%s' % self._GetCrashServicePipeName()])
-    except Exception:
-      logging.error(
-          'Failed to run %s --no-window --dump-dir=%s --pip-name=%s' % (
-            command, self._tmp_minidump_dir, self._GetCrashServicePipeName()))
-      logging.error('Running on platform: %s and arch: %s.', os_name, arch_name)
-      wmic_stdout, _ = subprocess.Popen(
-        ['wmic', 'process', 'get', 'CommandLine,Name,ProcessId,ParentProcessId',
-        '/format:csv'], stdout=subprocess.PIPE).communicate()
-      logging.error('Current running processes:\n%s' % wmic_stdout)
-      raise
-    return crash_service
-
   def _GetCdbPath(self):
+    # cdb.exe might have been co-located with the browser's executable
+    # during the build, but that's not a certainty. (This is only done
+    # in Chromium builds on the bots, which is why it's not a hard
+    # requirement.) See if it's available.
+    colocated_cdb = os.path.join(self._browser_directory, 'cdb', 'cdb.exe')
+    if path.IsExecutable(colocated_cdb):
+      return colocated_cdb
     possible_paths = (
+        # Installed copies of the Windows SDK.
+        os.path.join('Windows Kits', '*', 'Debuggers', 'x86'),
+        os.path.join('Windows Kits', '*', 'Debuggers', 'x64'),
+        # Old copies of the Debugging Tools for Windows.
         'Debugging Tools For Windows',
         'Debugging Tools For Windows (x86)',
         'Debugging Tools For Windows (x64)',
-        os.path.join('Windows Kits', '8.0', 'Debuggers', 'x86'),
-        os.path.join('Windows Kits', '8.0', 'Debuggers', 'x64'),
-        os.path.join('win_toolchain', 'vs2013_files', 'win8sdk', 'Debuggers',
-                     'x86'),
-        os.path.join('win_toolchain', 'vs2013_files', 'win8sdk', 'Debuggers',
-                     'x64'),
+        # The hermetic copy of the Windows toolchain in depot_tools.
+        os.path.join('win_toolchain', 'vs_files', '*', 'win_sdk',
+                     'Debuggers', 'x86'),
+        os.path.join('win_toolchain', 'vs_files', '*', 'win_sdk',
+                     'Debuggers', 'x64'),
     )
     for possible_path in possible_paths:
       app_path = os.path.join(possible_path, 'cdb.exe')
@@ -297,12 +294,10 @@ class DesktopBrowserBackend(chrome_browser_backend.ChromeBrowserBackend):
     env = os.environ.copy()
     env['CHROME_HEADLESS'] = '1'  # Don't upload minidumps.
     env['BREAKPAD_DUMP_LOCATION'] = self._tmp_minidump_dir
-    env['CHROME_BREAKPAD_PIPE_NAME'] = self._GetCrashServicePipeName()
     if self.browser_options.enable_logging:
       sys.stderr.write(
         'Chrome log file will be saved in %s\n' % self.log_file_path)
       env['CHROME_LOG_FILE'] = self.log_file_path
-    self._crash_service = self._StartCrashService()
     logging.info('Starting Chrome %s', args)
     if not self.browser_options.show_stdout:
       self._tmp_output_file = tempfile.NamedTemporaryFile('w', 0)
@@ -484,33 +479,8 @@ class DesktopBrowserBackend(chrome_browser_backend.ChromeBrowserBackend):
         outfile.write(''.join(infile.read().partition('MDMP')[1:]))
 
     symbols_path = os.path.join(self._tmp_minidump_dir, 'symbols')
-
-    symbols = glob.glob(os.path.join(self._browser_directory, '*.breakpad*'))
-    if symbols:
-      for symbol in sorted(symbols, key=os.path.getmtime, reverse=True):
-        if not os.path.isfile(symbol):
-          continue
-        with open(symbol, 'r') as f:
-          fields = f.readline().split()
-          if not fields:
-            continue
-          sha = fields[3]
-          binary = ' '.join(fields[4:])
-        symbol_path = os.path.join(symbols_path, binary, sha)
-        if os.path.exists(symbol_path):
-          continue
-        os.makedirs(symbol_path)
-        shutil.copyfile(symbol, os.path.join(symbol_path, binary + '.sym'))
-    else:
-      # On some platforms generating the symbol table can be very time
-      # consuming, skip it if there's nothing to dump.
-      if self._IsExecutableStripped():
-        logging.info('%s appears to be stripped, skipping symbol dump.' % (
-            self._executable))
-        return
-
-      GenerateBreakpadSymbols(minidump, arch_name, os_name,
-                              symbols_path, self._browser_directory)
+    GenerateBreakpadSymbols(minidump, arch_name, os_name,
+                            symbols_path, self._browser_directory)
 
     return subprocess.check_output([stackwalk, minidump, symbols_path],
                                    stderr=open(os.devnull, 'w'))
@@ -581,10 +551,6 @@ class DesktopBrowserBackend(chrome_browser_backend.ChromeBrowserBackend):
       logging.warning('Proceed to kill the browser.')
       self._proc.kill()
     self._proc = None
-
-    if self._crash_service:
-      self._crash_service.kill()
-      self._crash_service = None
 
     if self._output_profile_path:
       # If we need the output then double check that it exists.

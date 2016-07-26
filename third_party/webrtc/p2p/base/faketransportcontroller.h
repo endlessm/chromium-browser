@@ -15,6 +15,7 @@
 #include <string>
 #include <vector>
 
+#include "webrtc/p2p/base/candidatepairinterface.h"
 #include "webrtc/p2p/base/transport.h"
 #include "webrtc/p2p/base/transportchannel.h"
 #include "webrtc/p2p/base/transportcontroller.h"
@@ -180,7 +181,7 @@ class FakeTransportChannel : public TransportChannelImpl,
   void SetReceiving(bool receiving) { set_receiving(receiving); }
 
   void SetIceConfig(const IceConfig& config) override {
-    receiving_timeout_ = config.receiving_timeout_ms;
+    receiving_timeout_ = config.receiving_timeout;
     gather_continually_ = config.gather_continually;
   }
 
@@ -205,7 +206,7 @@ class FakeTransportChannel : public TransportChannelImpl,
     } else {
       rtc::Thread::Current()->Send(this, 0, packet);
     }
-    rtc::SentPacket sent_packet(options.packet_id, rtc::Time());
+    rtc::SentPacket sent_packet(options.packet_id, rtc::Time64());
     SignalSentPacket(this, sent_packet);
     return static_cast<int>(len);
   }
@@ -216,6 +217,9 @@ class FakeTransportChannel : public TransportChannelImpl,
   void AddRemoteCandidate(const Candidate& candidate) override {
     remote_candidates_.push_back(candidate);
   }
+
+  void RemoveRemoteCandidate(const Candidate& candidate) override {}
+
   const Candidates& remote_candidates() const { return remote_candidates_; }
 
   void OnMessage(rtc::Message* msg) override {
@@ -256,12 +260,11 @@ class FakeTransportChannel : public TransportChannelImpl,
     return local_cert_;
   }
 
-  bool GetRemoteSSLCertificate(rtc::SSLCertificate** cert) const override {
-    if (!remote_cert_)
-      return false;
-
-    *cert = remote_cert_->GetReference();
-    return true;
+  rtc::scoped_ptr<rtc::SSLCertificate> GetRemoteSSLCertificate()
+      const override {
+    return remote_cert_ ? rtc::scoped_ptr<rtc::SSLCertificate>(
+                              remote_cert_->GetReference())
+                        : nullptr;
   }
 
   bool ExportKeyingMaterial(const std::string& label,
@@ -449,6 +452,24 @@ class FakeTransport : public Transport {
   rtc::SSLProtocolVersion ssl_max_version_ = rtc::SSL_PROTOCOL_DTLS_12;
 };
 
+// Fake candidate pair class, which can be passed to BaseChannel for testing
+// purposes.
+class FakeCandidatePair : public CandidatePairInterface {
+ public:
+  FakeCandidatePair(const Candidate& local_candidate,
+                    const Candidate& remote_candidate)
+      : local_candidate_(local_candidate),
+        remote_candidate_(remote_candidate) {}
+  const Candidate& local_candidate() const override { return local_candidate_; }
+  const Candidate& remote_candidate() const override {
+    return remote_candidate_;
+  }
+
+ private:
+  Candidate local_candidate_;
+  Candidate remote_candidate_;
+};
+
 // Fake TransportController class, which can be passed into a BaseChannel object
 // for test purposes. Can be connected to other FakeTransportControllers via
 // Connect().
@@ -498,6 +519,18 @@ class FakeTransportController : public TransportController {
     }
     return TransportController::CreateTransportChannel_w(transport_name,
                                                          component);
+  }
+
+  FakeCandidatePair* CreateFakeCandidatePair(
+      const rtc::SocketAddress& local_address,
+      int16_t local_network_id,
+      const rtc::SocketAddress& remote_address,
+      int16_t remote_network_id) {
+    Candidate local_candidate(0, "udp", local_address, 0u, "", "", "local", 0,
+                              "foundation", local_network_id, 0);
+    Candidate remote_candidate(0, "udp", remote_address, 0u, "", "", "local", 0,
+                               "foundation", remote_network_id, 0);
+    return new FakeCandidatePair(local_candidate, remote_candidate);
   }
 
   void set_fail_channel_creation(bool fail_channel_creation) {

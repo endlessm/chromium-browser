@@ -13,6 +13,7 @@
 #include "testing/gmock/include/gmock/gmock.h"
 #include "webrtc/modules/audio_coding/neteq/tools/neteq_external_decoder_test.h"
 #include "webrtc/modules/audio_coding/neteq/tools/rtp_generator.h"
+#include "webrtc/modules/include/module_common_types.h"
 
 namespace webrtc {
 namespace test {
@@ -83,7 +84,6 @@ class NetEqNetworkStatsTest : public NetEqExternalDecoderTest {
  public:
   static const int kPayloadSizeByte = 30;
   static const int kFrameSizeMs = 20;
-  static const int kMaxOutputSize = 960;  // 10 ms * 48 kHz * 2 channels.
 
 enum logic {
   kIgnore,
@@ -177,7 +177,6 @@ struct NetEqNetworkStatsCheck {
   }
 
   void RunTest(int num_loops, NetEqNetworkStatsCheck expects) {
-    NetEqOutputType output_type;
     uint32_t time_now;
     uint32_t next_send_time;
 
@@ -195,7 +194,7 @@ struct NetEqNetworkStatsCheck {
           InsertPacket(rtp_header_, payload_, next_send_time);
         }
       }
-      GetOutputAudio(kMaxOutputSize, output_, &output_type);
+      GetOutputAudio(&output_frame_);
       time_now += kOutputLengthMs;
     }
     CheckNetworkStatistics(expects);
@@ -269,7 +268,7 @@ struct NetEqNetworkStatsCheck {
   uint32_t last_lost_time_;
   uint32_t packet_loss_interval_;
   uint8_t payload_[kPayloadSizeByte];
-  int16_t output_[kMaxOutputSize];
+  AudioFrame output_frame_;
 };
 
 TEST(NetEqNetworkStatsTest, DecodeFec) {

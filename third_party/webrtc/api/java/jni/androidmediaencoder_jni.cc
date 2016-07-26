@@ -354,8 +354,7 @@ int32_t MediaCodecVideoEncoder::InitEncode(
     const webrtc::VideoCodec* codec_settings,
     int32_t /* number_of_cores */,
     size_t /* max_payload_size */) {
-  const int kMinWidth = 320;
-  const int kMinHeight = 180;
+  const int kMinDimension = 180;
   if (codec_settings == NULL) {
     ALOGE << "NULL VideoCodec instance";
     return WEBRTC_VIDEO_CODEC_ERR_PARAMETER;
@@ -383,26 +382,27 @@ int32_t MediaCodecVideoEncoder::InitEncode(
       const int kLowQpThreshold = 32;
       const int kBadQpThreshold = 92;
       quality_scaler_.Init(kLowQpThreshold, kBadQpThreshold, false,
-          codec_settings->startBitrate,
-          codec_settings->width, codec_settings->height);
+                           codec_settings->startBitrate, codec_settings->width,
+                           codec_settings->height,
+                           codec_settings->maxFramerate);
     } else if (codecType_ == kVideoCodecH264) {
       // H264 QP is in the range [0, 51].
       const int kLowQpThreshold = 21;
       const int kBadQpThreshold = 36;
       quality_scaler_.Init(kLowQpThreshold, kBadQpThreshold, false,
-          codec_settings->startBitrate,
-          codec_settings->width, codec_settings->height);
+                           codec_settings->startBitrate, codec_settings->width,
+                           codec_settings->height,
+                           codec_settings->maxFramerate);
     } else {
       // When adding codec support to additional hardware codecs, also configure
       // their QP thresholds for scaling.
       RTC_NOTREACHED() << "Unsupported codec without configured QP thresholds.";
       scale_ = false;
     }
-    quality_scaler_.SetMinResolution(kMinWidth, kMinHeight);
-    quality_scaler_.ReportFramerate(codec_settings->maxFramerate);
+    quality_scaler_.SetMinResolution(kMinDimension, kMinDimension);
     QualityScaler::Resolution res = quality_scaler_.GetScaledResolution();
-    init_width = std::max(res.width, kMinWidth);
-    init_height = std::max(res.height, kMinHeight);
+    init_width = std::max(res.width, kMinDimension);
+    init_height = std::max(res.height, kMinDimension);
     ALOGD << "Scaled resolution: " << init_width << " x " << init_height;
   }
 

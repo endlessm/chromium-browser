@@ -8,12 +8,10 @@ import os
 import re
 import sys
 
-from telemetry import decorators
 from telemetry.internal.util import camel_case
 from telemetry.internal.util import classes as classes_module
 
 
-@decorators.Cache
 def DiscoverModules(start_dir, top_level_dir, pattern='*'):
   """Discover all modules in |start_dir| which match |pattern|.
 
@@ -30,7 +28,13 @@ def DiscoverModules(start_dir, top_level_dir, pattern='*'):
   top_level_dir = os.path.realpath(top_level_dir)
 
   modules = []
-  for dir_path, _, filenames in os.walk(start_dir):
+  sub_paths = list(os.walk(start_dir))
+  # We sort the directories & file paths to ensure a deterministic ordering when
+  # traversing |top_level_dir|.
+  sub_paths.sort(key=lambda paths_tuple: paths_tuple[0])
+  for dir_path, _, filenames in sub_paths:
+    # Sort the directories to walk recursively by the directory path.
+    filenames.sort()
     for filename in filenames:
       # Filter out unwanted filenames.
       if filename.startswith('.') or filename.startswith('_'):
@@ -60,7 +64,6 @@ def DiscoverModules(start_dir, top_level_dir, pattern='*'):
 
 # TODO(dtu): Normalize all discoverable classes to have corresponding module
 # and class names, then always index by class name.
-@decorators.Cache
 def DiscoverClasses(start_dir,
                     top_level_dir,
                     base_class,
@@ -93,7 +96,6 @@ def DiscoverClasses(start_dir,
   return classes
 
 
-@decorators.Cache
 def DiscoverClassesInModule(module,
                             base_class,
                             index_by_class_name=False,

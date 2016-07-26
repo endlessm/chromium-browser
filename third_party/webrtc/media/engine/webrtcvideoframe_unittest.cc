@@ -10,6 +10,8 @@
 
 #include <string.h>
 
+#include <memory>
+
 #include "webrtc/media/base/videoframe_unittest.h"
 #include "webrtc/media/engine/webrtcvideoframe.h"
 #include "webrtc/test/fake_texture_frame.h"
@@ -51,7 +53,7 @@ class WebRtcVideoFrameTest : public VideoFrameTest<cricket::WebRtcVideoFrame> {
     captured_frame.height = frame_height;
     captured_frame.data_size = (frame_width * frame_height) +
         ((frame_width + 1) / 2) * ((frame_height + 1) / 2) * 2;
-    rtc::scoped_ptr<uint8_t[]> captured_frame_buffer(
+    std::unique_ptr<uint8_t[]> captured_frame_buffer(
         new uint8_t[captured_frame.data_size]);
     // Initialize memory to satisfy DrMemory tests.
     memset(captured_frame_buffer.get(), 0, captured_frame.data_size);
@@ -73,11 +75,11 @@ class WebRtcVideoFrameTest : public VideoFrameTest<cricket::WebRtcVideoFrame> {
     // height are flipped.
     if (apply_rotation && (frame_rotation == webrtc::kVideoRotation_90
         || frame_rotation == webrtc::kVideoRotation_270)) {
-      EXPECT_EQ(static_cast<size_t>(cropped_width), frame.GetHeight());
-      EXPECT_EQ(static_cast<size_t>(cropped_height), frame.GetWidth());
+      EXPECT_EQ(cropped_width, frame.height());
+      EXPECT_EQ(cropped_height, frame.width());
     } else {
-      EXPECT_EQ(static_cast<size_t>(cropped_width), frame.GetWidth());
-      EXPECT_EQ(static_cast<size_t>(cropped_height), frame.GetHeight());
+      EXPECT_EQ(cropped_width, frame.width());
+      EXPECT_EQ(cropped_height, frame.height());
     }
   }
 };
@@ -164,8 +166,6 @@ TEST_WEBRTCVIDEOFRAME(ValidateI420HugeSize)
 // Re-evaluate once WebRTC switches to libyuv
 // TEST_WEBRTCVIDEOFRAME(ConstructYuy2AllSizes)
 // TEST_WEBRTCVIDEOFRAME(ConstructARGBAllSizes)
-TEST_WEBRTCVIDEOFRAME(ResetAndApplyRotation)
-TEST_WEBRTCVIDEOFRAME(ResetAndDontApplyRotation)
 TEST_WEBRTCVIDEOFRAME(ConvertToABGRBuffer)
 TEST_WEBRTCVIDEOFRAME(ConvertToABGRBufferStride)
 TEST_WEBRTCVIDEOFRAME(ConvertToABGRBufferInverted)
@@ -233,13 +233,11 @@ TEST_WEBRTCVIDEOFRAME(ConvertFromUYVYBuffer)
 TEST_WEBRTCVIDEOFRAME(ConvertFromUYVYBufferStride)
 TEST_WEBRTCVIDEOFRAME(ConvertFromUYVYBufferInverted)
 // TEST_WEBRTCVIDEOFRAME(ConvertToI422Buffer)
-TEST_WEBRTCVIDEOFRAME(CopyToFrame)
 // TEST_WEBRTCVIDEOFRAME(ConstructARGBBlackWhitePixel)
 
 TEST_WEBRTCVIDEOFRAME(StretchToFrame)
 TEST_WEBRTCVIDEOFRAME(Copy)
 TEST_WEBRTCVIDEOFRAME(CopyIsRef)
-TEST_WEBRTCVIDEOFRAME(MakeExclusive)
 
 // These functions test implementation-specific details.
 // Tests the Init function with different cropped size.
@@ -275,8 +273,8 @@ TEST_F(WebRtcVideoFrameTest, TextureInitialValues) {
           dummy_handle, 640, 480);
   cricket::WebRtcVideoFrame frame(buffer, 200, webrtc::kVideoRotation_0);
   EXPECT_EQ(dummy_handle, frame.GetNativeHandle());
-  EXPECT_EQ(640u, frame.GetWidth());
-  EXPECT_EQ(480u, frame.GetHeight());
+  EXPECT_EQ(640, frame.width());
+  EXPECT_EQ(480, frame.height());
   EXPECT_EQ(200, frame.GetTimeStamp());
   frame.SetTimeStamp(400);
   EXPECT_EQ(400, frame.GetTimeStamp());
@@ -291,8 +289,8 @@ TEST_F(WebRtcVideoFrameTest, CopyTextureFrame) {
   cricket::WebRtcVideoFrame frame1(buffer, 200, webrtc::kVideoRotation_0);
   cricket::VideoFrame* frame2 = frame1.Copy();
   EXPECT_EQ(frame1.GetNativeHandle(), frame2->GetNativeHandle());
-  EXPECT_EQ(frame1.GetWidth(), frame2->GetWidth());
-  EXPECT_EQ(frame1.GetHeight(), frame2->GetHeight());
+  EXPECT_EQ(frame1.width(), frame2->width());
+  EXPECT_EQ(frame1.height(), frame2->height());
   EXPECT_EQ(frame1.GetTimeStamp(), frame2->GetTimeStamp());
   delete frame2;
 }
@@ -300,7 +298,7 @@ TEST_F(WebRtcVideoFrameTest, CopyTextureFrame) {
 TEST_F(WebRtcVideoFrameTest, ApplyRotationToFrame) {
   WebRtcVideoTestFrame applied0;
   EXPECT_TRUE(IsNull(applied0));
-  rtc::scoped_ptr<rtc::MemoryStream> ms(CreateYuvSample(kWidth, kHeight, 12));
+  std::unique_ptr<rtc::MemoryStream> ms(CreateYuvSample(kWidth, kHeight, 12));
   EXPECT_TRUE(
       LoadFrame(ms.get(), cricket::FOURCC_I420, kWidth, kHeight, &applied0));
 

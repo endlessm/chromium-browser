@@ -8,6 +8,7 @@
 #include <stdint.h>
 
 #include <algorithm>
+#include <memory>
 #include <vector>
 
 #include "apps/app_restore_service.h"
@@ -18,7 +19,6 @@
 #include "base/compiler_specific.h"
 #include "base/environment.h"
 #include "base/lazy_instance.h"
-#include "base/memory/scoped_ptr.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/metrics/statistics_recorder.h"
 #include "base/strings/string_number_conversions.h"
@@ -157,7 +157,7 @@ LaunchMode GetLaunchShortcutKind() {
       else
         return LM_SHORTCUT_QUICKLAUNCH;
     }
-    scoped_ptr<base::Environment> env(base::Environment::Create());
+    std::unique_ptr<base::Environment> env(base::Environment::Create());
     std::string appdata_path;
     env->GetVar("USERPROFILE", &appdata_path);
     if (!appdata_path.empty() &&
@@ -330,9 +330,6 @@ bool StartupBrowserCreatorImpl::Launch(Profile* profile,
                              extensions::SOURCE_COMMAND_LINE);
       params.command_line = command_line_;
       params.current_directory = cur_dir_;
-      // If we are being launched from the command line, default to native
-      // desktop.
-      params.desktop_type = chrome::HOST_DESKTOP_TYPE_NATIVE;
       ::OpenApplicationWithReenablePrompt(params);
       return true;
     }
@@ -622,8 +619,8 @@ bool StartupBrowserCreatorImpl::ProcessStartupURLs(
     std::vector<GURL> adjusted_urls(urls_to_open);
     AddSpecialURLs(&adjusted_urls);
 
-    // The startup code only executes for browsers launched in desktop mode.
-    // i.e. HOST_DESKTOP_TYPE_NATIVE. Ash should never get here.
+    // The startup code only executes for browsers launched in desktop mode. Ash
+    // should never get here.
     Browser* browser = SessionRestore::RestoreSession(
         profile_, NULL, restore_behavior, adjusted_urls);
 

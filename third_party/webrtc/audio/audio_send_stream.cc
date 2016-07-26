@@ -97,10 +97,20 @@ AudioSendStream::~AudioSendStream() {
 
 void AudioSendStream::Start() {
   RTC_DCHECK(thread_checker_.CalledOnValidThread());
+  ScopedVoEInterface<VoEBase> base(voice_engine());
+  int error = base->StartSend(config_.voe_channel_id);
+  if (error != 0) {
+    LOG(LS_ERROR) << "AudioSendStream::Start failed with error: " << error;
+  }
 }
 
 void AudioSendStream::Stop() {
   RTC_DCHECK(thread_checker_.CalledOnValidThread());
+  ScopedVoEInterface<VoEBase> base(voice_engine());
+  int error = base->StopSend(config_.voe_channel_id);
+  if (error != 0) {
+    LOG(LS_ERROR) << "AudioSendStream::Stop failed with error: " << error;
+  }
 }
 
 void AudioSendStream::SignalNetworkState(NetworkState state) {
@@ -115,8 +125,8 @@ bool AudioSendStream::DeliverRtcp(const uint8_t* packet, size_t length) {
   return false;
 }
 
-bool AudioSendStream::SendTelephoneEvent(int payload_type, uint8_t event,
-                                         uint32_t duration_ms) {
+bool AudioSendStream::SendTelephoneEvent(int payload_type, int event,
+                                         int duration_ms) {
   RTC_DCHECK(thread_checker_.CalledOnValidThread());
   return channel_proxy_->SetSendTelephoneEventPayloadType(payload_type) &&
          channel_proxy_->SendTelephoneEventOutband(event, duration_ms);

@@ -1,4 +1,3 @@
-
 /*
  * Copyright 2011 Google Inc.
  *
@@ -15,7 +14,7 @@
 #include "GrAutoLocaleSetter.h"
 #include "GrBatchTest.h"
 #include "GrContextFactory.h"
-#include "GrDrawContext.h"
+#include "GrDrawContextPriv.h"
 #include "GrDrawingManager.h"
 #include "GrInvariantOutput.h"
 #include "GrPipeline.h"
@@ -332,7 +331,7 @@ bool GrDrawingManager::ProgramUnitTest(GrContext* context, int maxStages) {
     GrClip clip;
 
     SkRandom random;
-    static const int NUM_TESTS = 2048;
+    static const int NUM_TESTS = 1024;
     for (int t = 0; t < NUM_TESTS; t++) {
         // setup random render target(can fail)
         SkAutoTUnref<GrRenderTarget> rt(random_render_target(
@@ -361,7 +360,7 @@ bool GrDrawingManager::ProgramUnitTest(GrContext* context, int maxStages) {
             return false;
         }
 
-        drawContext->internal_drawBatch(pipelineBuilder, batch);
+        drawContext->drawContextPriv().testingOnly_drawBatch(pipelineBuilder, batch);
     }
     // Flush everything, test passes if flush is successful(ie, no asserts are hit, no crashes)
     drawingManager->flush();
@@ -398,7 +397,7 @@ bool GrDrawingManager::ProgramUnitTest(GrContext* context, int maxStages) {
                 return false;
             }
 
-            drawContext->internal_drawBatch(builder, batch);
+            drawContext->drawContextPriv().testingOnly_drawBatch(builder, batch);
             drawingManager->flush();
         }
     }
@@ -423,16 +422,19 @@ static int get_glprograms_max_stages(GrContext* context) {
     return 0;
 }
 
-static void test_glprograms_native(skiatest::Reporter* reporter, GrContext* context) {
-    int maxStages = get_glprograms_max_stages(context);
+static void test_glprograms_native(skiatest::Reporter* reporter,
+                                   const sk_gpu_test::ContextInfo& ctxInfo) {
+    int maxStages = get_glprograms_max_stages(ctxInfo.fGrContext);
     if (maxStages == 0) {
         return;
     }
-    REPORTER_ASSERT(reporter, GrDrawingManager::ProgramUnitTest(context, maxStages));
+    REPORTER_ASSERT(reporter, GrDrawingManager::ProgramUnitTest(ctxInfo.fGrContext, maxStages));
 }
 
-static void test_glprograms_other_contexts(skiatest::Reporter* reporter, GrContext* context) {
-    int maxStages = get_glprograms_max_stages(context);
+static void test_glprograms_other_contexts(
+            skiatest::Reporter* reporter,
+            const sk_gpu_test::ContextInfo& ctxInfo) {
+    int maxStages = get_glprograms_max_stages(ctxInfo.fGrContext);
 #ifdef SK_BUILD_FOR_WIN
     // Some long shaders run out of temporary registers in the D3D compiler on ANGLE and
     // command buffer.
@@ -441,7 +443,17 @@ static void test_glprograms_other_contexts(skiatest::Reporter* reporter, GrConte
     if (maxStages == 0) {
         return;
     }
-    REPORTER_ASSERT(reporter, GrDrawingManager::ProgramUnitTest(context, maxStages));
+    REPORTER_ASSERT(reporter, GrDrawingManager::ProgramUnitTest(ctxInfo.fGrContext, maxStages));
+}
+
+static bool is_native_gl_context_type(sk_gpu_test::GrContextFactory::ContextType type) {
+    return type == sk_gpu_test::GrContextFactory::kNativeGL_ContextType;
+}
+
+static bool is_other_rendering_gl_context_type(sk_gpu_test::GrContextFactory::ContextType type) {
+    return !is_native_gl_context_type(type) &&
+           kOpenGL_GrBackend == sk_gpu_test::GrContextFactory::ContextTypeBackend(type) &&
+           sk_gpu_test::GrContextFactory::IsRenderingContext(type);
 }
 
 DEF_GPUTEST(GLPrograms, reporter, /*factory*/) {
@@ -456,11 +468,11 @@ DEF_GPUTEST(GLPrograms, reporter, /*factory*/) {
     // We suppress prints to avoid spew
     GrContextOptions opts;
     opts.fSuppressPrints = true;
-    GrContextFactory debugFactory(opts);
-    skiatest::RunWithGPUTestContexts(test_glprograms_native, skiatest::kNative_GPUTestContexts,
+    sk_gpu_test::GrContextFactory debugFactory(opts);
+    skiatest::RunWithGPUTestContexts(test_glprograms_native, &is_native_gl_context_type,
                                      reporter, &debugFactory);
     skiatest::RunWithGPUTestContexts(test_glprograms_other_contexts,
-                                     skiatest::kOther_GPUTestContexts, reporter, &debugFactory);
+                                     &is_other_rendering_gl_context_type, reporter, &debugFactory);
 }
 
 #endif

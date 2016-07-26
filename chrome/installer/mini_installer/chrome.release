@@ -30,7 +30,6 @@ kasko.dll: %(VersionDir)s\
 icudt.dll: %(VersionDir)s\
 icudtl.dat: %(VersionDir)s\
 libEGL.dll: %(VersionDir)s\
-libexif.dll: %(VersionDir)s\
 libGLESv2.dll: %(VersionDir)s\
 nacl64.exe: %(VersionDir)s\
 nacl_irt_x86_32.nexe: %(VersionDir)s\
@@ -39,7 +38,6 @@ natives_blob.bin: %(VersionDir)s\
 resources.pak: %(VersionDir)s\
 snapshot_blob.bin: %(VersionDir)s\
 syzyasan_rtl.dll: %(VersionDir)s\
-xinput1_3.dll: %(VersionDir)s\
 #
 # Sub directories living in the version dir
 #
@@ -56,7 +54,6 @@ chrome_material_200_percent.pak: %(VersionDir)s\
 [TOUCH]
 
 [GOOGLE_CHROME]
-delegate_execute.exe: %(VersionDir)s\
 SecondaryTile.png: %(VersionDir)s\
 widevinecdmadapter.dll: %(VersionDir)s\
 #

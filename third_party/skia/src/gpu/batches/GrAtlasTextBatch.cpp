@@ -43,7 +43,7 @@ SkString GrAtlasTextBatch::dumpInfo() const {
     return str;
 }
 
-void GrAtlasTextBatch::computePipelineOptimizations(GrInitInvariantOutput* color, 
+void GrAtlasTextBatch::computePipelineOptimizations(GrInitInvariantOutput* color,
                                                     GrInitInvariantOutput* coverage,
                                                     GrBatchToXPOverrides* overrides) const {
     if (kColorBitmapMask_MaskType == fMaskType) {
@@ -97,29 +97,27 @@ void GrAtlasTextBatch::onPrepareDraws(Target* target) const {
 
     GrMaskFormat maskFormat = this->maskFormat();
 
-    SkAutoTUnref<const GrGeometryProcessor> gp;
+    FlushInfo flushInfo;
     if (this->usesDistanceFields()) {
-        gp.reset(this->setupDfProcessor(this->viewMatrix(), fFilteredColor, this->color(),
-                                        texture));
+        flushInfo.fGeometryProcessor.reset(
+            this->setupDfProcessor(this->viewMatrix(), fFilteredColor, this->color(), texture));
     } else {
         GrTextureParams params(SkShader::kClamp_TileMode, GrTextureParams::kNone_FilterMode);
-        gp.reset(GrBitmapTextGeoProc::Create(this->color(),
-                                             texture,
-                                             params,
-                                             maskFormat,
-                                             localMatrix,
-                                             this->usesLocalCoords()));
+        flushInfo.fGeometryProcessor.reset(
+            GrBitmapTextGeoProc::Create(this->color(),
+                                        texture,
+                                        params,
+                                        maskFormat,
+                                        localMatrix,
+                                        this->usesLocalCoords()));
     }
 
-    FlushInfo flushInfo;
     flushInfo.fGlyphsToFlush = 0;
-    size_t vertexStride = gp->getVertexStride();
+    size_t vertexStride = flushInfo.fGeometryProcessor->getVertexStride();
     SkASSERT(vertexStride == GrAtlasTextBlob::GetVertexStride(maskFormat));
 
-    target->initDraw(gp, this->pipeline());
-
     int glyphCount = this->numGlyphs();
-    const GrVertexBuffer* vertexBuffer;
+    const GrBuffer* vertexBuffer;
 
     void* vertices = target->makeVertexSpace(vertexStride,
                                              glyphCount * kVerticesPerGlyph,
@@ -141,7 +139,7 @@ void GrAtlasTextBatch::onPrepareDraws(Target* target) const {
     GrFontScaler* scaler = nullptr;
     SkTypeface* typeface = nullptr;
 
-    GrBlobRegenHelper helper(this, target, &flushInfo, gp);
+    GrBlobRegenHelper helper(this, target, &flushInfo);
 
     for (int i = 0; i < fGeoCount; i++) {
         const Geometry& args = fGeoData[i];
@@ -180,13 +178,14 @@ void GrAtlasTextBatch::onPrepareDraws(Target* target) const {
 }
 
 void GrAtlasTextBatch::flush(GrVertexBatch::Target* target, FlushInfo* flushInfo) const {
-    GrVertices vertices;
-    int maxGlyphsPerDraw = flushInfo->fIndexBuffer->maxQuads();
-    vertices.initInstanced(kTriangles_GrPrimitiveType, flushInfo->fVertexBuffer,
-                           flushInfo->fIndexBuffer, flushInfo->fVertexOffset,
-                           kVerticesPerGlyph, kIndicesPerGlyph, flushInfo->fGlyphsToFlush,
-                           maxGlyphsPerDraw);
-    target->draw(vertices);
+    GrMesh mesh;
+    int maxGlyphsPerDraw =
+        static_cast<int>(flushInfo->fIndexBuffer->gpuMemorySize() / sizeof(uint16_t) / 6);
+    mesh.initInstanced(kTriangles_GrPrimitiveType, flushInfo->fVertexBuffer,
+                       flushInfo->fIndexBuffer, flushInfo->fVertexOffset,
+                       kVerticesPerGlyph, kIndicesPerGlyph, flushInfo->fGlyphsToFlush,
+                       maxGlyphsPerDraw);
+    target->draw(flushInfo->fGeometryProcessor, mesh);
     flushInfo->fVertexOffset += kVerticesPerGlyph * flushInfo->fGlyphsToFlush;
     flushInfo->fGlyphsToFlush = 0;
 }
@@ -261,11 +260,11 @@ GrGeometryProcessor* GrAtlasTextBatch::setupDfProcessor(const SkMatrix& viewMatr
     bool isLCD = this->isLCD();
     // set up any flags
     uint32_t flags = viewMatrix.isSimilarity() ? kSimilarity_DistanceFieldEffectFlag : 0;
+    flags |= viewMatrix.isScaleTranslate() ? kScaleOnly_DistanceFieldEffectFlag : 0;
 
     // see if we need to create a new effect
     if (isLCD) {
         flags |= kUseLCD_DistanceFieldEffectFlag;
-        flags |= viewMatrix.rectStaysRect() ? kRectToRect_DistanceFieldEffectFlag : 0;
         flags |= fUseBGR ? kBGR_DistanceFieldEffectFlag : 0;
 
         GrColor colorNoPreMul = skcolor_to_grcolor_nopremultiply(filteredColor);
@@ -313,5 +312,4 @@ GrGeometryProcessor* GrAtlasTextBatch::setupDfProcessor(const SkMatrix& viewMatr
 
 void GrBlobRegenHelper::flush() {
     fBatch->flush(fTarget, fFlushInfo);
-    fTarget->initDraw(fGP, fBatch->pipeline());
 }

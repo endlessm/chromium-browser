@@ -34,7 +34,11 @@ class DisplayGL : public DisplayImpl
                                const gl::Context *shareContext,
                                const egl::AttributeMap &attribs) override;
 
+    StreamImpl *createStream(const egl::AttributeMap &attribs) override;
+
     egl::Error makeCurrent(egl::Surface *drawSurface, egl::Surface *readSurface, gl::Context *context) override;
+
+    virtual egl::Error getDriverVersion(std::string *version) const = 0;
 
   protected:
     RendererGL *getRenderer() const { return mRenderer; };

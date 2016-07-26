@@ -12,12 +12,12 @@
 #define WEBRTC_VIDEO_SEND_STATISTICS_PROXY_H_
 
 #include <map>
+#include <memory>
 #include <string>
 
 #include "webrtc/base/criticalsection.h"
 #include "webrtc/base/exp_filter.h"
 #include "webrtc/base/ratetracker.h"
-#include "webrtc/base/scoped_ptr.h"
 #include "webrtc/base/thread_annotations.h"
 #include "webrtc/common_types.h"
 #include "webrtc/modules/video_coding/include/video_codec_interface.h"
@@ -125,6 +125,9 @@ class SendStatisticsProxy : public CpuOveruseMetricsObserver,
     int64_t resolution_update_ms;
     int64_t bitrate_update_ms;
   };
+  struct QpCounters {
+    SampleCounter vp8;
+  };
   void PurgeOldStats() EXCLUSIVE_LOCKS_REQUIRED(crit_);
   VideoSendStream::StreamStats* GetStatsEntry(uint32_t ssrc)
       EXCLUSIVE_LOCKS_REQUIRED(crit_);
@@ -169,11 +172,14 @@ class SendStatisticsProxy : public CpuOveruseMetricsObserver,
     rtc::RateTracker input_frame_rate_tracker_;
     rtc::RateTracker sent_frame_rate_tracker_;
     int64_t first_rtcp_stats_time_ms_;
+    int64_t first_rtp_stats_time_ms_;
     ReportBlockStats report_block_stats_;
     const VideoSendStream::Stats start_stats_;
+    std::map<int, QpCounters>
+        qp_counters_;  // QP counters mapped by spatial idx.
   };
 
-  rtc::scoped_ptr<UmaSamplesContainer> uma_container_ GUARDED_BY(crit_);
+  std::unique_ptr<UmaSamplesContainer> uma_container_ GUARDED_BY(crit_);
 };
 
 }  // namespace webrtc

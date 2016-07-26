@@ -10,20 +10,20 @@
 #include <vector>
 
 #include "fpdfsdk/include/fpdfxfa/fpdfxfa_doc.h"
-#include "xfa/include/fwl/adapter/fwl_adaptertimermgr.h"
+#include "xfa/fwl/core/include/ifwl_adaptertimermgr.h"
 
 #define JS_STR_VIEWERTYPE_STANDARD L"Exchange"
 #define JS_STR_LANGUANGE L"ENU"
 #define JS_STR_VIEWERVARIATION L"Full"
 #define JS_STR_VIEWERVERSION_XFA L"11"
 
-class CFWL_TimerInfo;
+struct CFWL_TimerInfo;
 
 class CXFA_FWLAdapterTimerMgr : public IFWL_AdapterTimerMgr {
  public:
   CXFA_FWLAdapterTimerMgr(CPDFDoc_Environment* pEnv) : m_pEnv(pEnv) {}
   virtual FWL_ERR Start(IFWL_Timer* pTimer,
-                        FX_DWORD dwElapse,
+                        uint32_t dwElapse,
                         FWL_HTIMER& hTimer,
                         FX_BOOL bImmediately = TRUE);
   virtual FWL_ERR Stop(FWL_HTIMER hTimer);
@@ -35,13 +35,12 @@ class CXFA_FWLAdapterTimerMgr : public IFWL_AdapterTimerMgr {
   CPDFDoc_Environment* const m_pEnv;
 };
 
-class CFWL_TimerInfo {
- public:
+struct CFWL_TimerInfo {
   CFWL_TimerInfo() : pTimer(nullptr) {}
-  CFWL_TimerInfo(uint32_t event, IFWL_Timer* timer)
-      : uIDEvent(event), pTimer(timer) {}
+  CFWL_TimerInfo(int32_t event, IFWL_Timer* timer)
+      : idEvent(event), pTimer(timer) {}
 
-  uint32_t uIDEvent;
+  int32_t idEvent;
   IFWL_Timer* pTimer;
 };
 

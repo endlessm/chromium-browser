@@ -20,6 +20,7 @@
 #include "webrtc/common_video/libyuv/include/webrtc_libyuv.h"
 #include "webrtc/modules/congestion_controller/include/congestion_controller.h"
 #include "webrtc/modules/utility/include/process_thread.h"
+#include "webrtc/modules/video_coding/include/video_coding.h"
 #include "webrtc/system_wrappers/include/clock.h"
 #include "webrtc/video/call_stats.h"
 #include "webrtc/video/receive_statistics_proxy.h"
@@ -40,7 +41,7 @@ static bool UseSendSideBwe(const VideoReceiveStream::Config& config) {
 
 std::string VideoReceiveStream::Decoder::ToString() const {
   std::stringstream ss;
-  ss << "{decoder: " << (decoder != nullptr ? "(VideoDecoder)" : "nullptr");
+  ss << "{decoder: " << (decoder ? "(VideoDecoder)" : "nullptr");
   ss << ", payload_type: " << payload_type;
   ss << ", payload_name: " << payload_name;
   ss << '}';
@@ -58,14 +59,14 @@ std::string VideoReceiveStream::Config::ToString() const {
   }
   ss << ']';
   ss << ", rtp: " << rtp.ToString();
-  ss << ", renderer: " << (renderer != nullptr ? "(renderer)" : "nullptr");
+  ss << ", renderer: " << (renderer ? "(renderer)" : "nullptr");
   ss << ", render_delay_ms: " << render_delay_ms;
   if (!sync_group.empty())
     ss << ", sync_group: " << sync_group;
   ss << ", pre_decode_callback: "
-     << (pre_decode_callback != nullptr ? "(EncodedFrameObserver)" : "nullptr");
+     << (pre_decode_callback ? "(EncodedFrameObserver)" : "nullptr");
   ss << ", pre_render_callback: "
-     << (pre_render_callback != nullptr ? "(I420FrameCallback)" : "nullptr");
+     << (pre_render_callback ? "(I420FrameCallback)" : "nullptr");
   ss << ", target_delay_ms: " << target_delay_ms;
   ss << '}';
 
@@ -158,10 +159,12 @@ VideoReceiveStream::VideoReceiveStream(
       congestion_controller_(congestion_controller),
       call_stats_(call_stats),
       remb_(remb),
-      vcm_(VideoCodingModule::Create(clock_, nullptr, nullptr)),
-      incoming_video_stream_(
-          0,
-          config.renderer ? config.renderer->SmoothsRenderedFrames() : false),
+      vcm_(VideoCodingModule::Create(clock_,
+                                     nullptr,
+                                     nullptr,
+                                     this,
+                                     this)),
+      incoming_video_stream_(0, config.disable_prerenderer_smoothing),
       stats_proxy_(config_, clock_),
       vie_channel_(&transport_adapter_,
                    process_thread,
@@ -229,17 +232,7 @@ VideoReceiveStream::VideoReceiveStream(
     // One-byte-extension local identifiers are in the range 1-14 inclusive.
     RTC_DCHECK_GE(id, 1);
     RTC_DCHECK_LE(id, 14);
-    if (extension == RtpExtension::kTOffset) {
-      RTC_CHECK(vie_receiver_->SetReceiveTimestampOffsetStatus(true, id));
-    } else if (extension == RtpExtension::kAbsSendTime) {
-      RTC_CHECK(vie_receiver_->SetReceiveAbsoluteSendTimeStatus(true, id));
-    } else if (extension == RtpExtension::kVideoRotation) {
-      RTC_CHECK(vie_receiver_->SetReceiveVideoRotationStatus(true, id));
-    } else if (extension == RtpExtension::kTransportSequenceNumber) {
-      RTC_CHECK(vie_receiver_->SetReceiveTransportSequenceNumber(true, id));
-    } else {
-      RTC_NOTREACHED() << "Unsupported RTP extension.";
-    }
+    vie_receiver_->EnableReceiveRtpHeaderExtension(extension, id);
   }
 
   if (config_.rtp.fec.ulpfec_payload_type != -1) {
@@ -352,7 +345,7 @@ void VideoReceiveStream::Stop() {
 
 void VideoReceiveStream::SetSyncChannel(VoiceEngine* voice_engine,
                                         int audio_channel_id) {
-  if (voice_engine != nullptr && audio_channel_id != -1) {
+  if (voice_engine && audio_channel_id != -1) {
     VoEVideoSync* voe_sync_interface = VoEVideoSync::GetInterface(voice_engine);
     vie_sync_.ConfigureSync(audio_channel_id, voe_sync_interface, rtp_rtcp_,
                             vie_receiver_->GetRtpReceiver());
@@ -381,7 +374,7 @@ void VideoReceiveStream::FrameCallback(VideoFrame* video_frame) {
   stats_proxy_.OnDecodedFrame();
 
   // Post processing is not supported if the frame is backed by a texture.
-  if (video_frame->native_handle() == NULL) {
+  if (!video_frame->native_handle()) {
     if (config_.pre_render_callback)
       config_.pre_render_callback->FrameCallback(video_frame);
   }
@@ -389,14 +382,12 @@ void VideoReceiveStream::FrameCallback(VideoFrame* video_frame) {
 
 int VideoReceiveStream::RenderFrame(const uint32_t /*stream_id*/,
                                     const VideoFrame& video_frame) {
-  // TODO(pbos): Wire up config_.render->IsTextureSupported() and convert if not
-  // supported. Or provide methods for converting a texture frame in
-  // VideoFrame.
+  int64_t sync_offset_ms;
+  if (vie_sync_.GetStreamSyncOffsetInMs(video_frame, &sync_offset_ms))
+    stats_proxy_.OnSyncOffsetUpdated(sync_offset_ms);
 
-  if (config_.renderer != nullptr)
-    config_.renderer->RenderFrame(
-        video_frame,
-        video_frame.render_time_ms() - clock_->TimeInMilliseconds());
+  if (config_.renderer)
+    config_.renderer->OnFrame(video_frame);
 
   stats_proxy_.OnRenderedFrame(video_frame.width(), video_frame.height());
 
@@ -431,6 +422,15 @@ bool VideoReceiveStream::DecodeThreadFunction(void* ptr) {
 void VideoReceiveStream::Decode() {
   static const int kMaxDecodeWaitTimeMs = 50;
   vcm_->Decode(kMaxDecodeWaitTimeMs);
+}
+
+void VideoReceiveStream::SendNack(
+    const std::vector<uint16_t>& sequence_numbers) {
+  rtp_rtcp_->SendNack(sequence_numbers);
+}
+
+void VideoReceiveStream::RequestKeyFrame() {
+  rtp_rtcp_->RequestKeyFrame();
 }
 
 }  // namespace internal

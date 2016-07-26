@@ -13,8 +13,8 @@
 #include <ctime>
 #endif
 
+#include "core/fxcrt/include/fx_basic.h"
 #include "core/include/fpdfdoc/fpdf_doc.h"
-#include "core/include/fxcrt/fx_basic.h"
 #include "fpdfsdk/include/fsdk_define.h"
 #include "fpdfsdk/include/fx_systemhandler.h"
 
@@ -36,19 +36,19 @@ class CPDFSDK_DateTime {
 
   CPDFSDK_DateTime& operator=(const CPDFSDK_DateTime& datetime);
   CPDFSDK_DateTime& operator=(const FX_SYSTEMTIME& st);
-  FX_BOOL operator==(CPDFSDK_DateTime& datetime);
-  FX_BOOL operator!=(CPDFSDK_DateTime& datetime);
-  FX_BOOL operator>(CPDFSDK_DateTime& datetime);
-  FX_BOOL operator>=(CPDFSDK_DateTime& datetime);
-  FX_BOOL operator<(CPDFSDK_DateTime& datetime);
-  FX_BOOL operator<=(CPDFSDK_DateTime& datetime);
+  bool operator==(const CPDFSDK_DateTime& datetime) const;
+  bool operator!=(const CPDFSDK_DateTime& datetime) const;
+  bool operator>(const CPDFSDK_DateTime& datetime) const;
+  bool operator>=(const CPDFSDK_DateTime& datetime) const;
+  bool operator<(const CPDFSDK_DateTime& datetime) const;
+  bool operator<=(const CPDFSDK_DateTime& datetime) const;
   operator time_t();
 
   CPDFSDK_DateTime& FromPDFDateTimeString(const CFX_ByteString& dtStr);
   CFX_ByteString ToCommonDateTimeString();
   CFX_ByteString ToPDFDateTimeString();
   void ToSystemTime(FX_SYSTEMTIME& st);
-  CPDFSDK_DateTime ToGMT();
+  CPDFSDK_DateTime ToGMT() const;
   CPDFSDK_DateTime& AddDays(short days);
   CPDFSDK_DateTime& AddSeconds(int seconds);
 
@@ -83,14 +83,14 @@ class CPDFSDK_Annot {
   virtual CPDF_Annot* GetPDFAnnot() const { return nullptr; }
 
 #ifdef PDF_ENABLE_XFA
-  virtual IXFA_Widget* GetXFAWidget() const { return nullptr; }
+  virtual CXFA_FFWidget* GetXFAWidget() const { return nullptr; }
 #endif  // PDF_ENABLE_XFA
 
   virtual CFX_ByteString GetType() const { return ""; }
   virtual CFX_ByteString GetSubType() const { return ""; }
 
-  virtual void SetRect(const CPDF_Rect& rect) {}
-  virtual CPDF_Rect GetRect() const { return CPDF_Rect(); }
+  virtual void SetRect(const CFX_FloatRect& rect) {}
+  virtual CFX_FloatRect GetRect() const { return CFX_FloatRect(); }
 
   virtual void Annot_OnDraw(CFX_RenderDevice* pDevice,
                             CFX_Matrix* pUser2Device,
@@ -130,8 +130,8 @@ class CPDFSDK_BAAnnot : public CPDFSDK_Annot {
 
   CFX_ByteString GetType() const override;
   CFX_ByteString GetSubType() const override;
-  void SetRect(const CPDF_Rect& rect) override;
-  CPDF_Rect GetRect() const override;
+  void SetRect(const CFX_FloatRect& rect) override;
+  CFX_FloatRect GetRect() const override;
   CPDF_Annot* GetPDFAnnot() const override;
   void Annot_OnDraw(CFX_RenderDevice* pDevice,
                     CFX_Matrix* pUser2Device,
@@ -148,8 +148,8 @@ class CPDFSDK_BAAnnot : public CPDFSDK_Annot {
   void SetModifiedDate(const FX_SYSTEMTIME& st);
   FX_SYSTEMTIME GetModifiedDate() const;
 
-  void SetFlags(int nFlags);
-  int GetFlags() const;
+  void SetFlags(uint32_t nFlags);
+  uint32_t GetFlags() const;
 
   void SetAppState(const CFX_ByteString& str);
   CFX_ByteString GetAppState() const;
@@ -207,7 +207,7 @@ class CPDFSDK_BAAnnot : public CPDFSDK_Annot {
   void ClearCachedAP();
 
   void WriteAppearance(const CFX_ByteString& sAPType,
-                       const CPDF_Rect& rcBBox,
+                       const CFX_FloatRect& rcBBox,
                        const CFX_Matrix& matrix,
                        const CFX_ByteString& sContents,
                        const CFX_ByteString& sAPState = "");

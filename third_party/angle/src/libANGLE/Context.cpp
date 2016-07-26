@@ -82,13 +82,13 @@ void MarkTransformFeedbackBufferUsage(gl::TransformFeedback *transformFeedback)
 // Attribute map queries.
 EGLint GetClientVersion(const egl::AttributeMap &attribs)
 {
-    return attribs.get(EGL_CONTEXT_CLIENT_VERSION, 1);
+    return static_cast<EGLint>(attribs.get(EGL_CONTEXT_CLIENT_VERSION, 1));
 }
 
 GLenum GetResetStrategy(const egl::AttributeMap &attribs)
 {
-    EGLenum attrib = attribs.get(EGL_CONTEXT_OPENGL_RESET_NOTIFICATION_STRATEGY_EXT,
-                                 EGL_NO_RESET_NOTIFICATION_EXT);
+    EGLAttrib attrib = attribs.get(EGL_CONTEXT_OPENGL_RESET_NOTIFICATION_STRATEGY_EXT,
+                                   EGL_NO_RESET_NOTIFICATION_EXT);
     switch (attrib)
     {
         case EGL_NO_RESET_NOTIFICATION:
@@ -567,7 +567,7 @@ void Context::deleteTransformFeedback(GLuint transformFeedback)
 
 void Context::deleteFramebuffer(GLuint framebuffer)
 {
-    FramebufferMap::iterator framebufferObject = mFramebufferMap.find(framebuffer);
+    auto framebufferObject = mFramebufferMap.find(framebuffer);
 
     if (framebufferObject != mFramebufferMap.end())
     {
@@ -581,7 +581,7 @@ void Context::deleteFramebuffer(GLuint framebuffer)
 
 void Context::deleteFenceNV(GLuint fence)
 {
-    FenceNVMap::iterator fenceObject = mFenceNVMap.find(fence);
+    auto fenceObject = mFenceNVMap.find(fence);
 
     if (fenceObject != mFenceNVMap.end())
     {
@@ -593,7 +593,7 @@ void Context::deleteFenceNV(GLuint fence)
 
 void Context::deleteQuery(GLuint query)
 {
-    QueryMap::iterator queryObject = mQueryMap.find(query);
+    auto queryObject = mQueryMap.find(query);
     if (queryObject != mQueryMap.end())
     {
         mQueryHandleAllocator.release(queryObject->first);
@@ -692,23 +692,21 @@ bool Context::isSampler(GLuint samplerName) const
     return mResourceManager->isSampler(samplerName);
 }
 
-void Context::bindArrayBuffer(unsigned int buffer)
+void Context::bindArrayBuffer(GLuint bufferHandle)
 {
-    mResourceManager->checkBufferAllocation(buffer);
-
-    mState.setArrayBufferBinding(getBuffer(buffer));
+    Buffer *buffer = mResourceManager->checkBufferAllocation(bufferHandle);
+    mState.setArrayBufferBinding(buffer);
 }
 
-void Context::bindElementArrayBuffer(unsigned int buffer)
+void Context::bindElementArrayBuffer(GLuint bufferHandle)
 {
-    mResourceManager->checkBufferAllocation(buffer);
-
-    mState.getVertexArray()->setElementArrayBuffer(getBuffer(buffer));
+    Buffer *buffer = mResourceManager->checkBufferAllocation(bufferHandle);
+    mState.getVertexArray()->setElementArrayBuffer(buffer);
 }
 
 void Context::bindTexture(GLenum target, GLuint handle)
 {
-    Texture *texture = NULL;
+    Texture *texture = nullptr;
 
     if (handle == 0)
     {
@@ -716,12 +714,10 @@ void Context::bindTexture(GLenum target, GLuint handle)
     }
     else
     {
-        mResourceManager->checkTextureAllocation(handle, target);
-        texture = getTexture(handle);
+        texture = mResourceManager->checkTextureAllocation(handle, target);
     }
 
     ASSERT(texture);
-
     mState.setSamplerTexture(target, texture);
 }
 
@@ -737,82 +733,77 @@ void Context::bindDrawFramebuffer(GLuint framebufferHandle)
     mState.setDrawFramebufferBinding(framebuffer);
 }
 
-void Context::bindRenderbuffer(GLuint renderbuffer)
+void Context::bindRenderbuffer(GLuint renderbufferHandle)
 {
-    mResourceManager->checkRenderbufferAllocation(renderbuffer);
-
-    mState.setRenderbufferBinding(getRenderbuffer(renderbuffer));
+    Renderbuffer *renderbuffer = mResourceManager->checkRenderbufferAllocation(renderbufferHandle);
+    mState.setRenderbufferBinding(renderbuffer);
 }
 
-void Context::bindVertexArray(GLuint vertexArray)
+void Context::bindVertexArray(GLuint vertexArrayHandle)
 {
-    checkVertexArrayAllocation(vertexArray);
-
-    mState.setVertexArrayBinding(getVertexArray(vertexArray));
+    VertexArray *vertexArray = checkVertexArrayAllocation(vertexArrayHandle);
+    mState.setVertexArrayBinding(vertexArray);
 }
 
-void Context::bindSampler(GLuint textureUnit, GLuint sampler)
+void Context::bindSampler(GLuint textureUnit, GLuint samplerHandle)
 {
     ASSERT(textureUnit < mCaps.maxCombinedTextureImageUnits);
-    mResourceManager->checkSamplerAllocation(sampler);
-
-    mState.setSamplerBinding(textureUnit, getSampler(sampler));
+    Sampler *sampler = mResourceManager->checkSamplerAllocation(samplerHandle);
+    mState.setSamplerBinding(textureUnit, sampler);
 }
 
-void Context::bindGenericUniformBuffer(GLuint buffer)
+void Context::bindGenericUniformBuffer(GLuint bufferHandle)
 {
-    mResourceManager->checkBufferAllocation(buffer);
-
-    mState.setGenericUniformBufferBinding(getBuffer(buffer));
+    Buffer *buffer = mResourceManager->checkBufferAllocation(bufferHandle);
+    mState.setGenericUniformBufferBinding(buffer);
 }
 
-void Context::bindIndexedUniformBuffer(GLuint buffer, GLuint index, GLintptr offset, GLsizeiptr size)
+void Context::bindIndexedUniformBuffer(GLuint bufferHandle,
+                                       GLuint index,
+                                       GLintptr offset,
+                                       GLsizeiptr size)
 {
-    mResourceManager->checkBufferAllocation(buffer);
-
-    mState.setIndexedUniformBufferBinding(index, getBuffer(buffer), offset, size);
+    Buffer *buffer = mResourceManager->checkBufferAllocation(bufferHandle);
+    mState.setIndexedUniformBufferBinding(index, buffer, offset, size);
 }
 
-void Context::bindGenericTransformFeedbackBuffer(GLuint buffer)
+void Context::bindGenericTransformFeedbackBuffer(GLuint bufferHandle)
 {
-    mResourceManager->checkBufferAllocation(buffer);
-
-    mState.getCurrentTransformFeedback()->bindGenericBuffer(getBuffer(buffer));
+    Buffer *buffer = mResourceManager->checkBufferAllocation(bufferHandle);
+    mState.getCurrentTransformFeedback()->bindGenericBuffer(buffer);
 }
 
-void Context::bindIndexedTransformFeedbackBuffer(GLuint buffer, GLuint index, GLintptr offset, GLsizeiptr size)
+void Context::bindIndexedTransformFeedbackBuffer(GLuint bufferHandle,
+                                                 GLuint index,
+                                                 GLintptr offset,
+                                                 GLsizeiptr size)
 {
-    mResourceManager->checkBufferAllocation(buffer);
-
-    mState.getCurrentTransformFeedback()->bindIndexedBuffer(index, getBuffer(buffer), offset, size);
+    Buffer *buffer = mResourceManager->checkBufferAllocation(bufferHandle);
+    mState.getCurrentTransformFeedback()->bindIndexedBuffer(index, buffer, offset, size);
 }
 
-void Context::bindCopyReadBuffer(GLuint buffer)
+void Context::bindCopyReadBuffer(GLuint bufferHandle)
 {
-    mResourceManager->checkBufferAllocation(buffer);
-
-    mState.setCopyReadBufferBinding(getBuffer(buffer));
+    Buffer *buffer = mResourceManager->checkBufferAllocation(bufferHandle);
+    mState.setCopyReadBufferBinding(buffer);
 }
 
-void Context::bindCopyWriteBuffer(GLuint buffer)
+void Context::bindCopyWriteBuffer(GLuint bufferHandle)
 {
-    mResourceManager->checkBufferAllocation(buffer);
-
-    mState.setCopyWriteBufferBinding(getBuffer(buffer));
+    Buffer *buffer = mResourceManager->checkBufferAllocation(bufferHandle);
+    mState.setCopyWriteBufferBinding(buffer);
 }
 
-void Context::bindPixelPackBuffer(GLuint buffer)
+void Context::bindPixelPackBuffer(GLuint bufferHandle)
 {
-    mResourceManager->checkBufferAllocation(buffer);
-
-    mState.setPixelPackBufferBinding(getBuffer(buffer));
+    Buffer *buffer = mResourceManager->checkBufferAllocation(bufferHandle);
+    mState.setPixelPackBufferBinding(buffer);
 }
 
-void Context::bindPixelUnpackBuffer(GLuint buffer)
+void Context::bindPixelUnpackBuffer(GLuint bufferHandle)
 {
-    mResourceManager->checkBufferAllocation(buffer);
-
-    mState.setPixelUnpackBufferBinding(getBuffer(buffer));
+    Buffer *buffer = mResourceManager->checkBufferAllocation(bufferHandle);
+    mState.setPixelUnpackBufferBinding(buffer);
 }
 
 void Context::useProgram(GLuint program)
@@ -820,11 +811,11 @@ void Context::useProgram(GLuint program)
     mState.setProgram(getProgram(program));
 }
 
-void Context::bindTransformFeedback(GLuint transformFeedback)
+void Context::bindTransformFeedback(GLuint transformFeedbackHandle)
 {
-    checkTransformFeedbackAllocation(transformFeedback);
-
-    mState.setTransformFeedbackBinding(getTransformFeedback(transformFeedback));
+    TransformFeedback *transformFeedback =
+        checkTransformFeedbackAllocation(transformFeedbackHandle);
+    mState.setTransformFeedbackBinding(transformFeedback);
 }
 
 Error Context::beginQuery(GLenum target, GLuint query)
@@ -924,7 +915,7 @@ Framebuffer *Context::getFramebuffer(unsigned int handle) const
 
 FenceNV *Context::getFenceNV(unsigned int handle)
 {
-    FenceNVMap::iterator fence = mFenceNVMap.find(handle);
+    auto fence = mFenceNVMap.find(handle);
 
     if (fence == mFenceNVMap.end())
     {
@@ -938,7 +929,7 @@ FenceNV *Context::getFenceNV(unsigned int handle)
 
 Query *Context::getQuery(unsigned int handle, bool create, GLenum type)
 {
-    QueryMap::iterator query = mQueryMap.find(handle);
+    auto query = mQueryMap.find(handle);
 
     if (query == mQueryMap.end())
     {
@@ -1459,6 +1450,8 @@ bool Context::getQueryParameterInfo(GLenum pname, GLenum *type, unsigned int *nu
       case GL_TRANSFORM_FEEDBACK_BUFFER_BINDING:
       case GL_COPY_READ_BUFFER_BINDING:
       case GL_COPY_WRITE_BUFFER_BINDING:
+      case GL_SAMPLER_BINDING:
+      case GL_READ_BUFFER:
       case GL_TEXTURE_BINDING_3D:
       case GL_TEXTURE_BINDING_2D_ARRAY:
       case GL_MAX_3D_TEXTURE_SIZE:
@@ -1732,27 +1725,31 @@ EGLenum Context::getRenderBuffer() const
     }
 }
 
-void Context::checkVertexArrayAllocation(GLuint vertexArray)
+VertexArray *Context::checkVertexArrayAllocation(GLuint vertexArrayHandle)
 {
     // Only called after a prior call to Gen.
-    if (!getVertexArray(vertexArray))
+    VertexArray *vertexArray = getVertexArray(vertexArrayHandle);
+    if (!vertexArray)
     {
-        VertexArray *vertexArrayObject =
-            new VertexArray(mRenderer, vertexArray, MAX_VERTEX_ATTRIBS);
-        mVertexArrayMap[vertexArray] = vertexArrayObject;
+        vertexArray                        = new VertexArray(mRenderer, vertexArrayHandle, MAX_VERTEX_ATTRIBS);
+        mVertexArrayMap[vertexArrayHandle] = vertexArray;
     }
+
+    return vertexArray;
 }
 
-void Context::checkTransformFeedbackAllocation(GLuint transformFeedback)
+TransformFeedback *Context::checkTransformFeedbackAllocation(GLuint transformFeedbackHandle)
 {
     // Only called after a prior call to Gen.
-    if (!getTransformFeedback(transformFeedback))
+    TransformFeedback *transformFeedback = getTransformFeedback(transformFeedbackHandle);
+    if (!transformFeedback)
     {
-        TransformFeedback *transformFeedbackObject =
-            new TransformFeedback(mRenderer->createTransformFeedback(), transformFeedback, mCaps);
-        transformFeedbackObject->addRef();
-        mTransformFeedbackMap[transformFeedback] = transformFeedbackObject;
+        transformFeedback = new TransformFeedback(mRenderer, transformFeedbackHandle, mCaps);
+        transformFeedback->addRef();
+        mTransformFeedbackMap[transformFeedbackHandle] = transformFeedback;
     }
+
+    return transformFeedback;
 }
 
 Framebuffer *Context::checkFramebufferAllocation(GLuint framebuffer)
@@ -1930,8 +1927,8 @@ GLint Context::getSamplerParameteri(GLuint sampler, GLenum pname)
       case GL_TEXTURE_WRAP_T:             return static_cast<GLint>(samplerObject->getWrapT());
       case GL_TEXTURE_WRAP_R:             return static_cast<GLint>(samplerObject->getWrapR());
       case GL_TEXTURE_MAX_ANISOTROPY_EXT: return static_cast<GLint>(samplerObject->getMaxAnisotropy());
-      case GL_TEXTURE_MIN_LOD:            return uiround<GLint>(samplerObject->getMinLod());
-      case GL_TEXTURE_MAX_LOD:            return uiround<GLint>(samplerObject->getMaxLod());
+      case GL_TEXTURE_MIN_LOD:            return iround<GLint>(samplerObject->getMinLod());
+      case GL_TEXTURE_MAX_LOD:            return iround<GLint>(samplerObject->getMaxLod());
       case GL_TEXTURE_COMPARE_MODE:       return static_cast<GLint>(samplerObject->getCompareMode());
       case GL_TEXTURE_COMPARE_FUNC:       return static_cast<GLint>(samplerObject->getCompareFunc());
       default:                            UNREACHABLE(); return 0;
@@ -1962,6 +1959,15 @@ GLfloat Context::getSamplerParameterf(GLuint sampler, GLenum pname)
       default:                            UNREACHABLE(); return 0;
     }
     // clang-format on
+}
+
+void Context::programParameteri(GLuint program, GLenum pname, GLint value)
+{
+    gl::Program *programObject = getProgram(program);
+    ASSERT(programObject != nullptr);
+
+    ASSERT(pname == GL_PROGRAM_BINARY_RETRIEVABLE_HINT);
+    programObject->setBinaryRetrievableHint(value != GL_FALSE);
 }
 
 void Context::initRendererString()
@@ -2001,6 +2007,27 @@ const std::string &Context::getExtensionString(size_t idx) const
 size_t Context::getExtensionStringCount() const
 {
     return mExtensionStrings.size();
+}
+
+void Context::beginTransformFeedback(GLenum primitiveMode)
+{
+    TransformFeedback *transformFeedback = getState().getCurrentTransformFeedback();
+    ASSERT(transformFeedback != nullptr);
+    ASSERT(!transformFeedback->isPaused());
+
+    transformFeedback->begin(primitiveMode, getState().getProgram());
+}
+
+bool Context::hasActiveTransformFeedback(GLuint program) const
+{
+    for (auto pair : mTransformFeedbackMap)
+    {
+        if (pair.second != nullptr && pair.second->hasBoundProgram(program))
+        {
+            return true;
+        }
+    }
+    return false;
 }
 
 void Context::initCaps(GLuint clientVersion)
@@ -2655,6 +2682,75 @@ void Context::compressedTexSubImage3D(GLenum target,
     {
         recordError(error);
     }
+}
+
+void Context::getBufferPointerv(GLenum target, GLenum /*pname*/, void **params)
+{
+    Buffer *buffer = getState().getTargetBuffer(target);
+    ASSERT(buffer);
+
+    if (!buffer->isMapped())
+    {
+        *params = nullptr;
+    }
+    else
+    {
+        *params = buffer->getMapPointer();
+    }
+}
+
+GLvoid *Context::mapBuffer(GLenum target, GLenum access)
+{
+    Buffer *buffer = getState().getTargetBuffer(target);
+    ASSERT(buffer);
+
+    Error error = buffer->map(access);
+    if (error.isError())
+    {
+        recordError(error);
+        return nullptr;
+    }
+
+    return buffer->getMapPointer();
+}
+
+GLboolean Context::unmapBuffer(GLenum target)
+{
+    Buffer *buffer = getState().getTargetBuffer(target);
+    ASSERT(buffer);
+
+    GLboolean result;
+    Error error = buffer->unmap(&result);
+    if (error.isError())
+    {
+        recordError(error);
+        return GL_FALSE;
+    }
+
+    return result;
+}
+
+GLvoid *Context::mapBufferRange(GLenum target,
+                                GLintptr offset,
+                                GLsizeiptr length,
+                                GLbitfield access)
+{
+    Buffer *buffer = getState().getTargetBuffer(target);
+    ASSERT(buffer);
+
+    Error error = buffer->mapRange(offset, length, access);
+    if (error.isError())
+    {
+        recordError(error);
+        return nullptr;
+    }
+
+    return buffer->getMapPointer();
+}
+
+void Context::flushMappedBufferRange(GLenum /*target*/, GLintptr /*offset*/, GLsizeiptr /*length*/)
+{
+    // We do not currently support a non-trivial implementation of FlushMappedBufferRange
 }
 
 void Context::syncStateForReadPixels()

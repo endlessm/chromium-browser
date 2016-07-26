@@ -13,9 +13,17 @@
 #include "SkPaintFilterCanvas.h"
 #include "SkOverdrawMode.h"
 
-#define SKDEBUGCANVAS_VERSION            1
-#define SKDEBUGCANVAS_ATTRIBUTE_VERSION  "version"
-#define SKDEBUGCANVAS_ATTRIBUTE_COMMANDS "commands"
+#if SK_SUPPORT_GPU
+#include "GrAuditTrail.h"
+#include "GrContext.h"
+#include "GrRenderTarget.h"
+#include "SkGpuDevice.h"
+#endif
+
+#define SKDEBUGCANVAS_VERSION                     1
+#define SKDEBUGCANVAS_ATTRIBUTE_VERSION           "version"
+#define SKDEBUGCANVAS_ATTRIBUTE_COMMANDS          "commands"
+#define SKDEBUGCANVAS_ATTRIBUTE_AUDITTRAIL        "auditTrail"
 
 class DebugPaintFilterCanvas : public SkPaintFilterCanvas {
 public:
@@ -25,7 +33,7 @@ public:
                            bool overrideFilterQuality,
                            SkFilterQuality quality)
         : INHERITED(width, height)
-        , fOverdrawXfermode(overdrawViz ? SkOverdrawMode::Create() : nullptr)
+        , fOverdrawXfermode(overdrawViz ? SkOverdrawMode::Make() : nullptr)
         , fOverrideFilterQuality(overrideFilterQuality)
         , fFilterQuality(quality) {}
 
@@ -34,7 +42,7 @@ protected:
         if (*paint) {
             if (nullptr != fOverdrawXfermode.get()) {
                 paint->writable()->setAntiAlias(false);
-                paint->writable()->setXfermode(fOverdrawXfermode.get());
+                paint->writable()->setXfermode(fOverdrawXfermode);
             }
 
             if (fOverrideFilterQuality) {
@@ -52,7 +60,7 @@ protected:
     }
 
 private:
-    SkAutoTUnref<SkXfermode> fOverdrawXfermode;
+    sk_sp<SkXfermode> fOverdrawXfermode;
 
     bool fOverrideFilterQuality;
     SkFilterQuality fFilterQuality;
@@ -68,7 +76,8 @@ SkDebugCanvas::SkDebugCanvas(int width, int height)
         , fOverdrawViz(false)
         , fOverrideFilterQuality(false)
         , fFilterQuality(kNone_SkFilterQuality)
-        , fClipVizColor(SK_ColorTRANSPARENT) {
+        , fClipVizColor(SK_ColorTRANSPARENT)
+        , fDrawGpuBatchBounds(false) {
     fUserMatrix.reset();
 
     // SkPicturePlayback uses the base-class' quickReject calls to cull clipped
@@ -188,7 +197,7 @@ void SkDebugCanvas::markActiveCommands(int index) {
 
 }
 
-void SkDebugCanvas::drawTo(SkCanvas* canvas, int index) {
+void SkDebugCanvas::drawTo(SkCanvas* canvas, int index, int m) {
     SkASSERT(!fCommandVector.isEmpty());
     SkASSERT(index < fCommandVector.count());
 
@@ -209,16 +218,32 @@ void SkDebugCanvas::drawTo(SkCanvas* canvas, int index) {
     if (fPaintFilterCanvas) {
         fPaintFilterCanvas->addCanvas(canvas);
         canvas = fPaintFilterCanvas.get();
+
     }
 
     if (fMegaVizMode) {
         this->markActiveCommands(index);
     }
 
+#if SK_SUPPORT_GPU
+    // If we have a GPU backend we can also visualize the batching information
+    GrAuditTrail* at = nullptr;
+    if (fDrawGpuBatchBounds || m != -1) {
+        at = this->getAuditTrail(canvas);
+    }
+#endif
+
     for (int i = 0; i <= index; i++) {
         if (i == index && fFilter) {
             canvas->clear(0xAAFFFFFF);
         }
+
+#if SK_SUPPORT_GPU
+        GrAuditTrail::AutoCollectBatches* acb = nullptr;
+        if (at) {
+            acb = new GrAuditTrail::AutoCollectBatches(at, i);
+        }
+#endif
 
         if (fCommandVector[i]->isVisible()) {
             if (fMegaVizMode && fCommandVector[i]->active()) {
@@ -232,6 +257,11 @@ void SkDebugCanvas::drawTo(SkCanvas* canvas, int index) {
                 fCommandVector[i]->execute(canvas);
             }
         }
+#if SK_SUPPORT_GPU
+        if (at && acb) {
+            delete acb;
+        }
+#endif
     }
 
     if (SkColorGetA(fClipVizColor) != 0) {
@@ -294,6 +324,56 @@ void SkDebugCanvas::drawTo(SkCanvas* canvas, int index) {
     if (fPaintFilterCanvas) {
         fPaintFilterCanvas->removeAll();
     }
+
+#if SK_SUPPORT_GPU
+    // draw any batches if required and issue a full reset onto GrAuditTrail
+    if (at) {
+        // just in case there is global reordering, we flush the canvas before querying
+        // GrAuditTrail
+        GrAuditTrail::AutoEnable ae(at);
+        canvas->flush();
+
+        // we pick three colorblind-safe colors, 75% alpha
+        static const SkColor kTotalBounds = SkColorSetARGB(0xC0, 0x6A, 0x3D, 0x9A);
+        static const SkColor kOpBatchBounds = SkColorSetARGB(0xC0, 0xE3, 0x1A, 0x1C);
+        static const SkColor kOtherBatchBounds = SkColorSetARGB(0xC0, 0xFF, 0x7F, 0x00);
+
+        // get the render target of the top device so we can ignore batches drawn offscreen
+        SkBaseDevice* bd = canvas->getDevice_just_for_deprecated_compatibility_testing();
+        SkGpuDevice* gbd = reinterpret_cast<SkGpuDevice*>(bd);
+        uint32_t rtID = gbd->accessRenderTarget()->getUniqueID();
+
+        // get the bounding boxes to draw
+        SkTArray<GrAuditTrail::BatchInfo> childrenBounds;
+        if (m == -1) {
+            at->getBoundsByClientID(&childrenBounds, index);
+        } else {
+            // the client wants us to draw the mth batch
+            at->getBoundsByBatchListID(&childrenBounds.push_back(), m);
+        }
+        SkPaint paint;
+        paint.setStyle(SkPaint::kStroke_Style);
+        paint.setStrokeWidth(1);
+        for (int i = 0; i < childrenBounds.count(); i++) {
+            if (childrenBounds[i].fRenderTargetUniqueID != rtID) {
+                // offscreen draw, ignore for now
+                continue;
+            }
+            paint.setColor(kTotalBounds);
+            canvas->drawRect(childrenBounds[i].fBounds, paint);
+            for (int j = 0; j < childrenBounds[i].fBatches.count(); j++) {
+                const GrAuditTrail::BatchInfo::Batch& batch = childrenBounds[i].fBatches[j];
+                if (batch.fClientID != index) {
+                    paint.setColor(kOtherBatchBounds);
+                } else {
+                    paint.setColor(kOpBatchBounds);
+                }
+                canvas->drawRect(batch.fBounds, paint);
+            }
+        }
+    }
+#endif
+    this->cleanupAuditTrail(canvas);
 }
 
 void SkDebugCanvas::deleteDrawCommandAt(int index) {
@@ -331,15 +411,93 @@ SkTDArray <SkDrawCommand*>& SkDebugCanvas::getDrawCommands() {
     return fCommandVector;
 }
 
+GrAuditTrail* SkDebugCanvas::getAuditTrail(SkCanvas* canvas) {
+    GrAuditTrail* at = nullptr;
+#if SK_SUPPORT_GPU
+    GrRenderTarget* rt = canvas->internal_private_accessTopLayerRenderTarget();
+    if (rt) {
+        GrContext* ctx = rt->getContext();
+        if (ctx) {
+            at = ctx->getAuditTrail();
+        }
+    }
+#endif
+    return at;
+}
+
+void SkDebugCanvas::drawAndCollectBatches(int n, SkCanvas* canvas) {
+#if SK_SUPPORT_GPU
+    GrAuditTrail* at = this->getAuditTrail(canvas);
+    if (at) {
+        // loop over all of the commands and draw them, this is to collect reordering
+        // information
+        for (int i = 0; i < this->getSize() && i <= n; i++) {
+            GrAuditTrail::AutoCollectBatches enable(at, i);
+            fCommandVector[i]->execute(canvas);
+        }
+
+        // in case there is some kind of global reordering
+        {
+            GrAuditTrail::AutoEnable ae(at);
+            canvas->flush();
+        }
+    }
+#endif
+}
+
+void SkDebugCanvas::cleanupAuditTrail(SkCanvas* canvas) {
+    GrAuditTrail* at = this->getAuditTrail(canvas);
+    if (at) {
+#if SK_SUPPORT_GPU
+        GrAuditTrail::AutoEnable ae(at);
+        at->fullReset();
+#endif
+    }
+}
+
 Json::Value SkDebugCanvas::toJSON(UrlDataManager& urlDataManager, int n, SkCanvas* canvas) {
+    this->drawAndCollectBatches(n, canvas);
+
+    // now collect json
+#if SK_SUPPORT_GPU
+    GrAuditTrail* at = this->getAuditTrail(canvas);
+#endif
     Json::Value result = Json::Value(Json::objectValue);
     result[SKDEBUGCANVAS_ATTRIBUTE_VERSION] = Json::Value(SKDEBUGCANVAS_VERSION);
     Json::Value commands = Json::Value(Json::arrayValue);
     for (int i = 0; i < this->getSize() && i <= n; i++) {
-        commands[i] = this->getDrawCommandAt(i)->drawToAndCollectJSON(canvas, urlDataManager);
+        commands[i] = this->getDrawCommandAt(i)->toJSON(urlDataManager);
+#if SK_SUPPORT_GPU
+        if (at) {
+            // TODO if this is inefficient we could add a method to GrAuditTrail which takes
+            // a Json::Value and is only compiled in this file
+            Json::Value parsedFromString;
+            Json::Reader reader;
+            SkAssertResult(reader.parse(at->toJson(i).c_str(), parsedFromString));
+
+            commands[i][SKDEBUGCANVAS_ATTRIBUTE_AUDITTRAIL] = parsedFromString;
+        }
+#endif
     }
+    this->cleanupAuditTrail(canvas);
     result[SKDEBUGCANVAS_ATTRIBUTE_COMMANDS] = commands;
     return result;
+}
+
+Json::Value SkDebugCanvas::toJSONBatchList(int n, SkCanvas* canvas) {
+    this->drawAndCollectBatches(n, canvas);
+
+    Json::Value parsedFromString;
+#if SK_SUPPORT_GPU
+    GrAuditTrail* at = this->getAuditTrail(canvas);
+    if (at) {
+        GrAuditTrail::AutoManageBatchList enable(at);
+        Json::Reader reader;
+        SkAssertResult(reader.parse(at->toJson().c_str(), parsedFromString));
+    }
+#endif
+    this->cleanupAuditTrail(canvas);
+    return parsedFromString;
 }
 
 void SkDebugCanvas::updatePaintFilterCanvas() {

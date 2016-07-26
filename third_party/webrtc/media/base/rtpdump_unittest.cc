@@ -8,6 +8,7 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
+#include <memory>
 #include <string>
 
 #include "webrtc/base/bytebuffer.h"
@@ -23,7 +24,7 @@ static const uint32_t kTestSsrc = 1;
 
 // Test that we read the correct header fields from the RTP/RTCP packet.
 TEST(RtpDumpTest, ReadRtpDumpPacket) {
-  rtc::ByteBuffer rtp_buf;
+  rtc::ByteBufferWriter rtp_buf;
   RtpTestUtility::kTestRawRtpPackets[0].WriteToByteBuffer(kTestSsrc, &rtp_buf);
   RtpDumpPacket rtp_packet(rtp_buf.Data(), rtp_buf.Length(), 0, false);
 
@@ -45,7 +46,7 @@ TEST(RtpDumpTest, ReadRtpDumpPacket) {
   EXPECT_EQ(kTestSsrc, ssrc);
   EXPECT_FALSE(rtp_packet.GetRtcpType(&rtcp_type));
 
-  rtc::ByteBuffer rtcp_buf;
+  rtc::ByteBufferWriter rtcp_buf;
   RtpTestUtility::kTestRawRtcpPackets[0].WriteToByteBuffer(&rtcp_buf);
   RtpDumpPacket rtcp_packet(rtcp_buf.Data(), rtcp_buf.Length(), 0, true);
 
@@ -61,7 +62,7 @@ TEST(RtpDumpTest, ReadRtpDumpFile) {
   RtpDumpPacket packet;
   rtc::MemoryStream stream;
   RtpDumpWriter writer(&stream);
-  rtc::scoped_ptr<RtpDumpReader> reader;
+  std::unique_ptr<RtpDumpReader> reader;
 
   // Write a RTP packet to the stream, which is a valid RTP dump. Next, we will
   // change the first line to make the RTP dump valid or invalid.

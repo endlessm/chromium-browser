@@ -31,6 +31,7 @@
 
 #import "RTCPeerConnectionFactory+Internal.h"
 
+#include <memory>
 #include <vector>
 
 #import "RTCAudioTrack+Internal.h"
@@ -49,14 +50,13 @@
 #include "webrtc/api/audiotrack.h"
 #include "webrtc/api/mediastreaminterface.h"
 #include "webrtc/api/peerconnectioninterface.h"
-#include "webrtc/api/videosourceinterface.h"
 #include "webrtc/api/videotrack.h"
 #include "webrtc/base/logging.h"
 #include "webrtc/base/ssladapter.h"
 
 @implementation RTCPeerConnectionFactory {
-  rtc::scoped_ptr<rtc::Thread> _signalingThread;
-  rtc::scoped_ptr<rtc::Thread> _workerThread;
+  std::unique_ptr<rtc::Thread> _signalingThread;
+  std::unique_ptr<rtc::Thread> _workerThread;
 }
 
 @synthesize nativeFactory = _nativeFactory;
@@ -125,9 +125,8 @@
   if (!capturer) {
     return nil;
   }
-  rtc::scoped_refptr<webrtc::VideoSourceInterface> source =
-      self.nativeFactory->CreateVideoSource([capturer takeNativeCapturer],
-                                            constraints.constraints);
+  rtc::scoped_refptr<webrtc::VideoTrackSourceInterface> source =
+      self.nativeFactory->CreateVideoSource([capturer takeNativeCapturer], constraints.constraints);
   return [[RTCVideoSource alloc] initWithMediaSource:source];
 }
 

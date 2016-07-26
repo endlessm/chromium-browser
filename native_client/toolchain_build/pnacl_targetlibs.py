@@ -21,6 +21,9 @@ NACL_DIR = os.path.dirname(SCRIPT_DIR)
 
 CLANG_VER = '3.7.0'
 
+def ToolName(name):
+  return 'pnacl-' + name
+
 # Return the path to a tool to build target libraries
 # msys should be false if the path will be called directly rather than passed to
 # an msys or cygwin tool such as sh or make.
@@ -34,7 +37,7 @@ def PnaclTool(toolname, arch='le32', msys=True):
     # binary.
     base = toolname
   elif IsBCArch(arch):
-    base = 'pnacl-' + toolname
+    base = ToolName(toolname)
   else:
     base = '-'.join([TargetArch(arch), 'nacl', toolname])
   return command.path.join('%(abs_target_lib_compiler)s',
@@ -42,9 +45,7 @@ def PnaclTool(toolname, arch='le32', msys=True):
 
 # PNaCl tools for newlib's environment, e.g. CC_FOR_TARGET=/path/to/pnacl-clang
 TOOL_ENV_NAMES = { 'CC': 'clang', 'CXX': 'clang++', 'AR': 'ar', 'NM': 'nm',
-                   'RANLIB': 'ranlib', 'READELF': 'readelf',
-                   'OBJDUMP': 'illegal', 'AS': 'as', 'LD': 'illegal',
-                   'STRIP': 'illegal' }
+                   'RANLIB': 'ranlib', 'READELF': 'readelf', 'AS': 'as' }
 
 def TargetTools(arch):
   return [ tool + '_FOR_TARGET=' + PnaclTool(name, arch=arch, msys=True)
@@ -109,7 +110,10 @@ def BiasedBitcodeTargetFlag(bias_arch):
       'arm':    ('armv7-unknown-nacl-gnueabihf',  ['-mfloat-abi=hard']),
       'mipsel': ('mipsel-unknown-nacl',           []),
   }
-  return ['--target=%s' % flagmap[arch][0]] + flagmap[arch][1]
+  # The -emit-llvm flag is only needed for native Clang drivers since
+  # pnacl-clang already passes that option to every Clang invocation.
+  # TODO(phosek): Refactor the per-toolchain options into a separate class.
+  return ['--target=%s' % flagmap[arch][0], '-emit-llvm'] + flagmap[arch][1]
 
 
 def TranslatorArchToBiasArch(arch):
@@ -151,7 +155,8 @@ def LibCxxCflags(bias_arch):
   # HAS_THREAD_LOCAL is used by libc++abi's exception storage, the fallback is
   # pthread otherwise.
   return ' '.join([TargetLibCflags(bias_arch), NewlibIsystemCflags(bias_arch),
-                   '-DHAS_THREAD_LOCAL=1', '-D__ARM_DWARF_EH__'])
+                   '-fexceptions', '-DHAS_THREAD_LOCAL=1',
+                   '-D__ARM_DWARF_EH__'])
 
 
 def NativeTargetFlag(bias_arch):
@@ -650,13 +655,20 @@ def SubzeroRuntimeCommands(arch, out_dir):
     LlcArchArgs = [ '-mcpu=x86-64']
   elif arch == 'arm-linux':
     Triple = 'arm-linux-gnu'
-    LlcArchArgs = [ '-mcpu=cortex-a9']
+    LlcArchArgs = [ '-mcpu=cortex-a9', '-float-abi=hard', '-mattr=+neon']
   elif arch == 'arm':
-    Triple = 'arm-none-nacl-gnu'
-    LlcArchArgs = [ '-mcpu=cortex-a9']
+    Triple = 'armv7a-none-nacl'
+    LlcArchArgs = [ '-mcpu=cortex-a9', '-float-abi=hard', '-mattr=+neon']
+  elif arch == 'arm-nonsfi':
+    Triple = 'armv7a-none-linux-gnueabihf'
+    LlcArchArgs = [ '-mcpu=cortex-a9', '-float-abi=hard', '-mattr=+neon',
+                    '-relocation-model=pic', '-force-tls-non-pic',
+                    '-malign-double']
+    AsmSourceBase = 'szrt_asm_arm32'
   else:
     return []
   LlcArchArgs.append('-mtriple=' + Triple)
+
   return [
     command.Command([
         PnaclTool('clang'), '-O2',
@@ -694,7 +706,6 @@ def TranslatorLibs(arch, is_canonical, no_nacl_gcc):
     setjmp_arch = setjmp_arch[:-len('-nonsfi')]
   bias_arch = TranslatorArchToBiasArch(arch)
   translator_lib_dir = os.path.join('translator', arch, 'lib')
-  has_nacl_clang = arch in ['arm', 'x86-32', 'x86-64']
 
   arch_cmds = []
   if arch == 'arm':
@@ -711,22 +722,21 @@ def TranslatorLibs(arch, is_canonical, no_nacl_gcc):
          BuildTargetTranslatorCmd('entry_linux_arm.S', 'entry_linux_asm.o',
                                   arch)])
 
-  # For arches with nacl-clang, we take the native newlib implementation of
-  # these functions, which are optimized assembly. Otherwise we build a
-  # C implementation.
-  if has_nacl_clang:
+  if not IsNonSFIArch(arch):
     def ClangLib(lib):
       return GSDJoin(lib, bias_arch)
     clang_deps = [ ClangLib('newlib'), ClangLib('libs_support') ]
     # Extract the object files from the newlib archive into our working dir.
     # libcrt_platform.a is later created by archiving all the object files
     # there.
+    crt_objs = ['memmove', 'memcmp', 'memset', 'memcpy']
+    if arch == 'mips32':
+      crt_objs.extend(['memset-stub', 'memcpy-stub'])
     libcrt_platform_string_cmds = [command.Command([
         PnaclTool('ar'), 'x',
         os.path.join('%(' + ClangLib('newlib') + ')s',
                      MultilibLibDir(bias_arch), 'libcrt_common.a'),
-        ] + ['lib_a-%s.o' % f
-             for f in ['memcpy', 'memset', 'memmove', 'memcmp']])]
+        ] + ['lib_a-%s.o' % f for f in crt_objs])]
     # Copy compiler_rt from nacl-clang
     clang_libdir = os.path.join(
         'lib', 'clang', CLANG_VER, 'lib', TripleFromArch(bias_arch))
@@ -736,11 +746,7 @@ def TranslatorLibs(arch, is_canonical, no_nacl_gcc):
         os.path.join('%(output)s', 'libgcc.a'))]
   else:
     clang_deps = []
-    extra_flags = []
-    if IsNonSFIArch(arch):
-      extra_flags.extend(NonSFITargetLibCflags(bias_arch).split())
-    else:
-      extra_flags.extend(BiasedBitcodeTargetFlag(bias_arch))
+    extra_flags = NonSFITargetLibCflags(bias_arch).split()
     libcrt_platform_string_cmds = [BuildTargetTranslatorCmd(
         'string.c', 'string.o', arch, ['-std=c99'],
         source_dir='%(newlib_subset)s')]
@@ -918,10 +924,11 @@ def SDKCompiler(arches):
   return compiler
 
 
-def SDKLibs(arch, is_canonical):
+def SDKLibs(arch, is_canonical, extra_flags=[]):
   scons_flags = ['--verbose', 'MODE=nacl', '-j%(cores)s', 'naclsdk_validate=0',
                  'pnacl_newlib_dir=%(abs_sdk_compiler)s',
                  'DESTINATION_ROOT=%(work_dir)s']
+  scons_flags.extend(extra_flags)
   if arch == 'le32':
     scons_flags.extend(['bitcode=1', 'platform=x86-32'])
   elif not IsBCArch(arch):

@@ -11,6 +11,7 @@
 
 #include "base/i18n/rtl.h"
 #include "base/macros.h"
+#include "base/memory/ptr_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
@@ -21,6 +22,7 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_dialogs.h"
+#include "chrome/browser/ui/layout_constants.h"
 #include "chrome/browser/ui/views/collected_cookies_views.h"
 #include "chrome/browser/ui/views/website_settings/chosen_object_view.h"
 #include "chrome/browser/ui/views/website_settings/permission_selector_view.h"
@@ -85,10 +87,6 @@ const int kHeaderPaddingTop = 12;
 // Spacing between the site identity label and the site identity status text in
 // the popup header.
 const int kHeaderRowSpacing = 4;
-
-// To make the bubble's arrow point directly at the location icon rather than at
-// the Omnibox's edge, inset the bubble's anchor rect by this amount of pixels.
-const int kLocationIconVerticalMargin = 5;
 
 // The max possible width of the popup.
 const int kMaxPopupWidth = 1000;
@@ -159,7 +157,7 @@ class PopupHeaderView : public views::View {
 // Website Settings are not supported for internal Chrome pages. Instead of the
 // |WebsiteSettingsPopupView|, the |InternalPageInfoPopupView| is
 // displayed.
-class InternalPageInfoPopupView : public views::BubbleDelegateView {
+class InternalPageInfoPopupView : public views::BubbleDialogDelegateView {
  public:
   // If |anchor_view| is nullptr, or has no Widget, |parent_window| may be
   // provided to ensure this bubble is closed when the parent closes.
@@ -167,10 +165,11 @@ class InternalPageInfoPopupView : public views::BubbleDelegateView {
                             gfx::NativeView parent_window);
   ~InternalPageInfoPopupView() override;
 
-  // views::BubbleDelegateView:
+  // views::BubbleDialogDelegateView:
   views::NonClientFrameView* CreateNonClientFrameView(
       views::Widget* widget) override;
   void OnWidgetDestroying(views::Widget* widget) override;
+  int GetDialogButtons() const override;
 
  private:
   friend class WebsiteSettingsPopupView;
@@ -322,12 +321,12 @@ void PopupHeaderView::AddResetDecisionsButton() {
 InternalPageInfoPopupView::InternalPageInfoPopupView(
     views::View* anchor_view,
     gfx::NativeView parent_window)
-    : BubbleDelegateView(anchor_view, views::BubbleBorder::TOP_LEFT) {
+    : BubbleDialogDelegateView(anchor_view, views::BubbleBorder::TOP_LEFT) {
   set_parent_window(parent_window);
 
   // Compensate for built-in vertical padding in the anchor view's image.
-  set_anchor_view_insets(gfx::Insets(kLocationIconVerticalMargin, 0,
-                                     kLocationIconVerticalMargin, 0));
+  set_anchor_view_insets(gfx::Insets(
+      GetLayoutConstant(LOCATION_BAR_BUBBLE_ANCHOR_VERTICAL_INSET), 0));
 
   const int kSpacing = 16;
   SetLayoutManager(new views::BoxLayout(views::BoxLayout::kHorizontal, kSpacing,
@@ -345,7 +344,7 @@ InternalPageInfoPopupView::InternalPageInfoPopupView(
   label->SetHorizontalAlignment(gfx::ALIGN_LEFT);
   AddChildView(label);
 
-  views::BubbleDelegateView::CreateBubble(this);
+  views::BubbleDialogDelegateView::CreateBubble(this);
 }
 
 InternalPageInfoPopupView::~InternalPageInfoPopupView() {
@@ -354,7 +353,7 @@ InternalPageInfoPopupView::~InternalPageInfoPopupView() {
 views::NonClientFrameView* InternalPageInfoPopupView::CreateNonClientFrameView(
     views::Widget* widget) {
   views::BubbleFrameView* frame = static_cast<views::BubbleFrameView*>(
-      BubbleDelegateView::CreateNonClientFrameView(widget));
+      BubbleDialogDelegateView::CreateNonClientFrameView(widget));
   // 16px padding + half of icon width comes out to 24px.
   frame->bubble_border()->set_arrow_offset(
       24 + frame->bubble_border()->GetBorderThickness());
@@ -363,6 +362,10 @@ views::NonClientFrameView* InternalPageInfoPopupView::CreateNonClientFrameView(
 
 void InternalPageInfoPopupView::OnWidgetDestroying(views::Widget* widget) {
   is_popup_showing = false;
+}
+
+int InternalPageInfoPopupView::GetDialogButtons() const {
+  return ui::DIALOG_BUTTON_NONE;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -412,7 +415,7 @@ WebsiteSettingsPopupView::WebsiteSettingsPopupView(
     const GURL& url,
     const security_state::SecurityStateModel::SecurityInfo& security_info)
     : content::WebContentsObserver(web_contents),
-      BubbleDelegateView(anchor_view, views::BubbleBorder::TOP_LEFT),
+      BubbleDialogDelegateView(anchor_view, views::BubbleBorder::TOP_LEFT),
       web_contents_(web_contents),
       header_(nullptr),
       separator_(nullptr),
@@ -429,8 +432,8 @@ WebsiteSettingsPopupView::WebsiteSettingsPopupView(
       profile->GetPrefs()->GetBoolean(prefs::kDevToolsDisabled);
 
   // Compensate for built-in vertical padding in the anchor view's image.
-  set_anchor_view_insets(gfx::Insets(kLocationIconVerticalMargin, 0,
-                                     kLocationIconVerticalMargin, 0));
+  set_anchor_view_insets(gfx::Insets(
+      GetLayoutConstant(LOCATION_BAR_BUBBLE_ANCHOR_VERTICAL_INSET), 0));
 
   views::GridLayout* layout = new views::GridLayout(this);
   SetLayoutManager(layout);
@@ -460,7 +463,7 @@ WebsiteSettingsPopupView::WebsiteSettingsPopupView(
   set_margins(gfx::Insets(kPopupMarginTop, kPopupMarginLeft,
                           kPopupMarginBottom, kPopupMarginRight));
 
-  views::BubbleDelegateView::CreateBubble(this);
+  views::BubbleDialogDelegateView::CreateBubble(this);
 
   presenter_.reset(new WebsiteSettings(
       this, profile, TabSpecificContentSettings::FromWebContents(web_contents),
@@ -487,6 +490,10 @@ void WebsiteSettingsPopupView::OnChosenObjectDeleted(
 void WebsiteSettingsPopupView::OnWidgetDestroying(views::Widget* widget) {
   is_popup_showing = false;
   presenter_->OnUIClosing();
+}
+
+int WebsiteSettingsPopupView::GetDialogButtons() const {
+  return ui::DIALOG_BUTTON_NONE;
 }
 
 void WebsiteSettingsPopupView::ButtonPressed(views::Button* button,
@@ -660,7 +667,7 @@ void WebsiteSettingsPopupView::SetPermissionInfo(
   for (auto object : chosen_object_info_list) {
     layout->StartRow(1, content_column);
     // The view takes ownership of the object info.
-    auto object_view = new ChosenObjectView(make_scoped_ptr(object));
+    auto object_view = new ChosenObjectView(base::WrapUnique(object));
     object_view->AddObserver(this);
     layout->AddView(object_view, 1, 1, views::GridLayout::LEADING,
                     views::GridLayout::CENTER);

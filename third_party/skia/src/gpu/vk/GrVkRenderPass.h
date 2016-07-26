@@ -12,14 +12,15 @@
 
 #include "GrVkResource.h"
 
-#include "vulkan/vulkan.h"
+#include "vk/GrVkDefines.h"
 
+class GrProcessorKeyBuilder;
 class GrVkGpu;
 class GrVkRenderTarget;
 
 class GrVkRenderPass : public GrVkResource {
 public:
-    GrVkRenderPass() : INHERITED(), fRenderPass(nullptr) {}
+    GrVkRenderPass() : INHERITED(), fRenderPass(VK_NULL_HANDLE) {}
     void initSimple(const GrVkGpu* gpu, const GrVkRenderTarget& target);
 
     struct AttachmentsDescriptor {
@@ -71,6 +72,8 @@ public:
     bool isCompatible(const GrVkRenderTarget& target) const;
 
     VkRenderPass vkRenderPass() const { return fRenderPass; }
+
+    void genKey(GrProcessorKeyBuilder* b) const;
 
 private:
     GrVkRenderPass(const GrVkRenderPass&);

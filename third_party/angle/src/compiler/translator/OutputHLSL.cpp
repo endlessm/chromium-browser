@@ -158,6 +158,7 @@ OutputHLSL::OutputHLSL(sh::GLenum shaderType, int shaderVersion,
     mUsesFrontFacing = false;
     mUsesPointSize = false;
     mUsesInstanceID = false;
+    mUsesVertexID                = false;
     mUsesFragDepth = false;
     mUsesXor = false;
     mUsesDiscardRewriting = false;
@@ -585,6 +586,11 @@ void OutputHLSL::header(TInfoSinkBase &out, const BuiltInFunctionEmulator *built
             out << "static int gl_InstanceID;";
         }
 
+        if (mUsesVertexID)
+        {
+            out << "static int gl_VertexID;";
+        }
+
         out << "\n"
                "// Varyings\n";
         out <<  varyings;
@@ -906,6 +912,32 @@ void OutputHLSL::header(TInfoSinkBase &out, const BuiltInFunctionEmulator *built
         }
         else
         {
+            TString texCoordX("t.x");
+            TString texCoordY("t.y");
+            TString texCoordZ("t.z");
+            TString proj = "";
+
+            if (textureFunction->proj)
+            {
+                switch (textureFunction->coords)
+                {
+                    case 3:
+                        proj = " / t.z";
+                        break;
+                    case 4:
+                        proj = " / t.w";
+                        break;
+                    default:
+                        UNREACHABLE();
+                }
+                if (proj != "")
+                {
+                    texCoordX = "(" + texCoordX + proj + ")";
+                    texCoordY = "(" + texCoordY + proj + ")";
+                    texCoordZ = "(" + texCoordZ + proj + ")";
+                }
+            }
+
             if (IsIntegerSampler(textureFunction->sampler) && IsSamplerCube(textureFunction->sampler))
             {
                 out << "    float width; float height; float layers; float levels;\n";
@@ -946,6 +978,11 @@ void OutputHLSL::header(TInfoSinkBase &out, const BuiltInFunctionEmulator *built
                         << "    " << textureReference
                         << ".GetDimensions(mip, width, height, layers, levels);\n";
                 }
+
+                // Convert from normalized floating-point to integer
+                texCoordX = "int(floor(width * frac(" + texCoordX + ")))";
+                texCoordY = "int(floor(height * frac(" + texCoordY + ")))";
+                texCoordZ = "face";
             }
             else if (IsIntegerSampler(textureFunction->sampler) &&
                      textureFunction->method != TextureFunction::FETCH)
@@ -1078,6 +1115,20 @@ void OutputHLSL::header(TInfoSinkBase &out, const BuiltInFunctionEmulator *built
                         << ".GetDimensions(mip, width, height, depth, levels);\n";
                 }
                 else UNREACHABLE();
+
+                // Convert from normalized floating-point to integer
+                texCoordX = "int(floor(width * frac(" + texCoordX + ")))";
+                texCoordY = "int(floor(height * frac(" + texCoordY + ")))";
+
+                if (IsSamplerArray(textureFunction->sampler))
+                {
+                    texCoordZ = "int(max(0, min(layers - 1, floor(0.5 + t.z))))";
+                }
+                else if (!IsSamplerCube(textureFunction->sampler) &&
+                         !IsSampler2D(textureFunction->sampler))
+                {
+                    texCoordZ = "int(floor(depth * frac(" + texCoordZ + ")))";
+                }
             }
 
             out << "    return ";
@@ -1191,12 +1242,6 @@ void OutputHLSL::header(TInfoSinkBase &out, const BuiltInFunctionEmulator *built
             }
             else UNREACHABLE();
 
-            // Integer sampling requires integer addresses
-            TString addressx = "";
-            TString addressy = "";
-            TString addressz = "";
-            TString close = "";
-
             if (IsIntegerSampler(textureFunction->sampler) ||
                 textureFunction->method == TextureFunction::FETCH)
             {
@@ -1205,28 +1250,6 @@ void OutputHLSL::header(TInfoSinkBase &out, const BuiltInFunctionEmulator *built
                   case 2: out << "int3("; break;
                   case 3: out << "int4("; break;
                   default: UNREACHABLE();
-                }
-
-                // Convert from normalized floating-point to integer
-                if (textureFunction->method != TextureFunction::FETCH)
-                {
-                    addressx = "int(floor(width * frac((";
-                    addressy = "int(floor(height * frac((";
-
-                    if (IsSamplerArray(textureFunction->sampler))
-                    {
-                        addressz = "int(max(0, min(layers - 1, floor(0.5 + ";
-                    }
-                    else if (IsSamplerCube(textureFunction->sampler))
-                    {
-                        addressz = "((((";
-                    }
-                    else
-                    {
-                        addressz = "int(floor(depth * frac((";
-                    }
-
-                    close = "))))";
                 }
             }
             else
@@ -1240,19 +1263,7 @@ void OutputHLSL::header(TInfoSinkBase &out, const BuiltInFunctionEmulator *built
                 }
             }
 
-            TString proj = "";   // Only used for projected textures
-
-            if (textureFunction->proj)
-            {
-                switch(textureFunction->coords)
-                {
-                  case 3: proj = " / t.z"; break;
-                  case 4: proj = " / t.w"; break;
-                  default: UNREACHABLE();
-                }
-            }
-
-            out << addressx + ("t.x" + proj) + close + ", " + addressy + ("t.y" + proj) + close;
+            out << texCoordX << ", " << texCoordY;
 
             if (mOutputType == SH_HLSL_3_0_OUTPUT)
             {
@@ -1264,7 +1275,7 @@ void OutputHLSL::header(TInfoSinkBase &out, const BuiltInFunctionEmulator *built
                     }
                     else
                     {
-                        out << ", t.z" + proj;
+                        out << ", t.z" << proj;
                     }
                 }
 
@@ -1286,14 +1297,9 @@ void OutputHLSL::header(TInfoSinkBase &out, const BuiltInFunctionEmulator *built
             {
                 if (hlslCoords >= 3)
                 {
-                    if (IsIntegerSampler(textureFunction->sampler) && IsSamplerCube(textureFunction->sampler))
-                    {
-                        out << ", face";
-                    }
-                    else
-                    {
-                        out << ", " + addressz + ("t.z" + proj) + close;
-                    }
+                    ASSERT(!IsIntegerSampler(textureFunction->sampler) ||
+                           !IsSamplerCube(textureFunction->sampler) || texCoordZ == "face");
+                    out << ", " << texCoordZ;
                 }
 
                 if (textureFunction->method == TextureFunction::GRAD)
@@ -1458,7 +1464,8 @@ void OutputHLSL::visitSymbol(TIntermSymbol *node)
 
             ensureStructDefined(nodeType);
 
-            out << DecorateUniform(name, nodeType);
+            const TName &nameWithMetadata = node->getName();
+            out << DecorateUniform(nameWithMetadata, nodeType);
         }
         else if (qualifier == EvqAttribute || qualifier == EvqVertexIn)
         {
@@ -1508,6 +1515,11 @@ void OutputHLSL::visitSymbol(TIntermSymbol *node)
         else if (qualifier == EvqInstanceID)
         {
             mUsesInstanceID = true;
+            out << name;
+        }
+        else if (qualifier == EvqVertexID)
+        {
+            mUsesVertexID = true;
             out << name;
         }
         else if (name == "gl_FragDepthEXT" || name == "gl_FragDepth")
@@ -1564,6 +1576,42 @@ void OutputHLSL::outputEqual(Visit visit, const TType &type, TOperator op, TInfo
             outputTriplet(out, visit, "all(", " == ", ")");
         }
     }
+}
+
+bool OutputHLSL::ancestorEvaluatesToSamplerInStruct(Visit visit)
+{
+    // Inside InVisit the current node is already in the path.
+    const unsigned int initialN = visit == InVisit ? 1u : 0u;
+    for (unsigned int n = initialN; getAncestorNode(n) != nullptr; ++n)
+    {
+        TIntermNode *ancestor               = getAncestorNode(n);
+        const TIntermBinary *ancestorBinary = ancestor->getAsBinaryNode();
+        if (ancestorBinary == nullptr)
+        {
+            return false;
+        }
+        switch (ancestorBinary->getOp())
+        {
+            case EOpIndexDirectStruct:
+            {
+                const TStructure *structure = ancestorBinary->getLeft()->getType().getStruct();
+                const TIntermConstantUnion *index =
+                    ancestorBinary->getRight()->getAsConstantUnion();
+                const TField *field = structure->fields()[index->getIConst(0)];
+                if (IsSampler(field->type()->getBasicType()))
+                {
+                    return true;
+                }
+                break;
+            }
+            case EOpIndexDirect:
+                break;
+            default:
+                // Returning a sampler from indirect indexing is not supported.
+                return false;
+        }
+    }
+    return false;
 }
 
 bool OutputHLSL::visitBinary(Visit visit, TIntermBinary *node)
@@ -1730,6 +1778,12 @@ bool OutputHLSL::visitBinary(Visit visit, TIntermBinary *node)
                     return false;
                 }
             }
+            else if (ancestorEvaluatesToSamplerInStruct(visit))
+            {
+                // All parts of an expression that access a sampler in a struct need to use _ as
+                // separator to access the sampler variable that has been moved out of the struct.
+                outputTriplet(out, visit, "", "_", "");
+            }
             else
             {
                 outputTriplet(out, visit, "", "[", "]");
@@ -1742,14 +1796,40 @@ bool OutputHLSL::visitBinary(Visit visit, TIntermBinary *node)
         outputTriplet(out, visit, "", "[", "]");
         break;
       case EOpIndexDirectStruct:
-        if (visit == InVisit)
         {
             const TStructure* structure = node->getLeft()->getType().getStruct();
             const TIntermConstantUnion* index = node->getRight()->getAsConstantUnion();
             const TField* field = structure->fields()[index->getIConst(0)];
-            out << "." + DecorateField(field->name(), *structure);
 
-            return false;
+            // In cases where indexing returns a sampler, we need to access the sampler variable
+            // that has been moved out of the struct.
+            bool indexingReturnsSampler = IsSampler(field->type()->getBasicType());
+            if (visit == PreVisit && indexingReturnsSampler)
+            {
+                // Samplers extracted from structs have "angle" prefix to avoid name conflicts.
+                // This prefix is only output at the beginning of the indexing expression, which
+                // may have multiple parts.
+                out << "angle";
+            }
+            if (!indexingReturnsSampler)
+            {
+                // All parts of an expression that access a sampler in a struct need to use _ as
+                // separator to access the sampler variable that has been moved out of the struct.
+                indexingReturnsSampler = ancestorEvaluatesToSamplerInStruct(visit);
+            }
+            if (visit == InVisit)
+            {
+                if (indexingReturnsSampler)
+                {
+                    out << "_" + field->name();
+                }
+                else
+                {
+                    out << "." + DecorateField(field->name(), *structure);
+                }
+
+                return false;
+            }
         }
         break;
       case EOpIndexDirectInterfaceBlock:
@@ -2103,6 +2183,40 @@ bool OutputHLSL::visitUnary(Visit visit, TIntermUnary *node)
     return true;
 }
 
+TString OutputHLSL::samplerNamePrefixFromStruct(TIntermTyped *node)
+{
+    if (node->getAsSymbolNode())
+    {
+        return node->getAsSymbolNode()->getSymbol();
+    }
+    TIntermBinary *nodeBinary = node->getAsBinaryNode();
+    switch (nodeBinary->getOp())
+    {
+        case EOpIndexDirect:
+        {
+            int index = nodeBinary->getRight()->getAsConstantUnion()->getIConst(0);
+
+            TInfoSinkBase prefixSink;
+            prefixSink << samplerNamePrefixFromStruct(nodeBinary->getLeft()) << "_" << index;
+            return TString(prefixSink.c_str());
+        }
+        case EOpIndexDirectStruct:
+        {
+            TStructure *s       = nodeBinary->getLeft()->getAsTyped()->getType().getStruct();
+            int index           = nodeBinary->getRight()->getAsConstantUnion()->getIConst(0);
+            const TField *field = s->fields()[index];
+
+            TInfoSinkBase prefixSink;
+            prefixSink << samplerNamePrefixFromStruct(nodeBinary->getLeft()) << "_"
+                       << field->name();
+            return TString(prefixSink.c_str());
+        }
+        default:
+            UNREACHABLE();
+            return TString("");
+    }
+}
+
 bool OutputHLSL::visitAggregate(Visit visit, TIntermAggregate *node)
 {
     TInfoSinkBase &out = getInfoSink();
@@ -2221,11 +2335,11 @@ bool OutputHLSL::visitAggregate(Visit visit, TIntermAggregate *node)
                 return false;
             }
 
-            TString name = DecorateFunctionIfNeeded(node->getNameObj());
-            out << TypeString(node->getType()) << " " << name
-                << (mOutputLod0Function ? "Lod0(" : "(");
-
             TIntermSequence *arguments = node->getSequence();
+
+            TString name = DecorateFunctionIfNeeded(node->getNameObj());
+            out << TypeString(node->getType()) << " " << name << DisambiguateFunctionName(arguments)
+                << (mOutputLod0Function ? "Lod0(" : "(");
 
             for (unsigned int i = 0; i < arguments->size(); i++)
             {
@@ -2271,6 +2385,9 @@ bool OutputHLSL::visitAggregate(Visit visit, TIntermAggregate *node)
 
             out << TypeString(node->getType()) << " ";
 
+            TIntermSequence *sequence  = node->getSequence();
+            TIntermSequence *arguments = (*sequence)[0]->getAsAggregate()->getSequence();
+
             if (name == "main")
             {
                 out << "gl_main(";
@@ -2278,11 +2395,8 @@ bool OutputHLSL::visitAggregate(Visit visit, TIntermAggregate *node)
             else
             {
                 out << DecorateFunctionIfNeeded(node->getNameObj())
-                    << (mOutputLod0Function ? "Lod0(" : "(");
+                    << DisambiguateFunctionName(arguments) << (mOutputLod0Function ? "Lod0(" : "(");
             }
-
-            TIntermSequence *sequence = node->getSequence();
-            TIntermSequence *arguments = (*sequence)[0]->getAsAggregate()->getSequence();
 
             for (unsigned int i = 0; i < arguments->size(); i++)
             {
@@ -2347,7 +2461,9 @@ bool OutputHLSL::visitAggregate(Visit visit, TIntermAggregate *node)
                 ASSERT(index != CallDAG::InvalidIndex);
                 lod0 &= mASTMetadataList[index].mNeedsLod0;
 
-                out << DecorateFunctionIfNeeded(node->getNameObj()) << (lod0 ? "Lod0(" : "(");
+                out << DecorateFunctionIfNeeded(node->getNameObj());
+                out << DisambiguateFunctionName(node->getSequence());
+                out << (lod0 ? "Lod0(" : "(");
             }
             else
             {
@@ -2472,8 +2588,8 @@ bool OutputHLSL::visitAggregate(Visit visit, TIntermAggregate *node)
 
             for (TIntermSequence::iterator arg = arguments->begin(); arg != arguments->end(); arg++)
             {
-                if (mOutputType == SH_HLSL_4_0_FL9_3_OUTPUT &&
-                    IsSampler((*arg)->getAsTyped()->getBasicType()))
+                TIntermTyped *typedArg = (*arg)->getAsTyped();
+                if (mOutputType == SH_HLSL_4_0_FL9_3_OUTPUT && IsSampler(typedArg->getBasicType()))
                 {
                     out << "texture_";
                     (*arg)->traverse(this);
@@ -2481,6 +2597,30 @@ bool OutputHLSL::visitAggregate(Visit visit, TIntermAggregate *node)
                 }
 
                 (*arg)->traverse(this);
+
+                if (typedArg->getType().isStructureContainingSamplers())
+                {
+                    const TType &argType = typedArg->getType();
+                    TVector<TIntermSymbol *> samplerSymbols;
+                    TString structName = samplerNamePrefixFromStruct(typedArg);
+                    argType.createSamplerSymbols("angle_" + structName, "",
+                                                 argType.isArray() ? argType.getArraySize() : 0,
+                                                 &samplerSymbols, nullptr);
+                    for (const TIntermSymbol *sampler : samplerSymbols)
+                    {
+                        if (mOutputType == SH_HLSL_4_0_FL9_3_OUTPUT)
+                        {
+                            out << ", texture_" << sampler->getSymbol();
+                            out << ", sampler_" << sampler->getSymbol();
+                        }
+                        else
+                        {
+                            // In case of HLSL 4.1+, this symbol is the sampler index, and in case
+                            // of D3D9, it's the sampler variable.
+                            out << ", " + sampler->getSymbol();
+                        }
+                    }
+                }
 
                 if (arg < arguments->end() - 1)
                 {
@@ -3251,7 +3391,49 @@ TString OutputHLSL::argumentString(const TIntermSymbol *symbol)
         }
     }
 
-    return QualifierString(qualifier) + " " + TypeString(type) + " " + nameStr + ArrayString(type);
+    TStringStream argString;
+    argString << QualifierString(qualifier) << " " << TypeString(type) << " " << nameStr
+              << ArrayString(type);
+
+    // If the structure parameter contains samplers, they need to be passed into the function as
+    // separate parameters. HLSL doesn't natively support samplers in structs.
+    if (type.isStructureContainingSamplers())
+    {
+        ASSERT(qualifier != EvqOut && qualifier != EvqInOut);
+        TVector<TIntermSymbol *> samplerSymbols;
+        type.createSamplerSymbols("angle" + nameStr, "", 0, &samplerSymbols, nullptr);
+        for (const TIntermSymbol *sampler : samplerSymbols)
+        {
+            if (mOutputType == SH_HLSL_4_1_OUTPUT)
+            {
+                argString << ", const uint " << sampler->getSymbol() << ArrayString(type);
+            }
+            else if (mOutputType == SH_HLSL_4_0_FL9_3_OUTPUT)
+            {
+                const TType &samplerType = sampler->getType();
+                ASSERT((!type.isArray() && !samplerType.isArray()) ||
+                       type.getArraySize() == samplerType.getArraySize());
+                ASSERT(IsSampler(samplerType.getBasicType()));
+                argString << ", " << QualifierString(qualifier) << " "
+                          << TextureString(samplerType.getBasicType()) << " texture_"
+                          << sampler->getSymbol() << ArrayString(type) << ", "
+                          << QualifierString(qualifier) << " "
+                          << SamplerString(samplerType.getBasicType()) << " sampler_"
+                          << sampler->getSymbol() << ArrayString(type);
+            }
+            else
+            {
+                const TType &samplerType = sampler->getType();
+                ASSERT((!type.isArray() && !samplerType.isArray()) ||
+                       type.getArraySize() == samplerType.getArraySize());
+                ASSERT(IsSampler(samplerType.getBasicType()));
+                argString << ", " << QualifierString(qualifier) << " " << TypeString(samplerType)
+                          << " " << sampler->getSymbol() << ArrayString(type);
+            }
+        }
+    }
+
+    return argString.str();
 }
 
 TString OutputHLSL::initializer(const TType &type)
@@ -3285,9 +3467,9 @@ void OutputHLSL::outputConstructor(TInfoSinkBase &out,
 
     if (visit == PreVisit)
     {
-        mStructureHLSL->addConstructor(type, name, parameters);
+        TString constructorName = mStructureHLSL->addConstructor(type, name, parameters);
 
-        out << name << "(";
+        out << constructorName << "(";
     }
     else if (visit == InVisit)
     {

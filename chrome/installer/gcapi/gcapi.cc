@@ -227,16 +227,27 @@ bool IsC1FSent() {
       RegKeyHasC1F(HKEY_LOCAL_MACHINE, kC1FPendingKey);
 }
 
-bool IsWindowsVersionSupported() {
+enum WindowsVersion {
+  VERSION_BELOW_XP_SP2,
+  VERSION_XP_SP2_UP_TO_VISTA,  // "but not including"
+  VERSION_VISTA_OR_HIGHER,
+};
+WindowsVersion GetWindowsVersion() {
   OSVERSIONINFOEX version_info = { sizeof version_info };
   GetVersionEx(reinterpret_cast<OSVERSIONINFO*>(&version_info));
 
-  // Windows 7 is version 6.1.
-  if (version_info.dwMajorVersion > 6 ||
-      (version_info.dwMajorVersion == 6 && version_info.dwMinorVersion > 0))
-    return true;
+  // Windows Vista is version 6.0.
+  if (version_info.dwMajorVersion >= 6)
+    return VERSION_VISTA_OR_HIGHER;
 
-  return false;
+  // Windows XP is version 5.1.  (5.2 is Windows Server 2003/XP Pro x64.)
+  if ((version_info.dwMajorVersion < 5) || (version_info.dwMinorVersion < 1))
+    return VERSION_BELOW_XP_SP2;
+
+  // For XP itself, we only support SP2 and above.
+  return ((version_info.dwMinorVersion > 1) ||
+          (version_info.wServicePackMajor >= 2)) ?
+      VERSION_XP_SP2_UP_TO_VISTA : VERSION_BELOW_XP_SP2;
 }
 
 // Note this function should not be called on old Windows versions where these
@@ -286,7 +297,8 @@ bool VerifyHKLMAccess() {
 
 bool IsRunningElevated() {
   // This method should be called only for Vista or later.
-  if (!IsWindowsVersionSupported() || !VerifyAdminGroup())
+  if ((GetWindowsVersion() < VERSION_VISTA_OR_HIGHER) ||
+      !VerifyAdminGroup())
     return false;
 
   HANDLE process_token;
@@ -394,9 +406,9 @@ BOOL __stdcall GoogleChromeCompatibilityCheck(BOOL set_flag,
                                               DWORD* reasons) {
   DWORD local_reasons = 0;
 
-  bool is_windows_version_supported = IsWindowsVersionSupported();
+  WindowsVersion windows_version = GetWindowsVersion();
   // System requirements?
-  if (!is_windows_version_supported)
+  if (windows_version == VERSION_BELOW_XP_SP2)
     local_reasons |= GCCC_ERROR_OSNOTSUPPORTED;
 
   if (IsChromeInstalled(HKEY_LOCAL_MACHINE))
@@ -410,10 +422,11 @@ BOOL __stdcall GoogleChromeCompatibilityCheck(BOOL set_flag,
     // GCAPI is being invoked from an elevated shell, or in admin mode
     if (!VerifyHKLMAccess()) {
     local_reasons |= GCCC_ERROR_ACCESSDENIED;
-    } else if (is_windows_version_supported && !VerifyAdminGroup()) {
-      // For Vista or later check for elevation since even for admin user we
-      // could be running in non-elevated mode. We require integrity level High.
-      local_reasons |= GCCC_ERROR_INTEGRITYLEVEL;
+    } else if ((windows_version == VERSION_VISTA_OR_HIGHER) &&
+         !VerifyAdminGroup()) {
+    // For Vista or later check for elevation since even for admin user we could
+    // be running in non-elevated mode. We require integrity level High.
+    local_reasons |= GCCC_ERROR_INTEGRITYLEVEL;
     }
   }
 

@@ -149,7 +149,6 @@
 #include <openssl/ssl.h>
 
 #include <assert.h>
-#include <stdio.h>
 #include <string.h>
 
 #include <openssl/bn.h>
@@ -164,7 +163,7 @@
 #include <openssl/hmac.h>
 #include <openssl/md5.h>
 #include <openssl/mem.h>
-#include <openssl/obj.h>
+#include <openssl/nid.h>
 #include <openssl/rand.h>
 #include <openssl/sha.h>
 #include <openssl/x509.h>
@@ -185,7 +184,6 @@ int ssl3_accept(SSL *ssl) {
   assert(ssl->server);
   assert(!SSL_IS_DTLS(ssl));
 
-  ERR_clear_error();
   ERR_clear_system_error();
 
   if (ssl->info_callback != NULL) {
@@ -193,8 +191,6 @@ int ssl3_accept(SSL *ssl) {
   } else if (ssl->ctx->info_callback != NULL) {
     cb = ssl->ctx->info_callback;
   }
-
-  ssl->in_handshake++;
 
   if (ssl->cert == NULL) {
     OPENSSL_PUT_ERROR(SSL, SSL_R_NO_CERTIFICATE_SET);
@@ -581,7 +577,6 @@ int ssl3_accept(SSL *ssl) {
   }
 
 end:
-  ssl->in_handshake--;
   BUF_MEM_free(buf);
   if (cb != NULL) {
     cb(ssl, SSL_CB_ACCEPT_EXIT, ret);
@@ -1802,10 +1797,15 @@ int ssl3_get_cert_verify(SSL *ssl) {
   if (pctx == NULL) {
     goto err;
   }
-  if (!EVP_PKEY_verify_init(pctx) ||
-      !EVP_PKEY_CTX_set_signature_md(pctx, md) ||
-      !EVP_PKEY_verify(pctx, CBS_data(&signature), CBS_len(&signature), digest,
-                       digest_length)) {
+  int sig_ok = EVP_PKEY_verify_init(pctx) &&
+               EVP_PKEY_CTX_set_signature_md(pctx, md) &&
+               EVP_PKEY_verify(pctx, CBS_data(&signature), CBS_len(&signature),
+                               digest, digest_length);
+#if defined(BORINGSSL_UNSAFE_FUZZER_MODE)
+  sig_ok = 1;
+  ERR_clear_error();
+#endif
+  if (!sig_ok) {
     al = SSL_AD_DECRYPT_ERROR;
     OPENSSL_PUT_ERROR(SSL, SSL_R_BAD_SIGNATURE);
     goto f_err;
@@ -1826,7 +1826,7 @@ err:
 }
 
 int ssl3_get_client_certificate(SSL *ssl) {
-  int i, ok, al, ret = -1;
+  int ok, al, ret = -1;
   X509 *x = NULL;
   unsigned long n;
   STACK_OF(X509) *sk = NULL;
@@ -1834,6 +1834,7 @@ int ssl3_get_client_certificate(SSL *ssl) {
   CBS certificate_msg, certificate_list;
   int is_first_certificate = 1;
 
+  assert(ssl->s3->tmp.cert_request);
   n = ssl->method->ssl_get_message(ssl, SSL3_ST_SR_CERT_A, SSL3_ST_SR_CERT_B,
                                    -1, (long)ssl->max_cert_list,
                                    ssl_hash_message, &ok);
@@ -1842,29 +1843,23 @@ int ssl3_get_client_certificate(SSL *ssl) {
     return n;
   }
 
-  if (ssl->s3->tmp.message_type == SSL3_MT_CLIENT_KEY_EXCHANGE) {
-    if ((ssl->verify_mode & SSL_VERIFY_PEER) &&
-        (ssl->verify_mode & SSL_VERIFY_FAIL_IF_NO_PEER_CERT)) {
-      OPENSSL_PUT_ERROR(SSL, SSL_R_PEER_DID_NOT_RETURN_A_CERTIFICATE);
-      al = SSL_AD_HANDSHAKE_FAILURE;
-      goto f_err;
-    }
-
-    /* If tls asked for a client cert, the client must return a 0 list */
-    if (ssl->version > SSL3_VERSION && ssl->s3->tmp.cert_request) {
-      OPENSSL_PUT_ERROR(SSL,
-                        SSL_R_TLS_PEER_DID_NOT_RESPOND_WITH_CERTIFICATE_LIST);
-      al = SSL_AD_UNEXPECTED_MESSAGE;
-      goto f_err;
-    }
-    ssl->s3->tmp.reuse_message = 1;
-
-    return 1;
-  }
-
   if (ssl->s3->tmp.message_type != SSL3_MT_CERTIFICATE) {
+    if (ssl->version == SSL3_VERSION &&
+        ssl->s3->tmp.message_type == SSL3_MT_CLIENT_KEY_EXCHANGE) {
+      /* In SSL 3.0, the Certificate message is omitted to signal no certificate. */
+      if ((ssl->verify_mode & SSL_VERIFY_PEER) &&
+          (ssl->verify_mode & SSL_VERIFY_FAIL_IF_NO_PEER_CERT)) {
+        OPENSSL_PUT_ERROR(SSL, SSL_R_PEER_DID_NOT_RETURN_A_CERTIFICATE);
+        al = SSL_AD_HANDSHAKE_FAILURE;
+        goto f_err;
+      }
+
+      ssl->s3->tmp.reuse_message = 1;
+      return 1;
+    }
+
     al = SSL_AD_UNEXPECTED_MESSAGE;
-    OPENSSL_PUT_ERROR(SSL, SSL_R_WRONG_MESSAGE_TYPE);
+    OPENSSL_PUT_ERROR(SSL, SSL_R_UNEXPECTED_MESSAGE);
     goto f_err;
   }
 
@@ -1933,15 +1928,14 @@ int ssl3_get_client_certificate(SSL *ssl) {
       OPENSSL_PUT_ERROR(SSL, SSL_R_NO_CERTIFICATES_RETURNED);
       goto f_err;
     } else if ((ssl->verify_mode & SSL_VERIFY_PEER) &&
-             (ssl->verify_mode & SSL_VERIFY_FAIL_IF_NO_PEER_CERT)) {
+               (ssl->verify_mode & SSL_VERIFY_FAIL_IF_NO_PEER_CERT)) {
       /* Fail for TLS only if we required a certificate */
       OPENSSL_PUT_ERROR(SSL, SSL_R_PEER_DID_NOT_RETURN_A_CERTIFICATE);
       al = SSL_AD_HANDSHAKE_FAILURE;
       goto f_err;
     }
   } else {
-    i = ssl_verify_cert_chain(ssl, sk);
-    if (i <= 0) {
+    if (ssl_verify_cert_chain(ssl, sk) <= 0) {
       al = ssl_verify_alarm_type(ssl->verify_result);
       OPENSSL_PUT_ERROR(SSL, SSL_R_CERTIFICATE_VERIFY_FAILED);
       goto f_err;

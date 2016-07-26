@@ -242,7 +242,7 @@ private:
     static void OffsetResults(const SkGlyph::Intercept* intercept, SkScalar scale,
                               SkScalar xPos, SkScalar* array, int* count);
     static void AddInterval(SkScalar val, SkGlyph::Intercept* intercept);
-    static void AddPoints(const SkPoint* pts, int ptCount, const SkScalar bounds[2], 
+    static void AddPoints(const SkPoint* pts, int ptCount, const SkScalar bounds[2],
                           bool yAxis, SkGlyph::Intercept* intercept);
     static void AddLine(const SkPoint pts[2], SkScalar axis, bool yAxis,
                         SkGlyph::Intercept* intercept);
@@ -272,7 +272,7 @@ private:
     AuxProcRec*            fAuxProcList;
 };
 
-class SkAutoGlyphCache : public skstd::unique_ptr<SkGlyphCache, SkGlyphCache::AttachCacheFunctor> {
+class SkAutoGlyphCache : public std::unique_ptr<SkGlyphCache, SkGlyphCache::AttachCacheFunctor> {
 public:
     /** deprecated: use get() */
     SkGlyphCache* getCache() const { return this->get(); }
@@ -294,7 +294,7 @@ public:
         : INHERITED(paint.detachCache(surfaceProps, fakeGamma, matrix))
     {}
 private:
-    using INHERITED = skstd::unique_ptr<SkGlyphCache, SkGlyphCache::AttachCacheFunctor>;
+    using INHERITED = std::unique_ptr<SkGlyphCache, SkGlyphCache::AttachCacheFunctor>;
 };
 
 class SkAutoGlyphCacheNoGamma : public SkAutoGlyphCache {

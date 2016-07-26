@@ -110,7 +110,6 @@
 
 #include <assert.h>
 #include <limits.h>
-#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -120,7 +119,7 @@
 #include <openssl/evp.h>
 #include <openssl/hmac.h>
 #include <openssl/mem.h>
-#include <openssl/obj.h>
+#include <openssl/nid.h>
 #include <openssl/rand.h>
 #include <openssl/type_check.h>
 
@@ -2038,6 +2037,9 @@ static const struct tls_extension kExtensions[] = {
     ext_ec_point_parse_clienthello,
     ext_ec_point_add_serverhello,
   },
+  /* The final extension must be non-empty. WebSphere Application Server 7.0 is
+   * intolerant to the last extension being zero-length. See
+   * https://crbug.com/363583. */
   {
     TLSEXT_TYPE_elliptic_curves,
     ext_ec_curves_init,
@@ -2124,9 +2126,10 @@ int ssl_add_clienthello_tlsext(SSL *ssl, CBB *out, size_t header_len) {
        * NB: because this code works out the length of all existing extensions
        * it MUST always appear last. */
       size_t padding_len = 0x200 - header_len;
-      /* Extensions take at least four bytes to encode. Always include least
+      /* Extensions take at least four bytes to encode. Always include at least
        * one byte of data if including the extension. WebSphere Application
-       * Server 7.0 is intolerant to the last extension being zero-length. */
+       * Server 7.0 is intolerant to the last extension being zero-length. See
+       * https://crbug.com/363583. */
       if (padding_len >= 4 + 1) {
         padding_len -= 4;
       } else {
@@ -2368,14 +2371,10 @@ static int ssl_check_clienthello_tlsext(SSL *ssl) {
   int ret = SSL_TLSEXT_ERR_NOACK;
   int al = SSL_AD_UNRECOGNIZED_NAME;
 
-  /* The handling of the ECPointFormats extension is done elsewhere, namely in
-   * ssl3_choose_cipher in s3_lib.c. */
-
-  if (ssl->ctx != NULL && ssl->ctx->tlsext_servername_callback != 0) {
+  if (ssl->ctx->tlsext_servername_callback != 0) {
     ret = ssl->ctx->tlsext_servername_callback(ssl, &al,
-                                             ssl->ctx->tlsext_servername_arg);
-  } else if (ssl->initial_ctx != NULL &&
-             ssl->initial_ctx->tlsext_servername_callback != 0) {
+                                               ssl->ctx->tlsext_servername_arg);
+  } else if (ssl->initial_ctx->tlsext_servername_callback != 0) {
     ret = ssl->initial_ctx->tlsext_servername_callback(
         ssl, &al, ssl->initial_ctx->tlsext_servername_arg);
   }
@@ -2402,11 +2401,10 @@ static int ssl_check_serverhello_tlsext(SSL *ssl) {
   int ret = SSL_TLSEXT_ERR_OK;
   int al = SSL_AD_UNRECOGNIZED_NAME;
 
-  if (ssl->ctx != NULL && ssl->ctx->tlsext_servername_callback != 0) {
+  if (ssl->ctx->tlsext_servername_callback != 0) {
     ret = ssl->ctx->tlsext_servername_callback(ssl, &al,
-                                             ssl->ctx->tlsext_servername_arg);
-  } else if (ssl->initial_ctx != NULL &&
-             ssl->initial_ctx->tlsext_servername_callback != 0) {
+                                               ssl->ctx->tlsext_servername_arg);
+  } else if (ssl->initial_ctx->tlsext_servername_callback != 0) {
     ret = ssl->initial_ctx->tlsext_servername_callback(
         ssl, &al, ssl->initial_ctx->tlsext_servername_arg);
   }

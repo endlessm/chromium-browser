@@ -10,17 +10,23 @@
 
 #include "SkNextID.h"
 #include "SkRefCnt.h"
+#include "SkSurfaceProps.h"
 
 // remove this when internal_getProxy goes away (see skbug.com/4965)
 #include "SkImageFilter.h"
 
+#include "SkImageInfo.h" // for SkAlphaType
+
+class GrContext;
 class GrTexture;
 class SkBitmap;
 class SkCanvas;
 class SkImage;
 struct SkImageInfo;
 class SkPaint;
+class SkPixmap;
 class SkSpecialSurface;
+class SkSurface;
 
 enum {
     kNeedNewImageUniqueID_SpecialImage = 0
@@ -39,6 +45,11 @@ enum {
  */
 class SkSpecialImage : public SkRefCnt {
 public:
+    typedef void* ReleaseContext;
+    typedef void(*RasterReleaseProc)(void* pixels, ReleaseContext);
+
+    const SkSurfaceProps& props() const { return fProps; }
+
     int width() const { return fSubset.width(); }
     int height() const { return fSubset.height(); }
     const SkIRect& subset() const { return fSubset; }
@@ -48,46 +59,81 @@ public:
     virtual size_t getSize() const = 0;
 
     /**
+     *  Ensures that a special image is backed by a texture (when GrContext is non-null). If no
+     *  transformation is required, the returned image may be the same as this special image.
+     *  If this special image is from a different GrContext, this will fail.
+     */
+    sk_sp<SkSpecialImage> makeTextureImage(SkImageFilter::Proxy*, GrContext*);
+
+    /**
      *  Draw this SpecialImage into the canvas.
      */
     void draw(SkCanvas*, SkScalar x, SkScalar y, const SkPaint*) const;
 
-    static SkSpecialImage* NewFromImage(const SkIRect& subset, const SkImage*);
-    static SkSpecialImage* NewFromRaster(SkImageFilter::Proxy*,
-                                         const SkIRect& subset,
-                                         const SkBitmap&);
-    static SkSpecialImage* NewFromGpu(SkImageFilter::Proxy*,
-                                      const SkIRect& subset,
-                                      uint32_t uniqueID,
-                                      GrTexture*, 
-                                      SkAlphaType at = kPremul_SkAlphaType);
+    static sk_sp<SkSpecialImage> MakeFromImage(SkImageFilter::Proxy*,
+                                               const SkIRect& subset,
+                                               sk_sp<SkImage>,
+                                               const SkSurfaceProps* = nullptr);
+    static sk_sp<SkSpecialImage> MakeFromRaster(SkImageFilter::Proxy*,
+                                                const SkIRect& subset,
+                                                const SkBitmap&,
+                                                const SkSurfaceProps* = nullptr);
+    static sk_sp<SkSpecialImage> MakeFromGpu(SkImageFilter::Proxy*,
+                                             const SkIRect& subset,
+                                             uint32_t uniqueID,
+                                             GrTexture*,
+                                             const SkSurfaceProps* = nullptr,
+                                             SkAlphaType at = kPremul_SkAlphaType);
+    static sk_sp<SkSpecialImage> MakeFromPixmap(SkImageFilter::Proxy*,
+                                                const SkIRect& subset,
+                                                const SkPixmap&,
+                                                RasterReleaseProc,
+                                                ReleaseContext,
+                                                const SkSurfaceProps* = nullptr);
 
     /**
-     *  Create a new surface with a backend that is compatible with this image.
+     *  Create a new special surface with a backend that is compatible with this special image.
      */
-    SkSpecialSurface* newSurface(const SkImageInfo&) const;
+    sk_sp<SkSpecialSurface> makeSurface(const SkImageInfo&) const;
+
+    /**
+     * Create a new surface with a backend that is compatible with this special image.
+     * TODO: switch this to makeSurface once we resolved the naming issue
+     */
+    sk_sp<SkSurface> makeTightSurface(const SkImageInfo&) const;
+
+    /**
+     * Extract a subset of this special image and return it as a special image.
+     * It may or may not point to the same backing memory.
+     */
+    sk_sp<SkSpecialImage> makeSubset(const SkIRect& subset) const;
+
+    /**
+     * Extract a subset of this special image and return it as an SkImage.
+     * It may or may not point to the same backing memory.
+     * TODO: switch this to makeSurface once we resolved the naming issue
+     */
+    sk_sp<SkImage> makeTightSubset(const SkIRect& subset) const;
 
     // These three internal methods will go away (see skbug.com/4965)
     bool internal_getBM(SkBitmap* result);
-    static SkSpecialImage* internal_fromBM(SkImageFilter::Proxy*, const SkBitmap&);
-    SkImageFilter::Proxy* internal_getProxy();
+    static sk_sp<SkSpecialImage> internal_fromBM(SkImageFilter::Proxy*, const SkBitmap&,
+                                                 const SkSurfaceProps*);
+    SkImageFilter::Proxy* internal_getProxy() const;
 
-protected:
-    SkSpecialImage(SkImageFilter::Proxy* proxy, const SkIRect& subset, uint32_t uniqueID)
-        : fSubset(subset)
-        , fUniqueID(kNeedNewImageUniqueID_SpecialImage == uniqueID ? SkNextID::ImageID()
-                                                                   : uniqueID)
-        , fProxy(proxy) {
-    }
+    // TODO: hide this when GrLayerHoister uses SkSpecialImages more fully (see skbug.com/5063)
+    /**
+     *  If the SpecialImage is backed by a gpu texture, return that texture.
+     *  The active portion of the texture can be retrieved via 'subset'.
+     */
+    GrTexture* peekTexture() const;
 
-    // The following 2 are for testing and shouldn't be used.
-    friend class TestingSpecialImageAccess;
-    friend class TestingSpecialSurfaceAccess;
-
+    // TODO: hide this whe the imagefilter all have a consistent draw path (see skbug.com/5063)
     /**
      *  If the SpecialImage is backed by cpu pixels, return the const address
-     *  of those pixels and, if not null, return the ImageInfo and rowBytes.
-     *  The returned address is only valid while the image object is in scope.
+     *  of those pixels and, if not null, the ImageInfo, rowBytes, and, if present,
+     *  the color table. The returned address(es) is/are only valid while the image object
+     *  is in scope.
      *
      *  The returned ImageInfo represents the backing memory. Use 'subset'
      *  to get the active portion's dimensions.
@@ -96,18 +142,25 @@ protected:
      */
     bool peekPixels(SkPixmap*) const;
 
-    /**
-     *  If the SpecialImage is backed by a gpu texture, return that texture.
-     *  The active portion of the texture can be retrieved via 'subset'.
-     */
-    GrTexture* peekTexture() const;
+protected:
+    SkSpecialImage(SkImageFilter::Proxy*, const SkIRect& subset, uint32_t uniqueID,
+                   const SkSurfaceProps*);
+
+    // The following 2 are for testing and shouldn't be used.
+    friend class TestingSpecialImageAccess;
+    friend class TestingSpecialSurfaceAccess;
+
+    // This entry point is for testing only. It does a readback from VRAM for
+    // GPU-backed special images.
+    bool testingOnlyGetROPixels(SkBitmap*) const;
 
     // TODO: remove this ASAP (see skbug.com/4965)
     SkImageFilter::Proxy* proxy() const { return fProxy; }
 
 private:
-    const SkIRect   fSubset;
-    const uint32_t  fUniqueID;
+    const SkSurfaceProps fProps;
+    const SkIRect        fSubset;
+    const uint32_t       fUniqueID;
 
     // TODO: remove this ASAP (see skbug.com/4965)
     SkImageFilter::Proxy* fProxy;
@@ -116,4 +169,3 @@ private:
 };
 
 #endif
-

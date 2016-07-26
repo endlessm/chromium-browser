@@ -1,4 +1,3 @@
-
 /*
  * Copyright 2011 Skia
  *
@@ -79,7 +78,7 @@ bool SkOSWindow::attach(SkBackEndTypes /* attachType */, int /*msaaSampleCount*/
     return true;
 }
 
-void SkOSWindow::detach() {
+void SkOSWindow::release() {
 }
 
 void SkOSWindow::present() {

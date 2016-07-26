@@ -58,6 +58,7 @@
           'bytebuffer_unittest.cc',
           'byteorder_unittest.cc',
           'callback_unittest.cc',
+          'copyonwritebuffer_unittest.cc',
           'crc32_unittest.cc',
           'criticalsection_unittest.cc',
           'event_tracer_unittest.cc',
@@ -74,6 +75,7 @@
           'md5digest_unittest.cc',
           'messagedigest_unittest.cc',
           'messagequeue_unittest.cc',
+          'mod_ops_unittest.cc',
           'multipart_unittest.cc',
           'nat_unittest.cc',
           'network_unittest.cc',
@@ -101,6 +103,7 @@
           'stream_unittest.cc',
           'stringencode_unittest.cc',
           'stringutils_unittest.cc',
+          'swap_queue_unittest.cc',
           # TODO(ronghuawu): Reenable this test.
           # 'systeminfo_unittest.cc',
           'task_unittest.cc',

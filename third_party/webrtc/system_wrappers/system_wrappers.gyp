@@ -35,10 +35,8 @@
         'include/logging.h',
         'include/metrics.h',
         'include/ntp_time.h',
-        'include/ref_count.h',
         'include/rtp_to_ntp.h',
         'include/rw_lock_wrapper.h',
-        'include/scoped_vector.h',
         'include/sleep.h',
         'include/sort.h',
         'include/static_instance.h',
@@ -123,6 +121,13 @@
         ['OS=="linux"', {
           'defines': [
             'WEBRTC_THREAD_RR',
+          ],
+          'conditions': [
+            ['build_with_chromium==0', {
+              'dependencies': [
+                'cpu_features_webrtc.gyp:cpu_features_linux',
+              ],
+            }],
           ],
           'link_settings': {
             'libraries': [ '-lrt', ],

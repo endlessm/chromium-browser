@@ -7,30 +7,29 @@
 #include <limits>
 #include <memory>
 
-#include "core/include/fxcrt/fx_basic.h"
-#include "core/include/fxcrt/fx_system.h"
-#include "xfa/src/foxitlib.h"
-#include "xfa/src/fxfa/src/common/xfa_parser.h"
-#include "xfa/src/fxfa/src/parser/xfa_parser_imp.h"
+#include "core/fxcrt/include/fx_basic.h"
+#include "core/fxcrt/include/fx_system.h"
+#include "xfa/fxfa/parser/xfa_parser.h"
+#include "xfa/fxfa/parser/xfa_parser_imp.h"
 
 namespace {
 
-IFDE_XMLNode* XFA_FDEExtension_GetDocumentNode(
-    IFDE_XMLDoc* pXMLDoc,
+CFDE_XMLNode* XFA_FDEExtension_GetDocumentNode(
+    CFDE_XMLDoc* pXMLDoc,
     FX_BOOL bVerifyWellFormness = FALSE) {
   if (!pXMLDoc) {
     return nullptr;
   }
-  IFDE_XMLNode* pXMLFakeRoot = pXMLDoc->GetRoot();
-  for (IFDE_XMLNode* pXMLNode =
-           pXMLFakeRoot->GetNodeItem(IFDE_XMLNode::FirstChild);
-       pXMLNode; pXMLNode = pXMLNode->GetNodeItem(IFDE_XMLNode::NextSibling)) {
+  CFDE_XMLNode* pXMLFakeRoot = pXMLDoc->GetRoot();
+  for (CFDE_XMLNode* pXMLNode =
+           pXMLFakeRoot->GetNodeItem(CFDE_XMLNode::FirstChild);
+       pXMLNode; pXMLNode = pXMLNode->GetNodeItem(CFDE_XMLNode::NextSibling)) {
     if (pXMLNode->GetType() == FDE_XMLNODE_Element) {
       if (bVerifyWellFormness) {
-        for (IFDE_XMLNode* pNextNode =
-                 pXMLNode->GetNodeItem(IFDE_XMLNode::NextSibling);
+        for (CFDE_XMLNode* pNextNode =
+                 pXMLNode->GetNodeItem(CFDE_XMLNode::NextSibling);
              pNextNode;
-             pNextNode = pNextNode->GetNodeItem(IFDE_XMLNode::NextSibling)) {
+             pNextNode = pNextNode->GetNodeItem(CFDE_XMLNode::NextSibling)) {
           if (pNextNode->GetType() == FDE_XMLNODE_Element) {
             return FALSE;
           }
@@ -55,14 +54,9 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
   if (!stream)
     return 0;
 
-  std::unique_ptr<IFDE_XMLDoc> doc(IFDE_XMLDoc::Create());
-  if (!doc)
-    return 0;
-
-  std::unique_ptr<IFDE_XMLParser, ReleaseDeleter<IFDE_XMLParser>> parser(
+  std::unique_ptr<CFDE_XMLDoc> doc(new CFDE_XMLDoc);
+  std::unique_ptr<CFDE_XMLParser, ReleaseDeleter<CFDE_XMLParser>> parser(
       new CXFA_XMLParser(doc->GetRoot(), stream.get()));
-  if (!parser)
-    return 0;
 
   if (!doc->LoadXML(parser.release()))
     return 0;

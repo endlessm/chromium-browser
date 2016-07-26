@@ -1,4 +1,3 @@
-
 /*
  * Copyright 2014 Google Inc.
  *
@@ -13,7 +12,7 @@
 #if SK_SUPPORT_GPU
 
 #include "GrContext.h"
-#include "GrDrawContext.h"
+#include "GrDrawContextPriv.h"
 #include "GrPipelineBuilder.h"
 #include "SkBitmap.h"
 #include "SkGr.h"
@@ -132,7 +131,7 @@ protected:
                     SkAutoTUnref<GrDrawBatch> batch(
                             GrRectBatchFactory::CreateNonAAFill(GrColor_WHITE, viewMatrix,
                                                                 renderRect, nullptr, nullptr));
-                    drawContext->internal_drawBatch(pipelineBuilder, batch);
+                    drawContext->drawContextPriv().testingOnly_drawBatch(pipelineBuilder, batch);
                 }
                 x += renderRect.width() + kTestPad;
             }

@@ -145,6 +145,12 @@ public:
 
     bool isHWAntialiasState() const { return SkToBool(fFlags & kHWAA_Flag); }
     bool snapVerticesToPixelCenters() const { return SkToBool(fFlags & kSnapVertices_Flag); }
+    bool getDisableOutputConversionToSRGB() const {
+        return SkToBool(fFlags & kDisableOutputConversionToSRGB_Flag);
+    }
+    bool getAllowSRGBInputs() const {
+        return SkToBool(fFlags & kAllowSRGBInputs_Flag);
+    }
 
     GrXferBarrierType xferBarrierType(const GrCaps& caps) const {
         return this->getXferProcessor().xferBarrierType(fRenderTarget.get(), caps);
@@ -160,7 +166,6 @@ public:
 
     ///////////////////////////////////////////////////////////////////////////
 
-    bool readsFragPosition() const { return fReadsFragPosition; }
     bool ignoresCoverage() const { return fIgnoresCoverage; }
 
 private:
@@ -185,8 +190,10 @@ private:
                             const GrCaps&);
 
     enum Flags {
-        kHWAA_Flag              = 0x1,
-        kSnapVertices_Flag      = 0x2,
+        kHWAA_Flag                          = 0x1,
+        kSnapVertices_Flag                  = 0x2,
+        kDisableOutputConversionToSRGB_Flag = 0x4,
+        kAllowSRGBInputs_Flag               = 0x8,
     };
 
     typedef GrPendingIOResource<GrRenderTarget, kWrite_GrIOType> RenderTarget;
@@ -200,7 +207,6 @@ private:
     uint32_t                            fFlags;
     ProgramXferProcessor                fXferProcessor;
     FragmentProcessorArray              fFragmentProcessors;
-    bool                                fReadsFragPosition;
     bool                                fIgnoresCoverage;
 
     // This value is also the index in fFragmentProcessors where coverage processors begin.

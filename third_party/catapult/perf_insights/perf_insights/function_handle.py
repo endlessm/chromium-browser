@@ -3,6 +3,7 @@
 # found in the LICENSE file.
 
 import os
+import uuid
 
 
 class AbspathInvalidError(Exception):
@@ -39,14 +40,21 @@ class ModuleToLoad(object):
 
 class FunctionHandle(object):
 
-  def __init__(self, modules_to_load=None, function_name=None):
+  def __init__(self, modules_to_load=None, function_name=None,
+               options=None, guid=uuid.uuid4()):
     self.modules_to_load = modules_to_load
     self.function_name = function_name
+    self.options = options
+    self._guid = guid
 
   def __repr__(self):
     return 'FunctionHandle(modules_to_load=[%s], function_name="%s")' % (
       ', '.join([str(module) for module in self.modules_to_load]),
       self.function_name)
+
+  @property
+  def guid(self):
+    return self._guid
 
   @property
   def has_hrefs(self):
@@ -60,6 +68,8 @@ class FunctionHandle(object):
     if self.modules_to_load is not None:
       handle_dict['modules_to_load'] = [module.AsDict() for module in
                                         self.modules_to_load]
+    if self.options is not None:
+      handle_dict['options'] = self.options
 
     return handle_dict
 
@@ -101,8 +111,12 @@ class FunctionHandle(object):
     if handle_dict.get('modules_to_load') is not None:
       modules_to_load = [ModuleToLoad.FromDict(module_dict) for module_dict in
                          handle_dict['modules_to_load']]
+    else:
+      modules_to_load = []
+    options = handle_dict.get('options')
     return FunctionHandle(modules_to_load=modules_to_load,
-                          function_name=handle_dict['function_name'])
+                          function_name=handle_dict['function_name'],
+                          options=options)
 
   def AsUserFriendlyString(self, app):
     parts = [module.filename for module in

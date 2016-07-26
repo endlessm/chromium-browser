@@ -24,33 +24,17 @@ class VideoFrame {
   VideoFrame() {}
   virtual ~VideoFrame() {}
 
-  virtual bool InitToBlack(int w, int h, int64_t time_stamp) = 0;
-
-  // Creates a frame from a raw sample with FourCC |format| and size |w| x |h|.
-  // |h| can be negative indicating a vertically flipped image.
-  // |dw| is destination width; can be less than |w| if cropping is desired.
-  // |dh| is destination height, like |dw|, but must be a positive number.
-  // Returns whether the function succeeded or failed.
-
-  virtual bool Reset(uint32_t fourcc,
-                     int w,
-                     int h,
-                     int dw,
-                     int dh,
-                     uint8_t* sample,
-                     size_t sample_size,
-                     int64_t time_stamp,
-                     webrtc::VideoRotation rotation,
-                     bool apply_rotation) = 0;
-
   // Basic accessors.
   // Note this is the width and height without rotation applied.
-  virtual size_t GetWidth() const = 0;
-  virtual size_t GetHeight() const = 0;
+  virtual int width() const = 0;
+  virtual int height() const = 0;
 
-  size_t GetChromaWidth() const { return (GetWidth() + 1) / 2; }
-  size_t GetChromaHeight() const { return (GetHeight() + 1) / 2; }
-  size_t GetChromaSize() const { return GetUPitch() * GetChromaHeight(); }
+  // Deprecated methods, for backwards compatibility.
+  // TODO(nisse): Delete when usage in Chrome and other applications
+  // have been replaced by width() and height().
+  virtual size_t GetWidth() const final { return width(); }
+  virtual size_t GetHeight() const final { return height(); }
+
   // These can return NULL if the object is not backed by a buffer.
   virtual const uint8_t* GetYPlane() const = 0;
   virtual const uint8_t* GetUPlane() const = 0;
@@ -87,15 +71,6 @@ class VideoFrame {
   // Since VideoFrame supports shallow copy and the internal frame buffer might
   // be shared, this function can be used to check exclusive ownership.
   virtual bool IsExclusive() const = 0;
-
-  // In case VideoFrame needs exclusive access of the frame buffer, user can
-  // call MakeExclusive() to make sure the frame buffer is exclusively
-  // accessible to the current object.  This might mean a deep copy of the frame
-  // buffer if it is currently shared by other objects.
-  virtual bool MakeExclusive() = 0;
-
-  // Writes the frame into the target VideoFrame.
-  virtual void CopyToFrame(VideoFrame* target) const;
 
   // Return a copy of frame which has its pending rotation applied. The
   // ownership of the returned frame is held by this frame.

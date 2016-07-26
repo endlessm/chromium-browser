@@ -15,7 +15,10 @@ found in the LICENSE file.
 
 tr.exportTo('tr.ui.tracks', function() {
   /**
+   * A track used to provide whitespace between the tracks above and below it.
+   *
    * @constructor
+   * @extends {tr.ui.tracks.Track}
    */
   var SpacingTrack = tr.ui.b.define('spacing-track', tr.ui.tracks.Track);
 
@@ -28,9 +31,6 @@ tr.exportTo('tr.ui.tracks', function() {
 
       this.heading_ = document.createElement('tr-ui-heading');
       this.appendChild(this.heading_);
-    },
-
-    draw: function(type, viewLWorld, viewRWorld) {
     },
 
     addAllEventsMatchingFilterToSelection: function(filter, selection) {

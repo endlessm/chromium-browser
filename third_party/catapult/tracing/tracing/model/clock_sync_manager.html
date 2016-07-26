@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<!--
+Copyright 2016 The Chromium Authors. All rights reserved.
+Use of this source code is governed by a BSD-style license that can be
+found in the LICENSE file.
+-->
+
+<link rel="import" href="/tracing/base/iteration_helpers.html">
+
+<script>
+'use strict';
+
+tr.exportTo('tr.model', function() {
+  var ClockDomainId = {
+    BATTOR: 'BATTOR',
+
+    // NOTE: Exists for backwards compatibility with old Chrome traces which
+    // didn't explicitly specify the clock being used.
+    UNKNOWN_CHROME_LEGACY: 'UNKNOWN_CHROME_LEGACY',
+
+    LINUX_CLOCK_MONOTONIC: 'LINUX_CLOCK_MONOTONIC',
+    MAC_MACH_ABSOLUTE_TIME: 'MAC_MACH_ABSOLUTE_TIME',
+    WIN_ROLLOVER_PROTECTED_TIME_GET_TIME:
+        'WIN_ROLLOVER_PROTECTED_TIME_GET_TIME',
+    WIN_QPC: 'WIN_QPC'
+  };
+
+  // The number of milliseconds above which the BattOr sync is no longer
+  // considered "fast", and it's more accurate to use the sync start timestamp
+  // instead of the normal sync timestamp due to a bug in the Chrome serial code
+  // making serial reads too slow.
+  var BATTOR_FAST_SYNC_THRESHOLD_MS = 3;
+
+  /**
+   * A ClockSyncManager holds clock sync markers and uses them to shift
+   * timestamps from agents' clock domains onto the model's clock domain.
+   *
+   * In this context, a "clock domain" is a single perspective on the passage
+   * of time. A single computer can have multiple clock domains because it
+   * can have multiple methods of retrieving a timestamp (e.g.
+   * clock_gettime(CLOCK_MONOTONIC) and clock_gettime(CLOCK_REALTIME) on Linux).
+   * Another common reason for multiple clock domains within a single trace
+   * is that traces can span devices (e.g. a laptop collecting a Chrome trace
+   * can have its power consumption recorded by a second device and the two
+   * traces can be viewed alongside each other).
+   *
+   * For more information on how to synchronize multiple time domains using this
+   * method, see: http://bit.ly/1OVkqju.
+   *
+   * @constructor
+   */
+  function ClockSyncManager() {
+    // A map where each key is a sync ID and each value is an array of markers
+    // that share that sync ID.
+    this.markersBySyncId_ = {};
+    this.modelDomainId_ = undefined;
+    this.modelTimeTransformerByDomainId_ = undefined;
+  }
+
+  ClockSyncManager.prototype = {
+    /**
+     * Adds a clock sync marker to the list of known markers.
+     *
+     * @param {string} domainId The clock domain that the marker is in.
+     * @param {string} syncId The identifier shared by both sides of the clock
+     *                 sync marker.
+     * @param {number} startTs The time (in ms) at which the sync started.
+     * @param {number=} opt_endTs The time (in ms) at which the sync ended. If
+     *                 unspecified, it's assumed to be the same as the start,
+     *                 indicating an instantaneous sync.
+     */
+    addClockSyncMarker: function(domainId, syncId, startTs, opt_endTs) {
+      if (tr.b.dictionaryValues(ClockDomainId).indexOf(domainId) < 0) {
+        throw new Error('"' + domainId + '" is not in the list of known ' +
+            'clock domain IDs.');
+      }
+
+      if (this.modelDomainId_ !== undefined) {
+        throw new Error('Cannot add new clock sync markers after getting ' +
+            'a model time transformer.');
+      }
+
+      if (this.markersBySyncId_[syncId] === undefined)
+        this.markersBySyncId_[syncId] = [];
+
+      var markers = this.markersBySyncId_[syncId];
+
+      if (markers.length === 1 && markers[0].domainId === domainId) {
+        throw new Error('A clock domain cannot sync with itself.');
+      }
+
+      if (markers.length === 1 &&
+          this.connectorExistsBetween_(markers[0].domainId, domainId)) {
+        throw new Error('Cannot add multiple connectors between the same ' +
+            'clock domains.');
+      }
+
+      if (markers.length === 2) {
+        throw new Error('Clock sync with ID "' + syncId + '" is already ' +
+            'complete - cannot add a third clock sync marker to it.');
+      }
+
+      markers.push(new ClockSyncMarker(domainId, startTs, opt_endTs));
+    },
+
+    /**
+     * Returns a function that, given a timestamp in the specified clock domain,
+     * returns a timestamp in the model's clock domain.
+     *
+     * NOTE: All clock sync markers should be added before calling this function
+     * for the first time. This is because the first time that this function is
+     * called, a model clock domain is selected. This clock domain must have
+     * syncs connecting it with all other clock domains. If multiple clock
+     * domains are viable candidates, the one with the clock domain ID that is
+     * the first alphabetically is selected.
+     */
+    getModelTimeTransformer: function(domainId) {
+      if (this.modelTimeTransformerByDomainId_ === undefined)
+        this.buildModelTimeTransformerMap_();
+
+      var transformer = this.modelTimeTransformerByDomainId_[domainId];
+      if (transformer === undefined) {
+        throw new Error('No clock sync markers exist pairing clock domain "' +
+            domainId + '" ' + 'with model clock domain "' +
+            this.modelDomainId_ + '".');
+      }
+
+      return transformer;
+    },
+
+    /**
+     * Selects a model clock domain and builds the map of transformers to that
+     * domain. If no clock domains are viable candidates, an error is thrown.
+     *
+     * This method acts as a wrapper around its Impl() and adds support for
+     * legacy Chrome traces that don't explicitly specify their clock domain.
+     */
+    buildModelTimeTransformerMap_() {
+      // If this is a legacy Chrome trace that doesn't specify its clock domain,
+      // we need to collapse all of Chrome's potential clock domains into one.
+      // This ensures that things don't happen like the Chrome domain being
+      // referred to as UNKNOWN_CHROME_LEGACY by the TraceEventImporter and
+      // LINUX_CLOCK_MONOTONIC by the ftrace importer.
+      var actualChromeDomain = this.getActualTraceEventImporterDomain_();
+      if (actualChromeDomain !== undefined) {
+        // TODO(charliea): Right now, it's more convenient to substitute the
+        // actual domain with the legacy domain because it makes it easier to
+        // implement the bias towards picking the Chrome domain that's necessary
+        // during the migration to fully using this class. Once that migration
+        // is complete, we can reverse this so that it makes more sense by
+        // substituting the legacy domain with the actual one.
+        this.substituteDomainInMarkers_(
+            actualChromeDomain, ClockDomainId.UNKNOWN_CHROME_LEGACY);
+      }
+
+      this.buildModelTimeTransformerMapImpl_();
+
+      // In the above example, the ftrace importer will still request a
+      // conversion to model time from LINUX_CLOCK_MONOTONIC, so we need to
+      // make sure that conversion to model time is the same as
+      // UNKNOWN_CHROME_LEGACY because they're actually the same domain.
+      if (actualChromeDomain !== undefined) {
+        var chromeModelTimeTransform = this.modelTimeTransformerByDomainId_[
+            ClockDomainId.UNKNOWN_CHROME_LEGACY];
+        this.modelTimeTransformerByDomainId_[actualChromeDomain] =
+            chromeModelTimeTransform;
+      }
+    },
+
+    /**
+     * Selects a model clock domain and builds the map of transformers to that
+     * domain. If no clock domains are viable candidates, an error is thrown.
+     */
+    buildModelTimeTransformerMapImpl_() {
+      var connectorsByDomainId_ = this.getConnectorsByDomainId_();
+      var uniqueDomainIds = tr.b.dictionaryKeys(connectorsByDomainId_);
+
+      // If there are |n| unique clock domains, then the model clock domain
+      // is the first one alphabetically that's connected to the |n-1| other
+      // clock domains.
+      uniqueDomainIds.sort();
+      var isFullyConnected = function(domainId) {
+        return connectorsByDomainId_[domainId].length ===
+            uniqueDomainIds.length - 1;
+      };
+
+      var eligibleModelDomainIds = uniqueDomainIds.filter(isFullyConnected);
+      // TODO(charliea): Remove the bias towards picking UNKNOWN_CHROME_LEGACY
+      // once we're fully moved over to using the ClockSyncManager. In the
+      // interim, there are other importers that assume UNKNOWN_CHROME_LEGACY
+      // will be the master, so we have to leave this bias in place.
+      var chromeLegacyDomainExists =
+          eligibleModelDomainIds.indexOf(ClockDomainId.UNKNOWN_CHROME_LEGACY) >=
+              0;
+      this.modelDomainId_ = chromeLegacyDomainExists ?
+          ClockDomainId.UNKNOWN_CHROME_LEGACY : eligibleModelDomainIds[0];
+
+      if (this.modelDomainId_ === undefined) {
+        throw new Error('Unable to select a master clock domain because no ' +
+              'clock domain is directly connected to all others.');
+      }
+
+      this.modelTimeTransformerByDomainId_ = {};
+      this.modelTimeTransformerByDomainId_[this.modelDomainId_] = tr.b.identity;
+
+      var modelConnectors = connectorsByDomainId_[this.modelDomainId_];
+      for (var i = 0; i < modelConnectors.length; i++) {
+        var conn = modelConnectors[i];
+        if (conn.marker1.domainId === this.modelDomainId_) {
+          this.modelTimeTransformerByDomainId_[conn.marker2.domainId] =
+              conn.getTransformer(conn.marker2.domainId, conn.marker1.domainId);
+        } else {
+          this.modelTimeTransformerByDomainId_[conn.marker1.domainId] =
+              conn.getTransformer(conn.marker1.domainId, conn.marker2.domainId);
+        }
+      }
+    },
+
+    /**
+     * If any clock sync markers are from a Chrome trace that doesn't explicitly
+     * specify its clock domain, this method returns a best guess at what clock
+     * domain UNKNOWN_CHROME_LEGACY *really* is. If no such best guess can be
+     * made, undefined is returned.
+     */
+    getActualTraceEventImporterDomain_: function() {
+      var connectorsByDomainId = this.getConnectorsByDomainId_();
+      var uniqueDomainIds = tr.b.dictionaryKeys(connectorsByDomainId);
+
+      // If there's no UNKNOWN_CHROME_LEGACY markers, we have nothing to do.
+      if (uniqueDomainIds.indexOf(ClockDomainId.UNKNOWN_CHROME_LEGACY) < 0)
+        return undefined;
+
+      // Otherwise, return the first domain that we see that could be the real
+      // domain for UNKNOWN_CHROME_LEGACY.
+      if (uniqueDomainIds.indexOf(ClockDomainId.LINUX_CLOCK_MONOTONIC) >= 0)
+        return ClockDomainId.LINUX_CLOCK_MONOTONIC;
+
+      if (uniqueDomainIds.indexOf(ClockDomainId.MAC_MACH_ABSOLUTE_TIME) >= 0)
+        return ClockDomainId.MAC_MACH_ABSOLUTE_TIME;
+
+      if (uniqueDomainIds.indexOf(
+          ClockDomainId.WIN_ROLLOVER_PROTECTED_TIME_GET_TIME) >= 0) {
+        return ClockDomainId.WIN_ROLLOVER_PROTECTED_TIME_GET_TIME;
+      }
+
+      if (uniqueDomainIds.indexOf(ClockDomainId.WIN_QPC) >= 0)
+        return ClockDomainId.WIN_QPC;
+
+      // If we didn't see any of these, then UNKNOWN_CHROME_LEGACY isnt' a
+      // a duplicate of another clock domain.
+      return undefined;
+    },
+
+    /**
+     * Substitutes all instances of |original| domain ID with |replacement|
+     * in registered clock sync markers.
+     */
+    substituteDomainInMarkers_: function(original, replacement) {
+      for (var syncId in this.markersBySyncId_) {
+        for (var i = 0; i < this.markersBySyncId_[syncId].length; i++) {
+          var marker = this.markersBySyncId_[syncId][i];
+
+          if (marker.domainId === original)
+            marker.domainId = replacement;
+        }
+      }
+    },
+
+    /**
+     * Returns a map from clock domain ID to the connectors linked to that clock
+     * domain. Domains with registered markers but no connectors will have a
+     * zero-length array of connectors.
+     */
+    getConnectorsByDomainId_: function() {
+      var connectorsByDomainId = {};
+
+      for (var syncId in this.markersBySyncId_) {
+        var markers = this.markersBySyncId_[syncId];
+
+        // Make sure that domains with registered markers but no connectors have
+        // a zero-length list of connectors.
+        if (markers.length === 1) {
+          var markerDomainId = markers[0].domainId;
+          if (connectorsByDomainId[markerDomainId] === undefined)
+            connectorsByDomainId[markerDomainId] = [];
+
+          continue;
+        }
+
+        var conn = new ClockSyncConnector(markers[0], markers[1]);
+
+        var domain1 = conn.marker1.domainId;
+        if (connectorsByDomainId[domain1] === undefined)
+          connectorsByDomainId[domain1] = [];
+
+        var domain2 = conn.marker2.domainId;
+        if (connectorsByDomainId[domain2] === undefined)
+          connectorsByDomainId[domain2] = [];
+
+        connectorsByDomainId[markers[0].domainId].push(conn);
+        connectorsByDomainId[markers[1].domainId].push(conn);
+      }
+
+      return connectorsByDomainId;
+    },
+
+    /** Returns true if a connector exists between the specified domains. */
+    connectorExistsBetween_(domain1Id, domain2Id) {
+      for (var syncId in this.markersBySyncId_) {
+        var markers = this.markersBySyncId_[syncId];
+
+        if (markers.length !== 2)
+          continue;
+
+        var connector = new ClockSyncConnector(markers[0], markers[1]);
+        if (connector.isBetween(domain1Id, domain2Id))
+          return true;
+      }
+
+      return false;
+    }
+  };
+
+  /**
+   * A ClockSyncMarker is an internal entity that represents a marker in a
+   * trace log indicating that a clock sync happened at a specified time.
+   *
+   * If no end timestamp argument is specified in the constructor, it's assumed
+   * that the end timestamp is the same as the start (i.e. the clock sync
+   * was instantaneous).
+   */
+  function ClockSyncMarker(domainId, startTs, opt_endTs) {
+    this.domainId = domainId;
+    this.startTs = startTs;
+    this.endTs = opt_endTs === undefined ? startTs : opt_endTs;
+  }
+
+  ClockSyncMarker.prototype = {
+    get duration() { return this.endTs - this.startTs; },
+    get ts() { return this.startTs + this.duration / 2; }
+  };
+
+  /**
+   * A ClockSyncConnector is an internal entity that gives us the ability to
+   * compare timestamps taken in two distinct clock domains. It's formed from
+   * two clock sync markers issued at (approximately) the same time in
+   * two separate trace logs.
+   *
+   * @constructor
+   */
+  function ClockSyncConnector(marker1, marker2) {
+    if (marker1 === undefined || marker2 === undefined)
+      throw new Error('ClockSyncConnectors must consist of defined markers.');
+
+    this.marker1 = marker1;
+    this.marker2 = marker2;
+  }
+
+  ClockSyncConnector.prototype = {
+    /**
+     * Returns a function that transforms timestamps from one clock domain to
+     * another. If this connector isn't able to do this, an error is thrown.
+     */
+    getTransformer: function(fromDomainId, toDomainId) {
+      if (!this.isBetween(fromDomainId, toDomainId))
+        throw new Error('This connector cannot perform this transformation.');
+
+      var fromMarker, toMarker;
+      if (this.marker1.domainId === fromDomainId) {
+        fromMarker = this.marker1;
+        toMarker = this.marker2;
+      } else {
+        fromMarker = this.marker2;
+        toMarker = this.marker1;
+      }
+
+      var fromTs = fromMarker.ts, toTs = toMarker.ts;
+
+      // TODO(charliea): Usually, we estimate that the clock sync marker is
+      // issued by the agent exactly in the middle of the controller's start and
+      // end timestamps. However, there's currently a bug in the Chrome serial
+      // code that's making the clock sync ack for BattOr take much longer to
+      // read than it should (by about 8ms). This is causing the above estimate
+      // of the controller's sync timestamp to be off by a substantial enough
+      // amount that it makes traces hard to read. For now, make an exception
+      // for BattOr and just use the controller's start timestamp as the sync
+      // time. In the medium term, we should fix the Chrome serial code in order
+      // to remove this special logic and get an even more accurate estimate.
+      if (fromDomainId == ClockDomainId.BATTOR &&
+          toMarker.duration > BATTOR_FAST_SYNC_THRESHOLD_MS) {
+        toTs = toMarker.startTs;
+      } else if (toDomainId == ClockDomainId.BATTOR &&
+          fromMarker.duration > BATTOR_FAST_SYNC_THRESHOLD_MS) {
+        fromTs = fromMarker.startTs;
+      }
+
+      var tsShift = toTs - fromTs;
+      return function(ts) { return ts + tsShift; };
+    },
+
+    /**
+     * Returns true if this connector is between the specified clock domains.
+     */
+    isBetween: function(domain1Id, domain2Id) {
+      if (this.marker1.domainId === domain1Id &&
+          this.marker2.domainId === domain2Id) {
+        return true;
+      }
+
+      if (this.marker1.domainId === domain2Id &&
+          this.marker2.domainId === domain1Id) {
+        return true;
+      }
+
+      return false;
+    }
+  };
+
+  return {
+    ClockDomainId: ClockDomainId,
+    ClockSyncManager: ClockSyncManager
+  };
+});
+</script>

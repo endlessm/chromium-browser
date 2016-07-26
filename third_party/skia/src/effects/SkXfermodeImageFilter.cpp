@@ -23,22 +23,31 @@
 
 ///////////////////////////////////////////////////////////////////////////////
 
-SkXfermodeImageFilter::SkXfermodeImageFilter(SkXfermode* mode,
-                                             SkImageFilter* inputs[2],
-                                             const CropRect* cropRect)
-    : INHERITED(2, inputs, cropRect)
-    , fMode(SkSafeRef(mode)) {
+sk_sp<SkImageFilter> SkXfermodeImageFilter::Make(sk_sp<SkXfermode> mode,
+                                                 sk_sp<SkImageFilter> background,
+                                                 sk_sp<SkImageFilter> foreground,
+                                                 const CropRect* cropRect) {
+    sk_sp<SkImageFilter> inputs[2] = { std::move(background), std::move(foreground) };
+    return sk_sp<SkImageFilter>(new SkXfermodeImageFilter(mode, inputs, cropRect));
 }
 
-SkFlattenable* SkXfermodeImageFilter::CreateProc(SkReadBuffer& buffer) {
+SkXfermodeImageFilter::SkXfermodeImageFilter(sk_sp<SkXfermode> mode,
+                                             sk_sp<SkImageFilter> inputs[2],
+                                             const CropRect* cropRect)
+    : INHERITED(inputs, 2, cropRect)
+    , fMode(std::move(mode))
+{}
+
+sk_sp<SkFlattenable> SkXfermodeImageFilter::CreateProc(SkReadBuffer& buffer) {
     SK_IMAGEFILTER_UNFLATTEN_COMMON(common, 2);
-    SkAutoTUnref<SkXfermode> mode(buffer.readXfermode());
-    return Create(mode, common.getInput(0), common.getInput(1), &common.cropRect());
+    sk_sp<SkXfermode> mode(buffer.readXfermode());
+    return Make(std::move(mode), common.getInput(0), common.getInput(1),
+                &common.cropRect());
 }
 
 void SkXfermodeImageFilter::flatten(SkWriteBuffer& buffer) const {
     this->INHERITED::flatten(buffer);
-    buffer.writeFlattenable(fMode);
+    buffer.writeFlattenable(fMode.get());
 }
 
 bool SkXfermodeImageFilter::onFilterImageDeprecated(Proxy* proxy,
@@ -56,21 +65,13 @@ bool SkXfermodeImageFilter::onFilterImageDeprecated(Proxy* proxy,
         foreground.reset();
     }
 
-    SkIRect bounds, foregroundBounds;
-    SkIRect foregroundSrcBounds = foreground.bounds();
-    foregroundSrcBounds.offset(foregroundOffset);
-    if (!applyCropRect(ctx, foregroundSrcBounds, &foregroundBounds)) {
-        foregroundBounds.setEmpty();
-        foreground.reset();
-    }
-    SkIRect backgroundSrcBounds = background.bounds();
-    backgroundSrcBounds.offset(backgroundOffset);
-    if (!applyCropRect(ctx, backgroundSrcBounds, &bounds)) {
-        bounds.setEmpty();
-        background.reset();
-    }
-    bounds.join(foregroundBounds);
-    if (bounds.isEmpty()) {
+    SkIRect foregroundBounds = foreground.bounds();
+    foregroundBounds.offset(foregroundOffset);
+    SkIRect srcBounds = background.bounds();
+    srcBounds.offset(backgroundOffset);
+    srcBounds.join(foregroundBounds);
+    SkIRect bounds;
+    if (!this->applyCropRect(ctx, srcBounds, &bounds)) {
         return false;
     }
 
@@ -173,6 +174,7 @@ bool SkXfermodeImageFilter::filterImageGPUDeprecated(Proxy* proxy,
     }
 
     GrPaint paint;
+    // SRGBTODO: AllowSRGBInputs?
     SkAutoTUnref<const GrFragmentProcessor> bgFP;
 
     if (backgroundTex) {
@@ -247,4 +249,3 @@ bool SkXfermodeImageFilter::filterImageGPUDeprecated(Proxy* proxy,
 }
 
 #endif
-

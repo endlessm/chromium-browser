@@ -28,6 +28,7 @@
 #include "webrtc/modules/video_coding/codecs/vp8/include/vp8_common_types.h"
 #include "webrtc/modules/video_coding/codecs/vp8/screenshare_layers.h"
 #include "webrtc/modules/video_coding/codecs/vp8/temporal_layers.h"
+#include "webrtc/system_wrappers/include/clock.h"
 #include "webrtc/system_wrappers/include/tick_util.h"
 
 namespace webrtc {
@@ -328,8 +329,8 @@ void VP8EncoderImpl::SetupTemporalLayers(int num_streams,
   if (num_streams == 1) {
     if (codec.mode == kScreensharing) {
       // Special mode when screensharing on a single stream.
-      temporal_layers_.push_back(
-          new ScreenshareLayers(num_temporal_layers, rand()));
+      temporal_layers_.push_back(new ScreenshareLayers(
+          num_temporal_layers, rand(), webrtc::Clock::GetRealTimeClock()));
     } else {
       temporal_layers_.push_back(
           tl_factory->Create(num_temporal_layers, rand()));
@@ -603,8 +604,8 @@ int VP8EncoderImpl::InitEncode(const VideoCodec* inst,
   // TODO(glaznev/sprang): consider passing codec initial bitrate to quality
   // scaler to avoid starting with HD for low initial bitrates.
   quality_scaler_.Init(codec_.qpMax / QualityScaler::kDefaultLowQpDenominator,
-                       kDisabledBadQpThreshold, false, 0, 0, 0);
-  quality_scaler_.ReportFramerate(codec_.maxFramerate);
+                       kDisabledBadQpThreshold, false, 0, 0, 0,
+                       codec_.maxFramerate);
 
   // Only apply scaling to improve for single-layer streams. The scaling metrics
   // use frame drops as a signal and is only applicable when we drop frames.
@@ -616,7 +617,7 @@ int VP8EncoderImpl::InitEncode(const VideoCodec* inst,
 }
 
 int VP8EncoderImpl::SetCpuSpeed(int width, int height) {
-#if defined(WEBRTC_ARCH_ARM) || defined(WEBRTC_ARCH_ARM64)
+#if defined(WEBRTC_ARCH_ARM) || defined(WEBRTC_ARCH_ARM64) || defined(ANDROID)
   // On mobile platform, always set to -12 to leverage between cpu usage
   // and video quality.
   return -12;
@@ -671,7 +672,7 @@ int VP8EncoderImpl::InitAndSetControlSettings() {
   // when encoding lower resolution streams. Would it work with the
   // multi-res encoding feature?
   denoiserState denoiser_state = kDenoiserOnYOnly;
-#if defined(WEBRTC_ARCH_ARM) || defined(WEBRTC_ARCH_ARM64)
+#if defined(WEBRTC_ARCH_ARM) || defined(WEBRTC_ARCH_ARM64) || defined(ANDROID)
   denoiser_state = kDenoiserOnYOnly;
 #else
   denoiser_state = kDenoiserOnAdaptive;
@@ -1039,6 +1040,10 @@ int VP8EncoderImpl::GetEncodedPartitions(const VideoFrame& input_image,
         // Report once per frame (lowest stream always sent).
         encoded_images_[encoder_idx].adapt_reason_.bw_resolutions_disabled =
             (stream_idx == 0) ? bw_resolutions_disabled : -1;
+        int qp_128 = -1;
+        vpx_codec_control(&encoders_[encoder_idx], VP8E_GET_LAST_QUANTIZER,
+                          &qp_128);
+        encoded_images_[encoder_idx].qp_ = qp_128;
         encoded_complete_callback_->Encoded(encoded_images_[encoder_idx],
                                             &codec_specific, &frag_info);
       } else if (codec_.mode == kScreensharing) {
@@ -1104,7 +1109,8 @@ int VP8DecoderImpl::InitDecode(const VideoCodec* inst, int number_of_cores) {
   cfg.h = cfg.w = 0;  // set after decode
 
   vpx_codec_flags_t flags = 0;
-#if !defined(WEBRTC_ARCH_ARM) && !defined(WEBRTC_ARCH_ARM64)
+#if !defined(WEBRTC_ARCH_ARM) && !defined(WEBRTC_ARCH_ARM64) && \
+  !defined(ANDROID)
   flags = VPX_CODEC_USE_POSTPROC;
 #ifdef INDEPENDENT_PARTITIONS
   flags |= VPX_CODEC_USE_INPUT_PARTITION;
@@ -1151,7 +1157,8 @@ int VP8DecoderImpl::Decode(const EncodedImage& input_image,
   }
 #endif
 
-#if !defined(WEBRTC_ARCH_ARM) && !defined(WEBRTC_ARCH_ARM64)
+#if !defined(WEBRTC_ARCH_ARM) && !defined(WEBRTC_ARCH_ARM64) && \
+  !defined(ANDROID)
   vp8_postproc_cfg_t ppcfg;
   // MFQE enabled to reduce key frame popping.
   ppcfg.post_proc_flag = VP8_MFQE | VP8_DEBLOCK;

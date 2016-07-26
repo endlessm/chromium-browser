@@ -6,6 +6,7 @@ import os
 from perf_insights import map_single_trace
 from perf_insights import function_handle
 from perf_insights.mre import file_handle
+from perf_insights.mre import job as job_module
 
 _METRIC_MAP_FUNCTION_FILENAME = 'metric_map_function.html'
 
@@ -14,21 +15,21 @@ _METRIC_MAP_FUNCTION_NAME = 'metricMapFunction'
 def _GetMetricsDir():
   return os.path.dirname(os.path.abspath(__file__))
 
-def _GetMetricRunnerHandle(metrics):
-  assert isinstance(metrics, list)
+def _GetMetricRunnerHandle(metric):
+  assert isinstance(metric, basestring)
   metrics_dir = _GetMetricsDir()
-  metric_paths = [os.path.join(metrics_dir, metric) for metric in metrics]
   metric_mapper_path = os.path.join(metrics_dir, _METRIC_MAP_FUNCTION_FILENAME)
-  metric_paths.append(metric_mapper_path)
 
-  modules_to_load = [function_handle.ModuleToLoad(filename=path) for path in
-                     metric_paths]
+  modules_to_load = [function_handle.ModuleToLoad(filename=metric_mapper_path)]
+  map_function_handle = function_handle.FunctionHandle(
+      modules_to_load, _METRIC_MAP_FUNCTION_NAME, {'metric': metric})
 
-  return function_handle.FunctionHandle(modules_to_load,
-                                        _METRIC_MAP_FUNCTION_NAME)
+  return job_module.Job(map_function_handle, None)
 
-def RunMetrics(filename, metrics):
-  th = file_handle.URLFileHandle(filename, 'file://' + filename)
-  result = map_single_trace.MapSingleTrace(th, _GetMetricRunnerHandle(metrics))
+def RunMetric(filename, metric, extra_import_options=None):
+  url = 'file://' + os.path.abspath(filename)
+  th = file_handle.URLFileHandle(filename, url)
+  result = map_single_trace.MapSingleTrace(
+      th, _GetMetricRunnerHandle(metric), extra_import_options)
 
   return result

@@ -10,6 +10,7 @@ from driver_env import env
 from driver_log import Log
 import filetype
 import ldtools
+import os
 import pathtools
 
 EXTRA_ENV = {
@@ -22,6 +23,7 @@ EXTRA_ENV = {
   'OUTPUT'   : '',
 
   'STATIC'   : '0',
+  'SHARED'   : '0',
   'PIC'      : '0',
   'USE_STDLIB': '1',
   'RELOCATABLE': '0',
@@ -51,7 +53,9 @@ EXTRA_ENV = {
   'TRANSLATE_FLAGS_USER': '',
 
   'GOLD_PLUGIN_ARGS': '-plugin=${GOLD_PLUGIN_SO} ' +
-                      '-plugin-opt=emit-llvm',
+                      '-plugin-opt=emit-llvm ' +
+                      '-plugin-opt=no-abi-simplify ' +
+                      '-plugin-opt=no-finalize',
 
   'LD_FLAGS'       : '-nostdlib ${@AddPrefix:-L:SEARCH_DIRS} ' +
                      '${STATIC ? -static} ' +
@@ -230,6 +234,10 @@ LDPatterns = [
   ( ('(-?-wrap)', '(.+)'), AddToBCLinkFlags),
   ( ('(-?-wrap=.+)'),      AddToBCLinkFlags),
 
+  # "-shared" tells the linker to build a PLL (PNaCl/portable loadable library).
+  # This is implemented by passing "-relocatable" to the bitcode linker.
+  ( '(-shared)',             "env.set('SHARED', '1')"),
+
   # NOTE: For scons tests, the code generation fPIC flag is used with pnacl-ld.
   ( '-fPIC',               "env.set('PIC', '1')"),
 
@@ -289,9 +297,17 @@ def main(argv):
       Log.Fatal('"%s" affects translation. '
                 'To allow, specify --pnacl-allow-native' % flagstr)
 
-  if env.getbool('ALLOW_NATIVE') and not arch_flag_given:
+  if allow_native:
+    if not arch_flag_given:
       Log.Fatal("--pnacl-allow-native given, but translation "
                 "is not happening (missing -arch?)")
+    if env.getbool('SHARED'):
+      Log.Fatal('Native shared libraries are not supported with pnacl-ld.')
+
+  if env.getbool('SHARED'):
+    if env.getbool('RELOCATABLE'):
+      Log.Fatal('-r/-relocatable and -shared may not be passed together.')
+    env.set('RELOCATABLE', '1')
 
   # Overriding the lib target uses native-flavored bitcode libs rather than the
   # portable bitcode libs. It is currently only tested/supported for
@@ -330,6 +346,11 @@ def main(argv):
                                 # pnacl_generate_pexe=0 with glibc,
                                 # for user libraries.
                                 ldtools.LibraryTypes.ANY)
+  plls, inputs = FilterPlls(inputs)
+  plls = [os.path.basename(pll) for pll in plls]
+
+  if not env.getbool('SHARED') and plls != []:
+    Log.Fatal('Passing a PLL to the linker requires the "-shared" option.')
 
   # Make sure the inputs have matching arch.
   CheckInputsArch(inputs)
@@ -378,7 +399,27 @@ def main(argv):
     # A list of groups of args. Each group should contain a pass to run
     # along with relevant flags that go with that pass.
     opt_args = []
-    if abi_simplify:
+    if env.getbool('SHARED'):
+      pre_simplify_shared = [
+        # The following is a subset of "-pnacl-abi-simplify-preopt".  We don't
+        # want to run the full "-pnacl-abi-simplify-preopt" because it
+        # internalizes symbols that we want to export via "-convert-to-pso".
+        '-nacl-global-cleanup',
+        '-expand-varargs',
+        '-rewrite-pnacl-library-calls',
+        '-rewrite-llvm-intrinsic-calls',
+        '-convert-to-pso',
+      ]
+      # ConvertToPso takes a list of comma-separated PLL dependencies as an
+      # argument.
+      if plls != []:
+        pre_simplify_shared += ['-convert-to-pso-deps=' + ','.join(plls)]
+      opt_args.append(pre_simplify_shared)
+      # Post-opt is required, since '-convert-to-pso' adds metadata which must
+      # be simplified before finalization. Additionally, all functions must be
+      # simplified in the post-opt passes.
+      abi_simplify = True
+    elif abi_simplify:
       pre_simplify = ['-pnacl-abi-simplify-preopt']
       if env.getone('CXX_EH_MODE') == 'sjlj':
         pre_simplify += ['-enable-pnacl-sjlj-eh']
@@ -479,6 +520,19 @@ def FixPrivateLibs(user_libs):
     else:
       result_libs.append(user_lib)
   return result_libs
+
+def FilterPlls(inputs):
+  """ Split the input list into PLLs and other objects.
+  """
+  plls = []
+  other = []
+
+  for f in inputs:
+    if ldtools.IsFlag(f) or not filetype.IsPll(f):
+      other.append(f)
+    else:
+      plls.append(f)
+  return (plls, other)
 
 def SplitLinkLine(inputs):
   """ Split the input list into bitcode and native objects (.o, .a)

@@ -41,6 +41,7 @@ public class MediaCodecVideoDecoder {
   // possibly to minimize the amount of translation work necessary.
 
   private static final String TAG = "MediaCodecVideoDecoder";
+  private static final long MAX_DECODE_TIME_MS = 200;
 
   // Tracks webrtc::VideoCodecType.
   public enum VideoCodecType {
@@ -238,12 +239,14 @@ public class MediaCodecVideoDecoder {
 
   // Pass null in |surfaceTextureHelper| to configure the codec for ByteBuffer output.
   private boolean initDecode(
-      VideoCodecType type, int width, int height, SurfaceTextureHelper surfaceTextureHelper) {
+      VideoCodecType type, int width, int height,
+      SurfaceTextureHelper surfaceTextureHelper) {
     if (mediaCodecThread != null) {
-      throw new RuntimeException("Forgot to release()?");
+      throw new RuntimeException("initDecode: Forgot to release()?");
     }
-    useSurface = (surfaceTextureHelper != null);
+
     String mime = null;
+    useSurface = (surfaceTextureHelper != null);
     String[] supportedCodecPrefixes = null;
     if (type == VideoCodecType.VIDEO_CODEC_VP8) {
       mime = VP8_MIME_TYPE;
@@ -255,15 +258,17 @@ public class MediaCodecVideoDecoder {
       mime = H264_MIME_TYPE;
       supportedCodecPrefixes = supportedH264HwCodecPrefixes;
     } else {
-      throw new RuntimeException("Non supported codec " + type);
+      throw new RuntimeException("initDecode: Non-supported codec " + type);
     }
     DecoderProperties properties = findDecoder(mime, supportedCodecPrefixes);
     if (properties == null) {
       throw new RuntimeException("Cannot find HW decoder for " + type);
     }
+
     Logging.d(TAG, "Java initDecode: " + type + " : "+ width + " x " + height +
         ". Color: 0x" + Integer.toHexString(properties.colorFormat) +
         ". Use Surface: " + useSurface);
+
     runningInstance = this; // Decoder is now running and can be queried for stack traces.
     mediaCodecThread = Thread.currentThread();
     try {
@@ -282,14 +287,14 @@ public class MediaCodecVideoDecoder {
         format.setInteger(MediaFormat.KEY_COLOR_FORMAT, properties.colorFormat);
       }
       Logging.d(TAG, "  Format: " + format);
-      mediaCodec =
-          MediaCodecVideoEncoder.createByCodecName(properties.codecName);
+      mediaCodec = MediaCodecVideoEncoder.createByCodecName(properties.codecName);
       if (mediaCodec == null) {
         Logging.e(TAG, "Can not create media decoder");
         return false;
       }
       mediaCodec.configure(format, surface, null, 0);
       mediaCodec.start();
+
       colorFormat = properties.colorFormat;
       outputBuffers = mediaCodec.getOutputBuffers();
       inputBuffers = mediaCodec.getInputBuffers();
@@ -304,6 +309,24 @@ public class MediaCodecVideoDecoder {
       Logging.e(TAG, "initDecode failed", e);
       return false;
     }
+  }
+
+  // Resets the decoder so it can start decoding frames with new resolution.
+  // Flushes MediaCodec and clears decoder output buffers.
+  private void reset(int width, int height) {
+    if (mediaCodecThread == null || mediaCodec == null) {
+      throw new RuntimeException("Incorrect reset call for non-initialized decoder.");
+    }
+    Logging.d(TAG, "Java reset: " + width + " x " + height);
+
+    mediaCodec.flush();
+
+    this.width = width;
+    this.height = height;
+    decodeStartTimeMs.clear();
+    dequeuedSurfaceOutputBuffers.clear();
+    hasDecodedFirstFrame = false;
+    droppedFrames = 0;
   }
 
   private void release() {
@@ -468,7 +491,7 @@ public class MediaCodecVideoDecoder {
 
     public TextureListener(SurfaceTextureHelper surfaceTextureHelper) {
       this.surfaceTextureHelper = surfaceTextureHelper;
-      surfaceTextureHelper.setListener(this);
+      surfaceTextureHelper.startListening(this);
     }
 
     public void addBufferToRender(DecodedOutputBuffer buffer) {
@@ -524,10 +547,10 @@ public class MediaCodecVideoDecoder {
     }
 
     public void release() {
-      // SurfaceTextureHelper.disconnect() will block until any onTextureFrameAvailable() in
-      // progress is done. Therefore, the call to disconnect() must be outside any synchronized
+      // SurfaceTextureHelper.dispose() will block until any onTextureFrameAvailable() in
+      // progress is done. Therefore, the call to dispose() must be outside any synchronized
       // statement that is also used in the onTextureFrameAvailable() above to avoid deadlocks.
-      surfaceTextureHelper.disconnect();
+      surfaceTextureHelper.dispose();
       synchronized (newFrameLock) {
         if (renderedBuffer != null) {
           surfaceTextureHelper.returnTextureFrame();
@@ -594,13 +617,19 @@ public class MediaCodecVideoDecoder {
         default:
           hasDecodedFirstFrame = true;
           TimeStamps timeStamps = decodeStartTimeMs.remove();
+          long decodeTimeMs = SystemClock.elapsedRealtime() - timeStamps.decodeStartTimeMs;
+          if (decodeTimeMs > MAX_DECODE_TIME_MS) {
+            Logging.e(TAG, "Very high decode time: " + decodeTimeMs + "ms."
+                + " Might be caused by resuming H264 decoding after a pause.");
+            decodeTimeMs = MAX_DECODE_TIME_MS;
+          }
           return new DecodedOutputBuffer(result,
               info.offset,
               info.size,
               TimeUnit.MICROSECONDS.toMillis(info.presentationTimeUs),
               timeStamps.timeStampMs,
               timeStamps.ntpTimeStampMs,
-              SystemClock.elapsedRealtime() - timeStamps.decodeStartTimeMs,
+              decodeTimeMs,
               SystemClock.elapsedRealtime());
         }
     }

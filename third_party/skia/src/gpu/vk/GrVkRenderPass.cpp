@@ -7,6 +7,7 @@
 
 #include "GrVkRenderPass.h"
 
+#include "GrProcessor.h"
 #include "GrVkFramebuffer.h"
 #include "GrVkGpu.h"
 #include "GrVkRenderTarget.h"
@@ -22,7 +23,7 @@ void setup_simple_vk_attachment_description(VkAttachmentDescription* attachment,
     attachment->loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
     attachment->storeOp = VK_ATTACHMENT_STORE_OP_STORE;
     attachment->stencilLoadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
-    attachment->storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    attachment->stencilStoreOp = VK_ATTACHMENT_STORE_OP_STORE;
     attachment->initialLayout = layout;
     attachment->finalLayout = layout;
 }
@@ -186,7 +187,7 @@ void GrVkRenderPass::getBeginInfo(const GrVkRenderTarget& target,
     beginInfo->clearValueCount = 0;
     beginInfo->pClearValues = nullptr;
 
-    // Currently just assuming no secondary cmd buffers. This value will need to be update if we 
+    // Currently just assuming no secondary cmd buffers. This value will need to be update if we
     // have them.
     *contents = VK_SUBPASS_CONTENTS_INLINE;
 }
@@ -217,4 +218,20 @@ bool GrVkRenderPass::isCompatible(const GrVkRenderTarget& target) const {
     }
 
     return true;
+}
+
+void GrVkRenderPass::genKey(GrProcessorKeyBuilder* b) const {
+    b->add32(fAttachmentFlags);
+    if (fAttachmentFlags & kColor_AttachmentFlag) {
+        b->add32(fAttachmentsDescriptor.fColor.fFormat);
+        b->add32(fAttachmentsDescriptor.fColor.fSamples);
+    }
+    if (fAttachmentFlags & kResolve_AttachmentFlag) {
+        b->add32(fAttachmentsDescriptor.fResolve.fFormat);
+        b->add32(fAttachmentsDescriptor.fResolve.fSamples);
+    }
+    if (fAttachmentFlags & kStencil_AttachmentFlag) {
+        b->add32(fAttachmentsDescriptor.fStencil.fFormat);
+        b->add32(fAttachmentsDescriptor.fStencil.fSamples);
+    }
 }

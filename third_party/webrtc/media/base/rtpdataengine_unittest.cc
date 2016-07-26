@@ -8,16 +8,16 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
+#include <memory>
 #include <string>
 
-#include "webrtc/base/buffer.h"
+#include "webrtc/base/copyonwritebuffer.h"
 #include "webrtc/base/gunit.h"
 #include "webrtc/base/helpers.h"
-#include "webrtc/base/scoped_ptr.h"
 #include "webrtc/base/ssladapter.h"
 #include "webrtc/base/timing.h"
-#include "webrtc/media/base/constants.h"
 #include "webrtc/media/base/fakenetworkinterface.h"
+#include "webrtc/media/base/mediaconstants.h"
 #include "webrtc/media/base/rtpdataengine.h"
 #include "webrtc/media/base/rtputils.h"
 
@@ -124,7 +124,7 @@ class RtpDataMediaChannelTest : public testing::Test {
 
   std::string GetSentData(int index) {
     // Assume RTP header of length 12
-    rtc::scoped_ptr<const rtc::Buffer> packet(
+    std::unique_ptr<const rtc::CopyOnWriteBuffer> packet(
         iface_->GetRtpPacket(index));
     if (packet->size() > 12) {
       return std::string(packet->data<char>() + 12, packet->size() - 12);
@@ -134,7 +134,7 @@ class RtpDataMediaChannelTest : public testing::Test {
   }
 
   cricket::RtpHeader GetSentDataHeader(int index) {
-    rtc::scoped_ptr<const rtc::Buffer> packet(
+    std::unique_ptr<const rtc::CopyOnWriteBuffer> packet(
         iface_->GetRtpPacket(index));
     cricket::RtpHeader header;
     GetRtpHeader(packet->data(), packet->size(), &header);
@@ -142,15 +142,15 @@ class RtpDataMediaChannelTest : public testing::Test {
   }
 
  private:
-  rtc::scoped_ptr<cricket::RtpDataEngine> dme_;
+  std::unique_ptr<cricket::RtpDataEngine> dme_;
   // Timing passed into dme_.  Owned by dme_;
   FakeTiming* timing_;
-  rtc::scoped_ptr<cricket::FakeNetworkInterface> iface_;
-  rtc::scoped_ptr<FakeDataReceiver> receiver_;
+  std::unique_ptr<cricket::FakeNetworkInterface> iface_;
+  std::unique_ptr<FakeDataReceiver> receiver_;
 };
 
 TEST_F(RtpDataMediaChannelTest, SetUnknownCodecs) {
-  rtc::scoped_ptr<cricket::RtpDataMediaChannel> dmc(CreateChannel());
+  std::unique_ptr<cricket::RtpDataMediaChannel> dmc(CreateChannel());
 
   cricket::DataCodec known_codec;
   known_codec.id = 103;
@@ -185,7 +185,7 @@ TEST_F(RtpDataMediaChannelTest, SetUnknownCodecs) {
 }
 
 TEST_F(RtpDataMediaChannelTest, AddRemoveSendStream) {
-  rtc::scoped_ptr<cricket::RtpDataMediaChannel> dmc(CreateChannel());
+  std::unique_ptr<cricket::RtpDataMediaChannel> dmc(CreateChannel());
 
   cricket::StreamParams stream1;
   stream1.add_ssrc(41);
@@ -200,7 +200,7 @@ TEST_F(RtpDataMediaChannelTest, AddRemoveSendStream) {
 }
 
 TEST_F(RtpDataMediaChannelTest, AddRemoveRecvStream) {
-  rtc::scoped_ptr<cricket::RtpDataMediaChannel> dmc(CreateChannel());
+  std::unique_ptr<cricket::RtpDataMediaChannel> dmc(CreateChannel());
 
   cricket::StreamParams stream1;
   stream1.add_ssrc(41);
@@ -215,12 +215,12 @@ TEST_F(RtpDataMediaChannelTest, AddRemoveRecvStream) {
 }
 
 TEST_F(RtpDataMediaChannelTest, SendData) {
-  rtc::scoped_ptr<cricket::RtpDataMediaChannel> dmc(CreateChannel());
+  std::unique_ptr<cricket::RtpDataMediaChannel> dmc(CreateChannel());
 
   cricket::SendDataParams params;
   params.ssrc = 42;
   unsigned char data[] = "food";
-  rtc::Buffer payload(data, 4);
+  rtc::CopyOnWriteBuffer payload(data, 4);
   unsigned char padded_data[] = {
     0x00, 0x00, 0x00, 0x00,
     'f', 'o', 'o', 'd',
@@ -257,7 +257,7 @@ TEST_F(RtpDataMediaChannelTest, SendData) {
   // Length too large;
   std::string x10000(10000, 'x');
   EXPECT_FALSE(dmc->SendData(
-      params, rtc::Buffer(x10000.data(), x10000.length()), &result));
+      params, rtc::CopyOnWriteBuffer(x10000.data(), x10000.length()), &result));
   EXPECT_EQ(cricket::SDR_ERROR, result);
   EXPECT_FALSE(HasSentData(0));
 
@@ -293,12 +293,12 @@ TEST_F(RtpDataMediaChannelTest, SendData) {
 TEST_F(RtpDataMediaChannelTest, SendDataMultipleClocks) {
   // Timings owned by RtpDataEngines.
   FakeTiming* timing1 = new FakeTiming();
-  rtc::scoped_ptr<cricket::RtpDataEngine> dme1(CreateEngine(timing1));
-  rtc::scoped_ptr<cricket::RtpDataMediaChannel> dmc1(
+  std::unique_ptr<cricket::RtpDataEngine> dme1(CreateEngine(timing1));
+  std::unique_ptr<cricket::RtpDataMediaChannel> dmc1(
       CreateChannel(dme1.get()));
   FakeTiming* timing2 = new FakeTiming();
-  rtc::scoped_ptr<cricket::RtpDataEngine> dme2(CreateEngine(timing2));
-  rtc::scoped_ptr<cricket::RtpDataMediaChannel> dmc2(
+  std::unique_ptr<cricket::RtpDataEngine> dme2(CreateEngine(timing2));
+  std::unique_ptr<cricket::RtpDataMediaChannel> dmc2(
       CreateChannel(dme2.get()));
 
   ASSERT_TRUE(dmc1->SetSend(true));
@@ -325,7 +325,7 @@ TEST_F(RtpDataMediaChannelTest, SendDataMultipleClocks) {
   params2.ssrc = 42;
 
   unsigned char data[] = "foo";
-  rtc::Buffer payload(data, 3);
+  rtc::CopyOnWriteBuffer payload(data, 3);
   cricket::SendDataResult result;
 
   EXPECT_TRUE(dmc1->SendData(params1, payload, &result));
@@ -354,7 +354,7 @@ TEST_F(RtpDataMediaChannelTest, SendDataMultipleClocks) {
 }
 
 TEST_F(RtpDataMediaChannelTest, SendDataRate) {
-  rtc::scoped_ptr<cricket::RtpDataMediaChannel> dmc(CreateChannel());
+  std::unique_ptr<cricket::RtpDataMediaChannel> dmc(CreateChannel());
 
   ASSERT_TRUE(dmc->SetSend(true));
 
@@ -372,7 +372,7 @@ TEST_F(RtpDataMediaChannelTest, SendDataRate) {
   cricket::SendDataParams params;
   params.ssrc = 42;
   unsigned char data[] = "food";
-  rtc::Buffer payload(data, 4);
+  rtc::CopyOnWriteBuffer payload(data, 4);
   cricket::SendDataResult result;
 
   // With rtp overhead of 32 bytes, each one of our packets is 36
@@ -410,9 +410,9 @@ TEST_F(RtpDataMediaChannelTest, ReceiveData) {
     0x00, 0x00, 0x00, 0x00,
     'a', 'b', 'c', 'd', 'e'
   };
-  rtc::Buffer packet(data, sizeof(data));
+  rtc::CopyOnWriteBuffer packet(data, sizeof(data));
 
-  rtc::scoped_ptr<cricket::RtpDataMediaChannel> dmc(CreateChannel());
+  std::unique_ptr<cricket::RtpDataMediaChannel> dmc(CreateChannel());
 
   // SetReceived not called.
   dmc->OnPacketReceived(&packet, rtc::PacketTime());
@@ -450,9 +450,9 @@ TEST_F(RtpDataMediaChannelTest, InvalidRtpPackets) {
   unsigned char data[] = {
     0x80, 0x65, 0x00, 0x02
   };
-  rtc::Buffer packet(data, sizeof(data));
+  rtc::CopyOnWriteBuffer packet(data, sizeof(data));
 
-  rtc::scoped_ptr<cricket::RtpDataMediaChannel> dmc(CreateChannel());
+  std::unique_ptr<cricket::RtpDataMediaChannel> dmc(CreateChannel());
 
   // Too short
   dmc->OnPacketReceived(&packet, rtc::PacketTime());

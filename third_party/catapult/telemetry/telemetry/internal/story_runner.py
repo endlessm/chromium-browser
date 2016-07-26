@@ -171,7 +171,8 @@ def StoriesGroupedByStateClass(story_set, allow_multiple_groups):
   return story_groups
 
 
-def Run(test, story_set, finder_options, results, max_failures=None):
+def Run(test, story_set, finder_options, results, max_failures=None,
+        should_tear_down_state_after_each_story_run=False):
   """Runs a given test against a given page_set with the given options.
 
   Stop execution for unexpected exceptions such as KeyboardInterrupt.
@@ -181,13 +182,14 @@ def Run(test, story_set, finder_options, results, max_failures=None):
   # Filter page set based on options.
   stories = filter(story_module.StoryFilter.IsSelected, story_set)
 
-  if (not finder_options.use_live_sites and story_set.bucket and
+  if (not finder_options.use_live_sites and
       finder_options.browser_options.wpr_mode != wpr_modes.WPR_RECORD):
     serving_dirs = story_set.serving_dirs
-    for directory in serving_dirs:
-      cloud_storage.GetFilesInDirectoryIfChanged(directory,
-                                                 story_set.bucket)
-    if not _UpdateAndCheckArchives(
+    if story_set.bucket:
+      for directory in serving_dirs:
+        cloud_storage.GetFilesInDirectoryIfChanged(directory,
+                                                   story_set.bucket)
+    if story_set.archive_data_file and not _UpdateAndCheckArchives(
         story_set.archive_data_file, story_set.wpr_archive_info,
         stories):
       return
@@ -211,8 +213,12 @@ def Run(test, story_set, finder_options, results, max_failures=None):
         for story in group.stories:
           for _ in xrange(finder_options.page_repeat):
             if not state:
+              # Construct shared state by using a copy of finder_options. Shared
+              # state may update the finder_options. If we tear down the shared
+              # state after this story run, we want to construct the shared
+              # state for the next story from the original finder_options.
               state = group.shared_state_class(
-                  test, finder_options, story_set)
+                  test, finder_options.Copy(), story_set)
             results.WillRunPage(story)
             try:
               _WaitForThermalThrottlingIfNeeded(state.platform)
@@ -240,6 +246,9 @@ def Run(test, story_set, finder_options, results, max_failures=None):
                 # Print current exception and propagate existing exception.
                 exception_formatter.PrintFormattedException(
                     msg='Exception from result processing:')
+              if state and should_tear_down_state_after_each_story_run:
+                state.TearDownState()
+                state = None
           if (effective_max_failures is not None and
               len(results.failures) > effective_max_failures):
             logging.error('Too many failures. Aborting.')
@@ -299,7 +308,8 @@ def RunBenchmark(benchmark, finder_options):
       benchmark_metadata, finder_options,
       benchmark.ValueCanBeAddedPredicate) as results:
     try:
-      Run(pt, stories, finder_options, results, benchmark.max_failures)
+      Run(pt, stories, finder_options, results, benchmark.max_failures,
+          benchmark.ShouldTearDownStateAfterEachStoryRun())
       return_code = min(254, len(results.failures))
     except Exception:
       exception_formatter.PrintFormattedException()

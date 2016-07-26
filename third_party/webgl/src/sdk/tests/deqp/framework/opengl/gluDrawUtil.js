@@ -87,10 +87,10 @@ gluDrawUtil.namedBindingsToProgramLocations = function(gl, program, inputArray, 
             //assert(binding.location >= 0);
             var location = gl.getAttribLocation(program, cur.name);
             if (location >= 0) {
-                if (cur.offset)
-                    location += cur.offset;
+                if (cur.location >= 0)
+                    location += cur.location;
                 // Add binding.location as an offset to accomodate matrices.
-                outputArray.push(new gluDrawUtil.VertexArrayBinding(cur.type, location, cur.components, cur.elements, cur.data));
+                outputArray.push(new gluDrawUtil.VertexArrayBinding(cur.type, location, cur.components, cur.elements, cur.data, cur.stride, cur.offset));
             }
         } else {
             outputArray.push(cur);
@@ -282,8 +282,8 @@ gluDrawUtil.vertexBuffer = function(gl, vertexArray) {
         case gl.UNSIGNED_BYTE: typedArray = new Uint8Array(vertexArray.data); break;
         case gl.SHORT: typedArray = new Int16Array(vertexArray.data); break;
         case gl.UNSIGNED_SHORT: typedArray = new Uint16Array(vertexArray.data); break;
-        case gl.INT: typedArray = new Int16Array(vertexArray.data); break;
-        case gl.UNSIGNED_INT: typedArray = new Uint16Array(vertexArray.data); break;
+        case gl.INT: typedArray = new Int32Array(vertexArray.data); break;
+        case gl.UNSIGNED_INT: typedArray = new Uint32Array(vertexArray.data); break;
         default: typedArray = new Float32Array(vertexArray.data); break;
     }
 
@@ -294,7 +294,11 @@ gluDrawUtil.vertexBuffer = function(gl, vertexArray) {
     assertMsgOptions(gl.getError() === gl.NO_ERROR, 'bufferData', false, true);
     gl.enableVertexAttribArray(vertexArray.location);
     assertMsgOptions(gl.getError() === gl.NO_ERROR, 'enableVertexAttribArray', false, true);
-    gl.vertexAttribPointer(vertexArray.location, vertexArray.components, vertexArray.type, false, vertexArray.stride, vertexArray.offset);
+    if (vertexArray.type === gl.FLOAT) {
+        gl.vertexAttribPointer(vertexArray.location, vertexArray.components, vertexArray.type, false, vertexArray.stride, vertexArray.offset);
+    } else {
+        gl.vertexAttribIPointer(vertexArray.location, vertexArray.components, vertexArray.type, vertexArray.stride, vertexArray.offset);
+    }
     assertMsgOptions(gl.getError() === gl.NO_ERROR, 'vertexAttribPointer', false, true);
     return buffer;
 };
@@ -489,7 +493,7 @@ gluDrawUtil.newFloatVertexArrayBinding = function(name, numComponents, numElemen
  */
 gluDrawUtil.newFloatColumnVertexArrayBinding = function(name, column, rows, numElements, stride, data) {
     var bindingPoint = gluDrawUtil.bindingPointFromName(name);
-    bindingPoint.offset = column;
+    bindingPoint.location = column;
     var arrayPointer = new gluDrawUtil.VertexArrayPointer(gluDrawUtil.VertexComponentType.VTX_COMP_FLOAT,
         gluDrawUtil.VertexComponentConversion.VTX_COMP_CONVERT_NONE, rows, numElements, stride, data);
     return gluDrawUtil.vabFromBindingPointAndArrayPointer(bindingPoint, arrayPointer);

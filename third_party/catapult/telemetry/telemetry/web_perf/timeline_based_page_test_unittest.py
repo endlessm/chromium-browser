@@ -48,7 +48,6 @@ class TimelineBasedPageTestTest(page_test_test_case.PageTestTestCase):
   # This test is flaky when run in parallel on the mac: crbug.com/426676
   # Also, fails on android: crbug.com/437057, and chromeos: crbug.com/483212
   @decorators.Disabled('android', 'mac', 'chromeos')
-  @decorators.Disabled('win')  # crbug.com/570955
   @decorators.Isolated  # Needed because of py_trace_event
   def testSmoothnessTimelineBasedMeasurementForSmoke(self):
     ps = self.CreateEmptyPageSet()
@@ -90,34 +89,6 @@ class TimelineBasedPageTestTest(page_test_test_case.PageTestTestCase):
     self.assertEquals(len(v), 1)
     self.assertGreater(v[0].value, 0)
 
-  # Disabled since mainthread_jank metric is not supported on windows platform.
-  # Also, flaky on the mac when run in parallel: crbug.com/426676
-  # Also, fails on android: crbug.com/437057
-  # Also, fails on chromeos: crbug.com/483212
-  @decorators.Disabled('android', 'win', 'mac', 'chromeos')
-  @decorators.Isolated  # Needed because of py_trace_event
-  def testMainthreadJankTimelineBasedMeasurement(self):
-    ps = self.CreateEmptyPageSet()
-    ps.AddStory(TestTimelinebasedMeasurementPage(
-        ps, ps.base_dir, trigger_jank=True))
-
-    tbm = tbm_module.TimelineBasedMeasurement(tbm_module.Options())
-    results = self.RunMeasurement(tbm, ps, options=self._options)
-    self.assertEquals(0, len(results.failures))
-
-    # In interaction_enabled_page.html, we create a jank loop based on
-    # window.performance.now() (basically loop for x milliseconds).
-    # Since window.performance.now() uses wall-time instead of thread time,
-    # we only assert the biggest jank > 50ms here to account for the fact
-    # that the browser may deschedule during the jank loop.
-    v = results.FindAllPageSpecificValuesFromIRNamed(
-        'JankThreadJSRun', 'responsive-biggest_jank_thread_time')
-    self.assertGreaterEqual(v[0].value, 50)
-
-    v = results.FindAllPageSpecificValuesFromIRNamed(
-        'JankThreadJSRun', 'responsive-total_big_jank_thread_time')
-    self.assertGreaterEqual(v[0].value, 50)
-
   # win: crbug.com/520781, chromeos: crbug.com/483212.
   @decorators.Disabled('win', 'chromeos')
   @decorators.Isolated  # Needed because of py_trace_event
@@ -134,12 +105,14 @@ class TimelineBasedPageTestTest(page_test_test_case.PageTestTestCase):
         'Gesture_Scroll', 'frame_time_discrepancy')
     self.assertEquals(len(v), 1)
 
+  # Fails on chromeos: crbug.com/483212
+  @decorators.Disabled('chromeos')
   def testTBM2ForSmoke(self):
     ps = self.CreateEmptyPageSet()
     ps.AddStory(TestTimelinebasedMeasurementPage(ps, ps.base_dir))
 
     options = tbm_module.Options()
-    options.SetTimelineBasedMetrics(['sample_metric.html'])
+    options.SetTimelineBasedMetric('sampleMetric')
 
     tbm = tbm_module.TimelineBasedMeasurement(options)
     results = self.RunMeasurement(tbm, ps, self._options)
@@ -147,9 +120,15 @@ class TimelineBasedPageTestTest(page_test_test_case.PageTestTestCase):
     self.assertEquals(0, len(results.failures))
     v_foo = results.FindAllPageSpecificValuesNamed('foo')
     v_bar = results.FindAllPageSpecificValuesNamed('bar')
+    v_baz_avg = results.FindAllPageSpecificValuesNamed('baz_avg')
+    v_baz_sum = results.FindAllPageSpecificValuesNamed('baz_sum')
+    v_baz_count = results.FindAllPageSpecificValuesNamed('baz_count')
     self.assertEquals(len(v_foo), 1)
     self.assertEquals(len(v_bar), 1)
     self.assertEquals(v_foo[0].value, 1)
     self.assertIsNotNone(v_foo[0].page)
     self.assertEquals(v_bar[0].value, 2)
     self.assertIsNotNone(v_bar[0].page)
+    self.assertEquals(len(v_baz_avg), 1)
+    self.assertEquals(len(v_baz_sum), 1)
+    self.assertEquals(len(v_baz_count), 1)

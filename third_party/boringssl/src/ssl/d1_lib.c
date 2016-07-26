@@ -57,12 +57,11 @@
 #include <openssl/ssl.h>
 
 #include <limits.h>
-#include <stdio.h>
 #include <string.h>
 
 #include <openssl/err.h>
 #include <openssl/mem.h>
-#include <openssl/obj.h>
+#include <openssl/nid.h>
 
 #include "internal.h"
 
@@ -272,6 +271,9 @@ int dtls1_check_timeout_num(SSL *ssl) {
 }
 
 int DTLSv1_handle_timeout(SSL *ssl) {
+  /* Functions which use SSL_get_error must clear the error queue on entry. */
+  ERR_clear_error();
+
   if (!SSL_IS_DTLS(ssl)) {
     return -1;
   }

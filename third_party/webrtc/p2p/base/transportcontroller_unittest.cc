@@ -134,10 +134,10 @@ class TransportControllerTest : public testing::Test,
     channel2->SetConnectionCount(1);
   }
 
-  cricket::IceConfig CreateIceConfig(int receiving_timeout_ms,
+  cricket::IceConfig CreateIceConfig(int receiving_timeout,
                                      bool gather_continually) {
     cricket::IceConfig config;
-    config.receiving_timeout_ms = receiving_timeout_ms;
+    config.receiving_timeout = receiving_timeout;
     config.gather_continually = gather_continually;
     return config;
   }
@@ -303,20 +303,19 @@ TEST_F(TransportControllerTest, TestSetAndGetLocalCertificate) {
 
 TEST_F(TransportControllerTest, TestGetRemoteSSLCertificate) {
   rtc::FakeSSLCertificate fake_certificate("fake_data");
-  rtc::scoped_ptr<rtc::SSLCertificate> returned_certificate;
 
   FakeTransportChannel* channel = CreateChannel("audio", 1);
   ASSERT_NE(nullptr, channel);
 
   channel->SetRemoteSSLCertificate(&fake_certificate);
-  EXPECT_TRUE(transport_controller_->GetRemoteSSLCertificate(
-      "audio", returned_certificate.accept()));
+  rtc::scoped_ptr<rtc::SSLCertificate> returned_certificate =
+      transport_controller_->GetRemoteSSLCertificate("audio");
+  EXPECT_TRUE(returned_certificate);
   EXPECT_EQ(fake_certificate.ToPEMString(),
             returned_certificate->ToPEMString());
 
   // Should fail if called for a nonexistant transport.
-  EXPECT_FALSE(transport_controller_->GetRemoteSSLCertificate(
-      "video", returned_certificate.accept()));
+  EXPECT_FALSE(transport_controller_->GetRemoteSSLCertificate("video"));
 }
 
 TEST_F(TransportControllerTest, TestSetLocalTransportDescription) {

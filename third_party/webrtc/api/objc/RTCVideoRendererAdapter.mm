@@ -15,17 +15,18 @@
 
 namespace webrtc {
 
-class VideoRendererAdapter : public VideoRendererInterface {
+class VideoRendererAdapter
+    : public rtc::VideoSinkInterface<cricket::VideoFrame> {
  public:
   VideoRendererAdapter(RTCVideoRendererAdapter* adapter) {
     adapter_ = adapter;
     size_ = CGSizeZero;
   }
 
-  void RenderFrame(const cricket::VideoFrame *nativeVideoFrame) override {
+  void OnFrame(const cricket::VideoFrame& nativeVideoFrame) override {
     const cricket::VideoFrame *frame =
-        nativeVideoFrame->GetCopyWithRotationApplied();
-    CGSize current_size = CGSizeMake(frame->GetWidth(), frame->GetHeight());
+        nativeVideoFrame.GetCopyWithRotationApplied();
+    CGSize current_size = CGSizeMake(frame->width(), frame->height());
     if (!CGSizeEqualToSize(size_, current_size)) {
       size_ = current_size;
       [adapter_.videoRenderer setSize:size_];
@@ -56,7 +57,7 @@ class VideoRendererAdapter : public VideoRendererInterface {
   return self;
 }
 
-- (webrtc::VideoRendererInterface *)nativeVideoRenderer {
+- (rtc::VideoSinkInterface<cricket::VideoFrame> *)nativeVideoRenderer {
   return _adapter.get();
 }
 

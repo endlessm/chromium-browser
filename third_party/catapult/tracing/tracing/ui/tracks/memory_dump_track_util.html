@@ -5,6 +5,7 @@ Use of this source code is governed by a BSD-style license that can be
 found in the LICENSE file.
 -->
 
+<link rel="import" href="/tracing/model/container_memory_dump.html">
 <link rel="import" href="/tracing/model/memory_allocator_dump.html">
 <link rel="import" href="/tracing/ui/tracks/chart_axis.html">
 <link rel="import" href="/tracing/ui/tracks/chart_point.html">
@@ -19,8 +20,10 @@ found in the LICENSE file.
 tr.exportTo('tr.ui.tracks', function() {
   var ColorScheme = tr.b.ColorScheme;
 
-  var DISPLAYED_SIZE_ATTRIBUTE_NAME =
-      tr.model.MemoryAllocatorDump.DISPLAYED_SIZE_ATTRIBUTE_NAME;
+  var DISPLAYED_SIZE_NUMERIC_NAME =
+      tr.model.MemoryAllocatorDump.DISPLAYED_SIZE_NUMERIC_NAME;
+  var LIGHT = tr.model.ContainerMemoryDump.LevelOfDetail.LIGHT;
+  var DETAILED = tr.model.ContainerMemoryDump.LevelOfDetail.DETAILED;
 
   /**
    * Add numeric values from a source dictionary to the numeric values in
@@ -53,8 +56,7 @@ tr.exportTo('tr.ui.tracks', function() {
       // TODO(petrcermak): Find a less hacky way to do this.
       if (allocatorDump.fullName === 'tracing')
         return;
-      var allocatorSize = allocatorDump.attributes[
-          DISPLAYED_SIZE_ATTRIBUTE_NAME];
+      var allocatorSize = allocatorDump.numerics[DISPLAYED_SIZE_NUMERIC_NAME];
       if (allocatorSize === undefined)
         return;
       var allocatorSizeValue = allocatorSize.value;
@@ -141,10 +143,10 @@ tr.exportTo('tr.ui.tracks', function() {
     return memoryDumps.map(function(memoryDump) {
       var memoryColorId;
       switch (memoryDump.levelOfDetail) {
-        case 'detailed':
+        case DETAILED:
           memoryColorId = detailedMemoryColorId;
           break;
-        case 'light':
+        case LIGHT:
         default:
           memoryColorId = lightMemoryColorId;
       }
@@ -189,20 +191,14 @@ tr.exportTo('tr.ui.tracks', function() {
       var pssBase = 0;
       tr.b.iterItems(pidToPoints, function(pid, points) {
         var processMemoryDump = globalDump.processMemoryDumps[pid];
-        var pss;
-        if (processMemoryDump === undefined) {
-          // If no dump was found, assume that the process is dead.
-          pss = 0;
-        } else {
-          pss = processMemoryDump.getMostRecentTotalVmRegionStat(
-              'proportionalResident');
-          if (pss === undefined) {
-            // If the dump does not provide the necessary information (namely
-            // most recent VM regions), assume zero.
-            pss = 0;
-          }
+        var cumulativePss = pssBase;
+        // If no dump was found (probably dead) or it does not provide the
+        // necessary information (namely most recent VM regions), assume zero.
+        if (processMemoryDump !== undefined) {
+          var vmRegions = processMemoryDump.mostRecentVmRegions;
+          if (vmRegions !== undefined)
+            cumulativePss += vmRegions.byteStats.proportionalResident || 0;
         }
-        var cumulativePss = pssBase + pss;
         points.push(new tr.ui.tracks.ChartPoint(
             globalDump, globalDump.start, cumulativePss, pssBase));
         pssBase = cumulativePss;

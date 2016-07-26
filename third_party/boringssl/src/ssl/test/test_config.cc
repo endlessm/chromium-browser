@@ -62,6 +62,7 @@ const Flag<bool> kBoolFlags[] = {
   { "-no-ssl3", &TestConfig::no_ssl3 },
   { "-shim-writes-first", &TestConfig::shim_writes_first },
   { "-expect-session-miss", &TestConfig::expect_session_miss },
+  { "-decline-alpn", &TestConfig::decline_alpn },
   { "-expect-extended-master-secret",
     &TestConfig::expect_extended_master_secret },
   { "-enable-ocsp-stapling", &TestConfig::enable_ocsp_stapling },
@@ -98,6 +99,8 @@ const Flag<bool> kBoolFlags[] = {
   { "-p384-only", &TestConfig::p384_only },
   { "-enable-all-curves", &TestConfig::enable_all_curves },
   { "-use-sparse-dh-prime", &TestConfig::use_sparse_dh_prime },
+  { "-use-old-client-cert-callback",
+    &TestConfig::use_old_client_cert_callback },
 };
 
 const Flag<std::string> kStringFlags[] = {
@@ -178,12 +181,14 @@ bool ParseConfig(int argc, char **argv, TestConfig *out_config) {
       size_t len;
       if (!EVP_DecodedLength(&len, strlen(argv[i]))) {
         fprintf(stderr, "Invalid base64: %s\n", argv[i]);
+        return false;
       }
       std::unique_ptr<uint8_t[]> decoded(new uint8_t[len]);
       if (!EVP_DecodeBase64(decoded.get(), &len, len,
                             reinterpret_cast<const uint8_t *>(argv[i]),
                             strlen(argv[i]))) {
         fprintf(stderr, "Invalid base64: %s\n", argv[i]);
+        return false;
       }
       base64_field->assign(reinterpret_cast<const char *>(decoded.get()), len);
       continue;

@@ -1,4 +1,3 @@
-
 /*
  * Copyright 2011 Google Inc.
  *
@@ -289,6 +288,13 @@ void SkNWayCanvas::onDrawPatch(const SkPoint cubics[12], const SkColor colors[4]
     Iter iter(fList);
     while (iter.next()) {
         iter->drawPatch(cubics, colors, texCoords, xmode, paint);
+    }
+}
+
+void SkNWayCanvas::onDrawAnnotation(const SkRect& rect, const char key[], SkData* data) {
+    Iter iter(fList);
+    while (iter.next()) {
+        iter->drawAnnotation(rect, key, data);
     }
 }
 

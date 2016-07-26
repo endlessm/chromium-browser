@@ -88,7 +88,13 @@ class BufferFactoryD3D
     // TODO(jmadill): add VertexFormatCaps
     virtual VertexConversionType getVertexConversionType(gl::VertexFormatType vertexFormatType) const = 0;
     virtual GLenum getVertexComponentType(gl::VertexFormatType vertexFormatType) const = 0;
+    virtual gl::ErrorOrResult<unsigned int> getVertexSpaceRequired(
+        const gl::VertexAttribute &attrib,
+        GLsizei count,
+        GLsizei instances) const = 0;
 };
+
+using AttribIndexArray = std::array<int, gl::MAX_VERTEX_ATTRIBS>;
 
 class RendererD3D : public Renderer, public BufferFactoryD3D
 {
@@ -174,7 +180,7 @@ class RendererD3D : public Renderer, public BufferFactoryD3D
                                        GLenum mode,
                                        GLenum type,
                                        TranslatedIndexData *indexInfo) = 0;
-    virtual void applyTransformFeedbackBuffers(const gl::State& state) = 0;
+    virtual gl::Error applyTransformFeedbackBuffers(const gl::State &state) = 0;
 
     virtual unsigned int getReservedVertexUniformVectors() const = 0;
     virtual unsigned int getReservedFragmentUniformVectors() const = 0;
@@ -259,6 +265,9 @@ class RendererD3D : public Renderer, public BufferFactoryD3D
 
     bool presentPathFastEnabled() const { return mPresentPathFastEnabled; }
 
+    // Stream creation
+    virtual StreamImpl *createStream(const egl::AttributeMap &attribs) = 0;
+
   protected:
     virtual bool getLUID(LUID *adapterLuid) const = 0;
     virtual gl::Error applyShadersImpl(const gl::Data &data, GLenum drawMode) = 0;
@@ -275,8 +284,6 @@ class RendererD3D : public Renderer, public BufferFactoryD3D
 
     void initializeDebugAnnotator();
     gl::DebugAnnotator *mAnnotator;
-
-    std::vector<TranslatedAttribute> mTranslatedAttribCache;
 
     bool mPresentPathFastEnabled;
 
@@ -297,6 +304,7 @@ class RendererD3D : public Renderer, public BufferFactoryD3D
 
     virtual gl::Error drawArraysImpl(const gl::Data &data,
                                      GLenum mode,
+                                     GLint startVertex,
                                      GLsizei count,
                                      GLsizei instances) = 0;
     virtual gl::Error drawElementsImpl(const gl::Data &data,
@@ -320,7 +328,7 @@ class RendererD3D : public Renderer, public BufferFactoryD3D
     gl::Error applyTextures(const gl::Data &data);
 
     bool skipDraw(const gl::Data &data, GLenum drawMode);
-    void markTransformFeedbackUsage(const gl::Data &data);
+    gl::Error markTransformFeedbackUsage(const gl::Data &data);
 
     size_t getBoundFramebufferTextures(const gl::Data &data, FramebufferTextureArray *outTextureArray);
     gl::Texture *getIncompleteTexture(GLenum type);

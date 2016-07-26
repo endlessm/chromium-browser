@@ -195,12 +195,13 @@ SkDisplacementMapEffect::SkDisplacementMapEffect(ChannelSelectorType xChannelSel
 SkDisplacementMapEffect::~SkDisplacementMapEffect() {
 }
 
-SkFlattenable* SkDisplacementMapEffect::CreateProc(SkReadBuffer& buffer) {
+sk_sp<SkFlattenable> SkDisplacementMapEffect::CreateProc(SkReadBuffer& buffer) {
     SK_IMAGEFILTER_UNFLATTEN_COMMON(common, 2);
     ChannelSelectorType xsel = (ChannelSelectorType)buffer.readInt();
     ChannelSelectorType ysel = (ChannelSelectorType)buffer.readInt();
     SkScalar scale = buffer.readScalar();
-    return Create(xsel, ysel, scale, common.getInput(0), common.getInput(1), &common.cropRect());
+    return sk_sp<SkFlattenable>(Create(xsel, ysel, scale, common.getInput(0).get(),
+                                       common.getInput(1).get(), &common.cropRect()));
 }
 
 void SkDisplacementMapEffect::flatten(SkWriteBuffer& buffer) const {
@@ -265,32 +266,27 @@ bool SkDisplacementMapEffect::onFilterImageDeprecated(Proxy* proxy,
     return true;
 }
 
-void SkDisplacementMapEffect::computeFastBounds(const SkRect& src, SkRect* dst) const {
-    if (this->getColorInput()) {
-        this->getColorInput()->computeFastBounds(src, dst);
-    } else {
-        *dst = src;
-    }
-    dst->outset(SkScalarAbs(fScale) * SK_ScalarHalf, SkScalarAbs(fScale) * SK_ScalarHalf);
+SkRect SkDisplacementMapEffect::computeFastBounds(const SkRect& src) const {
+    SkRect bounds = this->getColorInput() ? this->getColorInput()->computeFastBounds(src) : src;
+    bounds.outset(SkScalarAbs(fScale) * SK_ScalarHalf, SkScalarAbs(fScale) * SK_ScalarHalf);
+    return bounds;
 }
 
-void SkDisplacementMapEffect::onFilterNodeBounds(const SkIRect& src, const SkMatrix& ctm,
-                                   SkIRect* dst, MapDirection) const {
-    *dst = src;
+SkIRect SkDisplacementMapEffect::onFilterNodeBounds(const SkIRect& src, const SkMatrix& ctm,
+                                                    MapDirection) const {
     SkVector scale = SkVector::Make(fScale, fScale);
     ctm.mapVectors(&scale, 1);
-    dst->outset(SkScalarCeilToInt(SkScalarAbs(scale.fX) * SK_ScalarHalf),
-                SkScalarCeilToInt(SkScalarAbs(scale.fY) * SK_ScalarHalf));
+    return src.makeOutset(SkScalarCeilToInt(SkScalarAbs(scale.fX) * SK_ScalarHalf),
+                          SkScalarCeilToInt(SkScalarAbs(scale.fY) * SK_ScalarHalf));
 }
 
-bool SkDisplacementMapEffect::onFilterBounds(const SkIRect& src, const SkMatrix& ctm,
-                                             SkIRect* dst, MapDirection direction) const {
+SkIRect SkDisplacementMapEffect::onFilterBounds(const SkIRect& src, const SkMatrix& ctm,
+                                                MapDirection direction) const {
     // Recurse only into color input.
     if (this->getColorInput()) {
-        return this->getColorInput()->filterBounds(src, ctm, dst, direction);
+        return this->getColorInput()->filterBounds(src, ctm, direction);
     }
-    *dst = src;
-    return true;
+    return src;
 }
 
 #ifndef SK_IGNORE_TO_STRING
@@ -435,6 +431,7 @@ bool SkDisplacementMapEffect::filterImageGPUDeprecated(Proxy* proxy, const SkBit
     ctx.ctm().mapVectors(&scale, 1);
 
     GrPaint paint;
+    // SRGBTODO: AllowSRGBInputs?
     SkMatrix offsetMatrix = GrCoordTransform::MakeDivByTextureWHMatrix(displacement);
     offsetMatrix.preTranslate(SkIntToScalar(colorOffset.fX - displacementOffset.fX),
                               SkIntToScalar(colorOffset.fY - displacementOffset.fY));
@@ -636,4 +633,3 @@ void GrGLDisplacementMapEffect::GenKey(const GrProcessor& proc,
     b->add32(xKey | yKey);
 }
 #endif
-

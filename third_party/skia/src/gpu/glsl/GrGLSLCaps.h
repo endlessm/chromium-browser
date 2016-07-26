@@ -15,7 +15,7 @@
 
 class GrGLSLCaps : public GrShaderCaps {
 public:
-    
+
 
     /**
     * Indicates how GLSL must interact with advanced blend equations. The KHR extension requires
@@ -58,9 +58,15 @@ public:
 
     bool noperspectiveInterpolationSupport() const { return fNoPerspectiveInterpolationSupport; }
 
+    bool multisampleInterpolationSupport() const { return fMultisampleInterpolationSupport; }
+
     bool sampleVariablesSupport() const { return fSampleVariablesSupport; }
 
     bool sampleMaskOverrideCoverageSupport() const { return fSampleMaskOverrideCoverageSupport; }
+
+    bool externalTextureSupport() const { return fExternalTextureSupport; }
+
+    bool bufferTextureSupport() const { return fBufferTextureSupport; }
 
     AdvBlendEqInteraction advBlendEqInteraction() const { return fAdvBlendEqInteraction; }
 
@@ -71,7 +77,7 @@ public:
     bool mustEnableSpecificAdvBlendEqs() const {
         return fAdvBlendEqInteraction == kSpecificEnables_AdvBlendEqInteraction;
     }
-    
+
     bool mustDeclareFragmentShaderOutput() const {
         return fGLSLGeneration > k110_GrGLSLGeneration;
     }
@@ -110,7 +116,13 @@ public:
     }
 
     const char* externalTextureExtensionString() const {
+        SkASSERT(this->externalTextureSupport());
         return fExternalTextureExtensionString;
+    }
+
+    const char* bufferTextureExtensionString() const {
+        SkASSERT(this->bufferTextureSupport());
+        return fBufferTextureExtensionString;
     }
 
     const char* noperspectiveInterpolationExtensionString() const {
@@ -118,10 +130,23 @@ public:
         return fNoPerspectiveInterpolationExtensionString;
     }
 
+    const char* multisampleInterpolationExtensionString() const {
+        SkASSERT(this->multisampleInterpolationSupport());
+        return fMultisampleInterpolationExtensionString;
+    }
+
     const char* sampleVariablesExtensionString() const {
         SkASSERT(this->sampleVariablesSupport());
         return fSampleVariablesExtensionString;
     }
+
+    int maxVertexSamplers() const { return fMaxVertexSamplers; }
+
+    int maxGeometrySamplers() const { return fMaxGeometrySamplers; }
+
+    int maxFragmentSamplers() const { return fMaxFragmentSamplers; }
+
+    int maxCombinedSamplers() const { return fMaxCombinedSamplers; }
 
     /**
      * Given a texture's config, this determines what swizzle must be appended to accesses to the
@@ -148,7 +173,7 @@ private:
     void onApplyOptionsOverrides(const GrContextOptions& options) override;
 
     GrGLSLGeneration fGLSLGeneration;
-    
+
     bool fDropsTileOnZeroDivide : 1;
     bool fFBFetchSupport : 1;
     bool fFBFetchNeedsCustomOutput : 1;
@@ -157,8 +182,11 @@ private:
     bool fCanUseAnyFunctionInShader : 1;
     bool fFlatInterpolationSupport : 1;
     bool fNoPerspectiveInterpolationSupport : 1;
+    bool fMultisampleInterpolationSupport : 1;
     bool fSampleVariablesSupport : 1;
     bool fSampleMaskOverrideCoverageSupport : 1;
+    bool fExternalTextureSupport : 1;
+    bool fBufferTextureSupport : 1;
 
     // Used for specific driver bug work arounds
     bool fCanUseMinAndAbsTogether : 1;
@@ -170,11 +198,18 @@ private:
     const char* fFragCoordConventionsExtensionString;
     const char* fSecondaryOutputExtensionString;
     const char* fExternalTextureExtensionString;
+    const char* fBufferTextureExtensionString;
     const char* fNoPerspectiveInterpolationExtensionString;
+    const char* fMultisampleInterpolationExtensionString;
     const char* fSampleVariablesExtensionString;
 
     const char* fFBFetchColorName;
     const char* fFBFetchExtensionString;
+
+    uint8_t fMaxVertexSamplers;
+    uint8_t fMaxGeometrySamplers;
+    uint8_t fMaxFragmentSamplers;
+    uint8_t fMaxCombinedSamplers;
 
     AdvBlendEqInteraction fAdvBlendEqInteraction;
 

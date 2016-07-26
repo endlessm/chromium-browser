@@ -12,7 +12,7 @@
 #include "GrTypes.h"
 #include "vk/GrVkInterface.h"
 
-#include "vulkan/vulkan.h"
+#include "vk/GrVkDefines.h"
 
 // makes a Vk call on the interface
 #define GR_VK_CALL(IFACE, X) (IFACE)->fFunctions.f##X;
@@ -30,7 +30,11 @@
  */
 bool GrPixelConfigToVkFormat(GrPixelConfig config, VkFormat* format);
 
+/**
+* Returns the GrPixelConfig for the given vulkan texture format
+*/
+bool GrVkFormatToPixelConfig(VkFormat format, GrPixelConfig* config);
+
 bool GrSampleCountToVkSampleCount(uint32_t samples, VkSampleCountFlagBits* vkSamples);
 
 #endif
-

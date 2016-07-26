@@ -60,7 +60,7 @@
 #include <stdint.h>
 #include <sys/types.h>
 
-#include <openssl/opensslfeatures.h>
+#include <openssl/opensslconf.h>
 
 #if defined(__cplusplus)
 extern "C" {
@@ -109,6 +109,7 @@ extern "C" {
 
 #define OPENSSL_IS_BORINGSSL
 #define BORINGSSL_201512
+#define BORINGSSL_201603
 #define OPENSSL_VERSION_NUMBER 0x10002000
 #define SSLEAY_VERSION_NUMBER OPENSSL_VERSION_NUMBER
 
@@ -141,7 +142,7 @@ extern "C" {
 
 #if defined(__GNUC__)
 #define OPENSSL_PRINTF_FORMAT_FUNC(string_index, first_to_check) \
-        __attribute__((format(printf, string_index, first_to_check)))
+        __attribute__((__format__(__printf__, string_index, first_to_check)))
 #else
 #define OPENSSL_PRINTF_FORMAT_FUNC(string_index, first_to_check)
 #endif
@@ -182,6 +183,7 @@ typedef struct Netscape_spki_st NETSCAPE_SPKI;
 typedef struct PBE2PARAM_st PBE2PARAM;
 typedef struct PBEPARAM_st PBEPARAM;
 typedef struct PBKDF2PARAM_st PBKDF2PARAM;
+typedef struct RIPEMD160state_st RIPEMD160_CTX;
 typedef struct X509_POLICY_CACHE_st X509_POLICY_CACHE;
 typedef struct X509_POLICY_LEVEL_st X509_POLICY_LEVEL;
 typedef struct X509_POLICY_NODE_st X509_POLICY_NODE;
@@ -240,6 +242,7 @@ typedef struct rsa_st RSA;
 typedef struct sha256_state_st SHA256_CTX;
 typedef struct sha512_state_st SHA512_CTX;
 typedef struct sha_state_st SHA_CTX;
+typedef struct spake2_ctx_st SPAKE2_CTX;
 typedef struct srtp_protection_profile_st SRTP_PROTECTION_PROFILE;
 typedef struct ssl_cipher_st SSL_CIPHER;
 typedef struct ssl_ctx_st SSL_CTX;

@@ -9,13 +9,13 @@
   'variables': {
     'webrtc_all_dependencies': [
       'base/base.gyp:*',
-      'sound/sound.gyp:*',
       'common.gyp:*',
       'common_audio/common_audio.gyp:*',
       'common_video/common_video.gyp:*',
       'media/media.gyp:*',
       'modules/modules.gyp:*',
       'p2p/p2p.gyp:*',
+      'pc/pc.gyp:*',
       'system_wrappers/system_wrappers.gyp:*',
       'tools/tools.gyp:*',
       'voice_engine/voice_engine.gyp:*',
@@ -37,12 +37,6 @@
     }],
     ['include_tests==1', {
       'includes': [
-        'libjingle/xmllite/xmllite_tests.gypi',
-        'libjingle/xmpp/xmpp_tests.gypi',
-        'media/media_tests.gypi',
-        'p2p/p2p_tests.gypi',
-        'pc/pc_tests.gypi',
-        'sound/sound_tests.gypi',
         'webrtc_tests.gypi',
       ],
     }],
@@ -100,7 +94,6 @@
             'system_wrappers/system_wrappers_tests.gyp:*',
             'test/metrics.gyp:*',
             'test/test.gyp:*',
-            'test/webrtc_test_common.gyp:*',
             'webrtc_tests',
           ],
         }],
@@ -119,7 +112,6 @@
         'stream.h',
         'transport.h',
         'video_receive_stream.h',
-        'video_renderer.h',
         'video_send_stream.h',
 
         '<@(webrtc_audio_sources)',

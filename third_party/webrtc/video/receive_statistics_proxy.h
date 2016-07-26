@@ -24,7 +24,6 @@
 #include "webrtc/video/report_block_stats.h"
 #include "webrtc/video/vie_channel.h"
 #include "webrtc/video_receive_stream.h"
-#include "webrtc/video_renderer.h"
 
 namespace webrtc {
 
@@ -45,6 +44,7 @@ class ReceiveStatisticsProxy : public VCMReceiveStatisticsCallback,
   VideoReceiveStream::Stats GetStats() const;
 
   void OnDecodedFrame();
+  void OnSyncOffsetUpdated(int64_t sync_offset_ms);
   void OnRenderedFrame(int width, int height);
   void OnIncomingPayloadType(int payload_type);
   void OnDecoderImplementationName(const char* implementation_name);
@@ -106,6 +106,7 @@ class ReceiveStatisticsProxy : public VCMReceiveStatisticsCallback,
   rtc::RateTracker render_pixel_tracker_ GUARDED_BY(crit_);
   SampleCounter render_width_counter_ GUARDED_BY(crit_);
   SampleCounter render_height_counter_ GUARDED_BY(crit_);
+  SampleCounter sync_offset_counter_ GUARDED_BY(crit_);
   SampleCounter decode_time_counter_ GUARDED_BY(crit_);
   SampleCounter delay_counter_ GUARDED_BY(crit_);
   ReportBlockStats report_block_stats_ GUARDED_BY(crit_);

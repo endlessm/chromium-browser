@@ -11,9 +11,9 @@
 #include "GrBatchTest.h"
 #include "GrContext.h"
 #include "GrDefaultGeoProcFactory.h"
+#include "GrMesh.h"
 #include "GrPathUtils.h"
 #include "GrPipelineBuilder.h"
-#include "GrVertices.h"
 #include "SkGeometry.h"
 #include "SkString.h"
 #include "SkStrokeRec.h"
@@ -228,7 +228,7 @@ public:
 
     const char* name() const override { return "DefaultPathBatch"; }
 
-    void computePipelineOptimizations(GrInitInvariantOutput* color, 
+    void computePipelineOptimizations(GrInitInvariantOutput* color,
                                       GrInitInvariantOutput* coverage,
                                       GrBatchToXPOverrides* overrides) const override {
         // When this is called on a batch, there is only one geometry bundle
@@ -268,8 +268,6 @@ private:
 
         size_t vertexStride = gp->getVertexStride();
         SkASSERT(vertexStride == sizeof(SkPoint));
-
-        target->initDraw(gp, this->pipeline());
 
         int instanceCount = fGeoData.count();
 
@@ -313,7 +311,7 @@ private:
         }
 
         // allocate vertex / index buffers
-        const GrVertexBuffer* vertexBuffer;
+        const GrBuffer* vertexBuffer;
         int firstVertex;
 
         void* verts = target->makeVertexSpace(vertexStride, maxVertices,
@@ -324,7 +322,7 @@ private:
             return;
         }
 
-        const GrIndexBuffer* indexBuffer = nullptr;
+        const GrBuffer* indexBuffer = nullptr;
         int firstIndex = 0;
 
         void* indices = nullptr;
@@ -362,14 +360,14 @@ private:
             SkASSERT(vertexOffset <= maxVertices && indexOffset <= maxIndices);
         }
 
-        GrVertices vertices;
+        GrMesh mesh;
         if (isIndexed) {
-            vertices.initIndexed(primitiveType, vertexBuffer, indexBuffer, firstVertex, firstIndex,
-                                 vertexOffset, indexOffset);
+            mesh.initIndexed(primitiveType, vertexBuffer, indexBuffer, firstVertex, firstIndex,
+                             vertexOffset, indexOffset);
         } else {
-            vertices.init(primitiveType, vertexBuffer, firstVertex, vertexOffset);
+            mesh.init(primitiveType, vertexBuffer, firstVertex, vertexOffset);
         }
-        target->draw(vertices);
+        target->draw(gp, mesh);
 
         // put back reserves
         target->putBackIndices((size_t)(maxIndices - indexOffset));

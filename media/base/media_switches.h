@@ -33,14 +33,8 @@ MEDIA_EXPORT extern const char kAlsaOutputDevice[];
 
 MEDIA_EXPORT extern const char kUseGpuMemoryBuffersForCapture[];
 
-#if defined(OS_MACOSX)
-MEDIA_EXPORT extern const char kEnableAVFoundation[];
-MEDIA_EXPORT extern const char kForceQTKit[];
-#endif
-
 #if defined(OS_WIN)
 MEDIA_EXPORT extern const char kEnableExclusiveAudio[];
-MEDIA_EXPORT extern const char kForceDirectShowVideoCapture[];
 MEDIA_EXPORT extern const char kForceMediaFoundationVideoCapture[];
 MEDIA_EXPORT extern const char kForceWaveAudio[];
 MEDIA_EXPORT extern const char kTrySupportedChannelLayouts[];
@@ -49,6 +43,10 @@ MEDIA_EXPORT extern const char kWaveOutBuffers[];
 
 #if defined(USE_CRAS)
 MEDIA_EXPORT extern const char kUseCras[];
+#endif
+
+#if !defined(OS_ANDROID)
+MEDIA_EXPORT extern const char kEnableDefaultMediaSession[];
 #endif
 
 MEDIA_EXPORT extern const char kUseFakeDeviceForMediaStream[];

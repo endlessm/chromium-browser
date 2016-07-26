@@ -14,6 +14,7 @@
 #include <map>
 #include <vector>
 
+#include "webrtc/call/bitrate_allocator.h"
 #include "webrtc/call.h"
 #include "webrtc/common_video/libyuv/include/webrtc_libyuv.h"
 #include "webrtc/video/encoded_frame_callback_adapter.h"
@@ -40,14 +41,15 @@ class VieRemb;
 namespace internal {
 
 class VideoSendStream : public webrtc::VideoSendStream,
-                        public webrtc::CpuOveruseObserver {
+                        public webrtc::CpuOveruseObserver,
+                        public webrtc::BitrateAllocatorObserver {
  public:
   VideoSendStream(int num_cpu_cores,
                   ProcessThread* module_process_thread,
                   CallStats* call_stats,
                   CongestionController* congestion_controller,
-                  VieRemb* remb,
                   BitrateAllocator* bitrate_allocator,
+                  VieRemb* remb,
                   const VideoSendStream::Config& config,
                   const VideoEncoderConfig& encoder_config,
                   const std::map<uint32_t, RtpState>& suspended_ssrcs);
@@ -62,7 +64,7 @@ class VideoSendStream : public webrtc::VideoSendStream,
 
   // webrtc::VideoSendStream implementation.
   VideoCaptureInput* Input() override;
-  bool ReconfigureVideoEncoder(const VideoEncoderConfig& config) override;
+  void ReconfigureVideoEncoder(const VideoEncoderConfig& config) override;
   Stats GetStats() override;
 
   // webrtc::CpuOveruseObserver implementation.
@@ -74,20 +76,31 @@ class VideoSendStream : public webrtc::VideoSendStream,
 
   int GetPaddingNeededBps() const;
 
+  // Implements BitrateAllocatorObserver.
+  void OnBitrateUpdated(uint32_t bitrate_bps,
+                        uint8_t fraction_loss,
+                        int64_t rtt) override;
+
  private:
-  bool SetSendCodec(VideoCodec video_codec);
+  static bool EncoderThreadFunction(void* obj);
+  void EncoderProcess();
+
   void ConfigureSsrcs();
 
   SendStatisticsProxy stats_proxy_;
   EncodedFrameCallbackAdapter encoded_frame_proxy_;
   const VideoSendStream::Config config_;
-  VideoEncoderConfig encoder_config_;
   std::map<uint32_t, RtpState> suspended_ssrcs_;
 
   ProcessThread* const module_process_thread_;
   CallStats* const call_stats_;
   CongestionController* const congestion_controller_;
+  BitrateAllocator* const bitrate_allocator_;
   VieRemb* const remb_;
+
+  rtc::PlatformThread encoder_thread_;
+  rtc::Event encoder_wakeup_event_;
+  volatile int stop_encoder_thread_;
 
   OveruseFrameDetector overuse_detector_;
   PayloadRouter payload_router_;

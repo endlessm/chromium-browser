@@ -7,9 +7,11 @@
 
 #include "GrVkResourceProvider.h"
 
+#include "GrTextureParams.h"
 #include "GrVkCommandBuffer.h"
 #include "GrVkPipeline.h"
 #include "GrVkRenderPass.h"
+#include "GrVkSampler.h"
 #include "GrVkUtil.h"
 
 #ifdef SK_TRACE_VK_RESOURCES
@@ -17,11 +19,32 @@ SkTDynamicHash<GrVkResource, uint32_t> GrVkResource::fTrace;
 SkRandom GrVkResource::fRandom;
 #endif
 
-GrVkResourceProvider::GrVkResourceProvider(GrVkGpu* gpu) : fGpu(gpu) {
+GrVkResourceProvider::GrVkResourceProvider(GrVkGpu* gpu) : fGpu(gpu)
+                                                         , fPipelineCache(VK_NULL_HANDLE) {
+    fPipelineStateCache = new PipelineStateCache(gpu);
 }
 
 GrVkResourceProvider::~GrVkResourceProvider() {
     SkASSERT(0 == fSimpleRenderPasses.count());
+    SkASSERT(VK_NULL_HANDLE == fPipelineCache);
+    delete fPipelineStateCache;
+}
+
+void GrVkResourceProvider::init() {
+    VkPipelineCacheCreateInfo createInfo;
+    memset(&createInfo, 0, sizeof(VkPipelineCacheCreateInfo));
+    createInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO;
+    createInfo.pNext = nullptr;
+    createInfo.flags = 0;
+    createInfo.initialDataSize = 0;
+    createInfo.pInitialData = nullptr;
+    VkResult result = GR_VK_CALL(fGpu->vkInterface(),
+                                 CreatePipelineCache(fGpu->device(), &createInfo, nullptr,
+                                                     &fPipelineCache));
+    SkASSERT(VK_SUCCESS == result);
+    if (VK_SUCCESS != result) {
+        fPipelineCache = VK_NULL_HANDLE;
+    }
 }
 
 GrVkPipeline* GrVkResourceProvider::createPipeline(const GrPipeline& pipeline,
@@ -33,14 +56,14 @@ GrVkPipeline* GrVkResourceProvider::createPipeline(const GrPipeline& pipeline,
                                                    VkPipelineLayout layout) {
 
     return GrVkPipeline::Create(fGpu, pipeline, primProc, shaderStageInfo, shaderStageCount,
-                                primitiveType, renderPass, layout);
+                                primitiveType, renderPass, layout, fPipelineCache);
 }
 
 
 // To create framebuffers, we first need to create a simple RenderPass that is
-// only used for framebuffer creation. When we actually render we will create 
+// only used for framebuffer creation. When we actually render we will create
 // RenderPasses as needed that are compatible with the framebuffer.
-const GrVkRenderPass* 
+const GrVkRenderPass*
 GrVkResourceProvider::findOrCreateCompatibleRenderPass(const GrVkRenderTarget& target) {
     for (int i = 0; i < fSimpleRenderPasses.count(); ++i) {
         GrVkRenderPass* renderPass = fSimpleRenderPasses[i];
@@ -58,8 +81,27 @@ GrVkResourceProvider::findOrCreateCompatibleRenderPass(const GrVkRenderTarget& t
 }
 
 GrVkDescriptorPool* GrVkResourceProvider::findOrCreateCompatibleDescriptorPool(
-                                       const GrVkDescriptorPool::DescriptorTypeCounts& typeCounts) {
-    return new GrVkDescriptorPool(fGpu, typeCounts);
+                                                            VkDescriptorType type, uint32_t count) {
+    return new GrVkDescriptorPool(fGpu, type, count);
+}
+
+GrVkSampler* GrVkResourceProvider::findOrCreateCompatibleSampler(const GrTextureParams& params) {
+    GrVkSampler* sampler = fSamplers.find(GrVkSampler::GenerateKey(params));
+    if (!sampler) {
+        sampler = GrVkSampler::Create(fGpu, params);
+        fSamplers.add(sampler);
+    }
+    SkASSERT(sampler);
+    sampler->ref();
+    return sampler;
+}
+
+sk_sp<GrVkPipelineState> GrVkResourceProvider::findOrCreateCompatiblePipelineState(
+                                                                 const GrPipeline& pipeline,
+                                                                 const GrPrimitiveProcessor& proc,
+                                                                 GrPrimitiveType primitiveType,
+                                                                 const GrVkRenderPass& renderPass) {
+    return fPipelineStateCache->refPipelineState(pipeline, proc, primitiveType, renderPass);
 }
 
 GrVkCommandBuffer* GrVkResourceProvider::createCommandBuffer() {
@@ -93,10 +135,21 @@ void GrVkResourceProvider::destroyResources() {
     }
     fSimpleRenderPasses.reset();
 
+    // Iterate through all store GrVkSamplers and unref them before resetting the hash.
+    SkTDynamicHash<GrVkSampler, uint8_t>::Iter iter(&fSamplers);
+    for (; !iter.done(); ++iter) {
+        (*iter).unref(fGpu);
+    }
+    fSamplers.reset();
+
+    fPipelineStateCache->release();
+
 #ifdef SK_TRACE_VK_RESOURCES
     SkASSERT(0 == GrVkResource::fTrace.count());
 #endif
 
+    GR_VK_CALL(fGpu->vkInterface(), DestroyPipelineCache(fGpu->device(), fPipelineCache, nullptr));
+    fPipelineCache = VK_NULL_HANDLE;
 }
 
 void GrVkResourceProvider::abandonResources() {
@@ -112,7 +165,17 @@ void GrVkResourceProvider::abandonResources() {
     }
     fSimpleRenderPasses.reset();
 
+    // Iterate through all store GrVkSamplers and unrefAndAbandon them before resetting the hash.
+    SkTDynamicHash<GrVkSampler, uint8_t>::Iter iter(&fSamplers);
+    for (; !iter.done(); ++iter) {
+        (*iter).unrefAndAbandon();
+    }
+    fSamplers.reset();
+
+    fPipelineStateCache->abandon();
+
 #ifdef SK_TRACE_VK_RESOURCES
     SkASSERT(0 == GrVkResource::fTrace.count());
 #endif
+    fPipelineCache = VK_NULL_HANDLE;
 }

@@ -1,4 +1,3 @@
-
 /*
  * Copyright 2014 Google Inc.
  *
@@ -207,10 +206,8 @@ const GrFragmentProcessor* Edge2PtConicalEffect::TestCreate(GrProcessorTestData*
     SkScalar* stops = stopsArray;
     SkShader::TileMode tm;
     int colorCount = RandomGradientParams(d->fRandom, colors, &stops, &tm);
-    SkAutoTUnref<SkShader> shader(SkGradientShader::CreateTwoPointConical(center1, radius1,
-                                                                          center2, radius2,
-                                                                          colors, stops, colorCount,
-                                                                          tm));
+    auto shader = SkGradientShader::MakeTwoPointConical(center1, radius1, center2, radius2,
+                                                        colors, stops, colorCount, tm);
     const GrFragmentProcessor* fp = shader->asFragmentProcessor(d->fContext,
         GrTest::TestMatrix(d->fRandom), NULL, kNone_SkFilterQuality);
     GrAlwaysAssert(fp);
@@ -227,9 +224,9 @@ void GLEdge2PtConicalEffect::emitCode(EmitArgs& args) {
     const Edge2PtConicalEffect& ge = args.fFp.cast<Edge2PtConicalEffect>();
     GrGLSLUniformHandler* uniformHandler = args.fUniformHandler;
     this->emitUniforms(uniformHandler, ge);
-    fParamUni = uniformHandler->addUniformArray(kFragment_GrShaderFlag,
-                                                kFloat_GrSLType, kDefault_GrSLPrecision,
-                                                "Conical2FSParams", 3);
+    fParamUni = uniformHandler->addUniform(kFragment_GrShaderFlag,
+                                           kVec3f_GrSLType, kDefault_GrSLPrecision,
+                                           "Conical2FSParams");
 
     SkString cName("c");
     SkString tName("t");
@@ -237,9 +234,10 @@ void GLEdge2PtConicalEffect::emitCode(EmitArgs& args) {
     SkString p1; // start radius squared
     SkString p2; // difference in radii (r1 - r0)
 
-    uniformHandler->getUniformVariable(fParamUni).appendArrayAccess(0, &p0);
-    uniformHandler->getUniformVariable(fParamUni).appendArrayAccess(1, &p1);
-    uniformHandler->getUniformVariable(fParamUni).appendArrayAccess(2, &p2);
+
+    p0.appendf("%s.x", uniformHandler->getUniformVariable(fParamUni).getName().c_str());
+    p1.appendf("%s.y", uniformHandler->getUniformVariable(fParamUni).getName().c_str());
+    p2.appendf("%s.z", uniformHandler->getUniformVariable(fParamUni).getName().c_str());
 
     // We interpolate the linear component in coords[1].
     SkASSERT(args.fCoords[0].getType() == args.fCoords[1].getType());
@@ -294,13 +292,8 @@ void GLEdge2PtConicalEffect::onSetData(const GrGLSLProgramDataManager& pdman,
     if (fCachedRadius != radius0 ||
         fCachedDiffRadius != diffRadius) {
 
-        float values[3] = {
-            SkScalarToFloat(radius0),
-            SkScalarToFloat(SkScalarMul(radius0, radius0)),
-            SkScalarToFloat(diffRadius)
-        };
-
-        pdman.set1fv(fParamUni, 3, values);
+        pdman.set3f(fParamUni, SkScalarToFloat(radius0),
+                    SkScalarToFloat(SkScalarMul(radius0, radius0)), SkScalarToFloat(diffRadius));
         fCachedRadius = radius0;
         fCachedDiffRadius = diffRadius;
     }
@@ -488,10 +481,8 @@ const GrFragmentProcessor* FocalOutside2PtConicalEffect::TestCreate(GrProcessorT
     SkScalar* stops = stopsArray;
     SkShader::TileMode tm;
     int colorCount = RandomGradientParams(d->fRandom, colors, &stops, &tm);
-    SkAutoTUnref<SkShader> shader(SkGradientShader::CreateTwoPointConical(center1, radius1,
-                                                                          center2, radius2,
-                                                                          colors, stops, colorCount,
-                                                                          tm));
+    auto shader = SkGradientShader::MakeTwoPointConical(center1, radius1, center2, radius2,
+                                                        colors, stops, colorCount, tm);
     const GrFragmentProcessor* fp = shader->asFragmentProcessor(d->fContext,
         GrTest::TestMatrix(d->fRandom), NULL, kNone_SkFilterQuality);
     GrAlwaysAssert(fp);
@@ -510,15 +501,15 @@ void GLFocalOutside2PtConicalEffect::emitCode(EmitArgs& args) {
     const FocalOutside2PtConicalEffect& ge = args.fFp.cast<FocalOutside2PtConicalEffect>();
     GrGLSLUniformHandler* uniformHandler = args.fUniformHandler;
     this->emitUniforms(uniformHandler, ge);
-    fParamUni = uniformHandler->addUniformArray(kFragment_GrShaderFlag,
-                                                kFloat_GrSLType, kDefault_GrSLPrecision,
-                                                "Conical2FSParams", 2);
+    fParamUni = uniformHandler->addUniform(kFragment_GrShaderFlag,
+                                           kVec2f_GrSLType, kDefault_GrSLPrecision,
+                                           "Conical2FSParams");
     SkString tName("t");
     SkString p0; // focalX
     SkString p1; // 1 - focalX * focalX
 
-    uniformHandler->getUniformVariable(fParamUni).appendArrayAccess(0, &p0);
-    uniformHandler->getUniformVariable(fParamUni).appendArrayAccess(1, &p1);
+    p0.appendf("%s.x", uniformHandler->getUniformVariable(fParamUni).getName().c_str());
+    p1.appendf("%s.y", uniformHandler->getUniformVariable(fParamUni).getName().c_str());
 
     // if we have a vec3 from being in perspective, convert it to a vec2 first
     GrGLSLFPFragmentBuilder* fragBuilder = args.fFragBuilder;
@@ -568,12 +559,7 @@ void GLFocalOutside2PtConicalEffect::onSetData(const GrGLSLProgramDataManager& p
     if (fCachedFocal != focal) {
         SkScalar oneMinus2F = 1.f - SkScalarMul(focal, focal);
 
-        float values[2] = {
-            SkScalarToFloat(focal),
-            SkScalarToFloat(oneMinus2F),
-        };
-
-        pdman.set1fv(fParamUni, 2, values);
+        pdman.set2f(fParamUni, SkScalarToFloat(focal), SkScalarToFloat(oneMinus2F));
         fCachedFocal = focal;
     }
 }
@@ -701,10 +687,8 @@ const GrFragmentProcessor* FocalInside2PtConicalEffect::TestCreate(GrProcessorTe
     SkScalar* stops = stopsArray;
     SkShader::TileMode tm;
     int colorCount = RandomGradientParams(d->fRandom, colors, &stops, &tm);
-    SkAutoTUnref<SkShader> shader(SkGradientShader::CreateTwoPointConical(center1, radius1,
-                                                                          center2, radius2,
-                                                                          colors, stops, colorCount,
-                                                                          tm));
+    auto shader = SkGradientShader::MakeTwoPointConical(center1, radius1, center2, radius2,
+                                                        colors, stops, colorCount, tm);
     const GrFragmentProcessor* fp = shader->asFragmentProcessor(d->fContext,
         GrTest::TestMatrix(d->fRandom), NULL, kNone_SkFilterQuality);
     GrAlwaysAssert(fp);
@@ -949,10 +933,8 @@ const GrFragmentProcessor* CircleInside2PtConicalEffect::TestCreate(GrProcessorT
     SkScalar* stops = stopsArray;
     SkShader::TileMode tm;
     int colorCount = RandomGradientParams(d->fRandom, colors, &stops, &tm);
-    SkAutoTUnref<SkShader> shader(SkGradientShader::CreateTwoPointConical(center1, radius1,
-                                                                          center2, radius2,
-                                                                          colors, stops, colorCount,
-                                                                          tm));
+    auto shader = SkGradientShader::MakeTwoPointConical(center1, radius1, center2, radius2,
+                                                        colors, stops, colorCount, tm);
     const GrFragmentProcessor* fp = shader->asFragmentProcessor(d->fContext,
         GrTest::TestMatrix(d->fRandom), NULL, kNone_SkFilterQuality);
     GrAlwaysAssert(fp);
@@ -1182,10 +1164,8 @@ const GrFragmentProcessor* CircleOutside2PtConicalEffect::TestCreate(GrProcessor
     SkScalar* stops = stopsArray;
     SkShader::TileMode tm;
     int colorCount = RandomGradientParams(d->fRandom, colors, &stops, &tm);
-    SkAutoTUnref<SkShader> shader(SkGradientShader::CreateTwoPointConical(center1, radius1,
-                                                                          center2, radius2,
-                                                                          colors, stops, colorCount,
-                                                                          tm));
+    auto shader = SkGradientShader::MakeTwoPointConical(center1, radius1, center2, radius2,
+                                                        colors, stops, colorCount, tm);
     const GrFragmentProcessor* fp = shader->asFragmentProcessor(
         d->fContext,GrTest::TestMatrix(d->fRandom), NULL, kNone_SkFilterQuality);
     GrAlwaysAssert(fp);

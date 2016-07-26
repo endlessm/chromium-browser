@@ -38,6 +38,7 @@ EXTRA_ENV = {
 
   # Command-line options
   'GCC_MODE'    : '',     # '' (default), '-E', '-c', or '-S'
+  'SHARED'      : '0',    # Identify if the target is a shared library.
   'STDINC'      : '1',    # Include standard headers (-nostdinc sets to 0)
   'STDINCCXX'   : '1',    # Include standard cxx headers (-nostdinc++ sets to 0)
   'USE_STDLIB'  : '1',    # Include standard libraries (-nostdlib sets to 0)
@@ -72,7 +73,8 @@ EXTRA_ENV = {
                   '-fno-common ${PTHREAD ? -pthread} ' +
                   '-nostdinc ${BIAS_%BIAS%} ' +
                   '-fno-gnu-inline-asm ' +
-                  '-target ${FRONTEND_TRIPLE}',
+                  '-target ${FRONTEND_TRIPLE} ' +
+                  '${IS_CXX ? -fexceptions}',
 
 
   'ISYSTEM'        : '${ISYSTEM_USER} ${STDINC ? ${ISYSTEM_BUILTIN}}',
@@ -96,14 +98,15 @@ EXTRA_ENV = {
 
   # Only propagate opt level to linker if explicitly set, so that the
   # linker will know if an opt level was explicitly set or not.
-  'LD_FLAGS' : '${#OPT_LEVEL ? -O${OPT_LEVEL}} -static ' +
+  'LD_FLAGS' : '${#OPT_LEVEL ? -O${OPT_LEVEL}} ' +
+               '${SHARED ? -shared : -static} ' +
                '${PIC ? -fPIC} ${@AddPrefix:-L:SEARCH_DIRS} ' +
                '--pnacl-exceptions=${CXX_EH_MODE}',
 
   'SEARCH_DIRS' : '', # Directories specified using -L
 
   # Library Strings
-  'EMITMODE'         : '${!USE_STDLIB ? nostdlib : static}',
+  'EMITMODE'    : '${!USE_STDLIB || SHARED ? nostdlib : static}',
 
   # This is setup so that LD_ARGS_xxx is evaluated lazily.
   'LD_ARGS' : '${LD_ARGS_%EMITMODE%}',
@@ -363,6 +366,7 @@ GCCPatterns = [
   ( '(-march=armv7-a)',       ""),
   ( '(-pipe)',                ""),
 
+  ( '(-shared)',              "env.set('SHARED', '1')"),
   ( '(-s)',                   AddLDFlag),
   ( '(--strip-all)',          AddLDFlag),
   ( '(--strip-debug)',        AddLDFlag),
@@ -490,6 +494,16 @@ def main(argv):
 
   gcc_mode = env.getone('GCC_MODE')
   output_type = DriverOutputTypes(gcc_mode, compiling_to_native)
+
+  # '-shared' modifies the output from the linker and should be considered when
+  # determining the final output type.
+  if env.getbool('SHARED'):
+    if compiling_to_native:
+      Log.Fatal('Building native shared libraries not supported')
+    if gcc_mode != '':
+      Log.Fatal('-c, -S, and -E are disallowed with -shared')
+    output_type = 'pll'
+
   # INPUTS consists of actual input files and a subset of flags like -Wl,<foo>.
   # Create a version with just the files.
   inputs = [f for f in flags_and_inputs if not IsFlag(f)]
@@ -542,7 +556,7 @@ def main(argv):
 
   # Linking case
   assert(needs_linking)
-  assert(output_type in ('pso','so','pexe','nexe'))
+  assert(output_type in ('pll', 'pexe', 'nexe'))
 
   if output == '':
     output = pathtools.normalize('a.out')

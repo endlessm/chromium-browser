@@ -13,6 +13,7 @@
 #include "webrtc/api/audiotrack.h"
 #include "webrtc/api/mediastream.h"
 #include "webrtc/api/videotrack.h"
+#include "webrtc/api/test/fakevideotracksource.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "webrtc/base/gunit.h"
@@ -56,14 +57,15 @@ class MediaStreamTest: public testing::Test {
     stream_ = MediaStream::Create(kStreamLabel1);
     ASSERT_TRUE(stream_.get() != NULL);
 
-    video_track_ = VideoTrack::Create(kVideoTrackId, NULL);
+    video_track_ =
+        VideoTrack::Create(kVideoTrackId, FakeVideoTrackSource::Create());
     ASSERT_TRUE(video_track_.get() != NULL);
-    EXPECT_EQ(MediaStreamTrackInterface::kInitializing, video_track_->state());
+    EXPECT_EQ(MediaStreamTrackInterface::kLive, video_track_->state());
 
     audio_track_ = AudioTrack::Create(kAudioTrackId, NULL);
 
     ASSERT_TRUE(audio_track_.get() != NULL);
-    EXPECT_EQ(MediaStreamTrackInterface::kInitializing, audio_track_->state());
+    EXPECT_EQ(MediaStreamTrackInterface::kLive, audio_track_->state());
 
     EXPECT_TRUE(stream_->AddTrack(video_track_));
     EXPECT_FALSE(stream_->AddTrack(video_track_));
@@ -78,11 +80,6 @@ class MediaStreamTest: public testing::Test {
         .Times(Exactly(1));
     track->set_enabled(false);
     EXPECT_FALSE(track->enabled());
-
-    EXPECT_CALL(observer, OnChanged())
-        .Times(Exactly(1));
-    track->set_state(MediaStreamTrackInterface::kLive);
-    EXPECT_EQ(MediaStreamTrackInterface::kLive, track->state());
   }
 
   scoped_refptr<MediaStreamInterface> stream_;

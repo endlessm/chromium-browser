@@ -17,22 +17,12 @@ static inline int repeat_8bits(int x) {
     return x & 0xFF;
 }
 
-// Visual Studio 2010 (MSC_VER=1600) optimizes bit-shift code incorrectly.
-// See http://code.google.com/p/skia/issues/detail?id=472
-#if defined(_MSC_VER) && (_MSC_VER >= 1600)
-#pragma optimize("", off)
-#endif
-
 static inline int mirror_8bits(int x) {
     if (x & 256) {
         x = ~x;
     }
     return x & 255;
 }
-
-#if defined(_MSC_VER) && (_MSC_VER >= 1600)
-#pragma optimize("", on)
-#endif
 
 static SkMatrix pts_to_unit_matrix(const SkPoint pts[2]) {
     SkVector    vec = pts[1] - pts[0];
@@ -51,12 +41,6 @@ static bool use_4f_context(const SkShader::ContextRec& rec, uint32_t flags) {
 #ifdef FORCE_4F_CONTEXT
     return true;
 #else
-    // Perspective not supported in 4f yet.
-    if (rec.fMatrix->hasPerspective()
-        || (rec.fLocalMatrix && rec.fLocalMatrix->hasPerspective())) {
-        return false;
-    }
-
     return rec.fPreferredDstType == SkShader::ContextRec::kPM4f_DstType
         || SkToBool(flags & SkLinearGradient::kForce4fContext_PrivateFlag);
 #endif
@@ -70,7 +54,7 @@ SkLinearGradient::SkLinearGradient(const SkPoint pts[2], const Descriptor& desc)
     , fEnd(pts[1]) {
 }
 
-SkFlattenable* SkLinearGradient::CreateProc(SkReadBuffer& buffer) {
+sk_sp<SkFlattenable> SkLinearGradient::CreateProc(SkReadBuffer& buffer) {
     DescriptorScope desc;
     if (!desc.unflatten(buffer)) {
         return nullptr;
@@ -78,8 +62,8 @@ SkFlattenable* SkLinearGradient::CreateProc(SkReadBuffer& buffer) {
     SkPoint pts[2];
     pts[0] = buffer.readPoint();
     pts[1] = buffer.readPoint();
-    return SkGradientShader::CreateLinear(pts, desc.fColors, desc.fPos, desc.fCount,
-                                          desc.fTileMode, desc.fGradFlags, desc.fLocalMatrix);
+    return SkGradientShader::MakeLinear(pts, desc.fColors, desc.fPos, desc.fCount, desc.fTileMode,
+                                        desc.fGradFlags, desc.fLocalMatrix);
 }
 
 void SkLinearGradient::flatten(SkWriteBuffer& buffer) const {
@@ -88,7 +72,7 @@ void SkLinearGradient::flatten(SkWriteBuffer& buffer) const {
     buffer.writePoint(fEnd);
 }
 
-size_t SkLinearGradient::contextSize(const ContextRec& rec) const {
+size_t SkLinearGradient::onContextSize(const ContextRec& rec) const {
     return use_4f_context(rec, fGradFlags)
         ? sizeof(LinearGradient4fContext)
         : sizeof(LinearGradientContext);
@@ -430,9 +414,7 @@ const GrFragmentProcessor* GrLinearGradient::TestCreate(GrProcessorTestData* d) 
     SkScalar* stops = stopsArray;
     SkShader::TileMode tm;
     int colorCount = RandomGradientParams(d->fRandom, colors, &stops, &tm);
-    SkAutoTUnref<SkShader> shader(SkGradientShader::CreateLinear(points,
-                                                                 colors, stops, colorCount,
-                                                                 tm));
+    auto shader = SkGradientShader::MakeLinear(points, colors, stops, colorCount, tm);
     const GrFragmentProcessor* fp = shader->asFragmentProcessor(d->fContext,
         GrTest::TestMatrix(d->fRandom), NULL, kNone_SkFilterQuality);
     GrAlwaysAssert(fp);

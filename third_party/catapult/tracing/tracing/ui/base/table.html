@@ -242,6 +242,7 @@ tr.exportTo('tr.ui.b', function() {
         this.columnsWithExpandButtons_ = [];
         this.headerCells_ = [];
         this.subRowsPropertyName_ = 'subRows';
+        this.defaultExpansionStateCallback_ = undefined;
       },
 
       get showHeader() {
@@ -255,6 +256,19 @@ tr.exportTo('tr.ui.b', function() {
 
       set subRowsPropertyName(name) {
         this.subRowsPropertyName_ = name;
+      },
+
+      /**
+       * This callback will be called whenever a body row is built
+       * for a userRow that has subRows and does not have an explicit
+       * isExpanded field.
+       * The callback should return true if the row should be expanded,
+       * or false if the row should be collapsed.
+       * @param {function(userRow, parentUserRow): boolean} cb The callback.
+       */
+      set defaultExpansionStateCallback(cb) {
+        this.defaultExpansionStateCallback_ = cb;
+        this.scheduleRebuildBody_();
       },
 
       /**
@@ -432,7 +446,7 @@ tr.exportTo('tr.ui.b', function() {
         }.bind(this));
         // Sort expanded sub rows recursively.
         for (var i = 0; i < rows.length; i++) {
-          if (rows[i].isExpanded)
+          if (this.getExpandedForUserRow_(rows[i]))
             this.sortRows_(rows[i][this.subRowsPropertyName_]);
         }
       },
@@ -578,16 +592,23 @@ tr.exportTo('tr.ui.b', function() {
       },
 
       getOrCreateRowInfoFor_: function(rowInfoMap, userRow, parentRowInfo) {
-        if (rowInfoMap.has(userRow))
-          return rowInfoMap.get(userRow);
+        var rowInfo = undefined;
 
-        var rowInfo = {
-          userRow: userRow,
-          htmlNode: undefined,
-          isExpanded: userRow.isExpanded || false,
-          parentRowInfo: parentRowInfo
-        };
-        rowInfoMap.set(userRow, rowInfo);
+        if (rowInfoMap.has(userRow)) {
+          rowInfo = rowInfoMap.get(userRow);
+        } else {
+          rowInfo = {
+            userRow: userRow,
+            htmlNode: undefined,
+            parentRowInfo: parentRowInfo
+          };
+          rowInfoMap.set(userRow, rowInfo);
+        }
+
+        // Recompute isExpanded in case defaultExpansionStateCallback_ has
+        // changed.
+        rowInfo.isExpanded = this.getExpandedForUserRow_(userRow);
+
         return rowInfo;
       },
 
@@ -647,13 +668,11 @@ tr.exportTo('tr.ui.b', function() {
           i += colSpan;
         }
 
-        var needsClickListener = false;
-        if (this.columnsWithExpandButtons_.length)
-          needsClickListener = true;
-        else if (tableSection == this.$.body)
-          needsClickListener = true;
+        var isSelectable = tableSection === this.$.body;
+        var isExpandable = rowInfo.userRow[this.subRowsPropertyName_] &&
+            rowInfo.userRow[this.subRowsPropertyName_].length;
 
-        if (needsClickListener) {
+        if (isSelectable || isExpandable) {
           trElement.addEventListener('click', function(e) {
             e.stopPropagation();
             if (e.target.tagName == 'EXPAND-BUTTON') {
@@ -671,42 +690,37 @@ tr.exportTo('tr.ui.b', function() {
               return getTD(cur.parentElement);
             }
 
-            if (this.selectionMode_ !== SelectionMode.NONE) {
-              var isAlreadySelected = false;
-              var tdThatWasClicked = getTD(e.target);
+            // If the row/cell can be selected and it's not selected yet,
+            // select it.
+            if (isSelectable && this.selectionMode_ !== SelectionMode.NONE) {
+              var shouldSelect = false;
+              var columnIndex = getTD(e.target).columnIndex;
               switch (this.selectionMode_) {
                 case SelectionMode.ROW:
-                  isAlreadySelected = this.selectedTableRowInfo_ === rowInfo;
+                  shouldSelect = this.selectedTableRowInfo_ !== rowInfo;
                   break;
 
                 case SelectionMode.CELL:
-                  isAlreadySelected = this.selectedTableRowInfo_ === rowInfo;
-                  isAlreadySelected &= (this.selectedColumnIndex_ ===
-                                        tdThatWasClicked.columnIndex);
+                  if (this.doesColumnIndexSupportSelection(columnIndex)) {
+                    shouldSelect = this.selectedTableRowInfo_ !== rowInfo ||
+                        this.selectedColumnIndex_ !== columnIndex;
+                  }
                   break;
 
                 default:
                   throw new Error('Invalid selection mode ' +
                       this.selectionMode_);
               }
-              if (isAlreadySelected) {
-                if (rowInfo.userRow[this.subRowsPropertyName_] &&
-                    rowInfo.userRow[this.subRowsPropertyName_].length) {
-                  this.setExpandedForUserRow_(
-                      tableSection, rowInfoMap,
-                      rowInfo.userRow, !rowInfo.isExpanded);
-                }
-              } else {
-                this.didTableRowInfoGetClicked_(
-                    rowInfo, tdThatWasClicked.columnIndex);
+              if (shouldSelect) {
+                this.didTableRowInfoGetClicked_(rowInfo, columnIndex);
+                return;
               }
-            } else {
-              if (rowInfo.userRow[this.subRowsPropertyName_] &&
-                  rowInfo.userRow[this.subRowsPropertyName_].length) {
-                this.setExpandedForUserRow_(
-                    tableSection, rowInfoMap,
-                    rowInfo.userRow, !rowInfo.isExpanded);
-              }
+            }
+
+            // Otherwise, if the row is expandable, expand/collapse it.
+            if (isExpandable) {
+              this.setExpandedForUserRow_(tableSection, rowInfoMap,
+                  rowInfo.userRow, !rowInfo.isExpanded);
             }
           }.bind(this));
         }
@@ -818,6 +832,27 @@ tr.exportTo('tr.ui.b', function() {
         if (rowInfo === undefined)
           throw new Error('Row has not been seen, must expand its parents');
         return rowInfo.isExpanded;
+      },
+
+      getExpandedForUserRow_: function(userRow) {
+        if (userRow[this.subRowsPropertyName_] === undefined)
+          return false;
+        if (userRow[this.subRowsPropertyName_].length === 0)
+          return false;
+        if (userRow.isExpanded)
+          return true;
+        if (userRow.isExpanded === false)
+          return false;
+        if (this.defaultExpansionStateCallback_ === undefined)
+          return false;
+
+        var parentUserRow = undefined;
+        var rowInfo = this.tableRowsInfo_.get(userRow);
+        if (rowInfo && rowInfo.parentRowInfo)
+          parentUserRow = rowInfo.parentRowInfo.userRow;
+
+        return this.defaultExpansionStateCallback_(
+            userRow, parentUserRow);
       },
 
       setExpandedForTableRow: function(userRow, expanded) {
@@ -999,13 +1034,13 @@ tr.exportTo('tr.ui.b', function() {
           case SelectionMode.CELL:
             if (!this.doesColumnIndexSupportSelection(columnIndex))
               return;
+            if (this.selectedColumnIndex !== columnIndex)
+              this.selectedColumnIndex = columnIndex;
             // Fall through.
 
           case SelectionMode.ROW:
             if (this.selectedTableRowInfo_ !== rowInfo)
               this.selectedTableRow = rowInfo.userRow;
-            if (this.selectedColumnIndex !== columnIndex)
-              this.selectedColumnIndex = columnIndex;
         }
       },
 
@@ -1224,14 +1259,14 @@ tr.exportTo('tr.ui.b', function() {
           switch (this.selectionMode_) {
             case SelectionMode.ROW:
               if (rowInfo.userRow[this.subRowsPropertyName_] === undefined)
-              return;
+                return;
               if (rowInfo.userRow[this.subRowsPropertyName_].length === 0)
                 return;
 
               if (!rowInfo.isExpanded)
                 this.setExpandedForTableRow(rowInfo.userRow, true);
               this.selectedTableRow =
-                rowInfo.userRow[this.subRowsPropertyName_][0];
+                htmlNode.nextElementSibling.rowInfo.userRow;
               this.focusSelected_();
               return;
 

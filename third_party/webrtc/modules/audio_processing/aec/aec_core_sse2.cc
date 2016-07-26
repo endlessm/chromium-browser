@@ -25,6 +25,8 @@ extern "C" {
 #include "webrtc/modules/audio_processing/aec/aec_rdft.h"
 }
 
+namespace webrtc {
+
 __inline static float MulRe(float aRe, float aIm, float bRe, float bIm) {
   return aRe * bRe - aIm * bIm;
 }
@@ -79,17 +81,13 @@ static void FilterFarSSE2(int num_partitions,
   }
 }
 
-static void ScaleErrorSignalSSE2(int extended_filter_enabled,
-                                 float normal_mu,
-                                 float normal_error_threshold,
+static void ScaleErrorSignalSSE2(float mu,
+                                 float error_threshold,
                                  float x_pow[PART_LEN1],
                                  float ef[2][PART_LEN1]) {
   const __m128 k1e_10f = _mm_set1_ps(1e-10f);
-  const __m128 kMu = extended_filter_enabled ? _mm_set1_ps(kExtendedMu)
-                                             : _mm_set1_ps(normal_mu);
-  const __m128 kThresh = extended_filter_enabled
-                             ? _mm_set1_ps(kExtendedErrorThreshold)
-                             : _mm_set1_ps(normal_error_threshold);
+  const __m128 kMu = _mm_set1_ps(mu);
+  const __m128 kThresh = _mm_set1_ps(error_threshold);
 
   int i;
   // vectorized code (four at once)
@@ -124,10 +122,6 @@ static void ScaleErrorSignalSSE2(int extended_filter_enabled,
   }
   // scalar code for the remaining items.
   {
-    const float mu = extended_filter_enabled ? kExtendedMu : normal_mu;
-    const float error_threshold = extended_filter_enabled
-                                      ? kExtendedErrorThreshold
-                                      : normal_error_threshold;
     for (; i < (PART_LEN1); i++) {
       float abs_ef;
       ef[0][i] /= (x_pow[i] + 1e-10f);
@@ -742,3 +736,4 @@ void WebRtcAec_InitAec_SSE2(void) {
   WebRtcAec_PartitionDelay = PartitionDelaySSE2;
   WebRtcAec_WindowData = WindowDataSSE2;
 }
+}  // namespace webrtc

@@ -22,6 +22,7 @@
 #include "webrtc/api/peerconnection.h"
 #include "webrtc/api/peerconnectionfactory.h"
 #include "webrtc/api/test/fakedatachannelprovider.h"
+#include "webrtc/api/test/fakevideotracksource.h"
 #include "webrtc/api/videotrack.h"
 #include "webrtc/base/base64.h"
 #include "webrtc/base/fakesslidentity.h"
@@ -43,11 +44,6 @@ using webrtc::PeerConnectionInterface;
 using webrtc::StatsReport;
 using webrtc::StatsReports;
 
-namespace {
-// This value comes from openssl/tls1.h
-const int TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA = 0xC014;
-}  // namespace
-
 namespace cricket {
 
 class ChannelManager;
@@ -55,6 +51,11 @@ class ChannelManager;
 }  // namespace cricket
 
 namespace webrtc {
+
+namespace internal {
+// This value comes from openssl/tls1.h
+static const int TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA = 0xC014;
+}  // namespace internal
 
 // Error return values
 const char kNotFound[] = "NOT FOUND";
@@ -81,9 +82,15 @@ class MockWebRtcSession : public webrtc::WebRtcSession {
   MOCK_METHOD2(GetLocalCertificate,
                bool(const std::string& transport_name,
                     rtc::scoped_refptr<rtc::RTCCertificate>* certificate));
-  MOCK_METHOD2(GetRemoteSSLCertificate,
-               bool(const std::string& transport_name,
-                    rtc::SSLCertificate** cert));
+
+  // Workaround for gmock's inability to cope with move-only return values.
+  rtc::scoped_ptr<rtc::SSLCertificate> GetRemoteSSLCertificate(
+      const std::string& transport_name) override {
+    return rtc::scoped_ptr<rtc::SSLCertificate>(
+        GetRemoteSSLCertificate_ReturnsRawPointer(transport_name));
+  }
+  MOCK_METHOD1(GetRemoteSSLCertificate_ReturnsRawPointer,
+               rtc::SSLCertificate*(const std::string& transport_name));
 };
 
 // The factory isn't really used; it just satisfies the base PeerConnection.
@@ -523,7 +530,8 @@ class StatsCollectorTest : public testing::Test {
   // Adds a outgoing video track with a given SSRC into the stats.
   void AddOutgoingVideoTrackStats() {
     stream_ = webrtc::MediaStream::Create("streamlabel");
-    track_= webrtc::VideoTrack::Create(kLocalTrackId, NULL);
+    track_ = webrtc::VideoTrack::Create(kLocalTrackId,
+                                        webrtc::FakeVideoTrackSource::Create());
     stream_->AddTrack(track_);
     EXPECT_CALL(session_, GetLocalTrackIdBySsrc(kSsrcOfTrack, _))
         .WillRepeatedly(DoAll(SetArgPointee<1>(kLocalTrackId), Return(true)));
@@ -532,7 +540,8 @@ class StatsCollectorTest : public testing::Test {
   // Adds a incoming video track with a given SSRC into the stats.
   void AddIncomingVideoTrackStats() {
     stream_ = webrtc::MediaStream::Create("streamlabel");
-    track_= webrtc::VideoTrack::Create(kRemoteTrackId, NULL);
+    track_ = webrtc::VideoTrack::Create(kRemoteTrackId,
+                                        webrtc::FakeVideoTrackSource::Create());
     stream_->AddTrack(track_);
     EXPECT_CALL(session_, GetRemoteTrackIdBySsrc(kSsrcOfTrack, _))
         .WillRepeatedly(DoAll(SetArgPointee<1>(kRemoteTrackId), Return(true)));
@@ -659,10 +668,11 @@ class StatsCollectorTest : public testing::Test {
     VerifyVoiceReceiverInfoReport(track_report, *voice_receiver_info);
   }
 
-  void TestCertificateReports(const rtc::FakeSSLCertificate& local_cert,
-                              const std::vector<std::string>& local_ders,
-                              const rtc::FakeSSLCertificate& remote_cert,
-                              const std::vector<std::string>& remote_ders) {
+  void TestCertificateReports(
+      const rtc::FakeSSLCertificate& local_cert,
+      const std::vector<std::string>& local_ders,
+      rtc::scoped_ptr<rtc::FakeSSLCertificate> remote_cert,
+      const std::vector<std::string>& remote_ders) {
     StatsCollectorForTest stats(&pc_);
 
     StatsReports reports;  // returned values.
@@ -671,7 +681,8 @@ class StatsCollectorTest : public testing::Test {
     cricket::TransportChannelStats channel_stats;
     channel_stats.component = 1;
     channel_stats.srtp_crypto_suite = rtc::SRTP_AES128_CM_SHA1_80;
-    channel_stats.ssl_cipher_suite = TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA;
+    channel_stats.ssl_cipher_suite =
+        internal::TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA;
 
     cricket::TransportStats transport_stats;
     transport_stats.transport_name = "audio";
@@ -690,10 +701,9 @@ class StatsCollectorTest : public testing::Test {
     EXPECT_CALL(session_,
                 GetLocalCertificate(transport_stats.transport_name, _))
         .WillOnce(DoAll(SetArgPointee<1>(local_certificate), Return(true)));
-    EXPECT_CALL(session_,
-                GetRemoteSSLCertificate(transport_stats.transport_name, _))
-        .WillOnce(
-            DoAll(SetArgPointee<1>(remote_cert.GetReference()), Return(true)));
+    EXPECT_CALL(session_, GetRemoteSSLCertificate_ReturnsRawPointer(
+                              transport_stats.transport_name))
+        .WillOnce(Return(remote_cert.release()));
     EXPECT_CALL(session_, GetTransportStats(_))
       .WillOnce(DoAll(SetArgPointee<0>(session_stats),
                       Return(true)));
@@ -737,7 +747,7 @@ class StatsCollectorTest : public testing::Test {
         ExtractStatsValue(StatsReport::kStatsReportTypeComponent, reports,
                           StatsReport::kStatsValueNameDtlsCipher);
     EXPECT_EQ(rtc::SSLStreamAdapter::SslCipherSuiteToName(
-                  TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA),
+                  internal::TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA),
               dtls_cipher_suite);
     std::string srtp_crypto_suite =
         ExtractStatsValue(StatsReport::kStatsReportTypeComponent, reports,
@@ -803,8 +813,8 @@ TEST_F(StatsCollectorTest, BytesCounterHandles64Bits) {
 
   EXPECT_CALL(session_, GetLocalCertificate(_, _))
       .WillRepeatedly(Return(false));
-  EXPECT_CALL(session_, GetRemoteSSLCertificate(_, _))
-      .WillRepeatedly(Return(false));
+  EXPECT_CALL(session_, GetRemoteSSLCertificate_ReturnsRawPointer(_))
+      .WillRepeatedly(Return(nullptr));
 
   const char kVideoChannelName[] = "video";
 
@@ -849,8 +859,8 @@ TEST_F(StatsCollectorTest, BandwidthEstimationInfoIsReported) {
 
   EXPECT_CALL(session_, GetLocalCertificate(_, _))
       .WillRepeatedly(Return(false));
-  EXPECT_CALL(session_, GetRemoteSSLCertificate(_, _))
-      .WillRepeatedly(Return(false));
+  EXPECT_CALL(session_, GetRemoteSSLCertificate_ReturnsRawPointer(_))
+      .WillRepeatedly(Return(nullptr));
 
   const char kVideoChannelName[] = "video";
 
@@ -961,8 +971,8 @@ TEST_F(StatsCollectorTest, TrackAndSsrcObjectExistAfterUpdateSsrcStats) {
 
   EXPECT_CALL(session_, GetLocalCertificate(_, _))
       .WillRepeatedly(Return(false));
-  EXPECT_CALL(session_, GetRemoteSSLCertificate(_, _))
-      .WillRepeatedly(Return(false));
+  EXPECT_CALL(session_, GetRemoteSSLCertificate_ReturnsRawPointer(_))
+      .WillRepeatedly(Return(nullptr));
 
   const char kVideoChannelName[] = "video";
   InitSessionStats(kVideoChannelName);
@@ -1033,8 +1043,8 @@ TEST_F(StatsCollectorTest, TransportObjectLinkedFromSsrcObject) {
 
   EXPECT_CALL(session_, GetLocalCertificate(_, _))
       .WillRepeatedly(Return(false));
-  EXPECT_CALL(session_, GetRemoteSSLCertificate(_, _))
-      .WillRepeatedly(Return(false));
+  EXPECT_CALL(session_, GetRemoteSSLCertificate_ReturnsRawPointer(_))
+      .WillRepeatedly(Return(nullptr));
 
   MockVideoMediaChannel* media_channel = new MockVideoMediaChannel();
   // The transport_name known by the video channel.
@@ -1117,8 +1127,8 @@ TEST_F(StatsCollectorTest, RemoteSsrcInfoIsPresent) {
 
   EXPECT_CALL(session_, GetLocalCertificate(_, _))
       .WillRepeatedly(Return(false));
-  EXPECT_CALL(session_, GetRemoteSSLCertificate(_, _))
-      .WillRepeatedly(Return(false));
+  EXPECT_CALL(session_, GetRemoteSSLCertificate_ReturnsRawPointer(_))
+      .WillRepeatedly(Return(nullptr));
 
   MockVideoMediaChannel* media_channel = new MockVideoMediaChannel();
   // The transport_name known by the video channel.
@@ -1168,8 +1178,8 @@ TEST_F(StatsCollectorTest, ReportsFromRemoteTrack) {
 
   EXPECT_CALL(session_, GetLocalCertificate(_, _))
       .WillRepeatedly(Return(false));
-  EXPECT_CALL(session_, GetRemoteSSLCertificate(_, _))
-      .WillRepeatedly(Return(false));
+  EXPECT_CALL(session_, GetRemoteSSLCertificate_ReturnsRawPointer(_))
+      .WillRepeatedly(Return(nullptr));
 
   const char kVideoChannelName[] = "video";
   InitSessionStats(kVideoChannelName);
@@ -1329,9 +1339,11 @@ TEST_F(StatsCollectorTest, ChainedCertificateReportsCreated) {
   remote_ders[1] = "non-";
   remote_ders[2] = "intersecting";
   remote_ders[3] = "set";
-  rtc::FakeSSLCertificate remote_cert(DersToPems(remote_ders));
+  rtc::scoped_ptr<rtc::FakeSSLCertificate> remote_cert(
+      new rtc::FakeSSLCertificate(DersToPems(remote_ders)));
 
-  TestCertificateReports(local_cert, local_ders, remote_cert, remote_ders);
+  TestCertificateReports(local_cert, local_ders, std::move(remote_cert),
+                         remote_ders);
 }
 
 // This test verifies that all certificates without chains are correctly
@@ -1343,10 +1355,12 @@ TEST_F(StatsCollectorTest, ChainlessCertificateReportsCreated) {
 
   // Build remote certificate.
   std::string remote_der = "This is somebody else's der.";
-  rtc::FakeSSLCertificate remote_cert(DerToPem(remote_der));
+  rtc::scoped_ptr<rtc::FakeSSLCertificate> remote_cert(
+      new rtc::FakeSSLCertificate(DerToPem(remote_der)));
 
   TestCertificateReports(local_cert, std::vector<std::string>(1, local_der),
-                         remote_cert, std::vector<std::string>(1, remote_der));
+                         std::move(remote_cert),
+                         std::vector<std::string>(1, remote_der));
 }
 
 // This test verifies that the stats are generated correctly when no
@@ -1356,8 +1370,8 @@ TEST_F(StatsCollectorTest, NoTransport) {
 
   EXPECT_CALL(session_, GetLocalCertificate(_, _))
       .WillRepeatedly(Return(false));
-  EXPECT_CALL(session_, GetRemoteSSLCertificate(_, _))
-      .WillRepeatedly(Return(false));
+  EXPECT_CALL(session_, GetRemoteSSLCertificate_ReturnsRawPointer(_))
+      .WillRepeatedly(Return(nullptr));
 
   StatsReports reports;  // returned values.
 
@@ -1413,8 +1427,8 @@ TEST_F(StatsCollectorTest, NoCertificates) {
 
   EXPECT_CALL(session_, GetLocalCertificate(_, _))
       .WillRepeatedly(Return(false));
-  EXPECT_CALL(session_, GetRemoteSSLCertificate(_, _))
-      .WillRepeatedly(Return(false));
+  EXPECT_CALL(session_, GetRemoteSSLCertificate_ReturnsRawPointer(_))
+      .WillRepeatedly(Return(nullptr));
 
   StatsReports reports;  // returned values.
 
@@ -1465,11 +1479,12 @@ TEST_F(StatsCollectorTest, UnsupportedDigestIgnored) {
 
   // Build a remote certificate with an unsupported digest algorithm.
   std::string remote_der = "This is somebody else's der.";
-  rtc::FakeSSLCertificate remote_cert(DerToPem(remote_der));
-  remote_cert.set_digest_algorithm("foobar");
+  rtc::scoped_ptr<rtc::FakeSSLCertificate> remote_cert(
+      new rtc::FakeSSLCertificate(DerToPem(remote_der)));
+  remote_cert->set_digest_algorithm("foobar");
 
   TestCertificateReports(local_cert, std::vector<std::string>(1, local_der),
-                         remote_cert, std::vector<std::string>());
+                         std::move(remote_cert), std::vector<std::string>());
 }
 
 // This test verifies that a local stats object can get statistics via
@@ -1479,8 +1494,8 @@ TEST_F(StatsCollectorTest, GetStatsFromLocalAudioTrack) {
 
   EXPECT_CALL(session_, GetLocalCertificate(_, _))
       .WillRepeatedly(Return(false));
-  EXPECT_CALL(session_, GetRemoteSSLCertificate(_, _))
-      .WillRepeatedly(Return(false));
+  EXPECT_CALL(session_, GetRemoteSSLCertificate_ReturnsRawPointer(_))
+      .WillRepeatedly(Return(nullptr));
 
   MockVoiceMediaChannel* media_channel = new MockVoiceMediaChannel();
   // The transport_name known by the voice channel.
@@ -1514,8 +1529,8 @@ TEST_F(StatsCollectorTest, GetStatsFromRemoteStream) {
 
   EXPECT_CALL(session_, GetLocalCertificate(_, _))
       .WillRepeatedly(Return(false));
-  EXPECT_CALL(session_, GetRemoteSSLCertificate(_, _))
-      .WillRepeatedly(Return(false));
+  EXPECT_CALL(session_, GetRemoteSSLCertificate_ReturnsRawPointer(_))
+      .WillRepeatedly(Return(nullptr));
 
   MockVoiceMediaChannel* media_channel = new MockVoiceMediaChannel();
   // The transport_name known by the voice channel.
@@ -1543,8 +1558,8 @@ TEST_F(StatsCollectorTest, GetStatsAfterRemoveAudioStream) {
 
   EXPECT_CALL(session_, GetLocalCertificate(_, _))
       .WillRepeatedly(Return(false));
-  EXPECT_CALL(session_, GetRemoteSSLCertificate(_, _))
-      .WillRepeatedly(Return(false));
+  EXPECT_CALL(session_, GetRemoteSSLCertificate_ReturnsRawPointer(_))
+      .WillRepeatedly(Return(nullptr));
 
   MockVoiceMediaChannel* media_channel = new MockVoiceMediaChannel();
   // The transport_name known by the voice channel.
@@ -1604,8 +1619,8 @@ TEST_F(StatsCollectorTest, LocalAndRemoteTracksWithSameSsrc) {
 
   EXPECT_CALL(session_, GetLocalCertificate(_, _))
       .WillRepeatedly(Return(false));
-  EXPECT_CALL(session_, GetRemoteSSLCertificate(_, _))
-      .WillRepeatedly(Return(false));
+  EXPECT_CALL(session_, GetRemoteSSLCertificate_ReturnsRawPointer(_))
+      .WillRepeatedly(Return(nullptr));
 
   MockVoiceMediaChannel* media_channel = new MockVoiceMediaChannel();
   // The transport_name known by the voice channel.
@@ -1691,8 +1706,8 @@ TEST_F(StatsCollectorTest, TwoLocalTracksWithSameSsrc) {
 
   EXPECT_CALL(session_, GetLocalCertificate(_, _))
       .WillRepeatedly(Return(false));
-  EXPECT_CALL(session_, GetRemoteSSLCertificate(_, _))
-      .WillRepeatedly(Return(false));
+  EXPECT_CALL(session_, GetRemoteSSLCertificate_ReturnsRawPointer(_))
+      .WillRepeatedly(Return(nullptr));
 
   MockVoiceMediaChannel* media_channel = new MockVoiceMediaChannel();
   // The transport_name known by the voice channel.

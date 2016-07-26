@@ -1,7 +1,9 @@
 # Copyright 2012 The Chromium Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
+
 import logging
+import os
 import sys
 
 from telemetry.core import util
@@ -17,6 +19,7 @@ from telemetry.internal.util import ps_util
 from telemetry.testing import browser_test_case
 from telemetry.testing import options_for_unittests
 
+from catapult_base import cloud_storage
 from catapult_base import xvfb
 
 import typ
@@ -43,6 +46,9 @@ class RunTestsCommand(command_line.OptparseCommand):
   def AddCommandLineArgs(cls, parser, _):
     parser.add_option('--start-xvfb', action='store_true',
                       default=False, help='Start Xvfb display if needed.')
+    parser.add_option('--disable-cloud-storage-io', action='store_true',
+                      default=False, help=('Disable cloud storage IO when '
+                                           'tests are run in parallel.'))
     parser.add_option('--repeat-count', type='int', default=1,
                       help='Repeats each a provided number of times.')
     parser.add_option('--no-browser', action='store_true', default=False,
@@ -121,6 +127,14 @@ class RunTestsCommand(command_line.OptparseCommand):
     else:
       possible_browser = browser_finder.FindBrowser(args)
       platform = possible_browser.platform
+
+    fetch_reference_chrome_binary = False
+    # Fetch all binaries needed by telemetry before we run the benchmark.
+    if possible_browser and possible_browser.browser_type == 'reference':
+      fetch_reference_chrome_binary = True
+    binary_manager.FetchBinaryDepdencies(
+        platform, args.client_config, fetch_reference_chrome_binary)
+
 
     # Telemetry seems to overload the system if we run one test per core,
     # so we scale things back a fair amount. Many of the telemetry tests
@@ -223,30 +237,33 @@ def _MatchesSelectedTest(name, selected_tests, selected_tests_are_exact):
 
 def _SetUpProcess(child, context): # pylint: disable=unused-argument
   ps_util.EnableListingStrayProcessesUponExitHook()
+  # Make sure that we don't invokes cloud storage I/Os when we run the tests in
+  # parallel.
+  # TODO(nednguyen): always do this once telemetry tests in Chromium is updated
+  # to prefetch files.
+  # (https://github.com/catapult-project/catapult/issues/2192)
+  args = context
+  if args.disable_cloud_storage_io:
+    os.environ[cloud_storage.DISABLE_CLOUD_STORAGE_IO] = '1'
   if binary_manager.NeedsInit():
     # Typ doesn't keep the DependencyManager initialization in the child
     # processes.
     binary_manager.InitDependencyManager(context.client_config)
   # We need to reset the handlers in case some other parts of telemetry already
   # set it to make this work.
-  logging.getLogger().handlers = []
-  logging.basicConfig(
-      level=logging.INFO,
-      format='(%(levelname)s) %(asctime)s %(module)s.%(funcName)s:%(lineno)d  '
-             '%(message)s')
-  args = context
   if not args.disable_logging_config:
     logging.getLogger().handlers = []
     logging.basicConfig(
         level=logging.INFO,
         format='(%(levelname)s) %(asctime)s %(module)s.%(funcName)s:%(lineno)d'
               '  %(message)s')
-  if args.device and args.device == 'android':
+  if args.remote_platform_options.device == 'android':
     android_devices = android_device.FindAllAvailableDevices(args)
     if not android_devices:
       raise RuntimeError("No Android device found")
     android_devices.sort(key=lambda device: device.name)
-    args.device = android_devices[child.worker_num-1].guid
+    args.remote_platform_options.device = (
+        android_devices[child.worker_num-1].guid)
   options_for_unittests.Push(args)
 
 

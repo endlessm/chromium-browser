@@ -1116,28 +1116,6 @@ bool ValidateES3TexStorage3DParameters(Context *context,
                                                height, depth);
 }
 
-bool ValidateGenQueries(gl::Context *context, GLsizei n, const GLuint *ids)
-{
-    if (context->getClientVersion() < 3)
-    {
-        context->recordError(Error(GL_INVALID_OPERATION, "GLES version < 3.0"));
-        return false;
-    }
-
-    return ValidateGenQueriesBase(context, n, ids);
-}
-
-bool ValidateDeleteQueries(gl::Context *context, GLsizei n, const GLuint *ids)
-{
-    if (context->getClientVersion() < 3)
-    {
-        context->recordError(Error(GL_INVALID_OPERATION, "GLES version < 3.0"));
-        return false;
-    }
-
-    return ValidateDeleteQueriesBase(context, n, ids);
-}
-
 bool ValidateBeginQuery(gl::Context *context, GLenum target, GLuint id)
 {
     if (context->getClientVersion() < 3)
@@ -1355,7 +1333,9 @@ bool ValidateES3RenderbufferStorageParameters(gl::Context *context, GLenum targe
     const TextureCaps &formatCaps = context->getTextureCaps().get(internalformat);
     if (static_cast<GLuint>(samples) > formatCaps.getMaxSamples())
     {
-        context->recordError(Error(GL_INVALID_VALUE));
+        context->recordError(
+            Error(GL_INVALID_OPERATION,
+                  "Samples must not be greater than maximum supported value for the format."));
         return false;
     }
 
@@ -1408,6 +1388,42 @@ bool ValidateClearBuffer(ValidationContext *context)
     return true;
 }
 
+bool ValidateDrawRangeElements(Context *context,
+                               GLenum mode,
+                               GLuint start,
+                               GLuint end,
+                               GLsizei count,
+                               GLenum type,
+                               const GLvoid *indices,
+                               IndexRange *indexRange)
+{
+    if (context->getClientVersion() < 3)
+    {
+        context->recordError(Error(GL_INVALID_OPERATION, "Context does not support GLES3."));
+        return false;
+    }
+
+    if (end < start)
+    {
+        context->recordError(Error(GL_INVALID_VALUE, "end < start"));
+        return false;
+    }
+
+    if (!ValidateDrawElements(context, mode, count, type, indices, 0, indexRange))
+    {
+        return false;
+    }
+
+    if (indexRange->end > end || indexRange->start < start)
+    {
+        // GL spec says that behavior in this case is undefined - generating an error is fine.
+        context->recordError(
+            Error(GL_INVALID_OPERATION, "Indices are out of the start, end range."));
+        return false;
+    }
+    return true;
+}
+
 bool ValidateGetUniformuiv(Context *context, GLuint program, GLint location, GLuint* params)
 {
     if (context->getClientVersion() < 3)
@@ -1440,7 +1456,7 @@ bool ValidateReadBuffer(Context *context, GLenum src)
         return true;
     }
 
-    if (src != GL_BACK && (src < GL_COLOR_ATTACHMENT0 || src > GL_COLOR_ATTACHMENT15))
+    if (src != GL_BACK && (src < GL_COLOR_ATTACHMENT0 || src > GL_COLOR_ATTACHMENT31))
     {
         context->recordError(gl::Error(GL_INVALID_ENUM, "Unknown enum for 'src' in ReadBuffer"));
         return false;
@@ -1525,28 +1541,6 @@ bool ValidateBindVertexArray(Context *context, GLuint array)
     return ValidateBindVertexArrayBase(context, array);
 }
 
-bool ValidateDeleteVertexArrays(Context *context, GLsizei n)
-{
-    if (context->getClientVersion() < 3)
-    {
-        context->recordError(Error(GL_INVALID_OPERATION));
-        return false;
-    }
-
-    return ValidateDeleteVertexArraysBase(context, n);
-}
-
-bool ValidateGenVertexArrays(Context *context, GLsizei n)
-{
-    if (context->getClientVersion() < 3)
-    {
-        context->recordError(Error(GL_INVALID_OPERATION));
-        return false;
-    }
-
-    return ValidateGenVertexArraysBase(context, n);
-}
-
 bool ValidateIsVertexArray(Context *context)
 {
     if (context->getClientVersion() < 3)
@@ -1589,11 +1583,11 @@ bool ValidateGetProgramBinary(Context *context,
     return ValidateGetProgramBinaryBase(context, program, bufSize, length, binaryFormat, binary);
 }
 
-bool ValidateProgramParameter(Context *context, GLuint program, GLenum pname, GLint value)
+bool ValidateProgramParameteri(Context *context, GLuint program, GLenum pname, GLint value)
 {
     if (context->getClientVersion() < 3)
     {
-        context->recordError(Error(GL_INVALID_OPERATION));
+        context->recordError(Error(GL_INVALID_OPERATION, "Context does not support GLES3."));
         return false;
     }
 
@@ -1605,6 +1599,12 @@ bool ValidateProgramParameter(Context *context, GLuint program, GLenum pname, GL
     switch (pname)
     {
         case GL_PROGRAM_BINARY_RETRIEVABLE_HINT:
+            if (value != GL_FALSE && value != GL_TRUE)
+            {
+                context->recordError(Error(
+                    GL_INVALID_VALUE, "Invalid value, expected GL_FALSE or GL_TRUE: %i", value));
+                return false;
+            }
             break;
 
         default:
@@ -1864,6 +1864,200 @@ bool ValidateCompressedTexSubImage3D(Context *context,
 
     return ValidateES3TexImage3DParameters(context, target, level, GL_NONE, true, true, 0, 0, 0,
                                            width, height, depth, 0, GL_NONE, GL_NONE, data);
+}
+
+bool ValidateGenQueries(Context *context, GLint n, GLuint *)
+{
+    return ValidateGenOrDeleteES3(context, n);
+}
+
+bool ValidateDeleteQueries(Context *context, GLint n, const GLuint *)
+{
+    return ValidateGenOrDeleteES3(context, n);
+}
+
+bool ValidateGenSamplers(Context *context, GLint count, GLuint *)
+{
+    return ValidateGenOrDeleteCountES3(context, count);
+}
+
+bool ValidateDeleteSamplers(Context *context, GLint count, const GLuint *)
+{
+    return ValidateGenOrDeleteCountES3(context, count);
+}
+
+bool ValidateGenTransformFeedbacks(Context *context, GLint n, GLuint *)
+{
+    return ValidateGenOrDeleteES3(context, n);
+}
+
+bool ValidateDeleteTransformFeedbacks(Context *context, GLint n, const GLuint *ids)
+{
+    if (!ValidateGenOrDeleteES3(context, n))
+    {
+        return false;
+    }
+    for (GLint i = 0; i < n; ++i)
+    {
+        auto *transformFeedback = context->getTransformFeedback(ids[i]);
+        if (transformFeedback != nullptr && transformFeedback->isActive())
+        {
+            // ES 3.0.4 section 2.15.1 page 86
+            context->recordError(
+                Error(GL_INVALID_OPERATION, "Attempt to delete active transform feedback."));
+            return false;
+        }
+    }
+    return true;
+}
+
+bool ValidateGenVertexArrays(Context *context, GLint n, GLuint *)
+{
+    return ValidateGenOrDeleteES3(context, n);
+}
+
+bool ValidateDeleteVertexArrays(Context *context, GLint n, const GLuint *)
+{
+    return ValidateGenOrDeleteES3(context, n);
+}
+
+bool ValidateGenOrDeleteES3(Context *context, GLint n)
+{
+    if (context->getClientVersion() < 3)
+    {
+        context->recordError(Error(GL_INVALID_OPERATION, "Context does not support GLES3."));
+        return false;
+    }
+    return ValidateGenOrDelete(context, n);
+}
+
+bool ValidateGenOrDeleteCountES3(Context *context, GLint count)
+{
+    if (context->getClientVersion() < 3)
+    {
+        context->recordError(Error(GL_INVALID_OPERATION, "Context does not support GLES3."));
+        return false;
+    }
+    if (count < 0)
+    {
+        context->recordError(Error(GL_INVALID_VALUE, "count < 0"));
+        return false;
+    }
+    return true;
+}
+
+bool ValidateBeginTransformFeedback(Context *context, GLenum primitiveMode)
+{
+    if (context->getClientVersion() < 3)
+    {
+        context->recordError(Error(GL_INVALID_OPERATION, "Context does not support GLES3."));
+        return false;
+    }
+    switch (primitiveMode)
+    {
+        case GL_TRIANGLES:
+        case GL_LINES:
+        case GL_POINTS:
+            break;
+
+        default:
+            context->recordError(Error(GL_INVALID_ENUM, "Invalid primitive mode."));
+            return false;
+    }
+
+    TransformFeedback *transformFeedback = context->getState().getCurrentTransformFeedback();
+    ASSERT(transformFeedback != nullptr);
+
+    if (transformFeedback->isActive())
+    {
+        context->recordError(Error(GL_INVALID_OPERATION, "Transform feedback is already active."));
+        return false;
+    }
+    return true;
+}
+
+bool ValidateSamplerParameteri(Context *context, GLuint sampler, GLenum pname, GLint param)
+{
+    if (context->getClientVersion() < 3)
+    {
+        context->recordError(Error(GL_INVALID_OPERATION, "Context does not support GLES3."));
+        return false;
+    }
+
+    if (!context->isSampler(sampler))
+    {
+        context->recordError(Error(GL_INVALID_OPERATION));
+        return false;
+    }
+
+    if (!ValidateSamplerObjectParameter(context, pname))
+    {
+        return false;
+    }
+
+    if (!ValidateTexParamParameters(context, pname, param))
+    {
+        return false;
+    }
+    return true;
+}
+
+bool ValidateSamplerParameterf(Context *context, GLuint sampler, GLenum pname, GLfloat param)
+{
+    // The only float parameters are MIN_LOD and MAX_LOD. For these any value is permissible, so
+    // ValidateSamplerParameteri can be used for validation here.
+    return ValidateSamplerParameteri(context, sampler, pname, static_cast<GLint>(param));
+}
+
+bool ValidateGetBufferPointerv(Context *context, GLenum target, GLenum pname, GLvoid **params)
+{
+    if (context->getClientVersion() < 3)
+    {
+        context->recordError(Error(GL_INVALID_OPERATION, "Context does not support GLES3."));
+        return false;
+    }
+
+    return ValidateGetBufferPointervBase(context, target, pname, params);
+}
+
+bool ValidateUnmapBuffer(Context *context, GLenum target)
+{
+    if (context->getClientVersion() < 3)
+    {
+        context->recordError(Error(GL_INVALID_OPERATION));
+        return false;
+    }
+
+    return ValidateUnmapBufferBase(context, target);
+}
+
+bool ValidateMapBufferRange(Context *context,
+                            GLenum target,
+                            GLintptr offset,
+                            GLsizeiptr length,
+                            GLbitfield access)
+{
+    if (context->getClientVersion() < 3)
+    {
+        context->recordError(Error(GL_INVALID_OPERATION, "Context does not support GLES3."));
+        return false;
+    }
+
+    return ValidateMapBufferRangeBase(context, target, offset, length, access);
+}
+
+bool ValidateFlushMappedBufferRange(Context *context,
+                                    GLenum target,
+                                    GLintptr offset,
+                                    GLsizeiptr length)
+{
+    if (context->getClientVersion() < 3)
+    {
+        context->recordError(Error(GL_INVALID_OPERATION, "Context does not support GLES3."));
+        return false;
+    }
+
+    return ValidateFlushMappedBufferRangeBase(context, target, offset, length);
 }
 
 }  // namespace gl

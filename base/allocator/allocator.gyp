@@ -20,7 +20,6 @@
     # e.g. for profiling (it's more rare to profile Debug builds,
     # but people sometimes need to do that).
     'disable_debugallocation%': 0,
-    'use_experimental_allocator_shim%': 0,
   },
   'targets': [
     # The only targets that should depend on allocator are 'base' and
@@ -50,25 +49,13 @@
               'AdditionalOptions': ['/ignore:4006'],
             },
           },
-          'dependencies': [
-            'libcmt',
-          ],
           'include_dirs': [
             '../..',
           ],
           'sources': [
             'allocator_shim_win.cc',
+            'allocator_shim_win.h',
           ],
-          'link_settings': {
-            'msvs_settings': {
-              'VCLinkerTool': {
-                'IgnoreDefaultLibraryNames': ['libcmtd.lib', 'libcmt.lib'],
-                'AdditionalDependencies': [
-                  '<(SHARED_INTERMEDIATE_DIR)/allocator/libcmt.lib'
-                ],
-              },
-            },
-          },
           'configurations': {
             'Debug_Base': {
               'msvs_settings': {
@@ -379,34 +366,54 @@
         }],
       ],  # conditions of 'allocator' target.
     },  # 'allocator' target.
+    {
+      # GN: //base/allocator:features
+      # When referenced from a target that might be compiled in the host
+      # toolchain, always refer to 'allocator_features#target'.
+      'target_name': 'allocator_features',
+      'includes': [ '../../build/buildflag_header.gypi' ],
+      'variables': {
+        'buildflag_header_path': 'base/allocator/features.h',
+        'buildflag_flags': [
+          'USE_EXPERIMENTAL_ALLOCATOR_SHIM=<(use_experimental_allocator_shim)',
+        ],
+      },
+    },  # 'allocator_features' target.
   ],  # targets.
   'conditions': [
-    ['OS=="win" and win_use_allocator_shim==1', {
+    ['use_experimental_allocator_shim==1', {
       'targets': [
         {
-          'target_name': 'libcmt',
+          # GN: //base/allocator:unified_allocator_shim
+          'target_name': 'unified_allocator_shim',
           'toolsets': ['host', 'target'],
-          'type': 'none',
-          'actions': [
-            {
-              'action_name': 'libcmt',
-              'inputs': [
-                'prep_libc.py',
-              ],
-              'outputs': [
-                '<(SHARED_INTERMEDIATE_DIR)/allocator/libcmt.lib',
-              ],
-              'action': [
-                'python',
-                'prep_libc.py',
-                '$(VCInstallDir)lib',
-                '<(SHARED_INTERMEDIATE_DIR)/allocator',
-                '<(target_arch)',
-              ],
-            },
+          'type': 'static_library',
+          'defines': [ 'BASE_IMPLEMENTATION' ],
+          'sources': [
+            'allocator_shim.cc',
+            'allocator_shim.h',
+            'allocator_shim_internals.h',
+            'allocator_shim_override_cpp_symbols.h',
+            'allocator_shim_override_libc_symbols.h',
           ],
-        },
+          'include_dirs': [
+            '../..',
+          ],
+          'conditions': [
+            ['OS=="linux" and use_allocator=="tcmalloc"', {
+              'sources': [
+                'allocator_shim_default_dispatch_to_tcmalloc.cc',
+                'allocator_shim_override_glibc_weak_symbols.h',
+              ],
+            }],
+            ['OS=="linux" and use_allocator=="none"', {
+              'sources': [
+                'allocator_shim_default_dispatch_to_glibc.cc',
+              ],
+            }],
+          ]
+        },  # 'unified_allocator_shim' target.
       ],
-    }],
+    }]
   ],
 }

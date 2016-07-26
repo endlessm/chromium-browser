@@ -9,9 +9,10 @@
 
 #include "GrVkFramebuffer.h"
 #include "GrVkImageView.h"
+#include "GrVkPipeline.h"
 #include "GrVkRenderPass.h"
 #include "GrVkRenderTarget.h"
-#include "GrVkProgram.h"
+#include "GrVkPipelineState.h"
 #include "GrVkTransferBuffer.h"
 #include "GrVkUtil.h"
 
@@ -40,10 +41,20 @@ GrVkCommandBuffer::~GrVkCommandBuffer() {
 }
 
 void GrVkCommandBuffer::invalidateState() {
-    fBoundVertexBuffer = 0;
+    fBoundVertexBuffer = VK_NULL_HANDLE;
     fBoundVertexBufferIsValid = false;
-    fBoundIndexBuffer = 0;
+    fBoundIndexBuffer = VK_NULL_HANDLE;
     fBoundIndexBufferIsValid = false;
+
+    memset(&fCachedViewport, 0, sizeof(VkViewport));
+    fCachedViewport.width = - 1.0f; // Viewport must have a width greater than 0
+
+    memset(&fCachedScissor, 0, sizeof(VkRect2D));
+    fCachedScissor.offset.x = -1; // Scissor offset must be greater that 0 to be valid
+
+    for (int i = 0; i < 4; ++i) {
+        fCachedBlendConstant[i] = -1.0;
+    }
 }
 
 void GrVkCommandBuffer::freeGPUData(const GrVkGpu* gpu) const {
@@ -52,7 +63,7 @@ void GrVkCommandBuffer::freeGPUData(const GrVkGpu* gpu) const {
     for (int i = 0; i < fTrackedResources.count(); ++i) {
         fTrackedResources[i]->unref(gpu);
     }
-    
+
     // Destroy the fence, if any
     if (VK_NULL_HANDLE != fSubmitFence) {
         GR_VK_CALL(gpu->vkInterface(), DestroyFence(gpu->device(), fSubmitFence, nullptr));
@@ -104,7 +115,6 @@ void GrVkCommandBuffer::beginRenderPass(const GrVkGpu* gpu,
     fActiveRenderPass = renderPass;
     this->addResource(renderPass);
     target.addResources(*this);
-
 }
 
 void GrVkCommandBuffer::endRenderPass(const GrVkGpu* gpu) {
@@ -116,7 +126,7 @@ void GrVkCommandBuffer::endRenderPass(const GrVkGpu* gpu) {
 
 void GrVkCommandBuffer::submitToQueue(const GrVkGpu* gpu, VkQueue queue, GrVkGpu::SyncQueue sync) {
     SkASSERT(!fIsActive);
-    
+
     VkResult err;
     VkFenceCreateInfo fenceInfo;
     memset(&fenceInfo, 0, sizeof(VkFenceCreateInfo));
@@ -138,7 +148,7 @@ void GrVkCommandBuffer::submitToQueue(const GrVkGpu* gpu, VkQueue queue, GrVkGpu
     GR_VK_CALL_ERRCHECK(gpu->vkInterface(), QueueSubmit(queue, 1, &submitInfo, fSubmitFence));
 
     if (GrVkGpu::kForce_SyncQueue == sync) {
-        err = GR_VK_CALL(gpu->vkInterface(), 
+        err = GR_VK_CALL(gpu->vkInterface(),
                          WaitForFences(gpu->device(), 1, &fSubmitFence, true, UINT64_MAX));
         if (VK_TIMEOUT == err) {
             SkDebugf("Fence failed to signal: %d\n", err);
@@ -243,6 +253,28 @@ void GrVkCommandBuffer::copyImage(const GrVkGpu* gpu,
                                                 copyRegions));
 }
 
+void GrVkCommandBuffer::blitImage(const GrVkGpu* gpu,
+                                  GrVkImage* srcImage,
+                                  VkImageLayout srcLayout,
+                                  GrVkImage* dstImage,
+                                  VkImageLayout dstLayout,
+                                  uint32_t blitRegionCount,
+                                  const VkImageBlit* blitRegions,
+                                  VkFilter filter) {
+    SkASSERT(fIsActive);
+    SkASSERT(!fActiveRenderPass);
+    this->addResource(srcImage->resource());
+    this->addResource(dstImage->resource());
+    GR_VK_CALL(gpu->vkInterface(), CmdBlitImage(fCmdBuffer,
+                                                srcImage->textureImage(),
+                                                srcLayout,
+                                                dstImage->textureImage(),
+                                                dstLayout,
+                                                blitRegionCount,
+                                                blitRegions,
+                                                filter));
+}
+
 void GrVkCommandBuffer::copyImageToBuffer(const GrVkGpu* gpu,
                                           GrVkImage* srcImage,
                                           VkImageLayout srcLayout,
@@ -295,6 +327,22 @@ void GrVkCommandBuffer::clearColorImage(const GrVkGpu* gpu,
                                                       subRanges));
 }
 
+void GrVkCommandBuffer::clearDepthStencilImage(const GrVkGpu* gpu,
+                                               GrVkImage* image,
+                                               const VkClearDepthStencilValue* color,
+                                               uint32_t subRangeCount,
+                                               const VkImageSubresourceRange* subRanges) {
+    SkASSERT(fIsActive);
+    SkASSERT(!fActiveRenderPass);
+    this->addResource(image->resource());
+    GR_VK_CALL(gpu->vkInterface(), CmdClearDepthStencilImage(fCmdBuffer,
+                                                             image->textureImage(),
+                                                             image->currentLayout(),
+                                                             color,
+                                                             subRangeCount,
+                                                             subRanges));
+}
+
 void GrVkCommandBuffer::clearAttachments(const GrVkGpu* gpu,
                                          int numAttachments,
                                          const VkClearAttachment* attachments,
@@ -321,7 +369,7 @@ void GrVkCommandBuffer::clearAttachments(const GrVkGpu* gpu,
 }
 
 void GrVkCommandBuffer::bindDescriptorSets(const GrVkGpu* gpu,
-                                           GrVkProgram* program,
+                                           GrVkPipelineState* pipelineState,
                                            VkPipelineLayout layout,
                                            uint32_t firstSet,
                                            uint32_t setCount,
@@ -337,7 +385,16 @@ void GrVkCommandBuffer::bindDescriptorSets(const GrVkGpu* gpu,
                                                          descriptorSets,
                                                          dynamicOffsetCount,
                                                          dynamicOffsets));
-    program->addUniformResources(*this);
+    pipelineState->addUniformResources(*this);
+}
+
+void GrVkCommandBuffer::bindPipeline(const GrVkGpu* gpu, const GrVkPipeline* pipeline) {
+    SkASSERT(fIsActive);
+    SkASSERT(fActiveRenderPass);
+    GR_VK_CALL(gpu->vkInterface(), CmdBindPipeline(fCmdBuffer,
+                                                   VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                                   pipeline->pipeline()));
+    addResource(pipeline);
 }
 
 void GrVkCommandBuffer::drawIndexed(const GrVkGpu* gpu,
@@ -368,4 +425,43 @@ void GrVkCommandBuffer::draw(const GrVkGpu* gpu,
                                            instanceCount,
                                            firstVertex,
                                            firstInstance));
+}
+
+void GrVkCommandBuffer::setViewport(const GrVkGpu* gpu,
+                                    uint32_t firstViewport,
+                                    uint32_t viewportCount,
+                                    const VkViewport* viewports) {
+    SkASSERT(fIsActive);
+    SkASSERT(1 == viewportCount);
+    if (memcmp(viewports, &fCachedViewport, sizeof(VkViewport))) {
+        GR_VK_CALL(gpu->vkInterface(), CmdSetViewport(fCmdBuffer,
+                                                      firstViewport,
+                                                      viewportCount,
+                                                      viewports));
+        fCachedViewport = viewports[0];
+    }
+}
+
+void GrVkCommandBuffer::setScissor(const GrVkGpu* gpu,
+                                   uint32_t firstScissor,
+                                   uint32_t scissorCount,
+                                   const VkRect2D* scissors) {
+    SkASSERT(fIsActive);
+    SkASSERT(1 == scissorCount);
+    if (memcmp(scissors, &fCachedScissor, sizeof(VkRect2D))) {
+        GR_VK_CALL(gpu->vkInterface(), CmdSetScissor(fCmdBuffer,
+                                                     firstScissor,
+                                                     scissorCount,
+                                                     scissors));
+        fCachedScissor = scissors[0];
+    }
+}
+
+void GrVkCommandBuffer::setBlendConstants(const GrVkGpu* gpu,
+                                          const float blendConstants[4]) {
+    SkASSERT(fIsActive);
+    if (memcmp(blendConstants, fCachedBlendConstant, 4 * sizeof(float))) {
+        GR_VK_CALL(gpu->vkInterface(), CmdSetBlendConstants(fCmdBuffer, blendConstants));
+        memcpy(fCachedBlendConstant, blendConstants, 4 * sizeof(float));
+    }
 }

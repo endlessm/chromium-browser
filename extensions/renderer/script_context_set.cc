@@ -45,11 +45,11 @@ ScriptContext* ScriptContextSet::Register(
   GURL frame_url = ScriptContext::GetDataSourceURLForFrame(frame);
   Feature::Context context_type =
       ClassifyJavaScriptContext(extension, extension_group, frame_url,
-                                frame->document().securityOrigin());
+                                frame->document().getSecurityOrigin());
   Feature::Context effective_context_type = ClassifyJavaScriptContext(
       effective_extension, extension_group,
       ScriptContext::GetEffectiveDocumentURL(frame, frame_url, true),
-      frame->document().securityOrigin());
+      frame->document().getSecurityOrigin());
 
   ScriptContext* context =
       new ScriptContext(v8_context, frame, extension, context_type,
@@ -132,8 +132,7 @@ const Extension* ScriptContextSet::GetExtensionFromFrameAndWorld(
   if (world_id != 0) {
     // Isolated worlds (content script).
     extension_id = ScriptInjection::GetHostIdForIsolatedWorld(world_id);
-  } else if (!frame->document().securityOrigin().isUnique()) {
-    // TODO(kalman): Delete the above check.
+  } else {
     // Extension pages (chrome-extension:// URLs).
     GURL frame_url = ScriptContext::GetDataSourceURLForFrame(frame);
     frame_url = ScriptContext::GetEffectiveDocumentURL(frame, frame_url,

@@ -290,9 +290,8 @@ CookieTreeNode::DetailedInfo& CookieTreeNode::DetailedInfo::InitFlashLSO(
 // CookieTreeNode, public:
 
 void CookieTreeNode::DeleteStoredObjects() {
-  std::for_each(children().begin(),
-                children().end(),
-                std::mem_fun(&CookieTreeNode::DeleteStoredObjects));
+  for (auto* child : children())
+    child->DeleteStoredObjects();
 }
 
 CookiesTreeModel* CookieTreeNode::GetModel() const {
@@ -765,12 +764,8 @@ void CookieTreeHostNode::CreateContentException(
          setting == CONTENT_SETTING_BLOCK ||
          setting == CONTENT_SETTING_SESSION_ONLY);
   if (CanCreateContentException()) {
-    cookie_settings->ResetCookieSetting(
-        ContentSettingsPattern::FromURLNoWildcard(url_),
-        ContentSettingsPattern::Wildcard());
-    cookie_settings->SetCookieSetting(
-        ContentSettingsPattern::FromURL(url_),
-        ContentSettingsPattern::Wildcard(), setting);
+    cookie_settings->ResetCookieSetting(url_);
+    cookie_settings->SetCookieSetting(url_, setting);
   }
 }
 
@@ -994,11 +989,11 @@ CookiesTreeModel::~CookiesTreeModel() {
 // static
 int CookiesTreeModel::GetSendForMessageID(const net::CanonicalCookie& cookie) {
   if (cookie.IsSecure()) {
-    if (cookie.IsSameSite())
+    if (cookie.SameSite() != net::CookieSameSite::NO_RESTRICTION)
       return IDS_COOKIES_COOKIE_SENDFOR_SECURE_SAME_SITE;
     return IDS_COOKIES_COOKIE_SENDFOR_SECURE;
   }
-  if (cookie.IsSameSite())
+  if (cookie.SameSite() != net::CookieSameSite::NO_RESTRICTION)
     return IDS_COOKIES_COOKIE_SENDFOR_SAME_SITE;
   return IDS_COOKIES_COOKIE_SENDFOR_ANY;
 }

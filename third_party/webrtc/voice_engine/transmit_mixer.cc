@@ -205,7 +205,6 @@ TransmitMixer::TransmitMixer(uint32_t instanceId) :
     external_postproc_ptr_(NULL),
     external_preproc_ptr_(NULL),
     _mute(false),
-    _remainingMuteMicTimeMs(0),
     stereo_codec_(false),
     swap_stereo_channels_(false)
 {
@@ -359,22 +358,8 @@ TransmitMixer::PrepareDemux(const void* audioSamples,
     TypingDetection(keyPressed);
 #endif
 
-    // --- Mute during DTMF tone if direct feedback is enabled
-    if (_remainingMuteMicTimeMs > 0)
-    {
-        AudioFrameOperations::Mute(_audioFrame);
-        _remainingMuteMicTimeMs -= 10;
-        if (_remainingMuteMicTimeMs < 0)
-        {
-            _remainingMuteMicTimeMs = 0;
-        }
-    }
-
     // --- Mute signal
-    if (_mute)
-    {
-        AudioFrameOperations::Mute(_audioFrame);
-    }
+    AudioFrameOperations::Mute(&_audioFrame, _mute, _mute);
 
     // --- Mix with file (does not affect the mixing frequency)
     if (_filePlaying)
@@ -475,15 +460,6 @@ void TransmitMixer::EncodeAndSend(const int voe_channels[],
 uint32_t TransmitMixer::CaptureLevel() const
 {
     return _captureLevel;
-}
-
-void
-TransmitMixer::UpdateMuteMicrophoneTime(uint32_t lengthMs)
-{
-    WEBRTC_TRACE(kTraceInfo, kTraceVoice, VoEId(_instanceId, -1),
-               "TransmitMixer::UpdateMuteMicrophoneTime(lengthMs=%d)",
-               lengthMs);
-    _remainingMuteMicTimeMs = lengthMs;
 }
 
 int32_t
@@ -1145,11 +1121,6 @@ void TransmitMixer::GenerateAudioFrame(const int16_t* audio,
     if (_audioFrame.sample_rate_hz_ >= min_processing_rate) {
       break;
     }
-  }
-  if (audioproc_->echo_control_mobile()->is_enabled()) {
-    // AECM only supports 8 and 16 kHz.
-    _audioFrame.sample_rate_hz_ = std::min(
-        _audioFrame.sample_rate_hz_, AudioProcessing::kMaxAECMSampleRateHz);
   }
   _audioFrame.num_channels_ = std::min(num_channels, num_codec_channels);
   RemixAndResample(audio, samples_per_channel, num_channels, sample_rate_hz,

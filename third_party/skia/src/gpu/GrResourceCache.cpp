@@ -1,4 +1,3 @@
-
 /*
  * Copyright 2014 Google Inc.
  *
@@ -147,7 +146,7 @@ void GrResourceCache::insertResource(GrGpuResource* resource) {
 #endif
     }
     if (resource->resourcePriv().getScratchKey().isValid()) {
-        SkASSERT(!resource->cacheAccess().isExternal());
+        SkASSERT(!resource->resourcePriv().isExternal());
         fScratchMap.insert(resource->resourcePriv().getScratchKey(), resource);
     }
 
@@ -377,7 +376,7 @@ void GrResourceCache::notifyCntReachedZero(GrGpuResource* resource, uint32_t fla
 
     if (SkBudgeted::kNo == resource->resourcePriv().isBudgeted()) {
         // Check whether this resource could still be used as a scratch resource.
-        if (!resource->cacheAccess().isExternal() &&
+        if (!resource->resourcePriv().isExternal() &&
             resource->resourcePriv().getScratchKey().isValid()) {
             // We won't purge an existing resource to make room for this one.
             if (fBudgetedCount < fMaxCount &&
@@ -662,19 +661,19 @@ void GrResourceCache::validate() const {
                 SkASSERT(!resource->getUniqueKey().isValid());
                 ++fScratch;
                 SkASSERT(fScratchMap->countForKey(resource->resourcePriv().getScratchKey()));
-                SkASSERT(!resource->cacheAccess().isExternal());
+                SkASSERT(!resource->resourcePriv().isExternal());
             } else if (resource->resourcePriv().getScratchKey().isValid()) {
                 SkASSERT(SkBudgeted::kNo == resource->resourcePriv().isBudgeted() ||
                          resource->getUniqueKey().isValid());
                 ++fCouldBeScratch;
                 SkASSERT(fScratchMap->countForKey(resource->resourcePriv().getScratchKey()));
-                SkASSERT(!resource->cacheAccess().isExternal());
+                SkASSERT(!resource->resourcePriv().isExternal());
             }
             const GrUniqueKey& uniqueKey = resource->getUniqueKey();
             if (uniqueKey.isValid()) {
                 ++fContent;
                 SkASSERT(fUniqueHash->find(uniqueKey) == resource);
-                SkASSERT(!resource->cacheAccess().isExternal());
+                SkASSERT(!resource->resourcePriv().isExternal());
                 SkASSERT(SkBudgeted::kYes == resource->resourcePriv().isBudgeted());
             }
 

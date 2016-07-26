@@ -205,31 +205,8 @@ void GL_APIENTRY BindTexture(GLenum target, GLuint texture)
     Context *context = GetValidGlobalContext();
     if (context)
     {
-        Texture *textureObject = context->getTexture(texture);
-
-        if (textureObject && textureObject->getTarget() != target && texture != 0)
+        if (!ValidateBindTexture(context, target, texture))
         {
-            context->recordError(Error(GL_INVALID_OPERATION));
-            return;
-        }
-
-        switch (target)
-        {
-          case GL_TEXTURE_2D:
-          case GL_TEXTURE_CUBE_MAP:
-            break;
-
-          case GL_TEXTURE_3D:
-          case GL_TEXTURE_2D_ARRAY:
-            if (context->getClientVersion() < 3)
-            {
-                context->recordError(Error(GL_INVALID_ENUM));
-                return;
-            }
-            break;
-
-          default:
-            context->recordError(Error(GL_INVALID_ENUM));
             return;
         }
 
@@ -813,9 +790,8 @@ void GL_APIENTRY DeleteBuffers(GLsizei n, const GLuint* buffers)
     Context *context = GetValidGlobalContext();
     if (context)
     {
-        if (n < 0)
+        if (!context->skipValidation() && !ValidateDeleteBuffers(context, n, buffers))
         {
-            context->recordError(Error(GL_INVALID_VALUE));
             return;
         }
 
@@ -833,9 +809,8 @@ void GL_APIENTRY DeleteFramebuffers(GLsizei n, const GLuint* framebuffers)
     Context *context = GetValidGlobalContext();
     if (context)
     {
-        if (n < 0)
+        if (!context->skipValidation() && !ValidateDeleteFramebuffers(context, n, framebuffers))
         {
-            context->recordError(Error(GL_INVALID_VALUE));
             return;
         }
 
@@ -886,9 +861,8 @@ void GL_APIENTRY DeleteRenderbuffers(GLsizei n, const GLuint* renderbuffers)
     Context *context = GetValidGlobalContext();
     if (context)
     {
-        if (n < 0)
+        if (!context->skipValidation() && !ValidateDeleteRenderbuffers(context, n, renderbuffers))
         {
-            context->recordError(Error(GL_INVALID_VALUE));
             return;
         }
 
@@ -936,9 +910,8 @@ void GL_APIENTRY DeleteTextures(GLsizei n, const GLuint* textures)
     Context *context = GetValidGlobalContext();
     if (context)
     {
-        if (n < 0)
+        if (!context->skipValidation() && !ValidateDeleteTextures(context, n, textures))
         {
-            context->recordError(Error(GL_INVALID_VALUE));
             return;
         }
 
@@ -1250,9 +1223,8 @@ void GL_APIENTRY GenBuffers(GLsizei n, GLuint* buffers)
     Context *context = GetValidGlobalContext();
     if (context)
     {
-        if (n < 0)
+        if (!context->skipValidation() && !ValidateGenBuffers(context, n, buffers))
         {
-            context->recordError(Error(GL_INVALID_VALUE));
             return;
         }
 
@@ -1348,9 +1320,8 @@ void GL_APIENTRY GenFramebuffers(GLsizei n, GLuint* framebuffers)
     Context *context = GetValidGlobalContext();
     if (context)
     {
-        if (n < 0)
+        if (!context->skipValidation() && !ValidateGenFramebuffers(context, n, framebuffers))
         {
-            context->recordError(Error(GL_INVALID_VALUE));
             return;
         }
 
@@ -1368,9 +1339,8 @@ void GL_APIENTRY GenRenderbuffers(GLsizei n, GLuint* renderbuffers)
     Context *context = GetValidGlobalContext();
     if (context)
     {
-        if (n < 0)
+        if (!context->skipValidation() && !ValidateGenRenderbuffers(context, n, renderbuffers))
         {
-            context->recordError(Error(GL_INVALID_VALUE));
             return;
         }
 
@@ -1388,9 +1358,8 @@ void GL_APIENTRY GenTextures(GLsizei n, GLuint* textures)
     Context *context = GetValidGlobalContext();
     if (context)
     {
-        if (n < 0)
+        if (!context->skipValidation() && !ValidateGenTextures(context, n, textures))
         {
-            context->recordError(Error(GL_INVALID_VALUE));
             return;
         }
 
@@ -1757,7 +1726,7 @@ void GL_APIENTRY GetFramebufferAttachmentParameteriv(GLenum target, GLenum attac
                     break;
 
                   case GL_DEPTH_STENCIL_ATTACHMENT:
-                    if (framebuffer->hasValidDepthStencil())
+                    if (!framebuffer->hasValidDepthStencil())
                     {
                         context->recordError(Error(GL_INVALID_OPERATION));
                         return;
@@ -2433,7 +2402,26 @@ void GL_APIENTRY GetTexParameterfv(GLenum target, GLenum pname, GLfloat* params)
             }
             *params = texture->getSamplerState().maxLod;
             break;
-
+          case GL_TEXTURE_COMPARE_MODE:
+            if (context->getClientVersion() < 3)
+            {
+                context->recordError(
+                    Error(GL_INVALID_ENUM,
+                          "GL_TEXTURE_COMPARE_MODE not available in ES versions < 3.0"));
+                return;
+            }
+            *params = static_cast<GLfloat>(texture->getCompareMode());
+            break;
+          case GL_TEXTURE_COMPARE_FUNC:
+            if (context->getClientVersion() < 3)
+            {
+                context->recordError(
+                    Error(GL_INVALID_ENUM,
+                          "GL_TEXTURE_COMPARE_FUNC not available in ES versions < 3.0"));
+                return;
+            }
+            *params = static_cast<GLfloat>(texture->getCompareFunc());
+            break;
           default:
             context->recordError(Error(GL_INVALID_ENUM));
             return;
@@ -2561,7 +2549,7 @@ void GL_APIENTRY GetTexParameteriv(GLenum target, GLenum pname, GLint* params)
                 context->recordError(Error(GL_INVALID_ENUM));
                 return;
             }
-            *params = (GLint)texture->getMinLod();
+            *params = iround<GLint>(texture->getMinLod());
             break;
           case GL_TEXTURE_MAX_LOD:
             if (context->getClientVersion() < 3)
@@ -2569,9 +2557,28 @@ void GL_APIENTRY GetTexParameteriv(GLenum target, GLenum pname, GLint* params)
                 context->recordError(Error(GL_INVALID_ENUM));
                 return;
             }
-            *params = (GLint)texture->getMaxLod();
+            *params = iround<GLint>(texture->getMaxLod());
             break;
-
+          case GL_TEXTURE_COMPARE_MODE:
+            if (context->getClientVersion() < 3)
+            {
+                context->recordError(
+                    Error(GL_INVALID_ENUM,
+                          "GL_TEXTURE_COMPARE_MODE not available in ES versions < 3.0"));
+                return;
+            }
+            *params = texture->getCompareMode();
+            break;
+          case GL_TEXTURE_COMPARE_FUNC:
+            if (context->getClientVersion() < 3)
+            {
+                context->recordError(
+                    Error(GL_INVALID_ENUM,
+                          "GL_TEXTURE_COMPARE_FUNC not available in ES versions < 3.0"));
+                return;
+            }
+            *params = texture->getCompareFunc();
+            break;
           default:
             context->recordError(Error(GL_INVALID_ENUM));
             return;
@@ -2927,6 +2934,11 @@ void GL_APIENTRY LinkProgram(GLuint program)
     Context *context = GetValidGlobalContext();
     if (context)
     {
+        if (!context->skipValidation() && !ValidateLinkProgram(context, program))
+        {
+            return;
+        }
+
         Program *programObject = GetValidProgram(context, program);
         if (!programObject)
         {
@@ -3792,25 +3804,8 @@ void GL_APIENTRY UseProgram(GLuint program)
     Context *context = GetValidGlobalContext();
     if (context)
     {
-        Program *programObject = context->getProgram(program);
-
-        if (!programObject && program != 0)
+        if (!context->skipValidation() && !ValidateUseProgram(context, program))
         {
-            if (context->getShader(program))
-            {
-                context->recordError(Error(GL_INVALID_OPERATION));
-                return;
-            }
-            else
-            {
-                context->recordError(Error(GL_INVALID_VALUE));
-                return;
-            }
-        }
-
-        if (program != 0 && !programObject->isLinked())
-        {
-            context->recordError(Error(GL_INVALID_OPERATION));
             return;
         }
 

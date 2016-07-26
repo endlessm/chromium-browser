@@ -37,11 +37,15 @@ void SkLumaColorFilter::filterSpan(const SkPMColor src[], int count,
     }
 }
 
-SkColorFilter* SkLumaColorFilter::Create() { return new SkLumaColorFilter; }
+sk_sp<SkColorFilter> SkLumaColorFilter::Make() {
+    return sk_sp<SkColorFilter>(new SkLumaColorFilter);
+}
 
 SkLumaColorFilter::SkLumaColorFilter() : INHERITED() {}
 
-SkFlattenable* SkLumaColorFilter::CreateProc(SkReadBuffer&) { return new SkLumaColorFilter; }
+sk_sp<SkFlattenable> SkLumaColorFilter::CreateProc(SkReadBuffer&) {
+    return Make();
+}
 
 void SkLumaColorFilter::flatten(SkWriteBuffer&) const {}
 

@@ -28,7 +28,6 @@
       ],
       'sources': [
         '../include/views/SkApplication.h',
-        '../include/views/SkBGViewArtist.h',
         '../include/views/SkEvent.h',
         '../include/views/SkEventSink.h',
         '../include/views/SkKey.h',
@@ -37,29 +36,20 @@
         '../include/views/SkOSWindow_SDL.h',
         '../include/views/SkOSWindow_Unix.h',
         '../include/views/SkOSWindow_Win.h',
-        '../include/views/SkStackViewLayout.h',
         '../include/views/SkSystemEventTypes.h',
         '../include/views/SkTouchGesture.h',
         '../include/views/SkView.h',
-        '../include/views/SkViewInflate.h',
-        '../include/views/SkWidget.h',
         '../include/views/SkWindow.h',
 
-        '../src/views/SkBGViewArtist.cpp',
         '../src/views/SkEvent.cpp',
         '../src/views/SkEventSink.cpp',
         '../src/views/SkOSMenu.cpp',
-        '../src/views/SkParsePaint.cpp',
-        '../src/views/SkProgressView.cpp',
-        '../src/views/SkStackViewLayout.cpp',
         '../src/views/SkTagList.cpp',
         '../src/views/SkTagList.h',
         '../src/views/SkTouchGesture.cpp',
         '../src/views/SkView.cpp',
-        '../src/views/SkViewInflate.cpp',
         '../src/views/SkViewPriv.cpp',
         '../src/views/SkViewPriv.h',
-        '../src/views/SkWidgets.cpp',
         '../src/views/SkWindow.cpp',
             
         # Unix
@@ -133,6 +123,11 @@
         [ 'skia_gpu == 1', {
           'include_dirs': [
             '../include/gpu',
+          ],
+        }],
+        [ 'skia_angle', {
+          'dependencies': [
+            'angle.gyp:*',
           ],
         }],
         [ 'skia_use_sdl == 1', {

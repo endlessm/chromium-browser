@@ -94,7 +94,7 @@ void HTTPResponseHeaderValidator::visitHeader(const WebString& name, const WebSt
         if (equalIgnoringCase(headerName, "access-control-expose-headers"))
             parseAccessControlExposeHeadersAllowList(value, m_exposedHeaders);
         else if (!isOnAccessControlResponseHeaderWhitelist(headerName))
-            m_blockedHeaders.add(name);
+            m_blockedHeaders.add(static_cast<String>(name));
     }
 }
 
@@ -172,8 +172,8 @@ AssociatedURLLoader::ClientAdapter::ClientAdapter(AssociatedURLLoader* loader, W
     , m_enableErrorNotifications(false)
     , m_didFail(false)
 {
-    ASSERT(m_loader);
-    ASSERT(m_client);
+    DCHECK(m_loader);
+    DCHECK(m_client);
 }
 
 void AssociatedURLLoader::ClientAdapter::willFollowRedirect(ResourceRequest& newRequest, const ResourceResponse& redirectResponse)
@@ -230,7 +230,7 @@ void AssociatedURLLoader::ClientAdapter::didReceiveData(const char* data, unsign
     if (!m_client)
         return;
 
-    RELEASE_ASSERT(dataLength <= static_cast<unsigned>(std::numeric_limits<int>::max()));
+    CHECK_LE(dataLength, static_cast<unsigned>(std::numeric_limits<int>::max()));
 
     m_client->didReceiveData(m_loader, data, dataLength, -1);
 }
@@ -325,7 +325,7 @@ public:
     AssociatedURLLoader* m_parent;
 };
 
-AssociatedURLLoader::AssociatedURLLoader(PassRefPtrWillBeRawPtr<WebLocalFrameImpl> frameImpl, const WebURLLoaderOptions& options)
+AssociatedURLLoader::AssociatedURLLoader(WebLocalFrameImpl* frameImpl, const WebURLLoaderOptions& options)
     : m_client(nullptr)
     , m_options(options)
     , m_observer(new Observer(this, frameImpl->frame()->document()))
@@ -351,16 +351,16 @@ STATIC_ASSERT_ENUM(WebURLLoaderOptions::PreventPreflight, PreventPreflight);
 
 void AssociatedURLLoader::loadSynchronously(const WebURLRequest& request, WebURLResponse& response, WebURLError& error, WebData& data)
 {
-    ASSERT(0); // Synchronous loading is not supported.
+    DCHECK(0); // Synchronous loading is not supported.
 }
 
 void AssociatedURLLoader::loadAsynchronously(const WebURLRequest& request, WebURLLoaderClient* client)
 {
-    ASSERT(!m_client);
-    ASSERT(!m_loader);
-    ASSERT(!m_clientAdapter);
+    DCHECK(!m_client);
+    DCHECK(!m_loader);
+    DCHECK(!m_clientAdapter);
 
-    ASSERT(client);
+    DCHECK(client);
 
     bool allowLoad = true;
     WebURLRequest newRequest(request);
@@ -396,7 +396,7 @@ void AssociatedURLLoader::loadAsynchronously(const WebURLRequest& request, WebUR
         }
 
         Document* document = toDocument(m_observer->lifecycleContext());
-        ASSERT(document);
+        DCHECK(document);
         m_loader = DocumentThreadableLoader::create(*document, m_clientAdapter.get(), options, resourceLoaderOptions);
         m_loader->start(webcoreRequest);
     }

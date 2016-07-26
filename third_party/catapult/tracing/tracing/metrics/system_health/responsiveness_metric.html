@@ -6,15 +6,13 @@ found in the LICENSE file.
 -->
 
 <link rel="import" href="/tracing/base/statistics.html">
-<link rel="import"
-    href="/tracing/metrics/system_health/animation_smoothness_metric.html">
-<link rel="import"
-    href="/tracing/metrics/system_health/animation_throughput_metric.html">
+<link rel="import" href="/tracing/metrics/metric_registry.html">
 <link rel="import" href="/tracing/metrics/system_health/utils.html">
 <link rel="import" href="/tracing/model/user_model/animation_expectation.html">
 <link rel="import" href="/tracing/model/user_model/load_expectation.html">
 <link rel="import" href="/tracing/model/user_model/response_expectation.html">
-<link rel="import" href="/tracing/value/histogram.html">
+<link rel="import" href="/tracing/value/numeric.html">
+<link rel="import" href="/tracing/value/value.html">
 
 <script>
 'use strict';
@@ -34,7 +32,7 @@ tr.exportTo('tr.metrics.sh', function() {
   // score the responsiveness at a certain value. We have set this with
   // just a best-effort guess, though. In #1696, we plan to derive this
   // experimentally.
-  var RESPONSE_HISTOGRAM = tr.v.Histogram.fromDict({
+  var RESPONSE_HISTOGRAM = tr.v.Numeric.fromDict({
     unit: 'unitless',
     min: 150,
     max: 5000,
@@ -55,7 +53,28 @@ tr.exportTo('tr.metrics.sh', function() {
     overflowBin: {min: 5000, max: Number.MAX_VALUE, count: 0}
   });
 
-  var LOAD_HISTOGRAM = tr.v.Histogram.fromDict({
+  var FAST_RESPONSE_HISTOGRAM = tr.v.Numeric.fromDict({
+    unit: 'unitless',
+    min: 66,
+    max: 2200,
+    centralBinWidth: 214,
+    underflowBin: {min: -Number.MAX_VALUE, max: 66, count: 1000},
+    centralBins: [
+      {min: 66, max: 280, count: 708},
+      {min: 280, max: 493, count: 223},
+      {min: 493, max: 706, count: 50},
+      {min: 706, max: 920, count: 33},
+      {min: 920, max: 1133, count: 23},
+      {min: 1133, max: 1346, count: 17},
+      {min: 1346, max: 1560, count: 12},
+      {min: 1560, max: 1773, count: 8},
+      {min: 1773, max: 1987, count: 4},
+      {min: 1987, max: 2200, count: 1}
+    ],
+    overflowBin: {min: 2200, max: Number.MAX_VALUE, count: 0}
+  });
+
+  var LOAD_HISTOGRAM = tr.v.Numeric.fromDict({
     unit: 'unitless',
     min: 1000,
     max: 60000,
@@ -76,40 +95,179 @@ tr.exportTo('tr.metrics.sh', function() {
     overflowBin: {min: 60000, max: Number.MAX_VALUE, count: 0}
   });
 
-  function ResponsivenessMetric() {
+  var UNIT = tr.v.Unit.byName.normalizedPercentage_biggerIsBetter;
+
+
+  function computeDurationResponsiveness(histogram, duration) {
+    return histogram.getInterpolatedCountAt(duration) / histogram.maxCount;
   }
 
-  ResponsivenessMetric.forModel = function(model, opt_rangeOfInterest) {
+  function groupingKeysForUserExpectation(ue) {
+    // Value doesn't make a copy of its options or groupingKeys. One Value's
+    // groupingKeys cannot be shared with another Value.
+    var groupingKeys = {};
+    groupingKeys.userExpectationStableId = ue.stableId;
+    groupingKeys.userExpectationStageTitle = ue.stageTitle;
+    groupingKeys.userExpectationInitiatorTitle = ue.initiatorTitle;
+    return groupingKeys;
+  }
+
+  // The Animation Throughput score is maximized at this value of average
+  // frames-per-second.
+  var MAX_FPS = 60;
+
+  // The Animation Throughput score is minimized at this value of average
+  // frames-per-second.
+  var MIN_FPS = 10;
+
+  function computeAnimationThroughput(animationExpectation) {
+    if (animationExpectation.frameEvents === undefined ||
+        animationExpectation.frameEvents.length === 0)
+      throw new Error('Animation missing frameEvents ' +
+                      animationExpectation.stableId);
+
+    var durationSeconds = animationExpectation.duration / 1000;
+    var avgSpf = durationSeconds / animationExpectation.frameEvents.length;
+    var throughput = 1 - tr.b.normalize(avgSpf, 1 / MAX_FPS, 1 / MIN_FPS);
+    return tr.b.clamp(throughput, 0, 1);
+  }
+
+  // The smoothness score is maximized when frame timestamp discrepancy is
+  // less than or equal to this:
+  var MIN_DISCREPANCY = 0.05;
+
+  // The smoothness score is minimized when frame timestamp discrepancy is
+  // greater than or equal to this:
+  var MAX_DISCREPANCY = 0.3;
+
+  function computeAnimationSmoothness(animationExpectation) {
+    if (animationExpectation.frameEvents === undefined ||
+        animationExpectation.frameEvents.length === 0)
+      throw new Error('Animation missing frameEvents ' +
+                      animationExpectation.stableId);
+
+    var frameTimestamps = animationExpectation.frameEvents;
+    frameTimestamps = frameTimestamps.toArray().map(function(event) {
+      return event.start;
+    });
+
+    var absolute = false;
+    var discrepancy = tr.b.Statistics.timestampsDiscrepancy(
+        frameTimestamps, absolute);
+    var smoothness = 1 - tr.b.normalize(
+        discrepancy, MIN_DISCREPANCY, MAX_DISCREPANCY);
+    return tr.b.clamp(smoothness, 0, 1);
+  }
+
+  function computeAnimationResponsiveness(
+      animationExpectation, diagnosticValues) {
+    var throughput = computeAnimationThroughput(animationExpectation);
+    if (throughput === undefined)
+      throw new Error('Missing throughput for ' +
+                      animationExpectation.stableId);
+
+    var options = {};
+    options.description = 'Mean Opinion Score for Animation throughput';
+
+    diagnosticValues.addValue(new tr.v.NumericValue(
+        animationExpectation.parentModel.canonicalUrl, 'throughput',
+        new tr.v.ScalarNumeric(UNIT, throughput),
+        options, groupingKeysForUserExpectation(animationExpectation)));
+
+    var smoothness = computeAnimationSmoothness(animationExpectation);
+    if (smoothness === undefined)
+      throw new Error('Missing smoothness for ' +
+                      animationExpectation.stableId);
+
+    options = {};
+    options.description = 'Mean Opinion Score for Animation smoothness';
+
+    diagnosticValues.addValue(new tr.v.NumericValue(
+        animationExpectation.parentModel.canonicalUrl, 'smoothness',
+        new tr.v.ScalarNumeric(UNIT, smoothness),
+        options, groupingKeysForUserExpectation(animationExpectation)));
+
     return tr.b.Statistics.weightedMean(
-        tr.metrics.sh.filterExpectationsByRange(
-            model.userModel.expectations, opt_rangeOfInterest),
-        tr.metrics.sh.perceptualBlend,
-        ResponsivenessMetric.forExpectation);
+        [throughput, smoothness], tr.metrics.sh.perceptualBlend);
+  }
+
+  function computeResponsiveness(ue, diagnosticValues) {
+    var score = undefined;
+
+    var options = {};
+
+    if (ue instanceof tr.model.um.IdleExpectation) {
+      throw new Error('Responsiveness is not defined for Idle');
+    } else if (ue instanceof tr.model.um.LoadExpectation) {
+      score = computeDurationResponsiveness(LOAD_HISTOGRAM, ue.duration);
+      options.description =
+          'Mean Opinion Score of Time to First ContentfulPaint';
+    } else if (ue instanceof tr.model.um.ResponseExpectation) {
+      var histogram = RESPONSE_HISTOGRAM;
+      if (ue.isAnimationBegin)
+        histogram = FAST_RESPONSE_HISTOGRAM;
+
+      score = computeDurationResponsiveness(histogram, ue.duration);
+      options.description = 'Mean Opinion Score of input latency';
+    } else if (ue instanceof tr.model.um.AnimationExpectation) {
+      score = computeAnimationResponsiveness(ue, diagnosticValues);
+      options.description =
+          'Mean Opinion Score of perceptual blend of throughput and smoothness';
+    } else {
+      throw new Error('Unrecognized stage for ' + ue.stableId);
+    }
+
+    if (score === undefined)
+      throw new Error('Unable to compute responsiveness for ' + ue.stableId);
+
+    diagnosticValues.addValue(new tr.v.NumericValue(
+        ue.parentModel.canonicalUrl, 'responsiveness',
+        new tr.v.ScalarNumeric(UNIT, score),
+        options, groupingKeysForUserExpectation(ue)));
+
+    return score;
+  }
+
+  function responsivenessMetric(valueList, model) {
+    var scores = [];
+    var diagnosticValues = new tr.metrics.ValueList();
+
+    model.userModel.expectations.forEach(function(ue) {
+      // Responsiveness is not defined for Idle.
+      if (ue instanceof tr.model.um.IdleExpectation)
+        return;
+
+      scores.push(computeResponsiveness(ue, diagnosticValues));
+    });
+
+    var options = {};
+    options.description =
+      'Perceptual blend of responsiveness of RAIL user expectations';
+    var groupingKeys = {};
+    var overallScore = tr.b.Statistics.weightedMean(
+        scores, tr.metrics.sh.perceptualBlend);
+
+    if (overallScore === undefined)
+      return;
+
+    var diagnostics = {values: diagnosticValues.valueDicts};
+
+    valueList.addValue(new tr.v.NumericValue(
+        model.canonicalUrl, 'responsiveness',
+        new tr.v.ScalarNumeric(UNIT, overallScore),
+        options, groupingKeys, diagnostics));
+  }
+
+  responsivenessMetric.prototype = {
+    __proto__: Function.prototype
   };
 
-  ResponsivenessMetric.forExpectation = function(ir) {
-    if (ir instanceof tr.model.um.ResponseExpectation) {
-      return RESPONSE_HISTOGRAM.getInterpolatedCountAt(ir.duration) /
-        RESPONSE_HISTOGRAM.maxCount;
-    }
-
-    if (ir instanceof tr.model.um.AnimationExpectation) {
-      return tr.b.Statistics.weightedMean(
-          [tr.metrics.sh.AnimationThroughputMetric.forExpectation(ir),
-           tr.metrics.sh.AnimationSmoothnessMetric.forExpectation(ir)],
-          tr.metrics.sh.perceptualBlend);
-    }
-
-    if (ir instanceof tr.model.um.LoadExpectation) {
-      return LOAD_HISTOGRAM.getInterpolatedCountAt(ir.duration) /
-        LOAD_HISTOGRAM.maxCount;
-    }
-
-    return undefined;
-  };
+  tr.metrics.MetricRegistry.register(responsivenessMetric);
 
   return {
-    ResponsivenessMetric: ResponsivenessMetric
+    responsivenessMetric: responsivenessMetric,
+    computeDurationResponsiveness: computeDurationResponsiveness,
+    FAST_RESPONSE_HISTOGRAM: FAST_RESPONSE_HISTOGRAM
   };
 });
 </script>

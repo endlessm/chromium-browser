@@ -11,6 +11,7 @@
 #include "SkTypes.h"
 #include "SkBitmap.h"
 #include "SkDeque.h"
+#include "SkImage.h"
 #include "SkPaint.h"
 #include "SkRefCnt.h"
 #include "SkRegion.h"
@@ -22,10 +23,10 @@ class GrRenderTarget;
 class SkBaseDevice;
 class SkCanvasClipVisitor;
 class SkClipStack;
+class SkData;
 class SkDraw;
 class SkDrawable;
 class SkDrawFilter;
-class SkImage;
 class SkImageFilter;
 class SkMetaData;
 class SkPath;
@@ -54,7 +55,7 @@ class SkTextBlob;
 */
 class SK_API SkCanvas : public SkRefCnt {
     enum PrivateSaveLayerFlags {
-        kDontClipToLayer_PrivateSaveLayerFlag   = 1 << 31,
+        kDontClipToLayer_PrivateSaveLayerFlag   = 1U << 31,
     };
     
 public:
@@ -121,6 +122,13 @@ public:
      */
     SkImageInfo imageInfo() const;
 
+    /**
+     *  If the canvas is backed by pixels (cpu or gpu), this writes a copy of the SurfaceProps
+     *  for the canvas to the location supplied by the caller, and returns true. Otherwise,
+     *  return false and leave the supplied props unchanged.
+     */
+    bool getProps(SkSurfaceProps*) const;
+
     ///////////////////////////////////////////////////////////////////////////
 
     /**
@@ -185,7 +193,10 @@ public:
      *  inherits the properties of the surface that owns this canvas. If this canvas has no parent
      *  surface, then the new surface is created with default properties.
      */
-    SkSurface* newSurface(const SkImageInfo&, const SkSurfaceProps* = NULL);
+    sk_sp<SkSurface> makeSurface(const SkImageInfo&, const SkSurfaceProps* = nullptr);
+#ifdef SK_SUPPORT_LEGACY_NEW_SURFACE_API
+    SkSurface* newSurface(const SkImageInfo& info, const SkSurfaceProps* props = NULL);
+#endif
 
     /**
      * Return the GPU context of the device that is associated with the canvas.
@@ -211,16 +222,19 @@ public:
     /**
      *  If the canvas has readable pixels in its base layer (and is not recording to a picture
      *  or other non-raster target) and has direct access to its pixels (i.e. they are in
-     *  local RAM) return the const-address of those pixels, and if not null,
-     *  return the ImageInfo and rowBytes. The returned address is only valid
+     *  local RAM) return true, and if not null, return in the pixmap parameter information about
+     *  the pixels. The pixmap's pixel address is only valid
      *  while the canvas object is in scope and unchanged. Any API calls made on
-     *  canvas (or its parent surface if any) will invalidate the
-     *  returned address (and associated information).
+     *  canvas (or its parent surface if any) will invalidate the pixel address
+     *  (and associated information).
      *
-     *  On failure, returns NULL and the info and rowBytes parameters are
-     *  ignored.
+     *  On failure, returns false and the pixmap parameter will be ignored.
      */
+    bool peekPixels(SkPixmap*);
+
+#ifdef SK_SUPPORT_LEGACY_PEEKPIXELS_PARMS
     const void* peekPixels(SkImageInfo* info, size_t* rowBytes);
+#endif
 
     /**
      *  Copy the pixels from the base-layer into the specified buffer (pixels + rowBytes),
@@ -768,6 +782,10 @@ public:
         @param paint    The paint used to draw the image, or NULL
      */
     void drawImage(const SkImage* image, SkScalar left, SkScalar top, const SkPaint* paint = NULL);
+    void drawImage(const sk_sp<SkImage>& image, SkScalar left, SkScalar top,
+                   const SkPaint* paint = NULL) {
+        this->drawImage(image.get(), left, top, paint);
+    }
 
     /**
      *  Controls the behavior at the edge of the src-rect, when specified in drawImageRect,
@@ -819,6 +837,20 @@ public:
     void drawImageRect(const SkImage* image, const SkRect& dst, const SkPaint* paint,
                        SrcRectConstraint = kStrict_SrcRectConstraint);
 
+    void drawImageRect(const sk_sp<SkImage>& image, const SkRect& src, const SkRect& dst,
+                       const SkPaint* paint,
+                       SrcRectConstraint constraint = kStrict_SrcRectConstraint) {
+        this->drawImageRect(image.get(), src, dst, paint, constraint);
+    }
+    void drawImageRect(const sk_sp<SkImage>& image, const SkIRect& isrc, const SkRect& dst,
+                       const SkPaint* paint, SrcRectConstraint cons = kStrict_SrcRectConstraint) {
+        this->drawImageRect(image.get(), isrc, dst, paint, cons);
+    }
+    void drawImageRect(const sk_sp<SkImage>& image, const SkRect& dst, const SkPaint* paint,
+                       SrcRectConstraint cons = kStrict_SrcRectConstraint) {
+        this->drawImageRect(image.get(), dst, paint, cons);
+    }
+
     /**
      *  Draw the image stretched differentially to fit into dst.
      *  center is a rect within the image, and logically divides the image
@@ -834,7 +866,11 @@ public:
      *  - The sides (along the shrink axis) and center are not drawn
      */
     void drawImageNine(const SkImage*, const SkIRect& center, const SkRect& dst,
-                        const SkPaint* paint = NULL);
+                       const SkPaint* paint = nullptr);
+    void drawImageNine(const sk_sp<SkImage>& image, const SkIRect& center, const SkRect& dst,
+                       const SkPaint* paint = nullptr) {
+        this->drawImageNine(image.get(), center, dst, paint);
+    }
 
     /** Draw the specified bitmap, with its top/left corner at (x,y), using the
         specified paint, transformed by the current matrix. Note: if the paint
@@ -969,6 +1005,9 @@ public:
     void drawPicture(const SkPicture* picture) {
         this->drawPicture(picture, NULL, NULL);
     }
+    void drawPicture(const sk_sp<SkPicture>& picture) {
+        this->drawPicture(picture.get());
+    }
 
     /**
      *  Draw the picture into this canvas.
@@ -983,6 +1022,9 @@ public:
      *      saveLayer(paint)/drawPicture/restore
      */
     void drawPicture(const SkPicture*, const SkMatrix* matrix, const SkPaint* paint);
+    void drawPicture(const sk_sp<SkPicture>& picture, const SkMatrix* matrix, const SkPaint* paint) {
+        this->drawPicture(picture.get(), matrix, paint);
+    }
 
     enum VertexMode {
         kTriangles_VertexMode,
@@ -1018,6 +1060,14 @@ public:
                       const SkColor colors[], SkXfermode* xmode,
                       const uint16_t indices[], int indexCount,
                       const SkPaint& paint);
+    void drawVertices(VertexMode vmode, int vertexCount,
+                      const SkPoint vertices[], const SkPoint texs[],
+                      const SkColor colors[], const sk_sp<SkXfermode>& xmode,
+                      const uint16_t indices[], int indexCount,
+                      const SkPaint& paint) {
+        this->drawVertices(vmode, vertexCount, vertices, texs, colors, xmode.get(),
+                           indices, indexCount, paint);
+    }
 
     /**
      Draw a cubic coons patch
@@ -1034,6 +1084,10 @@ public:
      */
     void drawPatch(const SkPoint cubics[12], const SkColor colors[4],
                    const SkPoint texCoords[4], SkXfermode* xmode, const SkPaint& paint);
+    void drawPatch(const SkPoint cubics[12], const SkColor colors[4], const SkPoint texCoords[4],
+                   const sk_sp<SkXfermode>& xmode, const SkPaint& paint) {
+        this->drawPatch(cubics, colors, texCoords, xmode.get(), paint);
+    }
 
     /**
      *  Draw a set of sprites from the atlas. Each is specified by a tex rectangle in the
@@ -1061,6 +1115,17 @@ public:
         this->drawAtlas(atlas, xform, tex, NULL, count, SkXfermode::kDst_Mode, cullRect, paint);
     }
 
+    void drawAtlas(const sk_sp<SkImage>& atlas, const SkRSXform xform[], const SkRect tex[],
+                   const SkColor colors[], int count, SkXfermode::Mode mode, const SkRect* cull,
+                   const SkPaint* paint) {
+        this->drawAtlas(atlas.get(), xform, tex, colors, count, mode, cull, paint);
+    }
+    void drawAtlas(const sk_sp<SkImage>& atlas, const SkRSXform xform[], const SkRect tex[],
+                   int count, const SkRect* cullRect, const SkPaint* paint) {
+        this->drawAtlas(atlas.get(), xform, tex, nullptr, count, SkXfermode::kDst_Mode,
+                        cullRect, paint);
+    }
+
     /**
      *  Draw the contents of this drawable into the canvas. If the canvas is async
      *  (e.g. it is recording into a picture) then the drawable will be referenced instead,
@@ -1071,6 +1136,21 @@ public:
      */
     void drawDrawable(SkDrawable* drawable, const SkMatrix* = NULL);
     void drawDrawable(SkDrawable*, SkScalar x, SkScalar y);
+
+    /**
+     *  Send an "annotation" to the canvas. The annotation is a key/value pair, where the key is
+     *  a null-terminated utf8 string, and the value is a blob of data stored in an SkData
+     *  (which may be null). The annotation is associated with the specified rectangle.
+     *
+     *  The caller still retains its ownership of the data (if any).
+     *
+     *  Note: on may canvas types, this information is ignored, but some canvases (e.g. recording
+     *  a picture or drawing to a PDF document) will pass on this information.
+     */
+    void drawAnnotation(const SkRect&, const char key[], SkData* value);
+    void drawAnnotation(const SkRect& rect, const char key[], const sk_sp<SkData>& value) {
+        this->drawAnnotation(rect, key, value.get());
+    }
 
     //////////////////////////////////////////////////////////////////////////
 #ifdef SK_INTERNAL
@@ -1197,7 +1277,7 @@ public:
 
 protected:
     // default impl defers to getDevice()->newSurface(info)
-    virtual SkSurface* onNewSurface(const SkImageInfo&, const SkSurfaceProps&);
+    virtual sk_sp<SkSurface> onNewSurface(const SkImageInfo&, const SkSurfaceProps&);
 
     // default impl defers to its device
     virtual bool onPeekPixels(SkPixmap*);
@@ -1221,6 +1301,7 @@ protected:
     virtual void didConcat(const SkMatrix&) {}
     virtual void didSetMatrix(const SkMatrix&) {}
 
+    virtual void onDrawAnnotation(const SkRect&, const char key[], SkData* value);
     virtual void onDrawDRRect(const SkRRect&, const SkRRect&, const SkPaint&);
 
     virtual void onDrawText(const void* text, size_t byteLength, SkScalar x,

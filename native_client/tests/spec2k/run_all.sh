@@ -526,6 +526,14 @@ SetupPnaclArmOptHW() {
 }
 
 #@
+#@ SetupPnaclArmOptSzHW
+#@    use pnacl arm compiler (with lto) plus Subzero -- run on ARM hardware
+SetupPnaclArmOptSzHW() {
+  SetupPnaclArmCommonHW
+  SUFFIX=pnacl.opt.sz.arm
+}
+
+#@
 #@ SetupPnaclArmHW
 #@    use pnacl arm compiler (no lto) -- run on ARM hardware
 SetupPnaclArmHW() {
@@ -550,11 +558,28 @@ SetupPnaclTranslatorArmOptHW() {
 }
 
 #@
+#@ SetupPnaclTranslatorArmOptSzHW
+#@    use pnacl arm translator (with lto) plus Subzero -- run on ARM hardware
+SetupPnaclTranslatorArmOptSzHW() {
+  SetupPnaclArmCommonHW
+  SUFFIX=pnacl_translator.opt.hw.sz.arm
+}
+
+#@
 #@ SetupPnaclTranslatorFastArmOptHW
 #@    use pnacl arm translator fast mode (with lto) -- run on ARM hardware
 SetupPnaclTranslatorFastArmOptHW() {
   SetupPnaclArmCommonHW
   SUFFIX=pnacl_translator_fast.opt.hw.arm
+}
+
+#@
+#@ SetupPnaclTranslatorFastArmOptSzHW
+#@    use pnacl arm translator fast mode (with lto) plus Subzero -- run on ARM
+#@    hardware
+SetupPnaclTranslatorFastArmOptSzHW() {
+  SetupPnaclArmCommonHW
+  SUFFIX=pnacl_translator_fast.opt.hw.sz.arm
 }
 
 #@
@@ -573,6 +598,15 @@ SetupPnaclTranslator1ThreadArmOptHW() {
 SetupPnaclTranslatorFast1ThreadArmOptHW() {
   SetupPnaclArmCommonHW
   SUFFIX=pnacl_translator_fast_1thread.opt.hw.arm
+}
+
+#@
+#@ SetupPnaclTranslatorFast1ThreadArmOptSzHW
+#@    use pnacl arm translator fast mode (with lto) plus Subzero -- run on ARM
+#@    hardware. compile with 1 thread.
+SetupPnaclTranslatorFast1ThreadArmOptSzHW() {
+  SetupPnaclArmCommonHW
+  SUFFIX=pnacl_translator_fast_1thread.opt.hw.sz.arm
 }
 
 

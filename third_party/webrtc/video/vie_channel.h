@@ -13,11 +13,11 @@
 
 #include <list>
 #include <map>
+#include <memory>
 #include <vector>
 
 #include "webrtc/base/criticalsection.h"
 #include "webrtc/base/platform_thread.h"
-#include "webrtc/base/scoped_ptr.h"
 #include "webrtc/base/scoped_ref_ptr.h"
 #include "webrtc/modules/remote_bitrate_estimator/include/remote_bitrate_estimator.h"
 #include "webrtc/modules/rtp_rtcp/include/rtp_rtcp.h"
@@ -80,18 +80,10 @@ class ViEChannel : public VCMFrameTypeCallback,
 
   int32_t Init();
 
-  // Sets the encoder to use for the channel. |new_stream| indicates the encoder
-  // type has changed and we should start a new RTP stream.
-  int32_t SetSendCodec(const VideoCodec& video_codec, bool new_stream = true);
-
   void SetProtectionMode(bool enable_nack,
                          bool enable_fec,
                          int payload_type_red,
                          int payload_type_fec);
-  int SetSendTimestampOffsetStatus(bool enable, int id);
-  int SetSendAbsoluteSendTimeStatus(bool enable, int id);
-  int SetSendVideoRotationStatus(bool enable, int id);
-  int SetSendTransportSequenceNumber(bool enable, int id);
 
   RtpState GetRtpStateForSsrc(uint32_t ssrc) const;
 
@@ -112,9 +104,6 @@ class ViEChannel : public VCMFrameTypeCallback,
                               const uint32_t rate) override;
   void OnIncomingSSRCChanged(const uint32_t ssrc) override;
   void OnIncomingCSRCChanged(const uint32_t CSRC, const bool added) override;
-
-  int32_t StartSend();
-  int32_t StopSend();
 
   // Gets the modules used by the channel.
   const std::vector<RtpRtcp*>& rtp_rtcp() const;
@@ -204,8 +193,6 @@ class ViEChannel : public VCMFrameTypeCallback,
   // Compute NACK list parameters for the buffering mode.
   int GetRequiredNackListSize(int target_delay_ms);
 
-  void UpdateHistograms();
-
   // ViEChannel exposes methods that allow to modify observers and callbacks
   // to be modified. Such an API-style is cumbersome to implement and maintain
   // at all the levels when comparing to only setting them at construction. As
@@ -214,7 +201,7 @@ class ViEChannel : public VCMFrameTypeCallback,
   template <class T>
   class RegisterableCallback : public T {
    public:
-    RegisterableCallback() : callback_(NULL) {}
+    RegisterableCallback() : callback_(nullptr) {}
 
     void Set(T* callback) {
       rtc::CritScope lock(&critsect_);
@@ -290,13 +277,13 @@ class ViEChannel : public VCMFrameTypeCallback,
   rtc::CriticalSection crit_;
 
   // Owned modules/classes.
-  rtc::scoped_ptr<ViEChannelProtectionCallback> vcm_protection_callback_;
+  std::unique_ptr<ViEChannelProtectionCallback> vcm_protection_callback_;
 
   VideoCodingModule* const vcm_;
   ViEReceiver vie_receiver_;
 
   // Helper to report call statistics.
-  rtc::scoped_ptr<ChannelStatsObserver> stats_observer_;
+  std::unique_ptr<ChannelStatsObserver> stats_observer_;
 
   // Not owned.
   ReceiveStatisticsProxy* receive_stats_callback_ GUARDED_BY(crit_);
@@ -307,7 +294,7 @@ class ViEChannel : public VCMFrameTypeCallback,
   PacedSender* const paced_sender_;
   PacketRouter* const packet_router_;
 
-  const rtc::scoped_ptr<RtcpBandwidthObserver> bandwidth_observer_;
+  const std::unique_ptr<RtcpBandwidthObserver> bandwidth_observer_;
   TransportFeedbackObserver* const transport_feedback_observer_;
 
   int max_nack_reordering_threshold_;
@@ -317,7 +304,6 @@ class ViEChannel : public VCMFrameTypeCallback,
 
   // RtpRtcp modules, declared last as they use other members on construction.
   const std::vector<RtpRtcp*> rtp_rtcp_modules_;
-  size_t num_active_rtp_rtcp_modules_ GUARDED_BY(crit_);
 };
 
 }  // namespace webrtc

@@ -59,14 +59,13 @@ class InspectorBackend(object):
     logging.debug('InspectorBackend._Connect() to %s', self.debugger_url)
     try:
       self._websocket.Connect(self.debugger_url)
+      self._console = inspector_console.InspectorConsole(self._websocket)
+      self._memory = inspector_memory.InspectorMemory(self._websocket)
+      self._page = inspector_page.InspectorPage(
+          self._websocket, timeout=timeout)
+      self._runtime = inspector_runtime.InspectorRuntime(self._websocket)
     except (websocket.WebSocketException, exceptions.TimeoutException) as e:
       self._ConvertExceptionFromInspectorWebsocket(e)
-
-    self._console = inspector_console.InspectorConsole(self._websocket)
-    self._memory = inspector_memory.InspectorMemory(self._websocket)
-    self._page = inspector_page.InspectorPage(
-        self._websocket, timeout=timeout)
-    self._runtime = inspector_runtime.InspectorRuntime(self._websocket)
 
   def Disconnect(self):
     """Disconnects the inspector websocket.
@@ -139,16 +138,6 @@ class InspectorBackend(object):
     assert self.screenshot_supported, 'Browser does not support screenshotting'
     return self._page.CaptureScreenshot(timeout)
 
-  # Console public methods.
-
-  @property
-  def message_output_stream(self):
-    return self._console.message_output_stream
-
-  @message_output_stream.setter
-  def message_output_stream(self, stream):
-    self._console.message_output_stream = stream
-
   # Memory public methods.
 
   @_HandleInspectorWebSocketExceptions
@@ -180,6 +169,12 @@ class InspectorBackend(object):
   @_HandleInspectorWebSocketExceptions
   def GetCookieByName(self, name, timeout):
     return self._page.GetCookieByName(name, timeout)
+
+  # Console public methods.
+
+  @_HandleInspectorWebSocketExceptions
+  def GetCurrentConsoleOutputBuffer(self, timeout=10):
+    return self._console.GetCurrentConsoleOutputBuffer(timeout)
 
   # Runtime public methods.
 
@@ -316,6 +311,8 @@ class InspectorBackend(object):
     """
     if isinstance(error, websocket.WebSocketTimeoutException):
       new_error = exceptions.TimeoutException()
+      new_error.AddDebuggingMessage(exceptions.AppCrashException(
+          self.app, 'The app is probably crashed:\n'))
     else:
       new_error = exceptions.DevtoolsTargetCrashException(self.app)
 

@@ -29,20 +29,21 @@ const int kWindowSizeMs = 16;
 const int kChunkSizeMs = 10;  // Size provided by APM.
 const float kClipFreqKhz = 0.2f;
 const float kKbdAlpha = 1.5f;
-const float kLambdaBot = -1.0f;      // Extreme values in bisection
+const float kLambdaBot = -1.f;      // Extreme values in bisection
 const float kLambdaTop = -1e-5f;      // search for lamda.
 const float kVoiceProbabilityThreshold = 0.02f;
 // Number of chunks after voice activity which is still considered speech.
 const size_t kSpeechOffsetDelay = 80;
-const float kDecayRate = 0.98f;              // Power estimation decay rate.
-const float kMaxRelativeGainChange = 0.04f;  // Maximum relative change in gain.
+const float kDecayRate = 0.994f;              // Power estimation decay rate.
+const float kMaxRelativeGainChange = 0.006f;
 const float kRho = 0.0004f;  // Default production and interpretation SNR.
+const float kPowerNormalizationFactor = 1.f / (1 << 30);
 
 // Returns dot product of vectors |a| and |b| with size |length|.
 float DotProduct(const float* a, const float* b, size_t length) {
   float ret = 0.f;
   for (size_t i = 0; i < length; ++i) {
-    ret = fmaf(a[i], b[i], ret);
+    ret += a[i] * b[i];
   }
   return ret;
 }
@@ -54,80 +55,62 @@ void MapToErbBands(const float* pow,
                    float* result) {
   for (size_t i = 0; i < filter_bank.size(); ++i) {
     RTC_DCHECK_GT(filter_bank[i].size(), 0u);
-    result[i] = DotProduct(&filter_bank[i][0], pow, filter_bank[i].size());
+    result[i] = kPowerNormalizationFactor *
+                DotProduct(filter_bank[i].data(), pow, filter_bank[i].size());
   }
 }
 
 }  // namespace
 
-IntelligibilityEnhancer::TransformCallback::TransformCallback(
-    IntelligibilityEnhancer* parent)
-    : parent_(parent) {
-}
-
-void IntelligibilityEnhancer::TransformCallback::ProcessAudioBlock(
-    const std::complex<float>* const* in_block,
-    size_t in_channels,
-    size_t frames,
-    size_t /* out_channels */,
-    std::complex<float>* const* out_block) {
-  RTC_DCHECK_EQ(parent_->freqs_, frames);
-  for (size_t i = 0; i < in_channels; ++i) {
-    parent_->ProcessClearBlock(in_block[i], out_block[i]);
-  }
-}
-
 IntelligibilityEnhancer::IntelligibilityEnhancer(int sample_rate_hz,
-                                                 size_t num_render_channels)
+                                                 size_t num_render_channels,
+                                                 size_t num_noise_bins)
     : freqs_(RealFourier::ComplexLength(
           RealFourier::FftOrder(sample_rate_hz * kWindowSizeMs / 1000))),
+      num_noise_bins_(num_noise_bins),
       chunk_length_(static_cast<size_t>(sample_rate_hz * kChunkSizeMs / 1000)),
       bank_size_(GetBankSize(sample_rate_hz, kErbResolution)),
       sample_rate_hz_(sample_rate_hz),
       num_render_channels_(num_render_channels),
       clear_power_estimator_(freqs_, kDecayRate),
-      noise_power_estimator_(
-          new intelligibility::PowerEstimator<float>(freqs_, kDecayRate)),
-      filtered_clear_pow_(new float[bank_size_]),
-      filtered_noise_pow_(new float[bank_size_]),
-      center_freqs_(new float[bank_size_]),
+      noise_power_estimator_(num_noise_bins, kDecayRate),
+      filtered_clear_pow_(bank_size_, 0.f),
+      filtered_noise_pow_(num_noise_bins, 0.f),
+      center_freqs_(bank_size_),
+      capture_filter_bank_(CreateErbBank(num_noise_bins)),
       render_filter_bank_(CreateErbBank(freqs_)),
-      gains_eq_(new float[bank_size_]),
+      gains_eq_(bank_size_),
       gain_applier_(freqs_, kMaxRelativeGainChange),
-      temp_render_out_buffer_(chunk_length_, num_render_channels_),
-      render_callback_(this),
       audio_s16_(chunk_length_),
       chunks_since_voice_(kSpeechOffsetDelay),
-      is_speech_(false) {
+      is_speech_(false),
+      noise_estimation_buffer_(num_noise_bins),
+      noise_estimation_queue_(kMaxNumNoiseEstimatesToBuffer,
+                              std::vector<float>(num_noise_bins),
+                              RenderQueueItemVerifier<float>(num_noise_bins)) {
   RTC_DCHECK_LE(kRho, 1.f);
-
-  memset(filtered_clear_pow_.get(), 0,
-         bank_size_ * sizeof(filtered_clear_pow_[0]));
-  memset(filtered_noise_pow_.get(), 0,
-         bank_size_ * sizeof(filtered_noise_pow_[0]));
 
   const size_t erb_index = static_cast<size_t>(
       ceilf(11.17f * logf((kClipFreqKhz + 0.312f) / (kClipFreqKhz + 14.6575f)) +
             43.f));
   start_freq_ = std::max(static_cast<size_t>(1), erb_index * kErbResolution);
 
-  size_t window_size = static_cast<size_t>(1 << RealFourier::FftOrder(freqs_));
+  size_t window_size = static_cast<size_t>(1) << RealFourier::FftOrder(freqs_);
   std::vector<float> kbd_window(window_size);
-  WindowGenerator::KaiserBesselDerived(kKbdAlpha, window_size, &kbd_window[0]);
+  WindowGenerator::KaiserBesselDerived(kKbdAlpha, window_size,
+                                       kbd_window.data());
   render_mangler_.reset(new LappedTransform(
-      num_render_channels_, num_render_channels_, chunk_length_, &kbd_window[0],
-      window_size, window_size / 2, &render_callback_));
+      num_render_channels_, num_render_channels_, chunk_length_,
+      kbd_window.data(), window_size, window_size / 2, this));
 }
 
 void IntelligibilityEnhancer::SetCaptureNoiseEstimate(
     std::vector<float> noise) {
-  if (capture_filter_bank_.size() != bank_size_ ||
-      capture_filter_bank_[0].size() != noise.size()) {
-    capture_filter_bank_ = CreateErbBank(noise.size());
-    noise_power_estimator_.reset(
-        new intelligibility::PowerEstimator<float>(noise.size(), kDecayRate));
-  }
-  noise_power_estimator_->Step(&noise[0]);
+  RTC_DCHECK_EQ(noise.size(), num_noise_bins_);
+  // Disregarding return value since buffer overflow is acceptable, because it
+  // is not critical to get each noise estimate.
+  if (noise_estimation_queue_.Insert(&noise)) {
+  };
 }
 
 void IntelligibilityEnhancer::ProcessRenderAudio(float* const* audio,
@@ -135,39 +118,44 @@ void IntelligibilityEnhancer::ProcessRenderAudio(float* const* audio,
                                                  size_t num_channels) {
   RTC_CHECK_EQ(sample_rate_hz_, sample_rate_hz);
   RTC_CHECK_EQ(num_render_channels_, num_channels);
-  is_speech_ = IsSpeech(audio[0]);
-  render_mangler_->ProcessChunk(audio, temp_render_out_buffer_.channels());
-  for (size_t i = 0; i < num_render_channels_; ++i) {
-    memcpy(audio[i], temp_render_out_buffer_.channels()[i],
-           chunk_length_ * sizeof(**audio));
+  while (noise_estimation_queue_.Remove(&noise_estimation_buffer_)) {
+    noise_power_estimator_.Step(noise_estimation_buffer_.data());
   }
+  is_speech_ = IsSpeech(audio[0]);
+  render_mangler_->ProcessChunk(audio, audio);
 }
 
-void IntelligibilityEnhancer::ProcessClearBlock(
-    const std::complex<float>* in_block,
-    std::complex<float>* out_block) {
+void IntelligibilityEnhancer::ProcessAudioBlock(
+    const std::complex<float>* const* in_block,
+    size_t in_channels,
+    size_t frames,
+    size_t /* out_channels */,
+    std::complex<float>* const* out_block) {
+  RTC_DCHECK_EQ(freqs_, frames);
   if (is_speech_) {
-    clear_power_estimator_.Step(in_block);
+    clear_power_estimator_.Step(in_block[0]);
   }
   const std::vector<float>& clear_power = clear_power_estimator_.power();
-  const std::vector<float>& noise_power = noise_power_estimator_->power();
-  MapToErbBands(&clear_power[0], render_filter_bank_,
-                filtered_clear_pow_.get());
-  MapToErbBands(&noise_power[0], capture_filter_bank_,
-                filtered_noise_pow_.get());
-  SolveForGainsGivenLambda(kLambdaTop, start_freq_, gains_eq_.get());
-  const float power_target =
-      std::accumulate(&clear_power[0], &clear_power[0] + freqs_, 0.f);
+  const std::vector<float>& noise_power = noise_power_estimator_.power();
+  MapToErbBands(clear_power.data(), render_filter_bank_,
+                filtered_clear_pow_.data());
+  MapToErbBands(noise_power.data(), capture_filter_bank_,
+                filtered_noise_pow_.data());
+  SolveForGainsGivenLambda(kLambdaTop, start_freq_, gains_eq_.data());
+  const float power_target = std::accumulate(
+      filtered_clear_pow_.data(), filtered_clear_pow_.data() + bank_size_, 0.f);
   const float power_top =
-      DotProduct(gains_eq_.get(), filtered_clear_pow_.get(), bank_size_);
-  SolveForGainsGivenLambda(kLambdaBot, start_freq_, gains_eq_.get());
+      DotProduct(gains_eq_.data(), filtered_clear_pow_.data(), bank_size_);
+  SolveForGainsGivenLambda(kLambdaBot, start_freq_, gains_eq_.data());
   const float power_bot =
-      DotProduct(gains_eq_.get(), filtered_clear_pow_.get(), bank_size_);
+      DotProduct(gains_eq_.data(), filtered_clear_pow_.data(), bank_size_);
   if (power_target >= power_bot && power_target <= power_top) {
     SolveForLambda(power_target);
     UpdateErbGains();
   }  // Else experiencing power underflow, so do nothing.
-  gain_applier_.Apply(in_block, out_block);
+  for (size_t i = 0; i < in_channels; ++i) {
+    gain_applier_.Apply(in_block[i], out_block[i]);
+  }
 }
 
 void IntelligibilityEnhancer::SolveForLambda(float power_target) {
@@ -182,9 +170,9 @@ void IntelligibilityEnhancer::SolveForLambda(float power_target) {
   int iters = 0;
   while (std::fabs(power_ratio - 1.f) > kConvergeThresh && iters <= kMaxIters) {
     const float lambda = (lambda_bot + lambda_top) / 2.f;
-    SolveForGainsGivenLambda(lambda, start_freq_, gains_eq_.get());
+    SolveForGainsGivenLambda(lambda, start_freq_, gains_eq_.data());
     const float power =
-        DotProduct(gains_eq_.get(), filtered_clear_pow_.get(), bank_size_);
+        DotProduct(gains_eq_.data(), filtered_clear_pow_.data(), bank_size_);
     if (power < power_target) {
       lambda_bot = lambda;
     } else {
@@ -201,7 +189,7 @@ void IntelligibilityEnhancer::UpdateErbGains() {
   for (size_t i = 0; i < freqs_; ++i) {
     gains[i] = 0.f;
     for (size_t j = 0; j < bank_size_; ++j) {
-      gains[i] = fmaf(render_filter_bank_[j][i], gains_eq_[j], gains[i]);
+      gains[i] += render_filter_bank_[j][i] * gains_eq_[j];
     }
   }
 }
@@ -286,8 +274,8 @@ void IntelligibilityEnhancer::SolveForGainsGivenLambda(float lambda,
                                                        float* sols) {
   const float kMinPower = 1e-5f;
 
-  const float* pow_x0 = filtered_clear_pow_.get();
-  const float* pow_n0 = filtered_noise_pow_.get();
+  const float* pow_x0 = filtered_clear_pow_.data();
+  const float* pow_n0 = filtered_noise_pow_.data();
 
   for (size_t n = 0; n < start_freq; ++n) {
     sols[n] = 1.f;
@@ -316,8 +304,8 @@ void IntelligibilityEnhancer::SolveForGainsGivenLambda(float lambda,
 }
 
 bool IntelligibilityEnhancer::IsSpeech(const float* audio) {
-  FloatToS16(audio, chunk_length_, &audio_s16_[0]);
-  vad_.ProcessChunk(&audio_s16_[0], chunk_length_, sample_rate_hz_);
+  FloatToS16(audio, chunk_length_, audio_s16_.data());
+  vad_.ProcessChunk(audio_s16_.data(), chunk_length_, sample_rate_hz_);
   if (vad_.last_voice_probability() > kVoiceProbabilityThreshold) {
     chunks_since_voice_ = 0;
   } else if (chunks_since_voice_ < kSpeechOffsetDelay) {

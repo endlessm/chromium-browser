@@ -11,14 +11,13 @@
 #include <memory>
 #include <vector>
 
+#include "core/fxcrt/include/fx_basic.h"
+#include "core/fxcrt/include/fx_coordinates.h"  // For FX_RECT.
 #include "core/include/fxcodec/fx_codec_def.h"
-#include "core/include/fxcrt/fx_basic.h"
-#include "core/include/fxcrt/fx_coordinates.h"  // For FX_RECT.
 
 class CFX_DIBSource;
 class CJPX_Decoder;
 class CPDF_ColorSpace;
-class CPDF_PrivateData;
 class CPDF_StreamAcc;
 class ICodec_BasicModule;
 class ICodec_FaxModule;
@@ -47,15 +46,15 @@ class CFX_DIBAttribute {
   int32_t m_nXDPI;
   int32_t m_nYDPI;
   FX_FLOAT m_fAspectRatio;
-  FX_WORD m_wDPIUnit;
+  uint16_t m_wDPIUnit;
   CFX_ByteString m_strAuthor;
   uint8_t m_strTime[20];
   int32_t m_nGifLeft;
   int32_t m_nGifTop;
-  FX_DWORD* m_pGifLocalPalette;
-  FX_DWORD m_nGifLocalPalNum;
+  uint32_t* m_pGifLocalPalette;
+  uint32_t m_nGifLocalPalNum;
   int32_t m_nBmpCompressType;
-  std::map<FX_DWORD, void*> m_Exif;
+  std::map<uint32_t, void*> m_Exif;
 };
 #endif  // PDF_ENABLE_XFA
 
@@ -98,15 +97,15 @@ class ICodec_BasicModule {
  public:
   virtual ~ICodec_BasicModule() {}
   virtual FX_BOOL RunLengthEncode(const uint8_t* src_buf,
-                                  FX_DWORD src_size,
+                                  uint32_t src_size,
                                   uint8_t*& dest_buf,
-                                  FX_DWORD& dest_size) = 0;
+                                  uint32_t& dest_size) = 0;
   virtual FX_BOOL A85Encode(const uint8_t* src_buf,
-                            FX_DWORD src_size,
+                            uint32_t src_size,
                             uint8_t*& dest_buf,
-                            FX_DWORD& dest_size) = 0;
+                            uint32_t& dest_size) = 0;
   virtual ICodec_ScanlineDecoder* CreateRunLengthDecoder(const uint8_t* src_buf,
-                                                         FX_DWORD src_size,
+                                                         uint32_t src_size,
                                                          int width,
                                                          int height,
                                                          int nComps,
@@ -117,7 +116,7 @@ class ICodec_ScanlineDecoder {
  public:
   virtual ~ICodec_ScanlineDecoder() {}
 
-  virtual FX_DWORD GetSrcOffset() = 0;
+  virtual uint32_t GetSrcOffset() = 0;
 
   virtual void DownScale(int dest_width, int dest_height) = 0;
 
@@ -142,7 +141,7 @@ class ICodec_FlateModule {
  public:
   virtual ~ICodec_FlateModule() {}
   virtual ICodec_ScanlineDecoder* CreateDecoder(const uint8_t* src_buf,
-                                                FX_DWORD src_size,
+                                                uint32_t src_size,
                                                 int width,
                                                 int height,
                                                 int nComps,
@@ -151,36 +150,36 @@ class ICodec_FlateModule {
                                                 int Colors,
                                                 int BitsPerComponent,
                                                 int Columns) = 0;
-  virtual FX_DWORD FlateOrLZWDecode(FX_BOOL bLZW,
+  virtual uint32_t FlateOrLZWDecode(FX_BOOL bLZW,
                                     const uint8_t* src_buf,
-                                    FX_DWORD src_size,
+                                    uint32_t src_size,
                                     FX_BOOL bEarlyChange,
                                     int predictor,
                                     int Colors,
                                     int BitsPerComponent,
                                     int Columns,
-                                    FX_DWORD estimated_size,
+                                    uint32_t estimated_size,
                                     uint8_t*& dest_buf,
-                                    FX_DWORD& dest_size) = 0;
+                                    uint32_t& dest_size) = 0;
   virtual FX_BOOL Encode(const uint8_t* src_buf,
-                         FX_DWORD src_size,
+                         uint32_t src_size,
                          int predictor,
                          int Colors,
                          int BitsPerComponent,
                          int Columns,
                          uint8_t*& dest_buf,
-                         FX_DWORD& dest_size) = 0;
+                         uint32_t& dest_size) = 0;
   virtual FX_BOOL Encode(const uint8_t* src_buf,
-                         FX_DWORD src_size,
+                         uint32_t src_size,
                          uint8_t*& dest_buf,
-                         FX_DWORD& dest_size) = 0;
+                         uint32_t& dest_size) = 0;
 };
 class ICodec_FaxModule {
  public:
   virtual ~ICodec_FaxModule() {}
 
   virtual ICodec_ScanlineDecoder* CreateDecoder(const uint8_t* src_buf,
-                                                FX_DWORD src_size,
+                                                uint32_t src_size,
                                                 int width,
                                                 int height,
                                                 int K,
@@ -195,35 +194,35 @@ class ICodec_FaxModule {
                          int height,
                          int pitch,
                          uint8_t*& dest_buf,
-                         FX_DWORD& dest_size) = 0;
+                         uint32_t& dest_size) = 0;
 };
 class ICodec_JpegModule {
  public:
   virtual ~ICodec_JpegModule() {}
 
   virtual ICodec_ScanlineDecoder* CreateDecoder(const uint8_t* src_buf,
-                                                FX_DWORD src_size,
+                                                uint32_t src_size,
                                                 int width,
                                                 int height,
                                                 int nComps,
                                                 FX_BOOL ColorTransform) = 0;
 
   virtual FX_BOOL LoadInfo(const uint8_t* src_buf,
-                           FX_DWORD src_size,
+                           uint32_t src_size,
                            int& width,
                            int& height,
                            int& num_components,
                            int& bits_per_components,
                            FX_BOOL& color_transform,
                            uint8_t** icc_buf_ptr = NULL,
-                           FX_DWORD* icc_length = NULL) = 0;
+                           uint32_t* icc_length = NULL) = 0;
 
   virtual FX_BOOL Encode(const class CFX_DIBSource* pSource,
                          uint8_t*& dest_buf,
                          FX_STRSIZE& dest_size,
                          int quality = 75,
                          const uint8_t* icc_buf = NULL,
-                         FX_DWORD icc_length = 0) = 0;
+                         uint32_t icc_length = 0) = 0;
 
   virtual void* Start() = 0;
 
@@ -231,7 +230,7 @@ class ICodec_JpegModule {
 
   virtual void Input(void* pContext,
                      const uint8_t* src_buf,
-                     FX_DWORD src_size) = 0;
+                     uint32_t src_size) = 0;
 
 #ifdef PDF_ENABLE_XFA
   virtual int ReadHeader(void* pContext,
@@ -250,7 +249,7 @@ class ICodec_JpegModule {
 
   virtual FX_BOOL ReadScanline(void* pContext, uint8_t* dest_buf) = 0;
 
-  virtual FX_DWORD GetAvailInput(void* pContext,
+  virtual uint32_t GetAvailInput(void* pContext,
                                  uint8_t** avail_buf_ptr = NULL) = 0;
 };
 
@@ -259,13 +258,13 @@ class ICodec_JpxModule {
   virtual ~ICodec_JpxModule() {}
 
   virtual CJPX_Decoder* CreateDecoder(const uint8_t* src_buf,
-                                      FX_DWORD src_size,
+                                      uint32_t src_size,
                                       CPDF_ColorSpace* cs) = 0;
 
   virtual void GetImageInfo(CJPX_Decoder* pDecoder,
-                            FX_DWORD* width,
-                            FX_DWORD* height,
-                            FX_DWORD* components) = 0;
+                            uint32_t* width,
+                            uint32_t* height,
+                            uint32_t* components) = 0;
 
   virtual bool Decode(CJPX_Decoder* pDecoder,
                       uint8_t* dest_data,
@@ -285,7 +284,7 @@ class ICodec_PngModule {
 
   virtual FX_BOOL Input(void* pContext,
                         const uint8_t* src_buf,
-                        FX_DWORD src_size,
+                        uint32_t src_size,
                         CFX_DIBAttribute* pAttribute) = 0;
 
   FX_BOOL (*ReadHeaderCallback)(void* pModule,
@@ -308,12 +307,12 @@ class ICodec_GifModule {
 
   virtual void Finish(void* pContext) = 0;
 
-  virtual FX_DWORD GetAvailInput(void* pContext,
+  virtual uint32_t GetAvailInput(void* pContext,
                                  uint8_t** avail_buf_ptr = NULL) = 0;
 
   virtual void Input(void* pContext,
                      const uint8_t* src_buf,
-                     FX_DWORD src_size) = 0;
+                     uint32_t src_size) = 0;
 
   virtual int32_t ReadHeader(void* pContext,
                              int* width,
@@ -325,7 +324,7 @@ class ICodec_GifModule {
 
   virtual int32_t LoadFrameInfo(void* pContext, int* frame_num) = 0;
 
-  void (*RecordCurrentPositionCallback)(void* pModule, FX_DWORD& cur_pos);
+  void (*RecordCurrentPositionCallback)(void* pModule, uint32_t& cur_pos);
 
   uint8_t* (*AskLocalPaletteBufCallback)(void* pModule,
                                          int32_t frame_num,
@@ -336,7 +335,7 @@ class ICodec_GifModule {
                             CFX_DIBAttribute* pAttribute) = 0;
 
   FX_BOOL (*InputRecordPositionBufCallback)(void* pModule,
-                                            FX_DWORD rcd_pos,
+                                            uint32_t rcd_pos,
                                             const FX_RECT& img_rc,
                                             int32_t pal_num,
                                             void* pal_ptr,
@@ -358,12 +357,12 @@ class ICodec_BmpModule {
 
   virtual void Finish(void* pContext) = 0;
 
-  virtual FX_DWORD GetAvailInput(void* pContext,
+  virtual uint32_t GetAvailInput(void* pContext,
                                  uint8_t** avail_buf_ptr = NULL) = 0;
 
   virtual void Input(void* pContext,
                      const uint8_t* src_buf,
-                     FX_DWORD src_size) = 0;
+                     uint32_t src_size) = 0;
 
   virtual int32_t ReadHeader(void* pContext,
                              int32_t* width,
@@ -371,12 +370,12 @@ class ICodec_BmpModule {
                              FX_BOOL* tb_flag,
                              int32_t* components,
                              int* pal_num,
-                             FX_DWORD** pal_pp,
+                             uint32_t** pal_pp,
                              CFX_DIBAttribute* pAttribute) = 0;
 
   virtual int32_t LoadImage(void* pContext) = 0;
 
-  FX_BOOL (*InputImagePositionBufCallback)(void* pModule, FX_DWORD rcd_pos);
+  FX_BOOL (*InputImagePositionBufCallback)(void* pModule, uint32_t rcd_pos);
 
   void (*ReadScanlineCallback)(void* pModule,
                                int32_t row_num,
@@ -392,10 +391,10 @@ class ICodec_TiffModule {
 
   virtual FX_BOOL LoadFrameInfo(void* ctx,
                                 int32_t frame,
-                                FX_DWORD& width,
-                                FX_DWORD& height,
-                                FX_DWORD& comps,
-                                FX_DWORD& bpc,
+                                uint32_t& width,
+                                uint32_t& height,
+                                uint32_t& comps,
+                                uint32_t& bpc,
                                 CFX_DIBAttribute* pAttribute) = 0;
 
   virtual FX_BOOL Decode(void* ctx, class CFX_DIBitmap* pDIBitmap) = 0;
@@ -412,12 +411,12 @@ class ICodec_Jbig2Module {
 
   virtual FXCODEC_STATUS StartDecode(void* pJbig2Context,
                                      CFX_PrivateData* pPrivateData,
-                                     FX_DWORD width,
-                                     FX_DWORD height,
+                                     uint32_t width,
+                                     uint32_t height,
                                      CPDF_StreamAcc* src_stream,
                                      CPDF_StreamAcc* global_stream,
                                      uint8_t* dest_buf,
-                                     FX_DWORD dest_pitch,
+                                     uint32_t dest_pitch,
                                      IFX_Pause* pPause) = 0;
 
   virtual FXCODEC_STATUS ContinueDecode(void* pJbig2Content,
@@ -459,6 +458,7 @@ class ICodec_Jbig2Encoder {
  public:
   virtual ~ICodec_Jbig2Encoder() {}
 };
+
 class ICodec_IccModule {
  public:
   enum IccCS {
@@ -477,12 +477,12 @@ class ICodec_IccModule {
   };
 
   struct IccParam {
-    FX_DWORD Version;
+    uint32_t Version;
     IccCS ColorSpace;
-    FX_DWORD dwProfileType;
-    FX_DWORD dwFormat;
+    uint32_t dwProfileType;
+    uint32_t dwFormat;
     uint8_t* pProfileData;
-    FX_DWORD dwProfileSize;
+    uint32_t dwProfileSize;
     double Gamma;
   };
 
@@ -497,27 +497,27 @@ class ICodec_IccModule {
       ICodec_IccModule::IccParam* pInputParam,
       ICodec_IccModule::IccParam* pOutputParam,
       ICodec_IccModule::IccParam* pProofParam = NULL,
-      FX_DWORD dwIntent = Icc_INTENT_PERCEPTUAL,
-      FX_DWORD dwFlag = Icc_FLAGS_DEFAULT,
-      FX_DWORD dwPrfIntent = Icc_INTENT_ABSOLUTE_COLORIMETRIC,
-      FX_DWORD dwPrfFlag = Icc_FLAGS_SOFTPROOFING) = 0;
+      uint32_t dwIntent = Icc_INTENT_PERCEPTUAL,
+      uint32_t dwFlag = Icc_FLAGS_DEFAULT,
+      uint32_t dwPrfIntent = Icc_INTENT_ABSOLUTE_COLORIMETRIC,
+      uint32_t dwPrfFlag = Icc_FLAGS_SOFTPROOFING) = 0;
 
   virtual void* CreateTransform_sRGB(
       const uint8_t* pProfileData,
-      FX_DWORD dwProfileSize,
-      int32_t& nComponents,
+      uint32_t dwProfileSize,
+      uint32_t& nComponents,
       int32_t intent = 0,
-      FX_DWORD dwSrcFormat = Icc_FORMAT_DEFAULT) = 0;
+      uint32_t dwSrcFormat = Icc_FORMAT_DEFAULT) = 0;
 
   virtual void* CreateTransform_CMYK(
       const uint8_t* pSrcProfileData,
-      FX_DWORD dwSrcProfileSize,
-      int32_t& nSrcComponents,
+      uint32_t dwSrcProfileSize,
+      uint32_t& nSrcComponents,
       const uint8_t* pDstProfileData,
-      FX_DWORD dwDstProfileSize,
+      uint32_t dwDstProfileSize,
       int32_t intent = 0,
-      FX_DWORD dwSrcFormat = Icc_FORMAT_DEFAULT,
-      FX_DWORD dwDstFormat = Icc_FORMAT_DEFAULT) = 0;
+      uint32_t dwSrcFormat = Icc_FORMAT_DEFAULT,
+      uint32_t dwDstFormat = Icc_FORMAT_DEFAULT) = 0;
 
   virtual void DestroyTransform(void* pTransform) = 0;
 
@@ -529,9 +529,17 @@ class ICodec_IccModule {
                                  uint8_t* pDest,
                                  const uint8_t* pSrc,
                                  int pixels) = 0;
-  virtual void SetComponents(FX_DWORD nComponents) = 0;
+  virtual void SetComponents(uint32_t nComponents) = 0;
 };
 
+void ReverseRGB(uint8_t* pDestBuf, const uint8_t* pSrcBuf, int pixels);
+void sRGB_to_AdobeCMYK(FX_FLOAT R,
+                       FX_FLOAT G,
+                       FX_FLOAT B,
+                       FX_FLOAT& c,
+                       FX_FLOAT& m,
+                       FX_FLOAT& y,
+                       FX_FLOAT& k);
 void AdobeCMYK_to_sRGB(FX_FLOAT c,
                        FX_FLOAT m,
                        FX_FLOAT y,
@@ -546,9 +554,9 @@ void AdobeCMYK_to_sRGB1(uint8_t c,
                         uint8_t& R,
                         uint8_t& G,
                         uint8_t& B);
-FX_BOOL MD5ComputeID(const void* buf, FX_DWORD dwSize, uint8_t ID[16]);
+FX_BOOL MD5ComputeID(const void* buf, uint32_t dwSize, uint8_t ID[16]);
 void FaxG4Decode(const uint8_t* src_buf,
-                 FX_DWORD src_size,
+                 uint32_t src_size,
                  int* pbitpos,
                  uint8_t* dest_buf,
                  int width,

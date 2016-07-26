@@ -19,14 +19,15 @@
 #include "webrtc/api/rtpreceiver.h"
 #include "webrtc/api/rtpsender.h"
 #include "webrtc/api/streamcollection.h"
-#include "webrtc/api/videosource.h"
+#include "webrtc/api/test/fakevideotracksource.h"
+#include "webrtc/api/videotracksource.h"
 #include "webrtc/api/videotrack.h"
 #include "webrtc/base/gunit.h"
-#include "webrtc/media/base/fakevideocapturer.h"
 #include "webrtc/media/base/mediachannel.h"
 
 using ::testing::_;
 using ::testing::Exactly;
+using ::testing::Return;
 
 static const char kStreamLabel1[] = "local_stream_1";
 static const char kVideoTrackId[] = "video_1";
@@ -50,8 +51,11 @@ class MockAudioProvider : public AudioProviderInterface {
                void(uint32_t ssrc,
                     bool enable,
                     const cricket::AudioOptions& options,
-                    cricket::AudioRenderer* renderer));
+                    cricket::AudioSource* source));
   MOCK_METHOD2(SetAudioPlayoutVolume, void(uint32_t ssrc, double volume));
+  MOCK_CONST_METHOD1(GetAudioRtpParameters, RtpParameters(uint32_t ssrc));
+  MOCK_METHOD2(SetAudioRtpParameters,
+               bool(uint32_t ssrc, const RtpParameters&));
 
   void SetRawAudioSink(uint32_t,
                        rtc::scoped_ptr<AudioSinkInterface> sink) override {
@@ -76,33 +80,10 @@ class MockVideoProvider : public VideoProviderInterface {
                void(uint32_t ssrc,
                     bool enable,
                     const cricket::VideoOptions* options));
-};
 
-class FakeVideoSource : public Notifier<VideoSourceInterface> {
- public:
-  static rtc::scoped_refptr<FakeVideoSource> Create(bool remote) {
-    return new rtc::RefCountedObject<FakeVideoSource>(remote);
-  }
-  virtual cricket::VideoCapturer* GetVideoCapturer() { return &fake_capturer_; }
-  virtual void Stop() {}
-  virtual void Restart() {}
-  virtual void AddSink(rtc::VideoSinkInterface<cricket::VideoFrame>* output) {}
-  virtual void RemoveSink(
-      rtc::VideoSinkInterface<cricket::VideoFrame>* output) {}
-  virtual SourceState state() const { return state_; }
-  virtual bool remote() const { return remote_; }
-  virtual const cricket::VideoOptions* options() const { return &options_; }
-  virtual cricket::VideoRenderer* FrameInput() { return NULL; }
-
- protected:
-  explicit FakeVideoSource(bool remote) : state_(kLive), remote_(remote) {}
-  ~FakeVideoSource() {}
-
- private:
-  cricket::FakeVideoCapturer fake_capturer_;
-  SourceState state_;
-  bool remote_;
-  cricket::VideoOptions options_;
+  MOCK_CONST_METHOD1(GetVideoRtpParameters, RtpParameters(uint32_t ssrc));
+  MOCK_METHOD2(SetVideoRtpParameters,
+               bool(uint32_t ssrc, const RtpParameters&));
 };
 
 class RtpSenderReceiverTest : public testing::Test {
@@ -111,9 +92,9 @@ class RtpSenderReceiverTest : public testing::Test {
     stream_ = MediaStream::Create(kStreamLabel1);
   }
 
-  void AddVideoTrack(bool remote) {
-    rtc::scoped_refptr<VideoSourceInterface> source(
-        FakeVideoSource::Create(remote));
+  void AddVideoTrack() {
+    rtc::scoped_refptr<VideoTrackSourceInterface> source(
+        FakeVideoTrackSource::Create());
     video_track_ = VideoTrack::Create(kVideoTrackId, source);
     EXPECT_TRUE(stream_->AddTrack(video_track_));
   }
@@ -129,7 +110,7 @@ class RtpSenderReceiverTest : public testing::Test {
   }
 
   void CreateVideoRtpSender() {
-    AddVideoTrack(false);
+    AddVideoTrack();
     EXPECT_CALL(video_provider_,
                 SetCaptureDevice(
                     kVideoSsrc, video_track_->GetSource()->GetVideoCapturer()));
@@ -156,17 +137,17 @@ class RtpSenderReceiverTest : public testing::Test {
         kAudioTrackId, RemoteAudioSource::Create(kAudioSsrc, NULL));
     EXPECT_TRUE(stream_->AddTrack(audio_track_));
     EXPECT_CALL(audio_provider_, SetAudioPlayout(kAudioSsrc, true));
-    audio_rtp_receiver_ = new AudioRtpReceiver(stream_->GetAudioTracks()[0],
+    audio_rtp_receiver_ = new AudioRtpReceiver(stream_, kAudioTrackId,
                                                kAudioSsrc, &audio_provider_);
+    audio_track_ = audio_rtp_receiver_->audio_track();
   }
 
   void CreateVideoRtpReceiver() {
-    AddVideoTrack(true);
-    EXPECT_CALL(video_provider_,
-                SetVideoPlayout(kVideoSsrc, true,
-                                video_track_->GetSink()));
-    video_rtp_receiver_ = new VideoRtpReceiver(stream_->GetVideoTracks()[0],
-                                               kVideoSsrc, &video_provider_);
+    EXPECT_CALL(video_provider_, SetVideoPlayout(kVideoSsrc, true, _));
+    video_rtp_receiver_ =
+        new VideoRtpReceiver(stream_, kVideoTrackId, rtc::Thread::Current(),
+                             kVideoSsrc, &video_provider_);
+    video_track_ = video_rtp_receiver_->video_track();
   }
 
   void DestroyAudioRtpReceiver() {
@@ -253,6 +234,20 @@ TEST_F(RtpSenderReceiverTest, LocalVideoTrackDisable) {
   video_track_->set_enabled(true);
 
   DestroyVideoRtpSender();
+}
+
+TEST_F(RtpSenderReceiverTest, RemoteVideoTrackState) {
+  CreateVideoRtpReceiver();
+
+  EXPECT_EQ(webrtc::MediaStreamTrackInterface::kLive, video_track_->state());
+  EXPECT_EQ(webrtc::MediaSourceInterface::kLive,
+            video_track_->GetSource()->state());
+
+  DestroyVideoRtpReceiver();
+
+  EXPECT_EQ(webrtc::MediaStreamTrackInterface::kEnded, video_track_->state());
+  EXPECT_EQ(webrtc::MediaSourceInterface::kEnded,
+            video_track_->GetSource()->state());
 }
 
 TEST_F(RtpSenderReceiverTest, RemoteVideoTrackDisable) {
@@ -346,7 +341,7 @@ TEST_F(RtpSenderReceiverTest, AudioSenderEarlyWarmupTrackThenSsrc) {
 // Test that a video sender calls the expected methods on the provider once
 // it has a track and SSRC, when the SSRC is set first.
 TEST_F(RtpSenderReceiverTest, VideoSenderEarlyWarmupSsrcThenTrack) {
-  AddVideoTrack(false);
+  AddVideoTrack();
   rtc::scoped_refptr<VideoRtpSender> sender =
       new VideoRtpSender(&video_provider_);
   sender->SetSsrc(kVideoSsrc);
@@ -364,7 +359,7 @@ TEST_F(RtpSenderReceiverTest, VideoSenderEarlyWarmupSsrcThenTrack) {
 // Test that a video sender calls the expected methods on the provider once
 // it has a track and SSRC, when the SSRC is set last.
 TEST_F(RtpSenderReceiverTest, VideoSenderEarlyWarmupTrackThenSsrc) {
-  AddVideoTrack(false);
+  AddVideoTrack();
   rtc::scoped_refptr<VideoRtpSender> sender =
       new VideoRtpSender(&video_provider_);
   sender->SetTrack(video_track_);
@@ -400,7 +395,7 @@ TEST_F(RtpSenderReceiverTest, AudioSenderSsrcSetToZero) {
 // Test that the sender is disconnected from the provider when its SSRC is
 // set to 0.
 TEST_F(RtpSenderReceiverTest, VideoSenderSsrcSetToZero) {
-  AddVideoTrack(false);
+  AddVideoTrack();
   EXPECT_CALL(video_provider_,
               SetCaptureDevice(kVideoSsrc,
                                video_track_->GetSource()->GetVideoCapturer()));
@@ -436,7 +431,7 @@ TEST_F(RtpSenderReceiverTest, AudioSenderTrackSetToNull) {
 }
 
 TEST_F(RtpSenderReceiverTest, VideoSenderTrackSetToNull) {
-  AddVideoTrack(false);
+  AddVideoTrack();
   EXPECT_CALL(video_provider_,
               SetCaptureDevice(kVideoSsrc,
                                video_track_->GetSource()->GetVideoCapturer()));
@@ -456,7 +451,7 @@ TEST_F(RtpSenderReceiverTest, VideoSenderTrackSetToNull) {
 }
 
 TEST_F(RtpSenderReceiverTest, AudioSenderSsrcChanged) {
-  AddVideoTrack(false);
+  AddVideoTrack();
   rtc::scoped_refptr<AudioTrackInterface> track =
       AudioTrack::Create(kAudioTrackId, nullptr);
   EXPECT_CALL(audio_provider_, SetAudioSend(kAudioSsrc, true, _, _));
@@ -473,7 +468,7 @@ TEST_F(RtpSenderReceiverTest, AudioSenderSsrcChanged) {
 }
 
 TEST_F(RtpSenderReceiverTest, VideoSenderSsrcChanged) {
-  AddVideoTrack(false);
+  AddVideoTrack();
   EXPECT_CALL(video_provider_,
               SetCaptureDevice(kVideoSsrc,
                                video_track_->GetSource()->GetVideoCapturer()));
@@ -493,6 +488,32 @@ TEST_F(RtpSenderReceiverTest, VideoSenderSsrcChanged) {
   // Calls expected from destructor.
   EXPECT_CALL(video_provider_, SetCaptureDevice(kVideoSsrc2, nullptr)).Times(1);
   EXPECT_CALL(video_provider_, SetVideoSend(kVideoSsrc2, false, _)).Times(1);
+}
+
+TEST_F(RtpSenderReceiverTest, AudioSenderCanSetParameters) {
+  CreateAudioRtpSender();
+
+  EXPECT_CALL(audio_provider_, GetAudioRtpParameters(kAudioSsrc))
+      .WillOnce(Return(RtpParameters()));
+  EXPECT_CALL(audio_provider_, SetAudioRtpParameters(kAudioSsrc, _))
+      .WillOnce(Return(true));
+  RtpParameters params = audio_rtp_sender_->GetParameters();
+  EXPECT_TRUE(audio_rtp_sender_->SetParameters(params));
+
+  DestroyAudioRtpSender();
+}
+
+TEST_F(RtpSenderReceiverTest, VideoSenderCanSetParameters) {
+  CreateVideoRtpSender();
+
+  EXPECT_CALL(video_provider_, GetVideoRtpParameters(kVideoSsrc))
+      .WillOnce(Return(RtpParameters()));
+  EXPECT_CALL(video_provider_, SetVideoRtpParameters(kVideoSsrc, _))
+      .WillOnce(Return(true));
+  RtpParameters params = video_rtp_sender_->GetParameters();
+  EXPECT_TRUE(video_rtp_sender_->SetParameters(params));
+
+  DestroyVideoRtpSender();
 }
 
 }  // namespace webrtc

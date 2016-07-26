@@ -17,6 +17,8 @@
 #include "vpx/vpx_encoder.h"
 #include "vpx/vp8cx.h"
 #include "webrtc/modules/video_coding/include/video_codec_interface.h"
+#include "webrtc/system_wrappers/include/clock.h"
+#include "webrtc/system_wrappers/include/metrics.h"
 
 namespace webrtc {
 
@@ -45,20 +47,31 @@ const int ScreenshareLayers::kTl1SyncFlags =
     VP8_EFLAG_NO_REF_ARF | VP8_EFLAG_NO_REF_GF | VP8_EFLAG_NO_UPD_ARF |
     VP8_EFLAG_NO_UPD_LAST;
 
+// Always emit a frame with certain interval, even if bitrate targets have
+// been exceeded.
+const int ScreenshareLayers::kMaxFrameIntervalMs = 2000;
+
 ScreenshareLayers::ScreenshareLayers(int num_temporal_layers,
-                                     uint8_t initial_tl0_pic_idx)
-    : number_of_temporal_layers_(num_temporal_layers),
+                                     uint8_t initial_tl0_pic_idx,
+                                     Clock* clock)
+    : clock_(clock),
+      number_of_temporal_layers_(num_temporal_layers),
       last_base_layer_sync_(false),
       tl0_pic_idx_(initial_tl0_pic_idx),
       active_layer_(-1),
       last_timestamp_(-1),
       last_sync_timestamp_(-1),
+      last_emitted_tl0_timestamp_(-1),
       min_qp_(-1),
       max_qp_(-1),
       max_debt_bytes_(0),
       frame_rate_(-1) {
   RTC_CHECK_GT(num_temporal_layers, 0);
   RTC_CHECK_LE(num_temporal_layers, 2);
+}
+
+ScreenshareLayers::~ScreenshareLayers() {
+  UpdateHistograms();
 }
 
 int ScreenshareLayers::CurrentLayerId() const {
@@ -72,11 +85,20 @@ int ScreenshareLayers::EncodeFlags(uint32_t timestamp) {
     return 0;
   }
 
+  if (stats_.first_frame_time_ms_ == -1)
+    stats_.first_frame_time_ms_ = clock_->TimeInMilliseconds();
+
   int64_t unwrapped_timestamp = time_wrap_handler_.Unwrap(timestamp);
   int flags = 0;
-
   if (active_layer_ == -1 ||
       layers_[active_layer_].state != TemporalLayer::State::kDropped) {
+    if (last_emitted_tl0_timestamp_ != -1 &&
+        (unwrapped_timestamp - last_emitted_tl0_timestamp_) / 90 >
+            kMaxFrameIntervalMs) {
+      // Too long time has passed since the last frame was emitted, cancel
+      // enough debt to allow a single frame.
+      layers_[0].debt_bytes_ = max_debt_bytes_ - 1;
+    }
     if (layers_[0].debt_bytes_ > max_debt_bytes_) {
       // Must drop TL0, encode TL1 instead.
       if (layers_[1].debt_bytes_ > max_debt_bytes_) {
@@ -93,6 +115,7 @@ int ScreenshareLayers::EncodeFlags(uint32_t timestamp) {
   switch (active_layer_) {
     case 0:
       flags = kTl0Flags;
+      last_emitted_tl0_timestamp_ = unwrapped_timestamp;
       break;
     case 1:
       if (TimeToSync(unwrapped_timestamp)) {
@@ -104,20 +127,20 @@ int ScreenshareLayers::EncodeFlags(uint32_t timestamp) {
       break;
     case -1:
       flags = -1;
+      ++stats_.num_dropped_frames_;
       break;
     default:
       flags = -1;
       RTC_NOTREACHED();
   }
 
-  // Make sure both frame droppers leak out bits.
   int64_t ts_diff;
   if (last_timestamp_ == -1) {
     ts_diff = kOneSecond90Khz / (frame_rate_ <= 0 ? 5 : frame_rate_);
   } else {
     ts_diff = unwrapped_timestamp - last_timestamp_;
   }
-
+  // Make sure both frame droppers leak out bits.
   layers_[0].UpdateDebt(ts_diff / 90);
   layers_[1].UpdateDebt(ts_diff / 90);
   last_timestamp_ = timestamp;
@@ -176,6 +199,7 @@ void ScreenshareLayers::FrameEncoded(unsigned int size,
   RTC_DCHECK_NE(-1, active_layer_);
   if (size == 0) {
     layers_[active_layer_].state = TemporalLayer::State::kDropped;
+    ++stats_.num_overshoots_;
     return;
   }
 
@@ -189,8 +213,14 @@ void ScreenshareLayers::FrameEncoded(unsigned int size,
   if (active_layer_ == 0) {
     layers_[0].debt_bytes_ += size;
     layers_[1].debt_bytes_ += size;
+    ++stats_.num_tl0_frames_;
+    stats_.tl0_target_bitrate_sum_ += layers_[0].target_rate_kbps_;
+    stats_.tl0_qp_sum_ += qp;
   } else if (active_layer_ == 1) {
     layers_[1].debt_bytes_ += size;
+    ++stats_.num_tl1_frames_;
+    stats_.tl1_target_bitrate_sum_ += layers_[1].target_rate_kbps_;
+    stats_.tl1_qp_sum_ += qp;
   }
 }
 
@@ -280,6 +310,44 @@ void ScreenshareLayers::TemporalLayer::UpdateDebt(int64_t delta_ms) {
     debt_bytes_ = 0;
   } else {
     debt_bytes_ -= debt_reduction_bytes;
+  }
+}
+
+void ScreenshareLayers::UpdateHistograms() {
+  if (stats_.first_frame_time_ms_ == -1)
+    return;
+  int64_t duration_sec =
+      (clock_->TimeInMilliseconds() - stats_.first_frame_time_ms_ + 500) / 1000;
+  if (duration_sec >= metrics::kMinRunTimeInSeconds) {
+    RTC_HISTOGRAM_COUNTS_10000(
+        "WebRTC.Video.Screenshare.Layer0.FrameRate",
+        (stats_.num_tl0_frames_ + (duration_sec / 2)) / duration_sec);
+    RTC_HISTOGRAM_COUNTS_10000(
+        "WebRTC.Video.Screenshare.Layer1.FrameRate",
+        (stats_.num_tl1_frames_ + (duration_sec / 2)) / duration_sec);
+    int total_frames = stats_.num_tl0_frames_ + stats_.num_tl1_frames_;
+    RTC_HISTOGRAM_COUNTS_10000(
+        "WebRTC.Video.Screenshare.FramesPerDrop",
+        (stats_.num_dropped_frames_ == 0 ? 0 : total_frames /
+                                                   stats_.num_dropped_frames_));
+    RTC_HISTOGRAM_COUNTS_10000(
+        "WebRTC.Video.Screenshare.FramesPerOvershoot",
+        (stats_.num_overshoots_ == 0 ? 0
+                                     : total_frames / stats_.num_overshoots_));
+    if (stats_.num_tl0_frames_ > 0) {
+      RTC_HISTOGRAM_COUNTS_10000("WebRTC.Video.Screenshare.Layer0.Qp",
+                                 stats_.tl0_qp_sum_ / stats_.num_tl0_frames_);
+      RTC_HISTOGRAM_COUNTS_10000(
+          "WebRTC.Video.Screenshare.Layer0.TargetBitrate",
+          stats_.tl0_target_bitrate_sum_ / stats_.num_tl0_frames_);
+    }
+    if (stats_.num_tl1_frames_ > 0) {
+      RTC_HISTOGRAM_COUNTS_10000("WebRTC.Video.Screenshare.Layer1.Qp",
+                                 stats_.tl1_qp_sum_ / stats_.num_tl1_frames_);
+      RTC_HISTOGRAM_COUNTS_10000(
+          "WebRTC.Video.Screenshare.Layer1.TargetBitrate",
+          stats_.tl1_target_bitrate_sum_ / stats_.num_tl1_frames_);
+    }
   }
 }
 

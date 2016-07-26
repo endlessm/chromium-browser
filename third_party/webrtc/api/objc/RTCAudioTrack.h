@@ -12,15 +12,9 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
-@class RTCPeerConnectionFactory;
-
 @interface RTCAudioTrack : RTCMediaStreamTrack
 
 - (instancetype)init NS_UNAVAILABLE;
-
-/** Initialize an RTCAudioTrack with an id. */
-- (instancetype)initWithFactory:(RTCPeerConnectionFactory *)factory
-                        trackId:(NSString *)trackId;
 
 @end
 

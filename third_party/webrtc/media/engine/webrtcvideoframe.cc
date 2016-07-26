@@ -65,11 +65,11 @@ bool WebRtcVideoFrame::InitToBlack(int w, int h,
   return SetToBlack();
 }
 
-size_t WebRtcVideoFrame::GetWidth() const {
+int WebRtcVideoFrame::width() const {
   return video_frame_buffer_ ? video_frame_buffer_->width() : 0;
 }
 
-size_t WebRtcVideoFrame::GetHeight() const {
+int WebRtcVideoFrame::height() const {
   return video_frame_buffer_ ? video_frame_buffer_->height() : 0;
 }
 
@@ -129,30 +129,6 @@ VideoFrame* WebRtcVideoFrame::Copy() const {
   WebRtcVideoFrame* new_frame = new WebRtcVideoFrame(
       video_frame_buffer_, time_stamp_ns_, rotation_);
   return new_frame;
-}
-
-bool WebRtcVideoFrame::MakeExclusive() {
-  RTC_DCHECK(video_frame_buffer_->native_handle() == nullptr);
-  if (IsExclusive())
-    return true;
-
-  // Not exclusive already, need to copy buffer.
-  rtc::scoped_refptr<webrtc::VideoFrameBuffer> new_buffer =
-      new rtc::RefCountedObject<webrtc::I420Buffer>(
-          video_frame_buffer_->width(), video_frame_buffer_->height(),
-          video_frame_buffer_->stride(kYPlane),
-          video_frame_buffer_->stride(kUPlane),
-          video_frame_buffer_->stride(kVPlane));
-
-  if (!CopyToPlanes(
-          new_buffer->MutableData(kYPlane), new_buffer->MutableData(kUPlane),
-          new_buffer->MutableData(kVPlane), new_buffer->stride(kYPlane),
-          new_buffer->stride(kUPlane), new_buffer->stride(kVPlane))) {
-    return false;
-  }
-
-  video_frame_buffer_ = new_buffer;
-  return true;
 }
 
 size_t WebRtcVideoFrame::ConvertToRgbBuffer(uint32_t to_fourcc,
@@ -250,15 +226,15 @@ const VideoFrame* WebRtcVideoFrame::GetCopyWithRotationApplied() const {
     return rotated_frame_.get();
   }
 
-  int width = static_cast<int>(GetWidth());
-  int height = static_cast<int>(GetHeight());
+  int orig_width = width();
+  int orig_height = height();
 
-  int rotated_width = width;
-  int rotated_height = height;
+  int rotated_width = orig_width;
+  int rotated_height = orig_height;
   if (GetVideoRotation() == webrtc::kVideoRotation_90 ||
       GetVideoRotation() == webrtc::kVideoRotation_270) {
-    rotated_width = height;
-    rotated_height = width;
+    rotated_width = orig_height;
+    rotated_height = orig_width;
   }
 
   rotated_frame_.reset(CreateEmptyFrame(rotated_width, rotated_height,
@@ -270,7 +246,8 @@ const VideoFrame* WebRtcVideoFrame::GetCopyWithRotationApplied() const {
       GetYPlane(), GetYPitch(), GetUPlane(), GetUPitch(), GetVPlane(),
       GetVPitch(), rotated_frame_->GetYPlane(), rotated_frame_->GetYPitch(),
       rotated_frame_->GetUPlane(), rotated_frame_->GetUPitch(),
-      rotated_frame_->GetVPlane(), rotated_frame_->GetVPitch(), width, height,
+      rotated_frame_->GetVPlane(), rotated_frame_->GetVPitch(),
+      orig_width, orig_height,
       static_cast<libyuv::RotationMode>(GetVideoRotation()));
   if (ret == 0) {
     return rotated_frame_.get();

@@ -10,6 +10,7 @@
 #include "base/memory/scoped_vector.h"
 #include "media/base/cdm_context.h"
 #include "media/base/media_log.h"
+#include "media/base/media_tracks.h"
 #include "media/base/test_data_util.h"
 #include "media/filters/chunk_demuxer.h"
 #if !defined(MEDIA_DISABLE_FFMPEG)
@@ -18,6 +19,7 @@
 #include "media/filters/ffmpeg_video_decoder.h"
 #endif
 #include "media/filters/file_data_source.h"
+#include "media/filters/memory_data_source.h"
 #include "media/filters/opus_audio_decoder.h"
 #include "media/renderers/audio_renderer_impl.h"
 #include "media/renderers/renderer_impl.h"
@@ -57,6 +59,8 @@ PipelineIntegrationTestBase::~PipelineIntegrationTestBase() {
   Stop();
 }
 
+// TODO(xhwang): Method definitions in this file needs to be reordered.
+
 void PipelineIntegrationTestBase::OnSeeked(base::TimeDelta seek_time,
                                            PipelineStatus status) {
   EXPECT_EQ(seek_time, pipeline_->GetMediaTime());
@@ -74,6 +78,11 @@ void PipelineIntegrationTestBase::DemuxerEncryptedMediaInitDataCB(
   DCHECK(!init_data.empty());
   CHECK(!encrypted_media_init_data_cb_.is_null());
   encrypted_media_init_data_cb_.Run(type, init_data);
+}
+
+void PipelineIntegrationTestBase::DemuxerMediaTracksUpdatedCB(
+    scoped_ptr<MediaTracks> tracks) {
+  CHECK(tracks);
 }
 
 void PipelineIntegrationTestBase::OnEnded() {
@@ -104,12 +113,13 @@ void PipelineIntegrationTestBase::OnError(PipelineStatus status) {
   message_loop_.PostTask(FROM_HERE, base::MessageLoop::QuitWhenIdleClosure());
 }
 
-PipelineStatus PipelineIntegrationTestBase::Start(const std::string& filename) {
-  return Start(filename, nullptr);
-}
+PipelineStatus PipelineIntegrationTestBase::StartInternal(
+    scoped_ptr<DataSource> data_source,
+    CdmContext* cdm_context,
+    uint8_t test_type) {
+  hashing_enabled_ = test_type & kHashed;
+  clockless_playback_ = test_type & kClockless;
 
-PipelineStatus PipelineIntegrationTestBase::Start(const std::string& filename,
-                                                  CdmContext* cdm_context) {
   EXPECT_CALL(*this, OnMetadata(_))
       .Times(AtMost(1))
       .WillRepeatedly(SaveArg<0>(&metadata_));
@@ -117,7 +127,7 @@ PipelineStatus PipelineIntegrationTestBase::Start(const std::string& filename,
       .Times(AnyNumber());
   EXPECT_CALL(*this, OnBufferingStateChanged(BUFFERING_HAVE_NOTHING))
       .Times(AnyNumber());
-  CreateDemuxer(filename);
+  CreateDemuxer(std::move(data_source));
 
   if (cdm_context) {
     EXPECT_CALL(*this, DecryptorAttached(true));
@@ -148,11 +158,36 @@ PipelineStatus PipelineIntegrationTestBase::Start(const std::string& filename,
   return pipeline_status_;
 }
 
+PipelineStatus PipelineIntegrationTestBase::StartWithFile(
+    const std::string& filename,
+    CdmContext* cdm_context,
+    uint8_t test_type) {
+  scoped_ptr<FileDataSource> file_data_source(new FileDataSource());
+  base::FilePath file_path(GetTestDataFilePath(filename));
+  CHECK(file_data_source->Initialize(file_path)) << "Is " << file_path.value()
+                                                 << " missing?";
+  return StartInternal(std::move(file_data_source), cdm_context, test_type);
+}
+
+PipelineStatus PipelineIntegrationTestBase::Start(const std::string& filename) {
+  return StartWithFile(filename, nullptr, kNormal);
+}
+
+PipelineStatus PipelineIntegrationTestBase::Start(const std::string& filename,
+                                                  CdmContext* cdm_context) {
+  return StartWithFile(filename, cdm_context, kNormal);
+}
+
 PipelineStatus PipelineIntegrationTestBase::Start(const std::string& filename,
                                                   uint8_t test_type) {
-  hashing_enabled_ = test_type & kHashed;
-  clockless_playback_ = test_type & kClockless;
-  return Start(filename);
+  return StartWithFile(filename, nullptr, test_type);
+}
+
+PipelineStatus PipelineIntegrationTestBase::Start(const uint8_t* data,
+                                                  size_t size,
+                                                  uint8_t test_type) {
+  return StartInternal(make_scoped_ptr(new MemoryDataSource(data, size)),
+                       nullptr, test_type);
 }
 
 void PipelineIntegrationTestBase::Play() {
@@ -199,6 +234,11 @@ void PipelineIntegrationTestBase::Stop() {
   message_loop_.Run();
 }
 
+void PipelineIntegrationTestBase::FailTest(PipelineStatus status) {
+  DCHECK_NE(PIPELINE_OK, status);
+  OnError(status);
+}
+
 void PipelineIntegrationTestBase::QuitAfterCurrentTimeTask(
     const base::TimeDelta& quit_time) {
   if (pipeline_->GetMediaTime() >= quit_time ||
@@ -229,21 +269,20 @@ bool PipelineIntegrationTestBase::WaitUntilCurrentTimeIsAfter(
   return (pipeline_status_ == PIPELINE_OK);
 }
 
-void PipelineIntegrationTestBase::CreateDemuxer(const std::string& filename) {
-  FileDataSource* file_data_source = new FileDataSource();
-  base::FilePath file_path(GetTestDataFilePath(filename));
-  CHECK(file_data_source->Initialize(file_path)) << "Is " << file_path.value()
-                                                 << " missing?";
-  data_source_.reset(file_data_source);
+void PipelineIntegrationTestBase::CreateDemuxer(
+    scoped_ptr<DataSource> data_source) {
+  data_source_ = std::move(data_source);
 
-  Demuxer::EncryptedMediaInitDataCB encrypted_media_init_data_cb =
-      base::Bind(&PipelineIntegrationTestBase::DemuxerEncryptedMediaInitDataCB,
+  Demuxer::MediaTracksUpdatedCB tracks_updated_cb =
+      base::Bind(&PipelineIntegrationTestBase::DemuxerMediaTracksUpdatedCB,
                  base::Unretained(this));
 
 #if !defined(MEDIA_DISABLE_FFMPEG)
-  demuxer_ = scoped_ptr<Demuxer>(
-      new FFmpegDemuxer(message_loop_.task_runner(), data_source_.get(),
-                        encrypted_media_init_data_cb, new MediaLog()));
+  demuxer_ = scoped_ptr<Demuxer>(new FFmpegDemuxer(
+      message_loop_.task_runner(), data_source_.get(),
+      base::Bind(&PipelineIntegrationTestBase::DemuxerEncryptedMediaInitDataCB,
+                 base::Unretained(this)),
+      tracks_updated_cb, new MediaLog()));
 #endif
 }
 

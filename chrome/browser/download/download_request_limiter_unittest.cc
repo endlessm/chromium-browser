@@ -132,7 +132,7 @@ class TestingDelegate {
   }
 
  private:
-  scoped_ptr<MockPermissionBubbleFactory> mock_permission_bubble_factory_;
+  std::unique_ptr<MockPermissionBubbleFactory> mock_permission_bubble_factory_;
 };
 #endif
 }  // namespace
@@ -224,12 +224,9 @@ class DownloadRequestLimiterTest : public ChromeRenderViewHostTestHarness {
   }
 
   void SetHostContentSetting(WebContents* contents, ContentSetting setting) {
-    content_settings_->SetContentSetting(
-        ContentSettingsPattern::FromURL(contents->GetURL()),
-        ContentSettingsPattern::Wildcard(),
-        CONTENT_SETTINGS_TYPE_AUTOMATIC_DOWNLOADS,
-        std::string(),
-        setting);
+    content_settings_->SetContentSettingDefaultScope(
+        contents->GetURL(), GURL(), CONTENT_SETTINGS_TYPE_AUTOMATIC_DOWNLOADS,
+        std::string(), setting);
   }
 
   void LoadCompleted() { testing_delegate_.LoadCompleted(web_contents()); }
@@ -252,10 +249,11 @@ class DownloadRequestLimiterTest : public ChromeRenderViewHostTestHarness {
   TestingDelegate testing_delegate_;
 
  private:
-  scoped_ptr<TestingProfile> profile_;
+  std::unique_ptr<TestingProfile> profile_;
 };
 
 TEST_F(DownloadRequestLimiterTest, DownloadRequestLimiter_Allow) {
+  NavigateAndCommit(GURL("http://foo.com/bar"));
   LoadCompleted();
 
   // All tabs should initially start at ALLOW_ONE_DOWNLOAD.
@@ -356,8 +354,8 @@ TEST_F(DownloadRequestLimiterTest, DownloadRequestLimiter_ResetOnUserGesture) {
   ASSERT_EQ(DownloadRequestLimiter::PROMPT_BEFORE_DOWNLOAD,
             download_request_limiter_->GetDownloadStatus(web_contents()));
 
-  // Do a user gesture with mouse scroll, which should be ignored.
-  OnUserInteraction(blink::WebInputEvent::MouseWheel);
+  // Do a user gesture with scroll, which should be ignored.
+  OnUserInteraction(blink::WebInputEvent::GestureScrollBegin);
   ASSERT_EQ(DownloadRequestLimiter::PROMPT_BEFORE_DOWNLOAD,
             download_request_limiter_->GetDownloadStatus(web_contents()));
   // Do a user gesture with mouse click, which should reset back to allow one.
@@ -464,7 +462,11 @@ TEST_F(DownloadRequestLimiterTest, DownloadRequestLimiter_ResetOnReload) {
 
 #if defined(OS_ANDROID)
 TEST_F(DownloadRequestLimiterTest, DownloadRequestLimiter_RawWebContents) {
-  scoped_ptr<WebContents> web_contents(CreateTestWebContents());
+  std::unique_ptr<WebContents> web_contents(CreateTestWebContents());
+
+  GURL url("http://foo.com/bar");
+  web_contents->GetController().LoadURL(
+      url, content::Referrer(), ui::PAGE_TRANSITION_LINK, std::string());
 
   // DownloadRequestLimiter won't try to make a permission bubble if there's
   // no permission bubble manager, so don't put one on the test WebContents.

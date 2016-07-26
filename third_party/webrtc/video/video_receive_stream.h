@@ -11,9 +11,9 @@
 #ifndef WEBRTC_VIDEO_VIDEO_RECEIVE_STREAM_H_
 #define WEBRTC_VIDEO_VIDEO_RECEIVE_STREAM_H_
 
+#include <memory>
 #include <vector>
 
-#include "webrtc/base/scoped_ptr.h"
 #include "webrtc/call.h"
 #include "webrtc/call/transport_adapter.h"
 #include "webrtc/common_video/include/incoming_video_stream.h"
@@ -40,7 +40,9 @@ namespace internal {
 class VideoReceiveStream : public webrtc::VideoReceiveStream,
                            public I420FrameCallback,
                            public VideoRenderCallback,
-                           public EncodedImageCallback {
+                           public EncodedImageCallback,
+                           public NackSender,
+                           public KeyFrameRequestSender {
  public:
   VideoReceiveStream(int num_cpu_cores,
                      CongestionController* congestion_controller,
@@ -79,6 +81,12 @@ class VideoReceiveStream : public webrtc::VideoReceiveStream,
 
   void SetSyncChannel(VoiceEngine* voice_engine, int audio_channel_id);
 
+  // NackSender
+  void SendNack(const std::vector<uint16_t>& sequence_numbers) override;
+
+  // KeyFrameRequestSender
+  void RequestKeyFrame() override;
+
  private:
   static bool DecodeThreadFunction(void* ptr);
   void Decode();
@@ -95,7 +103,7 @@ class VideoReceiveStream : public webrtc::VideoReceiveStream,
   CallStats* const call_stats_;
   VieRemb* const remb_;
 
-  rtc::scoped_ptr<VideoCodingModule> vcm_;
+  std::unique_ptr<VideoCodingModule> vcm_;
   IncomingVideoStream incoming_video_stream_;
   ReceiveStatisticsProxy stats_proxy_;
   ViEChannel vie_channel_;

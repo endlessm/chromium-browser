@@ -10,10 +10,8 @@ import tempfile
 
 from telemetry.core import android_platform
 from telemetry.core import exceptions
-from telemetry.core import platform
 from telemetry.core import util
 from telemetry import decorators
-from telemetry.internal import forwarders
 from telemetry.internal.forwarders import android_forwarder
 from telemetry.internal.image_processing import video
 from telemetry.internal.platform import android_device
@@ -73,7 +71,7 @@ def _FindLocallyBuiltPath(binary_name):
 
 class AndroidPlatformBackend(
     linux_based_platform_backend.LinuxBasedPlatformBackend):
-  def __init__(self, device, finder_options):
+  def __init__(self, device):
     assert device, (
         'AndroidPlatformBackend can only be initialized from remote device')
     super(AndroidPlatformBackend, self).__init__(device)
@@ -113,11 +111,6 @@ class AndroidPlatformBackend(
     self._device_cert_util = None
     self._system_ui = None
 
-    self._use_rndis_forwarder = (
-        finder_options.android_rndis or
-        finder_options.browser_options.netsim or
-        platform.GetHostPlatform().GetOSName() != 'linux')
-
     _FixPossibleAdbInstability()
 
   @property
@@ -131,32 +124,16 @@ class AndroidPlatformBackend(
   @classmethod
   def CreatePlatformForDevice(cls, device, finder_options):
     assert cls.SupportsDevice(device)
-    platform_backend = AndroidPlatformBackend(device, finder_options)
+    platform_backend = AndroidPlatformBackend(device)
     return android_platform.AndroidPlatform(platform_backend)
 
   @property
   def forwarder_factory(self):
     if not self._forwarder_factory:
       self._forwarder_factory = android_forwarder.AndroidForwarderFactory(
-          self._device, self._use_rndis_forwarder)
+          self._device)
 
     return self._forwarder_factory
-
-  @property
-  def use_rndis_forwarder(self):
-    return self._use_rndis_forwarder
-
-  def GetWprPortPairs(self, has_netsim):
-    """Return suitable port pairs to be used for web page replay."""
-    if has_netsim:
-      assert self.use_rndis_forwarder, 'Netsim requires RNDIS forwarding.'
-      return forwarders.PortPairs(
-          http=forwarders.PortPair(0, 80),
-          https=forwarders.PortPair(0, 443),
-          dns=forwarders.PortPair(0, 53))
-    else:
-      # Fall back to default port pairs.
-      return super(AndroidPlatformBackend, self).GetWprPortPairs(has_netsim)
 
   @property
   def device(self):
@@ -529,7 +506,9 @@ class AndroidPlatformBackend(
 
   @property
   def supports_test_ca(self):
-    return True
+    # TODO(nednguyen): figure out how to install certificate on Android M
+    # crbug.com/593152
+    return self._device.build_version_sdk <= version_codes.LOLLIPOP_MR1
 
   def InstallTestCa(self, ca_cert_path):
     """Install a randomly generated root CA on the android device.
@@ -593,7 +572,8 @@ class AndroidPlatformBackend(
     uid = re.search(r'\d+', id_line).group()
     files = self._device.RunShellCommand(
         'ls "%s"' % profile_dir, as_root=True)
-    files.remove('lib')
+    assert isinstance(files, list)
+    files.remove('lib')  # pylint: disable=no-member
     paths = ['%s%s' % (profile_dir, f) for f in files]
     for path in paths:
       extended_path = '%s %s/* %s/*/* %s/*/*/*' % (path, path, path, path)
@@ -685,15 +665,11 @@ class AndroidPlatformBackend(
   def GetStandardOutput(self):
     return None
 
-  def GetStackTrace(self, target_arch):
+  def GetStackTrace(self):
     """Returns stack trace.
 
     The stack trace consists of raw logcat dump, logcat dump with symbols,
     and stack info from tomstone files.
-
-    Args:
-      target_arch: String specifying device architecture (eg. arm, arm64, mips,
-        x86, x86_64)
     """
     def Decorate(title, content):
       return "%s\n%s\n%s\n" % (title, content, '*' * 80)
@@ -705,8 +681,7 @@ class AndroidPlatformBackend(
     # Try to symbolize logcat.
     if os.path.exists(stack):
       cmd = [stack]
-      if target_arch:
-        cmd.append('--arch=%s' % target_arch)
+      cmd.append('--arch=%s' % self.GetArchName())
       p = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE)
       ret += Decorate('Stack from Logcat', p.communicate(input=logcat)[0])
 

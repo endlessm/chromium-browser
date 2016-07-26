@@ -25,32 +25,37 @@ class PlatformBackend(linux_based_platform_backend.LinuxBasedPlatformBackend):
 
 
 class FakeTracingAgentBase(tracing_agent.TracingAgent):
-  def __init__(self, platform, start=True, clock_sync=True):
+  def __init__(
+      self, platform, start=True, clock_sync=True, split_collection=True):
     super(FakeTracingAgentBase, self).__init__(platform)
     self._start = start
     self._clock_sync = clock_sync
     self._sync_seen = False
+    self._split_collection = split_collection
 
   def StartAgentTracing(self, config, timeout):
     return self._start
 
-  def StopAgentTracing(self, trace_data_builder):
+  def StopAgentTracing(self):
     pass
 
   def SupportsExplicitClockSync(self):
     return self._clock_sync
 
-  def RecordClockSyncMarker(self, sync_id):
+  def RecordClockSyncMarker(self, sync_id, callback):
     if not self._clock_sync:
       raise NotImplementedError
     self._sync_seen = True
+    callback(sync_id, 1)
+
+  def CollectAgentTraceData(self, trace_data_builder, timeout=None):
+    pass
 
 
 class FakeTracingAgentStartAndClockSync(FakeTracingAgentBase):
   def __init__(self, platform):
-    super(FakeTracingAgentStartAndClockSync, self).__init__(platform,
-                                                            start=True,
-                                                            clock_sync=True)
+    super(FakeTracingAgentStartAndClockSync, self).__init__(
+        platform, start=True, clock_sync=True, split_collection=False)
 
 
 class FakeTracingAgentStartAndNoClockSync(FakeTracingAgentBase):
@@ -156,6 +161,41 @@ class TracingControllerBackendTest(unittest.TestCase):
     self.assertNotEqual(sync_event_one, sync_event_two)
 
   @decorators.Isolated
+  def testCollectAgentDataBeforeStoppingTracing(self):
+    self.assertFalse(self.controller.is_tracing_running)
+    self.assertTrue(self.controller.StartTracing(self.config, 30))
+    self.assertTrue(self.controller.is_tracing_running)
+    with self.assertRaises(AssertionError):
+      self.controller.CollectAgentTraceData(None)
+
+  @decorators.Isolated
+  def testFlush(self):
+    self.assertFalse(self.controller.is_tracing_running)
+    self.assertIsNone(self.controller._current_state)
+
+    # Start tracing.
+    self.assertTrue(self.controller.StartTracing(self.config, 30))
+    self.assertTrue(self.controller.is_tracing_running)
+    self.assertIs(self.controller._current_state.config, self.config)
+    self.assertEqual(self.controller._current_state.timeout, 30)
+    self.assertIsNotNone(self.controller._current_state.builder)
+
+    # Flush tracing several times.
+    for _ in xrange(5):
+      self.controller.FlushTracing()
+      self.assertTrue(self.controller.is_tracing_running)
+      self.assertIs(self.controller._current_state.config, self.config)
+      self.assertEqual(self.controller._current_state.timeout, 30)
+      self.assertIsNotNone(self.controller._current_state.builder)
+
+    # Stop tracing.
+    data = self.controller.StopTracing()
+    self.assertFalse(self.controller.is_tracing_running)
+    self.assertIsNone(self.controller._current_state)
+
+    self.assertEqual(self._getSyncCount(data), 6)
+
+  @decorators.Isolated
   def testNoWorkingAgents(self):
     self.controller._supported_agents_classes = [
         FakeTracingAgentNoStartAndNoClockSync
@@ -244,9 +284,10 @@ class TracingControllerBackendTest(unittest.TestCase):
     for entry in log:
       if entry.get('name') == 'clock_sync':
         self.assertEqual(entry['args']['sync_id'], sync_id)
+        self.assertEqual(entry['args']['issue_ts'], 1)
 
   @decorators.Isolated
-  def testIssueClockSyncMarker(self):
+  def testIssueClockSyncMarker_normalUse(self):
     self.controller._supported_agents_classes = [
         FakeTracingAgentStartAndClockSync,
         FakeTracingAgentStartAndClockSync,
@@ -265,6 +306,32 @@ class TracingControllerBackendTest(unittest.TestCase):
     data = self.controller.StopTracing()
     self.assertFalse(self.controller.is_tracing_running)
     self.assertEquals(self._getSyncCount(data), 4)
+
+  @decorators.Isolated
+  def testIssueClockSyncMarker_tracingNotControllable(self):
+    self.controller._supported_agents_classes = [
+        FakeTracingAgentStartAndClockSync,
+        FakeTracingAgentStartAndClockSync,
+        FakeTracingAgentNoStartAndClockSync,
+        FakeTracingAgentNoStartAndClockSync,
+        FakeTracingAgentNoStartAndNoClockSync,
+        FakeTracingAgentNoStartAndNoClockSync,
+        FakeTracingAgentStartAndNoClockSync,
+        FakeTracingAgentStartAndNoClockSync
+    ]
+    original_controllable = self.controller._IsTracingControllable
+    self.controller._IsTracingControllable = lambda: False
+    try:
+      self.assertFalse(self.controller.is_tracing_running)
+      self.assertTrue(self.controller.StartTracing(self.config, 30))
+      self.assertTrue(self.controller.is_tracing_running)
+      self.assertEquals(len(self.controller._active_agents_instances), 4)
+      self.controller._IssueClockSyncMarker()
+      data = self.controller.StopTracing()
+      self.assertFalse(self.controller.is_tracing_running)
+      self.assertEquals(self._getSyncCount(data), 0)
+    finally:
+      self.controller._IsTracingControllable = original_controllable
 
   @decorators.Isolated
   def testDisableGarbageCollection(self):

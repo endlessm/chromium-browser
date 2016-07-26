@@ -28,8 +28,8 @@ import java.util.concurrent.TimeUnit;
  * Helper class to create and synchronize access to a SurfaceTexture. The caller will get notified
  * of new frames in onTextureFrameAvailable(), and should call returnTextureFrame() when done with
  * the frame. Only one texture frame can be in flight at once, so returnTextureFrame() must be
- * called in order to receive a new frame. Call disconnect() to stop receiveing new frames and
- * release all resources.
+ * called in order to receive a new frame. Call stopListening() to stop receiveing new frames. Call
+ * dispose to release all resources once the texture frame is returned.
  * Note that there is a C++ counter part of this class that optionally can be used. It is used for
  * wrapping texture frames into webrtc::VideoFrames and also handles calling returnTextureFrame()
  * when the webrtc::VideoFrame is no longer used.
@@ -48,32 +48,24 @@ class SurfaceTextureHelper {
         int oesTextureId, float[] transformMatrix, long timestampNs);
   }
 
-  public static SurfaceTextureHelper create(EglBase.Context sharedContext) {
-    return create(sharedContext, null);
-  }
-
   /**
-   * Construct a new SurfaceTextureHelper sharing OpenGL resources with |sharedContext|. If
-   * |handler| is non-null, the callback will be executed on that handler's thread. If |handler| is
-   * null, a dedicated private thread is created for the callbacks.
+   * Construct a new SurfaceTextureHelper sharing OpenGL resources with |sharedContext|. A dedicated
+   * thread and handler is created for handling the SurfaceTexture.
    */
-  public static SurfaceTextureHelper create(final EglBase.Context sharedContext,
-      final Handler handler) {
-    final Handler finalHandler;
-    if (handler != null) {
-      finalHandler = handler;
-    } else {
-      final HandlerThread thread = new HandlerThread(TAG);
-      thread.start();
-      finalHandler = new Handler(thread.getLooper());
-    }
+  public static SurfaceTextureHelper create(
+      final String threadName, final EglBase.Context sharedContext) {
+    final HandlerThread thread = new HandlerThread(threadName);
+    thread.start();
+    final Handler handler = new Handler(thread.getLooper());
+
     // The onFrameAvailable() callback will be executed on the SurfaceTexture ctor thread. See:
     // http://grepcode.com/file/repository.grepcode.com/java/ext/com.google.android/android/5.1.1_r1/android/graphics/SurfaceTexture.java#195.
     // Therefore, in order to control the callback thread on API lvl < 21, the SurfaceTextureHelper
     // is constructed on the |handler| thread.
-    return ThreadUtils.invokeUninterruptibly(finalHandler, new Callable<SurfaceTextureHelper>() {
-      @Override public SurfaceTextureHelper call() {
-        return new SurfaceTextureHelper(sharedContext, finalHandler, (handler == null));
+    return ThreadUtils.invokeUninterruptibly(handler, new Callable<SurfaceTextureHelper>() {
+      @Override
+      public SurfaceTextureHelper call() {
+        return new SurfaceTextureHelper(sharedContext, handler);
       }
     });
   }
@@ -259,10 +251,10 @@ class SurfaceTextureHelper {
 
       // Draw U
       GLES20.glViewport(0, height, uv_width, uv_height);
-      // Matrix * (1;0;0;0) / (2*width). Note that opengl uses column major order.
+      // Matrix * (1;0;0;0) / (width / 2). Note that opengl uses column major order.
       GLES20.glUniform2f(xUnitLoc,
-          transformMatrix[0] / (2.0f*width),
-          transformMatrix[1] / (2.0f*width));
+          2.0f * transformMatrix[0] / width,
+          2.0f * transformMatrix[1] / width);
       GLES20.glUniform4f(coeffsLoc, -0.169f, -0.331f, 0.499f, 0.5f);
       GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4);
 
@@ -291,25 +283,36 @@ class SurfaceTextureHelper {
   }
 
   private final Handler handler;
-  private boolean isOwningThread;
   private final EglBase eglBase;
   private final SurfaceTexture surfaceTexture;
   private final int oesTextureId;
   private YuvConverter yuvConverter;
 
+  // These variables are only accessed from the |handler| thread.
   private OnTextureFrameAvailableListener listener;
   // The possible states of this class.
   private boolean hasPendingTexture = false;
   private volatile boolean isTextureInUse = false;
   private boolean isQuitting = false;
+  // |pendingListener| is set in setListener() and the runnable is posted to the handler thread.
+  // setListener() is not allowed to be called again before stopListening(), so this is thread safe.
+  private OnTextureFrameAvailableListener pendingListener;
+  final Runnable setListenerRunnable = new Runnable() {
+    @Override
+    public void run() {
+      Logging.d(TAG, "Setting listener to " + pendingListener);
+      listener = pendingListener;
+      pendingListener = null;
+      // May alredy have a pending frame - try delivering it.
+      tryDeliverTextureFrame();
+    }
+  };
 
-  private SurfaceTextureHelper(EglBase.Context sharedContext,
-      Handler handler, boolean isOwningThread) {
+  private SurfaceTextureHelper(EglBase.Context sharedContext, Handler handler) {
     if (handler.getLooper().getThread() != Thread.currentThread()) {
       throw new IllegalStateException("SurfaceTextureHelper must be created on the handler thread");
     }
     this.handler = handler;
-    this.isOwningThread = isOwningThread;
 
     eglBase = EglBase.create(sharedContext, EglBase.CONFIG_PIXEL_BUFFER);
     eglBase.createDummyPbufferSurface();
@@ -317,6 +320,13 @@ class SurfaceTextureHelper {
 
     oesTextureId = GlUtil.generateTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES);
     surfaceTexture = new SurfaceTexture(oesTextureId);
+    surfaceTexture.setOnFrameAvailableListener(new SurfaceTexture.OnFrameAvailableListener() {
+      @Override
+      public void onFrameAvailable(SurfaceTexture surfaceTexture) {
+        hasPendingTexture = true;
+        tryDeliverTextureFrame();
+      }
+    });
   }
 
   private YuvConverter getYuvConverter() {
@@ -332,21 +342,30 @@ class SurfaceTextureHelper {
   }
 
   /**
-   *  Start to stream textures to the given |listener|.
-   *  A Listener can only be set once.
+   * Start to stream textures to the given |listener|. If you need to change listener, you need to
+   * call stopListening() first.
    */
-  public void setListener(OnTextureFrameAvailableListener listener) {
-    if (this.listener != null) {
+  public void startListening(final OnTextureFrameAvailableListener listener) {
+    if (this.listener != null || this.pendingListener != null) {
       throw new IllegalStateException("SurfaceTextureHelper listener has already been set.");
     }
-    this.listener = listener;
-    surfaceTexture.setOnFrameAvailableListener(new SurfaceTexture.OnFrameAvailableListener() {
-      @Override
-      public void onFrameAvailable(SurfaceTexture surfaceTexture) {
-        hasPendingTexture = true;
-        tryDeliverTextureFrame();
-      }
-    });
+    this.pendingListener = listener;
+    handler.post(setListenerRunnable);
+  }
+
+  /**
+   * Stop listening. The listener set in startListening() is guaranteded to not receive any more
+   * onTextureFrameAvailable() callbacks after this function returns. This function must be called
+   * on the getHandler() thread.
+   */
+  public void stopListening() {
+    if (handler.getLooper().getThread() != Thread.currentThread()) {
+      throw new IllegalStateException("Wrong thread.");
+    }
+    Logging.d(TAG, "stopListening()");
+    handler.removeCallbacks(setListenerRunnable);
+    this.listener = null;
+    this.pendingListener = null;
   }
 
   /**
@@ -355,6 +374,14 @@ class SurfaceTextureHelper {
    */
   public SurfaceTexture getSurfaceTexture() {
     return surfaceTexture;
+  }
+
+  /**
+   * Retrieve the handler that calls onTextureFrameAvailable(). This handler is valid until
+   * dispose() is called.
+   */
+  public Handler getHandler() {
+    return handler;
   }
 
   /**
@@ -380,14 +407,12 @@ class SurfaceTextureHelper {
   }
 
   /**
-   * Call disconnect() to stop receiving frames. Resources are released when the texture frame has
-   * been returned by a call to returnTextureFrame(). You are guaranteed to not receive any more
-   * onTextureFrameAvailable() after this function returns.
+   * Call disconnect() to stop receiving frames. OpenGL resources are released and the handler is
+   * stopped when the texture frame has been returned by a call to returnTextureFrame(). You are
+   * guaranteed to not receive any more onTextureFrameAvailable() after this function returns.
    */
-  public void disconnect() {
-    if (!isOwningThread) {
-      throw new IllegalStateException("Must call disconnect(handler).");
-    }
+  public void dispose() {
+    Logging.d(TAG, "dispose()");
     if (handler.getLooper().getThread() == Thread.currentThread()) {
       isQuitting = true;
       if (!isTextureInUse) {
@@ -408,20 +433,6 @@ class SurfaceTextureHelper {
     ThreadUtils.awaitUninterruptibly(barrier);
   }
 
-  /**
-   * Call disconnect() to stop receiving frames and quit the looper used by |handler|.
-   * Resources are released when the texture frame has been returned by a call to
-   * returnTextureFrame(). You are guaranteed to not receive any more
-   * onTextureFrameAvailable() after this function returns.
-   */
-  public void disconnect(Handler handler) {
-    if (this.handler != handler) {
-      throw new IllegalStateException("Wrong handler.");
-    }
-    isOwningThread = true;
-    disconnect();
-  }
-
   public void textureToYUV(ByteBuffer buf,
       int width, int height, int stride, int textureId, float [] transformMatrix) {
     if (textureId != oesTextureId)
@@ -434,14 +445,18 @@ class SurfaceTextureHelper {
     if (handler.getLooper().getThread() != Thread.currentThread()) {
       throw new IllegalStateException("Wrong thread.");
     }
-    if (isQuitting || !hasPendingTexture || isTextureInUse) {
+    if (isQuitting || !hasPendingTexture || isTextureInUse || listener == null) {
       return;
     }
     isTextureInUse = true;
     hasPendingTexture = false;
 
-    eglBase.makeCurrent();
-    surfaceTexture.updateTexImage();
+    // SurfaceTexture.updateTexImage apparently can compete and deadlock with eglSwapBuffers,
+    // as observed on Nexus 5. Therefore, synchronize it with the EGL functions.
+    // See https://bugs.chromium.org/p/webrtc/issues/detail?id=5702 for more info.
+    synchronized (EglBase.lock) {
+      surfaceTexture.updateTexImage();
+    }
 
     final float[] transformMatrix = new float[16];
     surfaceTexture.getTransformMatrix(transformMatrix);
@@ -462,7 +477,6 @@ class SurfaceTextureHelper {
       if (yuvConverter != null)
         yuvConverter.release();
     }
-    eglBase.makeCurrent();
     GLES20.glDeleteTextures(1, new int[] {oesTextureId}, 0);
     surfaceTexture.release();
     eglBase.release();

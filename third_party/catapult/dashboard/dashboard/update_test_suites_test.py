@@ -7,10 +7,14 @@ import unittest
 import webapp2
 import webtest
 
+from google.appengine.ext import ndb
+
+from dashboard import datastore_hooks
 from dashboard import stored_object
 from dashboard import testing_common
 from dashboard import update_test_suites
 from dashboard import utils
+from dashboard.models import graph_data
 
 
 class ListTestSuitesTest(testing_common.TestCase):
@@ -21,6 +25,9 @@ class ListTestSuitesTest(testing_common.TestCase):
         [('/update_test_suites',
           update_test_suites.UpdateTestSuitesHandler)])
     self.testapp = webtest.TestApp(app)
+    datastore_hooks.InstallHooks()
+    testing_common.SetIsInternalUser('internal@chromium.org', True)
+    self.UnsetCurrentUser()
 
   def testFetchCachedTestSuites_NotEmpty(self):
     # If the cache is set, then whatever's there is returned.
@@ -30,13 +37,6 @@ class ListTestSuitesTest(testing_common.TestCase):
     self.assertEqual(
         {'foo': 'bar'},
         update_test_suites.FetchCachedTestSuites())
-
-  def testFetchCachedTestSuites_Empty_ReturnsNone(self):
-    # If the cache is not set, then FetchCachedTestSuites
-    # just returns None; compiling the list of test suites would
-    # take too long.
-    self._AddSampleData()
-    self.assertIsNone(update_test_suites.FetchCachedTestSuites())
 
   def _AddSampleData(self):
     testing_common.AddTests(
@@ -66,12 +66,68 @@ class ListTestSuitesTest(testing_common.TestCase):
             },
         })
 
-  def testPost(self):
+  def testPost_ForcesCacheUpdate(self):
+    key = update_test_suites._NamespaceKey(
+        update_test_suites._LIST_SUITES_CACHE_KEY)
+    stored_object.Set(key, {'foo': 'bar'})
+    self.assertEqual(
+        {'foo': 'bar'},
+        update_test_suites.FetchCachedTestSuites())
     self._AddSampleData()
-    # The cache starts out empty.
-    self.assertIsNone(update_test_suites.FetchCachedTestSuites())
+    # Because there is something cached, the cache is
+    # not automatically updated when new data is added.
+    self.assertEqual(
+        {'foo': 'bar'},
+        update_test_suites.FetchCachedTestSuites())
+
+    # Making a request to /udate_test_suites forces an update.
     self.testapp.post('/update_test_suites')
-    # After the request is made, it will no longer be empty.
+    self.assertEqual(
+        {
+            'dromaeo': {
+                'mas': {'Chromium': {'mac': False, 'win7': False}},
+            },
+            'scrolling': {
+                'mas': {'Chromium': {'mac': False, 'win7': False}},
+            },
+            'really': {
+                'mas': {'Chromium': {'mac': False, 'win7': False}},
+            },
+        },
+        update_test_suites.FetchCachedTestSuites())
+
+  def testPost_InternalOnly(self):
+    self.SetCurrentUser('internal@chromium.org')
+    self._AddSampleData()
+    master_key = ndb.Key('Master', 'Chromium')
+    bot_key = graph_data.Bot(id='internal_mac', parent=master_key,
+                             internal_only=True).put()
+    graph_data.Test(id='internal_test', parent=bot_key,
+                    internal_only=True).put()
+
+    self.testapp.post('/update_test_suites?internal_only=true')
+
+    self.assertEqual(
+        {
+            'dromaeo': {
+                'mas': {'Chromium': {'mac': False, 'win7': False}},
+            },
+            'internal_test': {
+                'mas': {'Chromium': {'internal_mac': False}},
+            },
+            'scrolling': {
+                'mas': {'Chromium': {'mac': False, 'win7': False}},
+            },
+            'really': {
+                'mas': {'Chromium': {'mac': False, 'win7': False}},
+            },
+        },
+        update_test_suites.FetchCachedTestSuites())
+
+  def testFetchCachedTestSuites_Empty_UpdatesWhenFetching(self):
+    # If the cache is not set at all, then FetchCachedTestSuites
+    # just updates the cache before returning the list.
+    self._AddSampleData()
     self.assertEqual(
         {
             'dromaeo': {
@@ -147,7 +203,6 @@ class ListTestSuitesTest(testing_common.TestCase):
   def testCreateSuiteMastersDict(self):
     self._AddSampleData()
     suites = update_test_suites._FetchSuites()
-    print update_test_suites._CreateSuiteMastersDict(suites)
     self.assertEqual(
         {
             'dromaeo': {'Chromium': {'mac': False, 'win7': False}},

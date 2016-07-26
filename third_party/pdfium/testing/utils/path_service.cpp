@@ -13,7 +13,9 @@
 #include <unistd.h>
 #endif  // _WIN32
 
-#include "core/include/fxcrt/fx_system.h"
+#include <string>
+
+#include "core/fxcrt/include/fx_system.h"
 
 // static
 bool PathService::EndsWithSeparator(const std::string& path) {

@@ -8,7 +8,6 @@
 #include "GrStencilAndCoverTextContext.h"
 #include "GrAtlasTextContext.h"
 #include "GrDrawContext.h"
-#include "GrDrawTarget.h"
 #include "GrPath.h"
 #include "GrPathRange.h"
 #include "GrResourceProvider.h"
@@ -81,11 +80,13 @@ void GrStencilAndCoverTextContext::drawText(GrContext* context, GrDrawContext* d
     if (context->abandoned()) {
         return;
     } else if (this->canDraw(skPaint, viewMatrix)) {
-        TextRun run(skPaint);
-        GrPipelineBuilder pipelineBuilder(paint, dc->accessRenderTarget(), clip);
-        run.setText(text, byteLength, x, y);
-        run.draw(context, dc, &pipelineBuilder, paint.getColor(), viewMatrix, props, 0, 0,
-                 clipBounds, fFallbackTextContext, skPaint);
+        if (skPaint.getTextSize() > 0) {
+            TextRun run(skPaint);
+            GrPipelineBuilder pipelineBuilder(paint, dc->accessRenderTarget(), clip);
+            run.setText(text, byteLength, x, y);
+            run.draw(context, dc, &pipelineBuilder, paint.getColor(), viewMatrix, props, 0, 0,
+                     clipBounds, fFallbackTextContext, skPaint);
+        }
         return;
     } else if (fFallbackTextContext->canDraw(skPaint, viewMatrix, props,
                                              *context->caps()->shaderCaps())) {
@@ -114,11 +115,13 @@ void GrStencilAndCoverTextContext::drawPosText(GrContext* context, GrDrawContext
     if (context->abandoned()) {
         return;
     } else if (this->canDraw(skPaint, viewMatrix)) {
-        TextRun run(skPaint);
-        GrPipelineBuilder pipelineBuilder(paint, dc->accessRenderTarget(), clip);
-        run.setPosText(text, byteLength, pos, scalarsPerPosition, offset);
-        run.draw(context, dc, &pipelineBuilder, paint.getColor(), viewMatrix, props, 0, 0,
-                 clipBounds, fFallbackTextContext, skPaint);
+        if (skPaint.getTextSize() > 0) {
+            TextRun run(skPaint);
+            GrPipelineBuilder pipelineBuilder(paint, dc->accessRenderTarget(), clip);
+            run.setPosText(text, byteLength, pos, scalarsPerPosition, offset);
+            run.draw(context, dc, &pipelineBuilder, paint.getColor(), viewMatrix, props, 0, 0,
+                     clipBounds, fFallbackTextContext, skPaint);
+        }
         return;
     } else if (fFallbackTextContext->canDraw(skPaint, viewMatrix, props,
                                              *context->caps()->shaderCaps())) {
@@ -162,7 +165,7 @@ void GrStencilAndCoverTextContext::uncachedDrawTextBlob(GrContext* context,
         runPaint.setFlags(GrTextUtils::FilterTextFlags(props, runPaint));
 
         GrPaint grPaint;
-        if (!SkPaintToGrPaint(context, runPaint, viewMatrix, &grPaint)) {
+        if (!SkPaintToGrPaint(context, runPaint, viewMatrix, dc->allowSRGBInputs(), &grPaint)) {
             return;
         }
 
@@ -217,7 +220,7 @@ void GrStencilAndCoverTextContext::drawTextBlob(GrContext* context, GrDrawContex
     }
 
     GrPaint paint;
-    if (!SkPaintToGrPaint(context, skPaint, viewMatrix, &paint)) {
+    if (!SkPaintToGrPaint(context, skPaint, viewMatrix, dc->allowSRGBInputs(), &paint)) {
         return;
     }
 
@@ -295,6 +298,9 @@ void GrStencilAndCoverTextContext::TextBlob::init(const SkTextBlob* skBlob,
     SkPaint runPaint(skPaint);
     for (SkTextBlobRunIterator iter(skBlob); !iter.done(); iter.next()) {
         iter.applyFontToPaint(&runPaint); // No need to re-seed the paint.
+        if (runPaint.getTextSize() <= 0) {
+            continue;
+        }
         TextRun* run = this->addToTail(runPaint);
 
         const char* text = reinterpret_cast<const char*>(iter.glyphs());
@@ -323,7 +329,7 @@ class GrStencilAndCoverTextContext::FallbackBlobBuilder {
 public:
     FallbackBlobBuilder() : fBuffIdx(0), fCount(0) {}
 
-    bool isInitialized() const { return SkToBool(fBuilder); }
+    bool isInitialized() const { return fBuilder != nullptr; }
 
     void init(const SkPaint& font, SkScalar textRatio);
 
@@ -353,6 +359,7 @@ GrStencilAndCoverTextContext::TextRun::TextRun(const SkPaint& fontAndStroke)
       fFallbackGlyphCount(0),
       fDetachedGlyphCache(nullptr),
       fLastDrawnGlyphsID(SK_InvalidUniqueID) {
+    SkASSERT(fFont.getTextSize() > 0);
     SkASSERT(!fStroke.isHairlineStyle()); // Hairlines are not supported.
 
     // Setting to "fill" ensures that no strokes get baked into font outlines. (We use the GPU path
@@ -450,8 +457,8 @@ void GrStencilAndCoverTextContext::TextRun::setText(const char text[], size_t by
 
     // Measure first if needed.
     if (fFont.getTextAlign() != SkPaint::kLeft_Align) {
-        SkFixed    stopX = 0;
-        SkFixed    stopY = 0;
+        SkScalar   stopX = 0;
+        SkScalar   stopY = 0;
 
         const char* textPtr = text;
         while (textPtr < stop) {
@@ -459,13 +466,13 @@ void GrStencilAndCoverTextContext::TextRun::setText(const char text[], size_t by
             // same advance.
             const SkGlyph& glyph = glyphCacheProc(glyphCache, &textPtr);
 
-            stopX += glyph.fAdvanceX;
-            stopY += glyph.fAdvanceY;
+            stopX += SkFloatToScalar(glyph.fAdvanceX);
+            stopY += SkFloatToScalar(glyph.fAdvanceY);
         }
         SkASSERT(textPtr == stop);
 
-        SkScalar alignX = SkFixedToScalar(stopX) * fTextRatio;
-        SkScalar alignY = SkFixedToScalar(stopY) * fTextRatio;
+        SkScalar alignX = stopX * fTextRatio;
+        SkScalar alignY = stopY * fTextRatio;
 
         if (fFont.getTextAlign() == SkPaint::kCenter_Align) {
             alignX = SkScalarHalf(alignX);
@@ -478,21 +485,16 @@ void GrStencilAndCoverTextContext::TextRun::setText(const char text[], size_t by
 
     SkAutoKern autokern;
 
-    SkFixed fixedSizeRatio = SkScalarToFixed(fTextRatio);
-
-    SkFixed fx = SkScalarToFixed(x);
-    SkFixed fy = SkScalarToFixed(y);
     FallbackBlobBuilder fallback;
     while (text < stop) {
         const SkGlyph& glyph = glyphCacheProc(glyphCache, &text);
-        fx += SkFixedMul(autokern.adjust(glyph), fixedSizeRatio);
+        x += autokern.adjust(glyph) * fTextRatio;
         if (glyph.fWidth) {
-            this->appendGlyph(glyph, SkPoint::Make(SkFixedToScalar(fx), SkFixedToScalar(fy)),
-                              &fallback);
+            this->appendGlyph(glyph, SkPoint::Make(x, y), &fallback);
         }
 
-        fx += SkFixedMul(glyph.fAdvanceX, fixedSizeRatio);
-        fy += SkFixedMul(glyph.fAdvanceY, fixedSizeRatio);
+        x += SkFloatToScalar(glyph.fAdvanceX) * fTextRatio;
+        y += SkFloatToScalar(glyph.fAdvanceY) * fTextRatio;
     }
 
     fFallbackTextBlob.reset(fallback.buildIfNeeded(&fFallbackGlyphCount));

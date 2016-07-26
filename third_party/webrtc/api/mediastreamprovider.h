@@ -11,13 +11,14 @@
 #ifndef WEBRTC_API_MEDIASTREAMPROVIDER_H_
 #define WEBRTC_API_MEDIASTREAMPROVIDER_H_
 
+#include "webrtc/api/rtpsenderinterface.h"
 #include "webrtc/base/basictypes.h"
 #include "webrtc/base/scoped_ptr.h"
 #include "webrtc/media/base/videosinkinterface.h"
 
 namespace cricket {
 
-class AudioRenderer;
+class AudioSource;
 class VideoCapturer;
 class VideoFrame;
 class VideoRenderer;
@@ -49,7 +50,7 @@ class AudioProviderInterface {
   virtual void SetAudioSend(uint32_t ssrc,
                             bool enable,
                             const cricket::AudioOptions& options,
-                            cricket::AudioRenderer* renderer) = 0;
+                            cricket::AudioSource* source) = 0;
 
   // Sets the audio playout volume of a remote audio track with |ssrc|.
   // |volume| is in the range of [0, 10].
@@ -61,6 +62,10 @@ class AudioProviderInterface {
   virtual void SetRawAudioSink(
       uint32_t ssrc,
       rtc::scoped_ptr<webrtc::AudioSinkInterface> sink) = 0;
+
+  virtual RtpParameters GetAudioRtpParameters(uint32_t ssrc) const = 0;
+  virtual bool SetAudioRtpParameters(uint32_t ssrc,
+                                     const RtpParameters& parameters) = 0;
 
  protected:
   virtual ~AudioProviderInterface() {}
@@ -81,6 +86,10 @@ class VideoProviderInterface {
   virtual void SetVideoSend(uint32_t ssrc,
                             bool enable,
                             const cricket::VideoOptions* options) = 0;
+
+  virtual RtpParameters GetVideoRtpParameters(uint32_t ssrc) const = 0;
+  virtual bool SetVideoRtpParameters(uint32_t ssrc,
+                                     const RtpParameters& parameters) = 0;
 
  protected:
   virtual ~VideoProviderInterface() {}

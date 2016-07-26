@@ -33,6 +33,7 @@ typedef NS_ENUM(NSInteger, RTCSignalingState) {
   RTCSignalingStateHaveLocalPrAnswer,
   RTCSignalingStateHaveRemoteOffer,
   RTCSignalingStateHaveRemotePrAnswer,
+  // Not an actual state, represents the total number of states.
   RTCSignalingStateClosed,
 };
 
@@ -45,7 +46,7 @@ typedef NS_ENUM(NSInteger, RTCIceConnectionState) {
   RTCIceConnectionStateFailed,
   RTCIceConnectionStateDisconnected,
   RTCIceConnectionStateClosed,
-  RTCIceConnectionStateMax,
+  RTCIceConnectionStateCount,
 };
 
 /** Represents the ice gathering state of the peer connection. */
@@ -104,7 +105,7 @@ typedef NS_ENUM(NSInteger, RTCStatsOutputLevel) {
 /** The object that will be notifed about events such as state changes and
  *  streams being added or removed.
  */
-@property(nonatomic, weak) id<RTCPeerConnectionDelegate> delegate;
+@property(nonatomic, weak, nullable) id<RTCPeerConnectionDelegate> delegate;
 @property(nonatomic, readonly) NSArray *localStreams;
 @property(nonatomic, readonly, nullable)
     RTCSessionDescription *localDescription;
@@ -116,14 +117,13 @@ typedef NS_ENUM(NSInteger, RTCStatsOutputLevel) {
 
 - (instancetype)init NS_UNAVAILABLE;
 
-/** Initialize an RTCPeerConnection with a configuration, constraints, and
- *  delegate.
+/** Sets the PeerConnection's global configuration to |configuration|.
+ *  Any changes to STUN/TURN servers or ICE candidate policy will affect the
+ *  next gathering phase, and cause the next call to createOffer to generate
+ *  new ICE credentials. Note that the BUNDLE and RTCP-multiplexing policies
+ *  cannot be changed with this method.
  */
-- (instancetype)initWithFactory:(RTCPeerConnectionFactory *)factory
-                  configuration:(RTCConfiguration *)configuration
-                    constraints:(RTCMediaConstraints *)constraints
-                       delegate:(id<RTCPeerConnectionDelegate>)delegate
-    NS_DESIGNATED_INITIALIZER;
+- (BOOL)setConfiguration:(RTCConfiguration *)configuration;
 
 /** Terminate all media and close the transport. */
 - (void)close;
@@ -139,21 +139,25 @@ typedef NS_ENUM(NSInteger, RTCStatsOutputLevel) {
 
 /** Generate an SDP offer. */
 - (void)offerForConstraints:(RTCMediaConstraints *)constraints
-          completionHandler:(void (^)(RTCSessionDescription *sdp,
-                                      NSError *error))completionHandler;
+          completionHandler:(nullable void (^)
+    (RTCSessionDescription * _Nullable sdp,
+     NSError * _Nullable error))completionHandler;
 
 /** Generate an SDP answer. */
 - (void)answerForConstraints:(RTCMediaConstraints *)constraints
-           completionHandler:(void (^)(RTCSessionDescription *sdp,
-                                       NSError *error))completionHandler;
+           completionHandler:(nullable void (^)
+    (RTCSessionDescription * _Nullable sdp,
+     NSError * _Nullable error))completionHandler;
 
 /** Apply the supplied RTCSessionDescription as the local description. */
 - (void)setLocalDescription:(RTCSessionDescription *)sdp
-          completionHandler:(void (^)(NSError *error))completionHandler;
+          completionHandler:
+    (nullable void (^)(NSError * _Nullable error))completionHandler;
 
 /** Apply the supplied RTCSessionDescription as the remote description. */
 - (void)setRemoteDescription:(RTCSessionDescription *)sdp
-           completionHandler:(void (^)(NSError *error))completionHandler;
+           completionHandler:
+    (nullable void (^)(NSError * _Nullable error))completionHandler;
 
 @end
 
@@ -174,7 +178,7 @@ typedef NS_ENUM(NSInteger, RTCStatsOutputLevel) {
     (nullable RTCMediaStreamTrack *)mediaStreamTrack
      statsOutputLevel:(RTCStatsOutputLevel)statsOutputLevel
     completionHandler:
-    (void (^)(NSArray<RTCStatsReport *> *stats))completionHandler;
+    (nullable void (^)(NSArray<RTCStatsReport *> *stats))completionHandler;
 
 @end
 

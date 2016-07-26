@@ -11,12 +11,13 @@
 #ifndef WEBRTC_MEDIA_BASE_RTPDATAENGINE_H_
 #define WEBRTC_MEDIA_BASE_RTPDATAENGINE_H_
 
+#include <memory>
 #include <string>
 #include <vector>
 
 #include "webrtc/base/timing.h"
-#include "webrtc/media/base/constants.h"
 #include "webrtc/media/base/mediachannel.h"
+#include "webrtc/media/base/mediaconstants.h"
 #include "webrtc/media/base/mediaengine.h"
 
 namespace cricket {
@@ -40,7 +41,7 @@ class RtpDataEngine : public DataEngineInterface {
 
  private:
   std::vector<DataCodec> data_codecs_;
-  rtc::scoped_ptr<rtc::Timing> timing_;
+  std::unique_ptr<rtc::Timing> timing_;
 };
 
 // Keep track of sequence number and timestamp of an RTP stream.  The
@@ -92,14 +93,14 @@ class RtpDataMediaChannel : public DataMediaChannel {
     receiving_ = receive;
     return true;
   }
-  virtual void OnPacketReceived(rtc::Buffer* packet,
+  virtual void OnPacketReceived(rtc::CopyOnWriteBuffer* packet,
                                 const rtc::PacketTime& packet_time);
-  virtual void OnRtcpReceived(rtc::Buffer* packet,
+  virtual void OnRtcpReceived(rtc::CopyOnWriteBuffer* packet,
                               const rtc::PacketTime& packet_time) {}
   virtual void OnReadyToSend(bool ready) {}
   virtual bool SendData(
     const SendDataParams& params,
-    const rtc::Buffer& payload,
+    const rtc::CopyOnWriteBuffer& payload,
     SendDataResult* result);
 
  private:
@@ -116,7 +117,7 @@ class RtpDataMediaChannel : public DataMediaChannel {
   std::vector<StreamParams> send_streams_;
   std::vector<StreamParams> recv_streams_;
   std::map<uint32_t, RtpClock*> rtp_clock_by_send_ssrc_;
-  rtc::scoped_ptr<rtc::RateLimiter> send_limiter_;
+  std::unique_ptr<rtc::RateLimiter> send_limiter_;
 };
 
 }  // namespace cricket

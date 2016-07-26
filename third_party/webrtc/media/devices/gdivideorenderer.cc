@@ -14,7 +14,6 @@
 
 #include "webrtc/media/devices/gdivideorenderer.h"
 
-#include "webrtc/base/scoped_ptr.h"
 #include "webrtc/base/thread.h"
 #include "webrtc/base/win32window.h"
 #include "webrtc/media/base/videocommon.h"
@@ -31,24 +30,26 @@ class GdiVideoRenderer::VideoWindow : public rtc::Win32Window {
   VideoWindow(int x, int y, int width, int height);
   virtual ~VideoWindow();
 
-  // Called when the video size changes. If it is called the first time, we
-  // create and start the thread. Otherwise, we send kSetSizeMsg to the thread.
-  // Context: non-worker thread.
-  bool SetSize(int width, int height);
-
   // Called when a new frame is available. Upon this call, we send
   // kRenderFrameMsg to the window thread. Context: non-worker thread. It may be
   // better to pass RGB bytes to VideoWindow. However, we pass VideoFrame to put
   // all the thread synchronization within VideoWindow.
-  bool RenderFrame(const VideoFrame* frame);
+  void OnFrame(const VideoFrame& frame);
 
  protected:
   // Override virtual method of rtc::Win32Window. Context: worker Thread.
-  virtual bool OnMessage(UINT uMsg, WPARAM wParam, LPARAM lParam,
-                         LRESULT& result);
+  bool OnMessage(UINT uMsg,
+                 WPARAM wParam,
+                 LPARAM lParam,
+                 LRESULT& result) override;
 
  private:
   enum { kSetSizeMsg = WM_USER, kRenderFrameMsg};
+
+  // Called when the video size changes. If it is called the first time, we
+  // create and start the thread. Otherwise, we send kSetSizeMsg to the thread.
+  // Context: non-worker thread.
+  bool SetSize(int width, int height);
 
   class WindowThread : public rtc::Thread {
    public:
@@ -83,8 +84,8 @@ class GdiVideoRenderer::VideoWindow : public rtc::Win32Window {
   void OnRenderFrame(const VideoFrame* frame);
 
   BITMAPINFO bmi_;
-  rtc::scoped_ptr<uint8_t[]> image_;
-  rtc::scoped_ptr<WindowThread> window_thread_;
+  std::unique_ptr<uint8_t[]> image_;
+  std::unique_ptr<WindowThread> window_thread_;
   // The initial position of the window.
   int initial_x_;
   int initial_y_;
@@ -129,20 +130,16 @@ bool GdiVideoRenderer::VideoWindow::SetSize(int width, int height) {
   return true;
 }
 
-bool GdiVideoRenderer::VideoWindow::RenderFrame(const VideoFrame* video_frame) {
+void GdiVideoRenderer::VideoWindow::OnFrame(const VideoFrame& video_frame) {
   if (!handle()) {
-    return false;
+    return;
   }
 
-  const VideoFrame* frame = video_frame->GetCopyWithRotationApplied();
+  const VideoFrame* frame = video_frame.GetCopyWithRotationApplied();
 
-  if (!SetSize(static_cast<int>(frame->GetWidth()),
-               static_cast<int>(frame->GetHeight()))) {
-    return false;
+  if (SetSize(frame->width(), frame->height())) {
+    SendMessage(handle(), kRenderFrameMsg, reinterpret_cast<WPARAM>(frame), 0);
   }
-
-  SendMessage(handle(), kRenderFrameMsg, reinterpret_cast<WPARAM>(frame), 0);
-  return true;
 }
 
 bool GdiVideoRenderer::VideoWindow::OnMessage(UINT uMsg, WPARAM wParam,
@@ -244,18 +241,12 @@ GdiVideoRenderer::GdiVideoRenderer(int x, int y)
 }
 GdiVideoRenderer::~GdiVideoRenderer() {}
 
-bool GdiVideoRenderer::SetSize(int width, int height, int reserved) {
-  if (!window_.get()) {  // Create the window for the first frame
-    window_.reset(new VideoWindow(initial_x_, initial_y_, width, height));
+void GdiVideoRenderer::OnFrame(const VideoFrame& frame) {
+  if (!window_.get()) { // Create the window for the first frame
+    window_.reset(
+        new VideoWindow(initial_x_, initial_y_, frame.width(), frame.height()));
   }
-  return window_->SetSize(width, height);
-}
-
-bool GdiVideoRenderer::RenderFrame(const VideoFrame* frame) {
-  if (!frame || !window_.get()) {
-    return false;
-  }
-  return window_->RenderFrame(frame);
+  window_->OnFrame(frame);
 }
 
 }  // namespace cricket

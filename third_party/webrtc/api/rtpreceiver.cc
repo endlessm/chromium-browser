@@ -10,22 +10,29 @@
 
 #include "webrtc/api/rtpreceiver.h"
 
-#include "webrtc/api/videosourceinterface.h"
+#include "webrtc/api/mediastreamtrackproxy.h"
+#include "webrtc/api/audiotrack.h"
+#include "webrtc/api/videotrack.h"
 
 namespace webrtc {
 
-AudioRtpReceiver::AudioRtpReceiver(AudioTrackInterface* track,
+AudioRtpReceiver::AudioRtpReceiver(MediaStreamInterface* stream,
+                                   const std::string& track_id,
                                    uint32_t ssrc,
                                    AudioProviderInterface* provider)
-    : id_(track->id()),
-      track_(track),
+    : id_(track_id),
       ssrc_(ssrc),
       provider_(provider),
-      cached_track_enabled_(track->enabled()) {
+      track_(AudioTrackProxy::Create(
+          rtc::Thread::Current(),
+          AudioTrack::Create(track_id,
+                             RemoteAudioSource::Create(ssrc, provider)))),
+      cached_track_enabled_(track_->enabled()) {
   RTC_DCHECK(track_->GetSource()->remote());
   track_->RegisterObserver(this);
   track_->GetSource()->RegisterAudioObserver(this);
   Reconfigure();
+  stream->AddTrack(track_);
 }
 
 AudioRtpReceiver::~AudioRtpReceiver() {
@@ -65,11 +72,23 @@ void AudioRtpReceiver::Reconfigure() {
   provider_->SetAudioPlayout(ssrc_, track_->enabled());
 }
 
-VideoRtpReceiver::VideoRtpReceiver(VideoTrackInterface* track,
+VideoRtpReceiver::VideoRtpReceiver(MediaStreamInterface* stream,
+                                   const std::string& track_id,
+                                   rtc::Thread* worker_thread,
                                    uint32_t ssrc,
                                    VideoProviderInterface* provider)
-    : id_(track->id()), track_(track), ssrc_(ssrc), provider_(provider) {
-  provider_->SetVideoPlayout(ssrc_, true, track_->GetSink());
+    : id_(track_id),
+      ssrc_(ssrc),
+      provider_(provider),
+      source_(new RefCountedObject<VideoTrackSource>(&broadcaster_,
+                                                     worker_thread,
+                                                     true /* remote */)),
+      track_(VideoTrackProxy::Create(
+          rtc::Thread::Current(),
+          VideoTrack::Create(track_id, source_.get()))) {
+  source_->SetState(MediaSourceInterface::kLive);
+  provider_->SetVideoPlayout(ssrc_, true, &broadcaster_);
+  stream->AddTrack(track_);
 }
 
 VideoRtpReceiver::~VideoRtpReceiver() {
@@ -83,6 +102,8 @@ void VideoRtpReceiver::Stop() {
   if (!provider_) {
     return;
   }
+  source_->SetState(MediaSourceInterface::kEnded);
+  source_->OnSourceDestroyed();
   provider_->SetVideoPlayout(ssrc_, false, nullptr);
   provider_ = nullptr;
 }

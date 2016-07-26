@@ -8,6 +8,7 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 #include <algorithm>  // max
+#include <memory>
 #include <vector>
 
 #include "testing/gtest/include/gtest/gtest.h"
@@ -18,7 +19,6 @@
 #include "webrtc/base/event.h"
 #include "webrtc/base/logging.h"
 #include "webrtc/base/platform_thread.h"
-#include "webrtc/base/scoped_ptr.h"
 #include "webrtc/call.h"
 #include "webrtc/call/transport_adapter.h"
 #include "webrtc/frame_callback.h"
@@ -28,7 +28,6 @@
 #include "webrtc/modules/rtp_rtcp/source/rtcp_utility.h"
 #include "webrtc/modules/rtp_rtcp/source/rtp_format_vp9.h"
 #include "webrtc/modules/video_coding/codecs/vp9/include/vp9.h"
-#include "webrtc/system_wrappers/include/ref_count.h"
 #include "webrtc/system_wrappers/include/sleep.h"
 #include "webrtc/test/call_test.h"
 #include "webrtc/test/configurable_frame_size_encoder.h"
@@ -304,7 +303,7 @@ class FakeReceiveStatistics : public NullReceiveStatistics {
     RtcpStatistics stats_;
   };
 
-  rtc::scoped_ptr<LossyStatistician> lossy_stats_;
+  std::unique_ptr<LossyStatistician> lossy_stats_;
   StatisticianMap stats_map_;
 };
 
@@ -442,8 +441,8 @@ class FecObserver : public test::EndToEndTest {
     EXPECT_TRUE(Wait()) << "Timed out waiting for FEC and media packets.";
   }
 
-  rtc::scoped_ptr<internal::TransportAdapter> transport_adapter_;
-  rtc::scoped_ptr<VideoEncoder> encoder_;
+  std::unique_ptr<internal::TransportAdapter> transport_adapter_;
+  std::unique_ptr<VideoEncoder> encoder_;
   const std::string payload_name_;
   const bool use_nack_;
   const bool expect_red_;
@@ -562,7 +561,7 @@ void VideoSendStreamTest::TestNackRetransmission(
       EXPECT_TRUE(Wait()) << "Timed out while waiting for NACK retransmission.";
     }
 
-    rtc::scoped_ptr<internal::TransportAdapter> transport_adapter_;
+    std::unique_ptr<internal::TransportAdapter> transport_adapter_;
     int send_count_;
     uint32_t retransmit_ssrc_;
     uint8_t retransmit_payload_type_;
@@ -758,7 +757,7 @@ void VideoSendStreamTest::TestPacketFragmentationSize(VideoFormat format,
       EXPECT_TRUE(Wait()) << "Timed out while observing incoming RTP packets.";
     }
 
-    rtc::scoped_ptr<internal::TransportAdapter> transport_adapter_;
+    std::unique_ptr<internal::TransportAdapter> transport_adapter_;
     test::ConfigurableFrameSizeEncoder encoder_;
 
     const size_t max_packet_size_;
@@ -937,7 +936,7 @@ TEST_F(VideoSendStreamTest, SuspendBelowMinBitrate) {
       EXPECT_EQ(0, rtcp_sender.SendRTCP(feedback_state, kRtcpRr));
     }
 
-    rtc::scoped_ptr<internal::TransportAdapter> transport_adapter_;
+    std::unique_ptr<internal::TransportAdapter> transport_adapter_;
     Clock* const clock_;
     VideoSendStream* stream_;
 
@@ -1015,7 +1014,7 @@ TEST_F(VideoSendStreamTest, NoPaddingWhenVideoIsMuted) {
     }
 
     Clock* const clock_;
-    rtc::scoped_ptr<internal::TransportAdapter> transport_adapter_;
+    std::unique_ptr<internal::TransportAdapter> transport_adapter_;
     rtc::CriticalSection crit_;
     int64_t last_packet_time_ms_ GUARDED_BY(crit_);
     test::FrameGeneratorCapturer* capturer_ GUARDED_BY(crit_);
@@ -1051,7 +1050,7 @@ TEST_F(VideoSendStreamTest, MinTransmitBitrateRespectsRemb) {
       RTPHeader header;
       if (!parser_->Parse(packet, length, &header))
         return DROP_PACKET;
-      RTC_DCHECK(stream_ != nullptr);
+      RTC_DCHECK(stream_);
       VideoSendStream::Stats stats = stream_->GetStats();
       if (!stats.substreams.empty()) {
         EXPECT_EQ(1u, stats.substreams.size());
@@ -1103,8 +1102,8 @@ TEST_F(VideoSendStreamTest, MinTransmitBitrateRespectsRemb) {
           << "Timeout while waiting for low bitrate stats after REMB.";
     }
 
-    rtc::scoped_ptr<RtpRtcp> rtp_rtcp_;
-    rtc::scoped_ptr<internal::TransportAdapter> feedback_transport_;
+    std::unique_ptr<RtpRtcp> rtp_rtcp_;
+    std::unique_ptr<internal::TransportAdapter> feedback_transport_;
     VideoSendStream* stream_;
     bool bitrate_capped_;
   } test;
@@ -1246,7 +1245,7 @@ TEST_F(VideoSendStreamTest, CapturesTextureAndVideoFrames) {
 }
 
 void ExpectEqualFrames(const VideoFrame& frame1, const VideoFrame& frame2) {
-  if (frame1.native_handle() != nullptr || frame2.native_handle() != nullptr)
+  if (frame1.native_handle() || frame2.native_handle())
     ExpectEqualTextureFrames(frame1, frame2);
   else
     ExpectEqualBufferFrames(frame1, frame2);
@@ -1257,7 +1256,6 @@ void ExpectEqualTextureFrames(const VideoFrame& frame1,
   EXPECT_EQ(frame1.native_handle(), frame2.native_handle());
   EXPECT_EQ(frame1.width(), frame2.width());
   EXPECT_EQ(frame1.height(), frame2.height());
-  EXPECT_EQ(frame1.render_time_ms(), frame2.render_time_ms());
 }
 
 void ExpectEqualBufferFrames(const VideoFrame& frame1,
@@ -1267,7 +1265,6 @@ void ExpectEqualBufferFrames(const VideoFrame& frame1,
   EXPECT_EQ(frame1.stride(kYPlane), frame2.stride(kYPlane));
   EXPECT_EQ(frame1.stride(kUPlane), frame2.stride(kUPlane));
   EXPECT_EQ(frame1.stride(kVPlane), frame2.stride(kVPlane));
-  EXPECT_EQ(frame1.render_time_ms(), frame2.render_time_ms());
   ASSERT_EQ(frame1.allocated_size(kYPlane), frame2.allocated_size(kYPlane));
   EXPECT_EQ(0,
             memcmp(frame1.buffer(kYPlane),
@@ -1294,11 +1291,11 @@ void ExpectEqualFramesVector(const std::vector<VideoFrame>& frames1,
 
 VideoFrame CreateVideoFrame(int width, int height, uint8_t data) {
   const int kSizeY = width * height * 2;
-  rtc::scoped_ptr<uint8_t[]> buffer(new uint8_t[kSizeY]);
+  std::unique_ptr<uint8_t[]> buffer(new uint8_t[kSizeY]);
   memset(buffer.get(), data, kSizeY);
   VideoFrame frame;
   frame.CreateFrame(buffer.get(), buffer.get(), buffer.get(), width, height,
-                    width, width / 2, width / 2);
+                    width, width / 2, width / 2, kVideoRotation_0);
   frame.set_timestamp(data);
   frame.set_render_time_ms(data);
   return frame;
@@ -1862,7 +1859,7 @@ TEST_F(VideoSendStreamTest, ReportsSentResolution) {
         encoded._frameType = (*frame_types)[i];
         encoded._encodedWidth = kEncodedResolution[i].width;
         encoded._encodedHeight = kEncodedResolution[i].height;
-        RTC_DCHECK(callback_ != nullptr);
+        RTC_DCHECK(callback_);
         if (callback_->Encoded(encoded, &specifics, nullptr) != 0)
           return -1;
       }
@@ -2170,7 +2167,7 @@ class Vp9HeaderObserver : public test::SendTest {
     VerifyTl0Idx(vp9);
   }
 
-  rtc::scoped_ptr<VP9Encoder> vp9_encoder_;
+  std::unique_ptr<VP9Encoder> vp9_encoder_;
   VideoCodecVP9 vp9_settings_;
   webrtc::VideoEncoderConfig encoder_config_;
   RTPHeader last_header_;

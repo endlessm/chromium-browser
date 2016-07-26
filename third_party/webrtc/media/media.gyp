@@ -18,7 +18,6 @@
         '<(webrtc_root)/modules/modules.gyp:video_render_module',
         '<(webrtc_root)/webrtc.gyp:webrtc',
         '<(webrtc_root)/voice_engine/voice_engine.gyp:voice_engine',
-        '<(webrtc_root)/sound/sound.gyp:rtc_sound',
         '<(webrtc_root)/system_wrappers/system_wrappers.gyp:metrics_default',
         '<(webrtc_root)/system_wrappers/system_wrappers.gyp:system_wrappers',
         '<(webrtc_root)/libjingle/xmllite/xmllite.gyp:rtc_xmllite',
@@ -32,13 +31,9 @@
       },
       'sources': [
         'base/audioframe.h',
-        'base/audiorenderer.h',
-        'base/capturemanager.cc',
-        'base/capturemanager.h',
+        'base/audiosource.h',
         'base/codec.cc',
         'base/codec.h',
-        'base/constants.cc',
-        'base/constants.h',
         'base/cpuid.cc',
         'base/cpuid.h',
         'base/cryptoparams.h',
@@ -47,6 +42,8 @@
         'base/hybriddataengine.h',
         'base/mediachannel.h',
         'base/mediacommon.h',
+        'base/mediaconstants.cc',
+        'base/mediaconstants.h',
         'base/mediaengine.cc',
         'base/mediaengine.h',
         'base/rtpdataengine.cc',
@@ -73,13 +70,10 @@
         'base/videoframe.h',
         'base/videoframefactory.cc',
         'base/videoframefactory.h',
-        'base/videorenderer.h',
+        'base/videosourcebase.cc',
+        'base/videosourcebase.h',
         'base/yuvframegenerator.cc',
         'base/yuvframegenerator.h',
-        'devices/deviceinfo.h',
-        'devices/devicemanager.cc',
-        'devices/devicemanager.h',
-        'devices/dummydevicemanager.h',
         'devices/videorendererfactory.h',
         'engine/nullwebrtcvideoengine.h',
         'engine/simulcast.cc',
@@ -158,41 +152,19 @@
             '<(webrtc_root)/modules/modules.gyp:video_render_module_internal_impl',
           ],
         }],
-        ['OS=="linux"', {
+        ['OS=="linux" and use_gtk==1', {
           'sources': [
-            'devices/libudevsymboltable.cc',
-            'devices/libudevsymboltable.h',
-            'devices/linuxdeviceinfo.cc',
-            'devices/linuxdevicemanager.cc',
-            'devices/linuxdevicemanager.h',
-            'devices/v4llookup.cc',
-            'devices/v4llookup.h',
+            'devices/gtkvideorenderer.cc',
+            'devices/gtkvideorenderer.h',
           ],
-          'conditions': [
-            ['use_gtk==1', {
-              'sources': [
-                'devices/gtkvideorenderer.cc',
-                'devices/gtkvideorenderer.h',
-              ],
-              'cflags': [
-                '<!@(pkg-config --cflags gobject-2.0 gthread-2.0 gtk+-2.0)',
-              ],
-            }],
-          ],
-          'include_dirs': [
-            'third_party/libudev'
-          ],
-          'libraries': [
-            '-lrt',
+          'cflags': [
+            '<!@(pkg-config --cflags gobject-2.0 gthread-2.0 gtk+-2.0)',
           ],
         }],
         ['OS=="win"', {
           'sources': [
             'devices/gdivideorenderer.cc',
             'devices/gdivideorenderer.h',
-            'devices/win32deviceinfo.cc',
-            'devices/win32devicemanager.cc',
-            'devices/win32devicemanager.h',
           ],
           'msvs_settings': {
             'VCLibrarianTool': {
@@ -200,75 +172,21 @@
                 'd3d9.lib',
                 'gdi32.lib',
                 'strmiids.lib',
-                'winmm.lib',
               ],
             },
           },
         }],
-        ['OS=="mac"', {
+        ['OS=="mac" and target_arch=="ia32"', {
           'sources': [
-            'devices/macdeviceinfo.cc',
-            'devices/macdevicemanager.cc',
-            'devices/macdevicemanager.h',
-            'devices/macdevicemanagermm.mm',
+            'devices/carbonvideorenderer.cc',
+            'devices/carbonvideorenderer.h',
           ],
-          'conditions': [
-            ['target_arch=="ia32"', {
-              'sources': [
-                'devices/carbonvideorenderer.cc',
-                'devices/carbonvideorenderer.h',
-              ],
-              'link_settings': {
-                'xcode_settings': {
-                  'OTHER_LDFLAGS': [
-                    '-framework Carbon',
-                  ],
-                },
-              },
-            }],
-          ],
-          'xcode_settings': {
-            'WARNING_CFLAGS': [
-              # TODO(ronghuawu): Update macdevicemanager.cc to stop using
-              # deprecated functions and remove this flag.
-              '-Wno-deprecated-declarations',
-            ],
-            # Disable partial availability warning to prevent errors
-            # in macdevicemanagermm.mm using AVFoundation.
-            # https://code.google.com/p/webrtc/issues/detail?id=4695
-            'WARNING_CFLAGS!': ['-Wpartial-availability'],
-          },
           'link_settings': {
             'xcode_settings': {
               'OTHER_LDFLAGS': [
-                '-weak_framework AVFoundation',
-                '-framework Cocoa',
-                '-framework CoreAudio',
-                '-framework CoreVideo',
-                '-framework OpenGL',
-                '-framework QTKit',
+                '-framework Carbon',
               ],
             },
-          },
-        }],
-        ['OS=="ios"', {
-          'sources': [
-            'devices/mobiledevicemanager.cc',
-          ],
-          'include_dirs': [
-            # TODO(sjlee) Remove when vp8 is building for iOS.  vp8 pulls in
-            # libjpeg which pulls in libyuv which currently disabled.
-            '../../third_party/libyuv/include',
-          ],
-          # TODO(kjellander): Make the code compile without disabling these.
-          # See https://bugs.chromium.org/p/webrtc/issues/detail?id=3307
-          'cflags': [
-            '-Wno-unused-const-variable',
-          ],
-          'xcode_settings': {
-            'WARNING_CFLAGS': [
-              '-Wno-unused-const-variable',
-            ],
           },
         }],
         ['OS=="ios" or (OS=="mac" and target_arch!="ia32")', {
@@ -276,12 +194,194 @@
             'CARBON_DEPRECATED=YES',
           ],
         }],
-        ['OS=="android"', {
-          'sources': [
-            'devices/mobiledevicemanager.cc',
-          ],
-        }],
       ],
     },  # target rtc_media
   ],  # targets.
+  'conditions': [
+    ['include_tests==1', {
+      'targets' : [
+        {
+          'target_name': 'rtc_unittest_main',
+          'type': 'static_library',
+          'dependencies': [
+            '<(DEPTH)/testing/gmock.gyp:gmock',
+            '<(DEPTH)/testing/gtest.gyp:gtest',
+            '<(webrtc_root)/base/base_tests.gyp:rtc_base_tests_utils',
+          ],
+          'direct_dependent_settings': {
+            'include_dirs': [
+              '<(libyuv_dir)/include',
+              '<(DEPTH)/testing/gmock/include',
+            ],
+          },
+          'conditions': [
+            ['build_libyuv==1', {
+              'dependencies': ['<(DEPTH)/third_party/libyuv/libyuv.gyp:libyuv',],
+            }],
+            ['OS=="ios"', {
+              # TODO(kjellander): Make the code compile without disabling these.
+              # See https://bugs.chromium.org/p/webrtc/issues/detail?id=3307
+              'cflags': [
+                '-Wno-unused-variable',
+              ],
+              'xcode_settings': {
+                'WARNING_CFLAGS': [
+                  '-Wno-unused-variable',
+                ],
+              },
+            }],
+          ],
+          'include_dirs': [
+             '<(DEPTH)/testing/gtest/include',
+             '<(DEPTH)/testing/gtest',
+           ],
+          'sources': [
+            'base/fakemediaengine.h',
+            'base/fakenetworkinterface.h',
+            'base/fakertp.h',
+            'base/fakevideocapturer.h',
+            'base/fakevideorenderer.h',
+            'base/testutils.cc',
+            'base/testutils.h',
+            'engine/fakewebrtccall.cc',
+            'engine/fakewebrtccall.h',
+            'engine/fakewebrtccommon.h',
+            'engine/fakewebrtcdeviceinfo.h',
+            'engine/fakewebrtcvcmfactory.h',
+            'engine/fakewebrtcvideocapturemodule.h',
+            'engine/fakewebrtcvideoengine.h',
+            'engine/fakewebrtcvoiceengine.h',
+          ],
+          # TODO(kjellander): Make the code compile without disabling these flags.
+          # See https://bugs.chromium.org/p/webrtc/issues/detail?id=3307
+          'cflags_cc!': [
+            '-Wnon-virtual-dtor',
+          ],
+        },  # target rtc_unittest_main
+        {
+          'target_name': 'rtc_media_unittests',
+          'type': 'executable',
+          'dependencies': [
+            '<(webrtc_root)/base/base_tests.gyp:rtc_base_tests_utils',
+            '<(webrtc_root)/media/media.gyp:rtc_media',
+            'rtc_unittest_main',
+          ],
+          'sources': [
+            'base/codec_unittest.cc',
+            'base/rtpdataengine_unittest.cc',
+            'base/rtpdump_unittest.cc',
+            'base/rtputils_unittest.cc',
+            'base/streamparams_unittest.cc',
+            'base/turnutils_unittest.cc',
+            'base/videoadapter_unittest.cc',
+            'base/videobroadcaster_unittest.cc',
+            'base/videocapturer_unittest.cc',
+            'base/videocommon_unittest.cc',
+            'base/videoengine_unittest.h',
+            'base/videoframe_unittest.h',
+            'engine/nullwebrtcvideoengine_unittest.cc',
+            'engine/simulcast_unittest.cc',
+            'engine/webrtcmediaengine_unittest.cc',
+            'engine/webrtcvideocapturer_unittest.cc',
+            'engine/webrtcvideoframe_unittest.cc',
+            'engine/webrtcvideoframefactory_unittest.cc',
+            'engine/webrtcvideoengine2_unittest.cc',
+            'engine/webrtcvoiceengine_unittest.cc',
+            'sctp/sctpdataengine_unittest.cc',
+          ],
+          # TODO(kjellander): Make the code compile without disabling these flags.
+          # See https://bugs.chromium.org/p/webrtc/issues/detail?id=3307
+          'cflags': [
+            '-Wno-sign-compare',
+          ],
+          'cflags_cc!': [
+            '-Wnon-virtual-dtor',
+            '-Woverloaded-virtual',
+          ],
+          'msvs_disabled_warnings': [
+            4245,  # conversion from 'int' to 'uint32_t', signed/unsigned mismatch.
+            4389,  # signed/unsigned mismatch.
+          ],
+          'conditions': [
+            ['OS=="win"', {
+              'conditions': [
+                ['use_openssl==0', {
+                  'dependencies': [
+                    '<(DEPTH)/net/third_party/nss/ssl.gyp:libssl',
+                    '<(DEPTH)/third_party/nss/nss.gyp:nspr',
+                    '<(DEPTH)/third_party/nss/nss.gyp:nss',
+                  ],
+                }],
+              ],
+              'msvs_settings': {
+                'VCLinkerTool': {
+                  'AdditionalDependencies': [
+                    # TODO(ronghuawu): Since we've included strmiids in
+                    # libjingle_media target, we shouldn't need this here.
+                    # Find out why it doesn't work without this.
+                    'strmiids.lib',
+                  ],
+                },
+              },
+            }],
+            ['OS=="win" and clang==1', {
+              'msvs_settings': {
+                'VCCLCompilerTool': {
+                  'AdditionalOptions': [
+                    # Disable warnings failing when compiling with Clang on Windows.
+                    # https://bugs.chromium.org/p/webrtc/issues/detail?id=5366
+                    '-Wno-sign-compare',
+                    '-Wno-unused-function',
+                  ],
+                },
+              },
+            },],
+            ['clang==1', {
+              # TODO(kjellander): Make the code compile without disabling these.
+              # See https://bugs.chromium.org/p/webrtc/issues/detail?id=3307
+              'cflags!': [
+                '-Wextra',
+              ],
+              'xcode_settings': {
+                'WARNING_CFLAGS!': ['-Wextra'],
+              },
+            }],
+            ['OS=="ios"', {
+              'sources!': [
+                'sctp/sctpdataengine_unittest.cc',
+              ],
+              'mac_bundle_resources': [
+                '<(DEPTH)/resources/media/captured-320x240-2s-48.frames',
+                '<(DEPTH)/resources/media/faces.1280x720_P420.yuv',
+                '<(DEPTH)/resources/media/faces_I420.jpg',
+                '<(DEPTH)/resources/media/faces_I422.jpg',
+                '<(DEPTH)/resources/media/faces_I444.jpg',
+                '<(DEPTH)/resources/media/faces_I411.jpg',
+                '<(DEPTH)/resources/media/faces_I400.jpg',
+              ],
+            }],
+          ],
+        },  # target rtc_media_unittests
+      ],  # targets
+      'conditions': [
+        ['test_isolation_mode != "noop"', {
+          'targets': [
+            {
+              'target_name': 'rtc_media_unittests_run',
+              'type': 'none',
+              'dependencies': [
+                'rtc_media_unittests',
+              ],
+              'includes': [
+                '../build/isolate.gypi',
+              ],
+              'sources': [
+                'rtc_media_unittests.isolate',
+              ],
+            },
+          ],
+        }],
+      ],  # conditions
+    }],  # include_tests==1
+  ],  # conditions
 }

@@ -7,24 +7,14 @@
 #ifndef FPDFSDK_INCLUDE_FSDK_DEFINE_H_
 #define FPDFSDK_INCLUDE_FSDK_DEFINE_H_
 
-#include "core/include/fpdfapi/fpdf_module.h"
-#include "core/include/fpdfapi/fpdf_pageobj.h"
-#include "core/include/fpdfapi/fpdf_parser.h"
-#include "core/include/fpdfapi/fpdf_render.h"
+#include "core/fpdfapi/fpdf_parser/include/cpdf_parser.h"
 #include "core/include/fpdfdoc/fpdf_doc.h"
-#include "core/include/fpdfdoc/fpdf_vt.h"
 #include "core/include/fxge/fx_ge.h"
 #include "core/include/fxge/fx_ge_win32.h"
 #include "public/fpdfview.h"
 
 #ifdef PDF_ENABLE_XFA
 #include "fpdfsdk/include/fpdfxfa/fpdfxfa_doc.h"
-#include "fpdfsdk/include/fpdfxfa/fpdfxfa_page.h"
-#include "xfa/include/fwl/adapter/fwl_adaptertimermgr.h"
-#include "xfa/include/fxbarcode/BC_BarCode.h"
-#include "xfa/include/fxfa/fxfa.h"
-#include "xfa/include/fxgraphics/fx_graphics.h"
-#include "xfa/include/fxjse/fxjse.h"
 #endif  // PDF_ENABLE_XFA
 
 #ifdef _WIN32
@@ -34,13 +24,13 @@
 
 // Convert a #FX_ARGB to a #FX_COLORREF.
 #define FX_ARGBTOCOLORREF(argb)                                            \
-  ((((FX_DWORD)argb & 0x00FF0000) >> 16) | ((FX_DWORD)argb & 0x0000FF00) | \
-   (((FX_DWORD)argb & 0x000000FF) << 16))
+  ((((uint32_t)argb & 0x00FF0000) >> 16) | ((uint32_t)argb & 0x0000FF00) | \
+   (((uint32_t)argb & 0x000000FF) << 16))
 
 // Convert a #FX_COLORREF to a #FX_ARGB.
 #define FX_COLORREFTOARGB(rgb)                                   \
-  ((FX_DWORD)0xFF000000 | (((FX_DWORD)rgb & 0x000000FF) << 16) | \
-   ((FX_DWORD)rgb & 0x0000FF00) | (((FX_DWORD)rgb & 0x00FF0000) >> 16))
+  ((uint32_t)0xFF000000 | (((uint32_t)rgb & 0x000000FF) << 16) | \
+   ((uint32_t)rgb & 0x0000FF00) | (((uint32_t)rgb & 0x00FF0000) >> 16))
 
 typedef unsigned int FX_UINT;
 class CRenderContext;
@@ -58,15 +48,15 @@ class CPDF_CustomAccess final : public IFX_FileRead {
 
 #ifdef PDF_ENABLE_XFA
   virtual CFX_ByteString GetFullPath() { return ""; }
-  virtual FX_BOOL GetByte(FX_DWORD pos, uint8_t& ch);
-  virtual FX_BOOL GetBlock(FX_DWORD pos, uint8_t* pBuf, FX_DWORD size);
+  virtual FX_BOOL GetByte(uint32_t pos, uint8_t& ch);
+  virtual FX_BOOL GetBlock(uint32_t pos, uint8_t* pBuf, uint32_t size);
 #endif  // PDF_ENABLE_XFA
 
  private:
   FPDF_FILEACCESS m_FileAccess;
 #ifdef PDF_ENABLE_XFA
   uint8_t m_Buffer[512];
-  FX_DWORD m_BufferOffset;
+  uint32_t m_BufferOffset;
 #endif  // PDF_ENABLE_XFA
 };
 
@@ -133,7 +123,7 @@ void FPDF_RenderPage_Retail(CRenderContext* pContext,
                             FX_BOOL bNeedToRestore,
                             IFSDK_PAUSE_Adapter* pause);
 
-void CheckUnSupportError(CPDF_Document* pDoc, FX_DWORD err_code);
+void CheckUnSupportError(CPDF_Document* pDoc, uint32_t err_code);
 void CheckUnSupportAnnot(CPDF_Document* pDoc, const CPDF_Annot* pPDFAnnot);
 void ProcessParseError(CPDF_Parser::Error err);
 

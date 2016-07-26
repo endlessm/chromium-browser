@@ -14,7 +14,6 @@
 #include "webrtc/api/test/fakeperiodicvideocapturer.h"
 #include "webrtc/api/test/mockpeerconnectionobservers.h"
 #include "webrtc/api/test/peerconnectiontestwrapper.h"
-#include "webrtc/api/videosourceinterface.h"
 #include "webrtc/base/gunit.h"
 #include "webrtc/p2p/client/fakeportallocator.h"
 
@@ -267,7 +266,7 @@ rtc::scoped_refptr<webrtc::MediaStreamInterface>
     FakeConstraints constraints = video_constraints;
     constraints.SetMandatoryMaxFrameRate(10);
 
-    rtc::scoped_refptr<webrtc::VideoSourceInterface> source =
+    rtc::scoped_refptr<webrtc::VideoTrackSourceInterface> source =
         peer_connection_factory_->CreateVideoSource(
             new webrtc::FakePeriodicVideoCapturer(), &constraints);
     std::string videotrack_label = label + kVideoTrackLabelBase;

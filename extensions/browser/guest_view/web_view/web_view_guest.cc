@@ -348,7 +348,7 @@ void WebViewGuest::CreateWebContents(
   // the new tag can script each other.
   auto guest_view_manager = GuestViewManager::FromBrowserContext(
       owner_render_process_host->GetBrowserContext());
-  content::SiteInstance* guest_site_instance =
+  scoped_refptr<content::SiteInstance> guest_site_instance =
       guest_view_manager->GetGuestSiteInstance(guest_site);
   if (!guest_site_instance) {
     // Create the SiteInstance in a new BrowsingInstance, which will ensure
@@ -359,7 +359,7 @@ void WebViewGuest::CreateWebContents(
   }
   WebContents::CreateParams params(
       owner_render_process_host->GetBrowserContext(),
-      guest_site_instance);
+      std::move(guest_site_instance));
   params.guest_delegate = this;
   callback.Run(WebContents::Create(params));
 }
@@ -747,9 +747,9 @@ bool WebViewGuest::ClearData(base::Time remove_since,
     int render_process_id = web_contents()->GetRenderProcessHost()->GetID();
     // We need to clear renderer cache separately for our process because
     // StoragePartitionHttpCacheDataRemover::ClearData() does not clear that.
-    web_cache::WebCacheManager::GetInstance()->Remove(render_process_id);
     web_cache::WebCacheManager::GetInstance()->ClearCacheForProcess(
         render_process_id);
+    web_cache::WebCacheManager::GetInstance()->Remove(render_process_id);
 
     base::Closure cache_removal_done_callback = base::Bind(
         &WebViewGuest::ClearDataInternal, weak_ptr_factory_.GetWeakPtr(),

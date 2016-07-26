@@ -19,6 +19,7 @@ import copy
 import httplib
 import logging
 import random
+import ssl
 import StringIO
 
 import httparchive
@@ -183,6 +184,14 @@ class DetailedHTTPSResponse(DetailedHTTPResponse):
 class DetailedHTTPSConnection(httplib.HTTPSConnection):
   """Preserve details relevant to replaying SSL connections."""
   response_class = DetailedHTTPSResponse
+
+  def __init__(self, host, port):
+    # https://www.python.org/dev/peps/pep-0476/#opting-out
+    if hasattr(ssl, '_create_unverified_context'):
+      httplib.HTTPSConnection.__init__(
+          self, host=host, port=port, context=ssl._create_unverified_context())
+    else:
+      httplib.HTTPSConnection.__init__(self, host=host, port=port)
 
 
 class RealHttpFetch(object):

@@ -1,4 +1,3 @@
-
 /*
  * Copyright 2015 Google Inc.
  *
@@ -18,6 +17,8 @@
 #include "glsl/GrGLSLFragmentShaderBuilder.h"
 #include "glsl/GrGLSLProgramDataManager.h"
 #include "glsl/GrGLSLUniformHandler.h"
+
+#include "SkFixed.h"
 
 class GrGLCircleBlurFragmentProcessor : public GrGLSLFragmentProcessor {
 public:
@@ -57,7 +58,7 @@ void GrGLCircleBlurFragmentProcessor::emitCode(EmitArgs& args) {
 
     // We just want to compute "length(vec) - %s.z + 0.5) * %s.w" but need to rearrange
     // for precision
-    fragBuilder->codeAppendf("vec2 vec = vec2( (%s.x - %s.x) * %s.w , (%s.y - %s.y) * %s.w );", 
+    fragBuilder->codeAppendf("vec2 vec = vec2( (%s.x - %s.x) * %s.w , (%s.y - %s.y) * %s.w );",
                              fragmentPos, dataName, dataName,
                              fragmentPos, dataName, dataName);
     fragBuilder->codeAppendf("float dist = length(vec) + ( 0.5 - %s.z ) * %s.w;",
@@ -88,7 +89,7 @@ void GrGLCircleBlurFragmentProcessor::onSetData(const GrGLSLProgramDataManager& 
 GrCircleBlurFragmentProcessor::GrCircleBlurFragmentProcessor(const SkRect& circle,
                                                              float sigma,
                                                              float offset,
-                                                             GrTexture* blurProfile) 
+                                                             GrTexture* blurProfile)
     : fCircle(circle)
     , fSigma(sigma)
     , fOffset(offset)

@@ -24,11 +24,13 @@
 #include <openssl/asn1.h>
 #include <openssl/bio.h>
 #include <openssl/bn.h>
+#include <openssl/bytestring.h>
 #include <openssl/cmac.h>
+#include <openssl/curve25519.h>
 #include <openssl/dh.h>
+#include <openssl/ecdsa.h>
 #include <openssl/ec.h>
 #include <openssl/ec_key.h>
-#include <openssl/ecdsa.h>
 #include <openssl/evp.h>
 #include <openssl/hmac.h>
 #include <openssl/mem.h>
@@ -112,6 +114,7 @@ using ScopedEVP_PKEY_CTX = ScopedOpenSSLType<EVP_PKEY_CTX, EVP_PKEY_CTX_free>;
 using ScopedPKCS8_PRIV_KEY_INFO = ScopedOpenSSLType<PKCS8_PRIV_KEY_INFO,
                                                     PKCS8_PRIV_KEY_INFO_free>;
 using ScopedPKCS12 = ScopedOpenSSLType<PKCS12, PKCS12_free>;
+using ScopedSPAKE2_CTX = ScopedOpenSSLType<SPAKE2_CTX, SPAKE2_CTX_free>;
 using ScopedRSA = ScopedOpenSSLType<RSA, RSA_free>;
 using ScopedX509 = ScopedOpenSSLType<X509, X509_free>;
 using ScopedX509_ALGOR = ScopedOpenSSLType<X509_ALGOR, X509_ALGOR_free>;

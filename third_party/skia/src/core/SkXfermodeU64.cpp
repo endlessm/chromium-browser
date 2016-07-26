@@ -10,12 +10,6 @@
 #include "SkUtils.h"
 #include "SkXfermode.h"
 
-static void sk_memset64(uint64_t dst[], uint64_t value, int count) {
-    for (int i = 0; i < count; ++i) {
-        dst[i] = value;
-    }
-}
-
 enum DstType {
     kU16_Dst,
     kF16_Dst,
@@ -244,7 +238,7 @@ static SkXfermode::D64Proc find_proc(SkXfermode::Mode mode, uint32_t flags) {
 SkXfermode::D64Proc SkXfermode::onGetD64Proc(uint32_t flags) const {
     SkASSERT(0 == (flags & ~7));
     flags &= 7;
-    
+
     Mode mode;
     return this->asMode(&mode) ? find_proc(mode, flags) : gProcs_General[flags];
 }
@@ -252,4 +246,3 @@ SkXfermode::D64Proc SkXfermode::onGetD64Proc(uint32_t flags) const {
 SkXfermode::D64Proc SkXfermode::GetD64Proc(SkXfermode* xfer, uint32_t flags) {
     return xfer ? xfer->onGetD64Proc(flags) : find_proc(SkXfermode::kSrcOver_Mode, flags);
 }
-

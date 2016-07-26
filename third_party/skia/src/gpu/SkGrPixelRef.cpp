@@ -1,4 +1,3 @@
-
 /*
  * Copyright 2010 Google Inc.
  *
@@ -75,8 +74,9 @@ static SkGrPixelRef* copy_to_new_texture_pixelref(GrTexture* texture, SkColorTyp
         srcRect = *subset;
     }
     desc.fFlags = kRenderTarget_GrSurfaceFlag;
-    desc.fConfig = SkImageInfo2GrPixelConfig(dstCT, kPremul_SkAlphaType, dstPT);
+    desc.fConfig = SkImageInfo2GrPixelConfig(dstCT, kPremul_SkAlphaType, dstPT, *context->caps());
     desc.fTextureStorageAllocator = texture->desc().fTextureStorageAllocator;
+    desc.fIsMipMapped = false;
 
     GrTexture* dst = context->textureProvider()->createTexture(desc, SkBudgeted::kNo, nullptr, 0);
     if (nullptr == dst) {

@@ -215,6 +215,14 @@ class StoryRunnerTest(unittest.TestCase):
     self.assertEquals(expected_successes,
                       GetNumberOfSuccessfulPageRuns(self.results))
 
+  def testRunStoryWithMissingArchiveFile(self):
+    story_set = story_module.StorySet(archive_data_file='data/hi.json')
+    story_set.AddStory(page_module.Page(
+        'http://www.testurl.com', story_set, story_set.base_dir))
+    test = DummyTest()
+    self.assertRaises(story_runner.ArchiveError, story_runner.Run, test,
+                      story_set, self.options, self.results)
+
   def testStoryTest(self):
     all_foo = [FooStoryState, FooStoryState, FooStoryState]
     one_bar = [FooStoryState, FooStoryState, BarStoryState]
@@ -325,6 +333,30 @@ class StoryRunnerTest(unittest.TestCase):
 
     calls_in_order = GetCallsInOrder() # pylint: disable=no-value-for-parameter
     self.assertEquals(EXPECTED_CALLS_IN_ORDER, calls_in_order)
+
+  def testTearDownStateAfterEachStoryRun(self):
+    class TestSharedStateForTearDown(TestSharedState):
+      num_of_tear_downs = 0
+
+      def RunStory(self, results):
+        pass
+
+      def TearDownState(self):
+        TestSharedStateForTearDown.num_of_tear_downs += 1
+
+    story_set = story_module.StorySet()
+    story_set.AddStory(DummyLocalStory(TestSharedStateForTearDown))
+    story_set.AddStory(DummyLocalStory(TestSharedStateForTearDown))
+    story_set.AddStory(DummyLocalStory(TestSharedStateForTearDown))
+
+    TestSharedStateForTearDown.num_of_tear_downs = 0
+    story_runner.Run(mock.MagicMock(), story_set, self.options, self.results)
+    self.assertEquals(TestSharedStateForTearDown.num_of_tear_downs, 1)
+
+    TestSharedStateForTearDown.num_of_tear_downs = 0
+    story_runner.Run(mock.MagicMock(), story_set, self.options, self.results,
+                     should_tear_down_state_after_each_story_run=True)
+    self.assertEquals(TestSharedStateForTearDown.num_of_tear_downs, 3)
 
   def testTearDownIsCalledOnceForEachStoryGroupWithPageSetRepeat(self):
     self.options.pageset_repeat = 3

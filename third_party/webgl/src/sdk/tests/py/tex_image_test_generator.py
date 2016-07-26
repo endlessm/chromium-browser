@@ -22,7 +22,7 @@
 # MATERIALS OR THE USE OR OTHER DEALINGS IN THE MATERIALS.
 
 """
-  Generator for tex-image-and-sub-image-2d* tests.
+  Generator for tex-2d* and tex-3d* tests.
   This file needs to be run in its folder.
 """
 
@@ -75,7 +75,10 @@ _ELEMENT_TYPES = [
   'webgl-canvas',
   'image-bitmap-from-image-data',
   'image-bitmap-from-image',
-  'image-bitmap-from-video'
+  'image-bitmap-from-video',
+  'image-bitmap-from-canvas',
+  'image-bitmap-from-blob',
+  'image-bitmap-from-image-bitmap'
 ]
 
 _FORMATS_TYPES_WEBGL1 = [
@@ -85,7 +88,7 @@ _FORMATS_TYPES_WEBGL1 = [
   {'internal_format': 'RGBA', 'format': 'RGBA', 'type': 'UNSIGNED_SHORT_4_4_4_4' },
   {'internal_format': 'RGBA', 'format': 'RGBA', 'type': 'UNSIGNED_SHORT_5_5_5_1' },
 ]
-    
+
 _FORMATS_TYPES_WEBGL2 = [
   {'internal_format': 'R8', 'format': 'RED', 'type': 'UNSIGNED_BYTE' },
   {'internal_format': 'R16F', 'format': 'RED', 'type': 'HALF_FLOAT' },
@@ -121,14 +124,14 @@ _FORMATS_TYPES_WEBGL2 = [
   {'internal_format': 'RGBA32F', 'format': 'RGBA', 'type': 'FLOAT' },
   {'internal_format': 'RGBA8UI', 'format': 'RGBA_INTEGER', 'type': 'UNSIGNED_BYTE' },
 ]
-    
+
 def GenerateFilename(dimension, element_type, internal_format, format, type):
   """Generate test filename."""
-  filename = ("tex-image-and-sub-image-" + dimension + "d-with-" + element_type + "-" +
+  filename = ("tex-" + dimension + "d-" +
               internal_format + "-" + format + "-" + type + ".html")
   return filename.lower()
-    
-def WriteTest(filename, dimension, element_type, internal_format, format, type):
+
+def WriteTest(filename, dimension, element_type, internal_format, format, type, default_context_version):
   """Write one test."""
   file = open(filename, "wb")
   file.write(_LICENSE)
@@ -141,7 +144,13 @@ def WriteTest(filename, dimension, element_type, internal_format, format, type):
 <link rel="stylesheet" href="../../../resources/js-test-style.css"/>
 <script src="../../../js/js-test-pre.js"></script>
 <script src="../../../js/webgl-test-utils.js"></script>
-<script src="../../../js/tests/tex-image-and-sub-image-utils.js"></script>
+<script src="../../../js/tests/tex-image-and-sub-image-utils.js"></script>"""
+  if element_type == 'image-bitmap-from-image-data' or element_type == 'image-bitmap-from-image' or \
+     element_type == 'image-bitmap-from-video' or element_type == 'image-bitmap-from-canvas' or \
+     element_type == 'image-bitmap-from-blob' or element_type == 'image-bitmap-from-image-bitmap':
+    code += """
+<script src="../../../js/tests/tex-image-and-sub-image-with-image-bitmap-utils.js"></script>"""
+  code += """
 <script src="../../../js/tests/tex-image-and-sub-image-%(dimension)sd-with-%(element_type)s.js"></script>
 </head>
 <body>"""
@@ -159,7 +168,7 @@ function testPrologue(gl) {
     return true;
 }
 
-generateTest("%(internal_format)s", "%(format)s", "%(type)s", testPrologue, "../../../resources/")();
+generateTest("%(internal_format)s", "%(format)s", "%(type)s", testPrologue, "../../../resources/", %(default_context_version)s)();
 </script>
 </body>
 </html>
@@ -170,10 +179,11 @@ generateTest("%(internal_format)s", "%(format)s", "%(type)s", testPrologue, "../
     'internal_format': internal_format,
     'format': format,
     'type': type,
+    'default_context_version': default_context_version,
   })
   file.close()
 
-def GenerateTests(test_dir, test_cases, dimension):
+def GenerateTests(test_dir, test_cases, dimension, default_context_version):
   test_dir_template = test_dir + '/%s'
   for element_type in _ELEMENT_TYPES:
     os.chdir(test_dir_template % element_type.replace('-', '_'))
@@ -189,15 +199,15 @@ def GenerateTests(test_dir, test_cases, dimension):
       filename = GenerateFilename(dimension, element_type, internal_format, format, type)
       index_file.write(filename)
       index_file.write('\n')
-      WriteTest(filename, dimension, element_type, internal_format, format, type)
+      WriteTest(filename, dimension, element_type, internal_format, format, type, default_context_version)
     index_file.close();
 
 def main(argv):
   """This is the main function."""
   py_dir = os.path.dirname(os.path.realpath(__file__))
-  GenerateTests(os.path.realpath(py_dir + '/../conformance/textures'), _FORMATS_TYPES_WEBGL1, '2')
-  GenerateTests(os.path.realpath(py_dir + '/../conformance2/textures'), _FORMATS_TYPES_WEBGL2, '2')
-  GenerateTests(os.path.realpath(py_dir + '/../conformance2/textures'), _FORMATS_TYPES_WEBGL2, '3')
+  GenerateTests(os.path.realpath(py_dir + '/../conformance/textures'), _FORMATS_TYPES_WEBGL1, '2', '1')
+  GenerateTests(os.path.realpath(py_dir + '/../conformance2/textures'), _FORMATS_TYPES_WEBGL2, '2', '2')
+  GenerateTests(os.path.realpath(py_dir + '/../conformance2/textures'), _FORMATS_TYPES_WEBGL2, '3', '2')
 
 if __name__ == '__main__':
   sys.exit(main(sys.argv[1:]))

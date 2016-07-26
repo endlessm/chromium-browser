@@ -12,26 +12,31 @@
 
 #include "GrVkResource.h"
 
-#include "vulkan/vulkan.h"
+#include "vk/GrVkDefines.h"
 
 class GrNonInstancedVertices;
 class GrPipeline;
 class GrPrimitiveProcessor;
+class GrVkCommandBuffer;
 class GrVkGpu;
 class GrVkRenderPass;
 
 class GrVkPipeline : public GrVkResource {
 public:
-    static GrVkPipeline* Create(GrVkGpu* gpu, 
+    static GrVkPipeline* Create(GrVkGpu* gpu,
                                 const GrPipeline& pipeline,
                                 const GrPrimitiveProcessor& primProc,
                                 VkPipelineShaderStageCreateInfo* shaderStageInfo,
                                 int shaderStageCount,
                                 GrPrimitiveType primitiveType,
                                 const GrVkRenderPass& renderPass,
-                                VkPipelineLayout layout);
+                                VkPipelineLayout layout,
+                                VkPipelineCache cache);
 
     VkPipeline pipeline() const { return fPipeline; }
+
+    static void SetDynamicState(GrVkGpu*, GrVkCommandBuffer*, const GrPipeline&);
+
 
 private:
     GrVkPipeline(VkPipeline pipeline) : INHERITED(), fPipeline(pipeline) {}

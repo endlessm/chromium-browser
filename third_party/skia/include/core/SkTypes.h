@@ -256,27 +256,20 @@ typedef unsigned U16CPU;
  */
 typedef uint8_t SkBool8;
 
-#ifdef SK_DEBUG
-    SK_API int8_t      SkToS8(intmax_t);
-    SK_API uint8_t     SkToU8(uintmax_t);
-    SK_API int16_t     SkToS16(intmax_t);
-    SK_API uint16_t    SkToU16(uintmax_t);
-    SK_API int32_t     SkToS32(intmax_t);
-    SK_API uint32_t    SkToU32(uintmax_t);
-    SK_API int         SkToInt(intmax_t);
-    SK_API unsigned    SkToUInt(uintmax_t);
-    SK_API size_t      SkToSizeT(uintmax_t);
-#else
-    #define SkToS8(x)   ((int8_t)(x))
-    #define SkToU8(x)   ((uint8_t)(x))
-    #define SkToS16(x)  ((int16_t)(x))
-    #define SkToU16(x)  ((uint16_t)(x))
-    #define SkToS32(x)  ((int32_t)(x))
-    #define SkToU32(x)  ((uint32_t)(x))
-    #define SkToInt(x)  ((int)(x))
-    #define SkToUInt(x) ((unsigned)(x))
-    #define SkToSizeT(x) ((size_t)(x))
-#endif
+#include "../private/SkTFitsIn.h"
+template <typename D, typename S> D SkTo(S s) {
+    SkASSERT(SkTFitsIn<D>(s));
+    return static_cast<D>(s);
+}
+#define SkToS8(x)    SkTo<int8_t>(x)
+#define SkToU8(x)    SkTo<uint8_t>(x)
+#define SkToS16(x)   SkTo<int16_t>(x)
+#define SkToU16(x)   SkTo<uint16_t>(x)
+#define SkToS32(x)   SkTo<int32_t>(x)
+#define SkToU32(x)   SkTo<uint32_t>(x)
+#define SkToInt(x)   SkTo<int>(x)
+#define SkToUInt(x)  SkTo<unsigned>(x)
+#define SkToSizeT(x) SkTo<size_t>(x)
 
 /** Returns 0 or 1 based on the condition
 */
@@ -290,7 +283,7 @@ typedef uint8_t SkBool8;
 #define SK_MinS32   -SK_MaxS32
 #define SK_MaxU32   0xFFFFFFFF
 #define SK_MinU32   0
-#define SK_NaN32    (1 << 31)
+#define SK_NaN32    ((int) (1U << 31))
 
 /** Returns true if the value can be represented with signed 16bits
  */
@@ -337,6 +330,9 @@ template <typename T, size_t N> char (&SkArrayCountHelper(T (&array)[N]))[N];
 #define SkAlign8(x)     (((x) + 7) >> 3 << 3)
 #define SkIsAlign8(x)   (0 == ((x) & 7))
 
+#define SkAlign16(x)     (((x) + 15) >> 4 << 4)
+#define SkIsAlign16(x)   (0 == ((x) & 15))
+
 #define SkAlignPtr(x)   (sizeof(void*) == 8 ?   SkAlign8(x) :   SkAlign4(x))
 #define SkIsAlignPtr(x) (sizeof(void*) == 8 ? SkIsAlign8(x) : SkIsAlign4(x))
 
@@ -346,13 +342,15 @@ typedef uint32_t SkFourByteTag;
 /** 32 bit integer to hold a unicode value
 */
 typedef int32_t SkUnichar;
-/** 32 bit value to hold a millisecond count
-*/
+
+/** 32 bit value to hold a millisecond duration
+ *  Note that SK_MSecMax is about 25 days.
+ */
 typedef uint32_t SkMSec;
 /** 1 second measured in milliseconds
 */
 #define SK_MSec1 1000
-/** maximum representable milliseconds
+/** maximum representable milliseconds; 24d 20h 31m 23.647s.
 */
 #define SK_MSecMax 0x7FFFFFFF
 /** Returns a < b for milliseconds, correctly handling wrap-around from 0xFFFFFFFF to 0
@@ -511,12 +509,12 @@ public:
         internal reference to null. Note the caller is reponsible for calling
         sk_free on the returned address.
     */
-    void* detach() { return this->set(NULL); }
+    void* release() { return this->set(NULL); }
 
     /** Free the current buffer, and set the internal reference to NULL. Same
-        as calling sk_free(detach())
+        as calling sk_free(release())
     */
-    void free() {
+    void reset() {
         sk_free(fPtr);
         fPtr = NULL;
     }
@@ -532,7 +530,7 @@ private:
 /**
  *  Manage an allocated block of heap memory. This object is the sole manager of
  *  the lifetime of the block, so the caller must not call sk_free() or delete
- *  on the block, unless detach() was called.
+ *  on the block, unless release() was called.
  */
 class SkAutoMalloc : SkNoncopyable {
 public:
@@ -568,7 +566,7 @@ public:
     /**
      *  Reallocates the block to a new size. The ptr may or may not change.
      */
-    void* reset(size_t size, OnShrink shrink = kAlloc_OnShrink,  bool* didChangeAlloc = NULL) {
+    void* reset(size_t size = 0, OnShrink shrink = kAlloc_OnShrink,  bool* didChangeAlloc = NULL) {
         if (size == fSize || (kReuse_OnShrink == shrink && size < fSize)) {
             if (didChangeAlloc) {
                 *didChangeAlloc = false;
@@ -587,13 +585,6 @@ public:
     }
 
     /**
-     *  Releases the block back to the heap
-     */
-    void free() {
-        this->reset(0);
-    }
-
-    /**
      *  Return the allocated block.
      */
     void* get() { return fPtr; }
@@ -603,7 +594,7 @@ public:
        internal reference to null. Note the caller is reponsible for calling
        sk_free on the returned address.
     */
-    void* detach() {
+    void* release() {
         void* ptr = fPtr;
         fPtr = NULL;
         fSize = 0;

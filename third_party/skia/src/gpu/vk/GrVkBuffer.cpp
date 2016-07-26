@@ -57,14 +57,23 @@ const GrVkBuffer::Resource* GrVkBuffer::Create(const GrVkGpu* gpu, const Desc& d
     }
 
     VkMemoryPropertyFlags requiredMemProps = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-                                             VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+                                             VK_MEMORY_PROPERTY_HOST_COHERENT_BIT |
+                                             VK_MEMORY_PROPERTY_HOST_CACHED_BIT;
 
     if (!GrVkMemory::AllocAndBindBufferMemory(gpu,
                                               buffer,
                                               requiredMemProps,
                                               &alloc)) {
-        VK_CALL(gpu, DestroyBuffer(gpu->device(), buffer, nullptr));
-        return nullptr;
+        // Try again without requiring host cached memory
+        requiredMemProps = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                           VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+        if (!GrVkMemory::AllocAndBindBufferMemory(gpu,
+                                                  buffer,
+                                                  requiredMemProps,
+                                                  &alloc)) {
+            VK_CALL(gpu, DestroyBuffer(gpu->device(), buffer, nullptr));
+            return nullptr;
+        }
     }
 
     const GrVkBuffer::Resource* resource = new GrVkBuffer::Resource(buffer, alloc);
@@ -125,6 +134,12 @@ void* GrVkBuffer::vkMap(const GrVkGpu* gpu) {
     VALIDATE();
     SkASSERT(!this->vkIsMapped());
 
+    if (!fResource->unique()) {
+        // in use by the command buffer, so we need to create a new one
+        fResource->unref(gpu);
+        fResource = Create(gpu, fDesc);
+    }
+
     VkResult err = VK_CALL(gpu, MapMemory(gpu->device(), alloc(), 0, VK_WHOLE_SIZE, 0, &fMapPtr));
     if (err) {
         fMapPtr = nullptr;
@@ -155,6 +170,12 @@ bool GrVkBuffer::vkUpdateData(const GrVkGpu* gpu, const void* src, size_t srcSiz
         return false;
     }
 
+    if (!fResource->unique()) {
+        // in use by the command buffer, so we need to create a new one
+        fResource->unref(gpu);
+        fResource = Create(gpu, fDesc);
+    }
+
     void* mapPtr;
     VkResult err = VK_CALL(gpu, MapMemory(gpu->device(), alloc(), 0, srcSizeInBytes, 0, &mapPtr));
 
@@ -174,4 +195,3 @@ void GrVkBuffer::validate() const {
              || kCopyRead_Type == fDesc.fType || kCopyWrite_Type == fDesc.fType
              || kUniform_Type == fDesc.fType);
 }
-

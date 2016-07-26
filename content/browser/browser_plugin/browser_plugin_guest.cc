@@ -21,6 +21,7 @@
 #include "content/browser/compositor/surface_utils.h"
 #include "content/browser/frame_host/render_frame_host_impl.h"
 #include "content/browser/frame_host/render_frame_proxy_host.h"
+#include "content/browser/frame_host/render_widget_host_view_child_frame.h"
 #include "content/browser/frame_host/render_widget_host_view_guest.h"
 #include "content/browser/loader/resource_dispatcher_host_impl.h"
 #include "content/browser/renderer_host/render_view_host_impl.h"
@@ -119,9 +120,9 @@ int BrowserPluginGuest::GetGuestProxyRoutingID() {
   if (guest_proxy_routing_id_ != MSG_ROUTING_NONE)
     return guest_proxy_routing_id_;
 
-  // Create a swapped out RenderView for the guest in the embedder renderer
+  // Create a RenderFrameProxyHost for the guest in the embedder renderer
   // process, so that the embedder can access the guest's window object.
-  // On reattachment, we can reuse the same swapped out RenderView because
+  // On reattachment, we can reuse the same RenderFrameProxyHost because
   // the embedder process will always be the same even if the embedder
   // WebContents changes.
   //
@@ -130,17 +131,12 @@ int BrowserPluginGuest::GetGuestProxyRoutingID() {
   // |guest_proxy_routing_id_| and perform any necessary cleanup on Detach
   // to enable this.
   SiteInstance* owner_site_instance = owner_web_contents_->GetSiteInstance();
-  if (SiteIsolationPolicy::IsSwappedOutStateForbidden()) {
-    int proxy_routing_id =
-        GetWebContents()->GetFrameTree()->root()->render_manager()->
-            CreateRenderFrameProxy(owner_site_instance);
-    guest_proxy_routing_id_ = RenderFrameProxyHost::FromID(
-        owner_site_instance->GetProcess()->GetID(), proxy_routing_id)
-            ->GetRenderViewHost()->GetRoutingID();
-  } else {
-    guest_proxy_routing_id_ =
-        GetWebContents()->CreateSwappedOutRenderView(owner_site_instance);
-  }
+  int proxy_routing_id =
+      GetWebContents()->GetFrameTree()->root()->render_manager()->
+          CreateRenderFrameProxy(owner_site_instance);
+  guest_proxy_routing_id_ = RenderFrameProxyHost::FromID(
+      owner_site_instance->GetProcess()->GetID(), proxy_routing_id)
+          ->GetRenderViewHost()->GetRoutingID();
 
   return guest_proxy_routing_id_;
 }
@@ -744,12 +740,10 @@ void BrowserPluginGuest::Attach(
 void BrowserPluginGuest::OnWillAttachComplete(
     WebContentsImpl* embedder_web_contents,
     const BrowserPluginHostMsg_Attach_Params& params) {
-  bool use_cross_process_frames =
-      BrowserPluginGuestMode::UseCrossProcessFramesForGuests();
   // If a RenderView has already been created for this new window, then we need
   // to initialize the browser-side state now so that the RenderFrameHostManager
   // does not create a new RenderView on navigation.
-  if (!use_cross_process_frames && has_render_view_) {
+  if (has_render_view_) {
     // This will trigger a callback to RenderViewReady after a round-trip IPC.
     static_cast<RenderViewHostImpl*>(GetWebContents()->GetRenderViewHost())
         ->GetWidget()
@@ -773,9 +767,7 @@ void BrowserPluginGuest::OnWillAttachComplete(
   RenderWidgetHostViewGuest* rwhv = static_cast<RenderWidgetHostViewGuest*>(
       web_contents()->GetRenderWidgetHostView());
   rwhv->RegisterSurfaceNamespaceId();
-
-  if (!use_cross_process_frames)
-    has_render_view_ = true;
+  has_render_view_ = true;
 
   RecordAction(base::UserMetricsAction("BrowserPlugin.Guest.Attached"));
 }
@@ -788,8 +780,9 @@ void BrowserPluginGuest::OnDetach(int browser_plugin_instance_id) {
   // it's attached again.
   attached_ = false;
 
-  RenderWidgetHostViewGuest* rwhv = static_cast<RenderWidgetHostViewGuest*>(
-       web_contents()->GetRenderWidgetHostView());
+  RenderWidgetHostViewChildFrame* rwhv =
+      static_cast<RenderWidgetHostViewChildFrame*>(
+          web_contents()->GetRenderWidgetHostView());
   // If the guest is terminated, our host may already be gone.
   if (rwhv)
     rwhv->UnregisterSurfaceNamespaceId();
@@ -949,10 +942,7 @@ void BrowserPluginGuest::OnUpdateGeometry(int browser_plugin_instance_id,
   // The plugin has moved within the embedder without resizing or the
   // embedder/container's view rect changing.
   guest_window_rect_ = view_rect;
-  RenderWidgetHostImpl* rwh = RenderWidgetHostImpl::From(
-      GetWebContents()->GetRenderViewHost()->GetWidget());
-  if (rwh)
-    rwh->SendScreenRects();
+  GetWebContents()->SendScreenRects();
 }
 
 void BrowserPluginGuest::OnHasTouchEventHandlers(bool accept) {

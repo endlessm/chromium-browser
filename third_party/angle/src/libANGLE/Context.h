@@ -10,6 +10,10 @@
 #ifndef LIBANGLE_CONTEXT_H_
 #define LIBANGLE_CONTEXT_H_
 
+#include <set>
+#include <string>
+
+#include "angle_gl.h"
 #include "common/angleutils.h"
 #include "libANGLE/RefCountObject.h"
 #include "libANGLE/Caps.h"
@@ -19,12 +23,6 @@
 #include "libANGLE/HandleAllocator.h"
 #include "libANGLE/VertexAttribute.h"
 #include "libANGLE/angletypes.h"
-
-#include "angle_gl.h"
-
-#include <string>
-#include <set>
-#include <map>
 
 namespace rx
 {
@@ -108,24 +106,30 @@ class Context final : public ValidationContext
     GLuint createVertexArray();
     void deleteVertexArray(GLuint vertexArray);
 
-    void bindArrayBuffer(GLuint buffer);
-    void bindElementArrayBuffer(GLuint buffer);
+    void bindArrayBuffer(GLuint bufferHandle);
+    void bindElementArrayBuffer(GLuint bufferHandle);
     void bindTexture(GLenum target, GLuint handle);
     void bindReadFramebuffer(GLuint framebufferHandle);
     void bindDrawFramebuffer(GLuint framebufferHandle);
-    void bindRenderbuffer(GLuint renderbuffer);
-    void bindVertexArray(GLuint vertexArray);
-    void bindSampler(GLuint textureUnit, GLuint sampler);
-    void bindGenericUniformBuffer(GLuint buffer);
-    void bindIndexedUniformBuffer(GLuint buffer, GLuint index, GLintptr offset, GLsizeiptr size);
-    void bindGenericTransformFeedbackBuffer(GLuint buffer);
-    void bindIndexedTransformFeedbackBuffer(GLuint buffer, GLuint index, GLintptr offset, GLsizeiptr size);
-    void bindCopyReadBuffer(GLuint buffer);
-    void bindCopyWriteBuffer(GLuint buffer);
-    void bindPixelPackBuffer(GLuint buffer);
-    void bindPixelUnpackBuffer(GLuint buffer);
+    void bindRenderbuffer(GLuint renderbufferHandle);
+    void bindVertexArray(GLuint vertexArrayHandle);
+    void bindSampler(GLuint textureUnit, GLuint samplerHandle);
+    void bindGenericUniformBuffer(GLuint bufferHandle);
+    void bindIndexedUniformBuffer(GLuint bufferHandle,
+                                  GLuint index,
+                                  GLintptr offset,
+                                  GLsizeiptr size);
+    void bindGenericTransformFeedbackBuffer(GLuint bufferHandle);
+    void bindIndexedTransformFeedbackBuffer(GLuint bufferHandle,
+                                            GLuint index,
+                                            GLintptr offset,
+                                            GLsizeiptr size);
+    void bindCopyReadBuffer(GLuint bufferHandle);
+    void bindCopyWriteBuffer(GLuint bufferHandle);
+    void bindPixelPackBuffer(GLuint bufferHandle);
+    void bindPixelUnpackBuffer(GLuint bufferHandle);
     void useProgram(GLuint program);
-    void bindTransformFeedback(GLuint transformFeedback);
+    void bindTransformFeedback(GLuint transformFeedbackHandle);
 
     Error beginQuery(GLenum target, GLuint query);
     Error endQuery(GLenum target);
@@ -142,6 +146,8 @@ class Context final : public ValidationContext
     void samplerParameterf(GLuint sampler, GLenum pname, GLfloat param);
     GLint getSamplerParameteri(GLuint sampler, GLenum pname);
     GLfloat getSamplerParameterf(GLuint sampler, GLenum pname);
+
+    void programParameteri(GLuint program, GLenum pname, GLint value);
 
     Buffer *getBuffer(GLuint handle) const;
     FenceNV *getFenceNV(GLuint handle);
@@ -366,6 +372,16 @@ class Context final : public ValidationContext
     Error flush();
     Error finish();
 
+    void getBufferPointerv(GLenum target, GLenum pname, void **params);
+    GLvoid *mapBuffer(GLenum target, GLenum access);
+    GLboolean unmapBuffer(GLenum target);
+    GLvoid *mapBufferRange(GLenum target, GLintptr offset, GLsizeiptr length, GLbitfield access);
+    void flushMappedBufferRange(GLenum target, GLintptr offset, GLsizeiptr length);
+
+    void beginTransformFeedback(GLenum primitiveMode);
+
+    bool hasActiveTransformFeedback(GLuint program) const;
+
     void insertEventMarker(GLsizei length, const char *marker);
     void pushGroupMarker(GLsizei length, const char *marker);
     void popGroupMarker();
@@ -397,8 +413,8 @@ class Context final : public ValidationContext
     void syncStateForTexImage();
     void syncStateForClear();
     void syncStateForBlit();
-    void checkVertexArrayAllocation(GLuint vertexArray);
-    void checkTransformFeedbackAllocation(GLuint transformFeedback);
+    VertexArray *checkVertexArrayAllocation(GLuint vertexArrayHandle);
+    TransformFeedback *checkTransformFeedbackAllocation(GLuint transformFeedback);
     Framebuffer *checkFramebufferAllocation(GLuint framebufferHandle);
 
     void detachBuffer(GLuint buffer);
@@ -433,24 +449,19 @@ class Context final : public ValidationContext
 
     TextureMap mZeroTextures;
 
-    typedef std::map<GLuint, Framebuffer*> FramebufferMap;
-    FramebufferMap mFramebufferMap;
+    ResourceMap<Framebuffer> mFramebufferMap;
     HandleAllocator mFramebufferHandleAllocator;
 
-    typedef std::map<GLuint, FenceNV*> FenceNVMap;
-    FenceNVMap mFenceNVMap;
+    ResourceMap<FenceNV> mFenceNVMap;
     HandleAllocator mFenceNVHandleAllocator;
 
-    typedef std::map<GLuint, Query*> QueryMap;
-    QueryMap mQueryMap;
+    ResourceMap<Query> mQueryMap;
     HandleAllocator mQueryHandleAllocator;
 
-    typedef std::map<GLuint, VertexArray*> VertexArrayMap;
-    VertexArrayMap mVertexArrayMap;
+    ResourceMap<VertexArray> mVertexArrayMap;
     HandleAllocator mVertexArrayHandleAllocator;
 
-    typedef std::map<GLuint, TransformFeedback*> TransformFeedbackMap;
-    TransformFeedbackMap mTransformFeedbackMap;
+    ResourceMap<TransformFeedback> mTransformFeedbackMap;
     HandleAllocator mTransformFeedbackAllocator;
 
     std::string mRendererString;

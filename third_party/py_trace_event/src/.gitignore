@@ -1,0 +1,5 @@
+*.pyc
+\#*#
+.#*
+*.swp
+third_party/chrome

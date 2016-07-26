@@ -50,7 +50,6 @@
         '<(skia_src_path)/utils/SkDumpCanvas.cpp',
         '<(skia_src_path)/utils/SkEventTracer.cpp',
         '<(skia_src_path)/utils/SkFloatUtils.h',
-        '<(skia_src_path)/utils/SkImageGeneratorUtils.cpp',
         '<(skia_src_path)/utils/SkInterpolator.cpp',
         '<(skia_src_path)/utils/SkLayer.cpp',
         '<(skia_src_path)/utils/SkMatrix22.cpp',
@@ -90,7 +89,6 @@
         '<(skia_src_path)/utils/SkThreadUtils_pthread.h',
         '<(skia_src_path)/utils/SkThreadUtils_win.cpp',
         '<(skia_src_path)/utils/SkThreadUtils_win.h',
-        '<(skia_src_path)/utils/SkTFitsIn.h',
         '<(skia_src_path)/utils/SkWhitelistTypefaces.cpp',
 
         #mac

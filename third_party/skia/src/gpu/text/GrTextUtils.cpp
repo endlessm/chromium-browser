@@ -40,7 +40,7 @@ static const int kLargeDFFontLimit = 2 * kLargeDFFontSize;
 void GrTextUtils::DrawBmpText(GrAtlasTextBlob* blob, int runIndex,
                               GrBatchFontCache* fontCache,
                               const SkSurfaceProps& props, const SkPaint& skPaint,
-                              GrColor color,
+                              GrColor color, SkPaint::FakeGamma fakeGamma,
                               const SkMatrix& viewMatrix,
                               const char text[], size_t byteLength,
                               SkScalar x, SkScalar y) {
@@ -57,7 +57,7 @@ void GrTextUtils::DrawBmpText(GrAtlasTextBlob* blob, int runIndex,
     GrBatchTextStrike* currStrike = nullptr;
 
     // Get GrFontScaler from cache
-    SkGlyphCache* cache = blob->setupCache(runIndex, props, SkPaint::FakeGamma::On,
+    SkGlyphCache* cache = blob->setupCache(runIndex, props, fakeGamma,
                                            skPaint, &viewMatrix);
     GrFontScaler* fontScaler = GrTextUtils::GetGrFontScaler(cache);
 
@@ -80,7 +80,7 @@ void GrTextUtils::DrawBmpText(GrAtlasTextBlob* blob, int runIndex,
 void GrTextUtils::DrawBmpPosText(GrAtlasTextBlob* blob, int runIndex,
                                  GrBatchFontCache* fontCache,
                                  const SkSurfaceProps& props, const SkPaint& skPaint,
-                                 GrColor color,
+                                 GrColor color, SkPaint::FakeGamma fakeGamma,
                                  const SkMatrix& viewMatrix,
                                  const char text[], size_t byteLength,
                                  const SkScalar pos[], int scalarsPerPosition,
@@ -99,7 +99,7 @@ void GrTextUtils::DrawBmpPosText(GrAtlasTextBlob* blob, int runIndex,
     GrBatchTextStrike* currStrike = nullptr;
 
     // Get GrFontScaler from cache
-    SkGlyphCache* cache = blob->setupCache(runIndex, props, SkPaint::FakeGamma::On,
+    SkGlyphCache* cache = blob->setupCache(runIndex, props, fakeGamma,
                                            skPaint, &viewMatrix);
     GrFontScaler* fontScaler = GrTextUtils::GetGrFontScaler(cache);
 
@@ -247,7 +247,7 @@ void GrTextUtils::InitDistanceFieldPaint(GrAtlasTextBlob* blob,
 
 void GrTextUtils::DrawDFText(GrAtlasTextBlob* blob, int runIndex,
                              GrBatchFontCache* fontCache, const SkSurfaceProps& props,
-                             const SkPaint& skPaint, GrColor color,
+                             const SkPaint& skPaint, GrColor color, SkPaint::FakeGamma fakeGamma,
                              const SkMatrix& viewMatrix,
                              const char text[], size_t byteLength,
                              SkScalar x, SkScalar y) {
@@ -260,6 +260,8 @@ void GrTextUtils::DrawDFText(GrAtlasTextBlob* blob, int runIndex,
 
     SkPaint::GlyphCacheProc glyphCacheProc = skPaint.getGlyphCacheProc(true);
     SkAutoDescriptor desc;
+    // We apply the fake-gamma by altering the distance in the shader, so we ignore the
+    // fakeGamma parameter. (It's only used when we fall-back to bitmap text).
     skPaint.getScalerContextDescriptor(&desc, props, SkPaint::FakeGamma::Off, nullptr);
     SkGlyphCache* origPaintCache = SkGlyphCache::DetachCache(skPaint.getTypeface(),
                                                              desc.getDesc());
@@ -267,12 +269,12 @@ void GrTextUtils::DrawDFText(GrAtlasTextBlob* blob, int runIndex,
     SkTArray<SkScalar> positions;
 
     const char* textPtr = text;
-    SkFixed stopX = 0;
-    SkFixed stopY = 0;
-    SkFixed origin = 0;
+    SkScalar stopX = 0;
+    SkScalar stopY = 0;
+    SkScalar origin = 0;
     switch (skPaint.getTextAlign()) {
-        case SkPaint::kRight_Align: origin = SK_Fixed1; break;
-        case SkPaint::kCenter_Align: origin = SK_FixedHalf; break;
+        case SkPaint::kRight_Align: origin = SK_Scalar1; break;
+        case SkPaint::kCenter_Align: origin = SK_ScalarHalf; break;
         case SkPaint::kLeft_Align: origin = 0; break;
     }
 
@@ -283,11 +285,11 @@ void GrTextUtils::DrawDFText(GrAtlasTextBlob* blob, int runIndex,
         // same advance
         const SkGlyph& glyph = glyphCacheProc(origPaintCache, &textPtr);
 
-        SkFixed width = glyph.fAdvanceX + autokern.adjust(glyph);
-        positions.push_back(SkFixedToScalar(stopX + SkFixedMul(origin, width)));
+        SkScalar width = SkFloatToScalar(glyph.fAdvanceX) + autokern.adjust(glyph);
+        positions.push_back(stopX + origin * width);
 
-        SkFixed height = glyph.fAdvanceY;
-        positions.push_back(SkFixedToScalar(stopY + SkFixedMul(origin, height)));
+        SkScalar height = SkFloatToScalar(glyph.fAdvanceY);
+        positions.push_back(stopY + origin * height);
 
         stopX += width;
         stopY += height;
@@ -297,8 +299,8 @@ void GrTextUtils::DrawDFText(GrAtlasTextBlob* blob, int runIndex,
     SkGlyphCache::AttachCache(origPaintCache);
 
     // now adjust starting point depending on alignment
-    SkScalar alignX = SkFixedToScalar(stopX);
-    SkScalar alignY = SkFixedToScalar(stopY);
+    SkScalar alignX = stopX;
+    SkScalar alignY = stopY;
     if (skPaint.getTextAlign() == SkPaint::kCenter_Align) {
         alignX = SkScalarHalf(alignX);
         alignY = SkScalarHalf(alignY);
@@ -310,14 +312,15 @@ void GrTextUtils::DrawDFText(GrAtlasTextBlob* blob, int runIndex,
     y -= alignY;
     SkPoint offset = SkPoint::Make(x, y);
 
-    DrawDFPosText(blob, runIndex, fontCache, props, skPaint, color, viewMatrix, text, byteLength,
-                  positions.begin(), 2, offset);
+    DrawDFPosText(blob, runIndex, fontCache, props, skPaint, color, fakeGamma, viewMatrix,
+                  text, byteLength, positions.begin(), 2, offset);
 }
 
 void GrTextUtils::DrawDFPosText(GrAtlasTextBlob* blob, int runIndex,
                                 GrBatchFontCache* fontCache, const SkSurfaceProps& props,
                                 const SkPaint& origPaint,
-                                GrColor color, const SkMatrix& viewMatrix,
+                                GrColor color, SkPaint::FakeGamma fakeGamma,
+                                const SkMatrix& viewMatrix,
                                 const char text[], size_t byteLength,
                                 const SkScalar pos[], int scalarsPerPosition,
                                 const SkPoint& offset) {
@@ -341,6 +344,8 @@ void GrTextUtils::DrawDFPosText(GrAtlasTextBlob* blob, int runIndex,
 
     GrBatchTextStrike* currStrike = nullptr;
 
+    // We apply the fake-gamma by altering the distance in the shader, so we ignore the
+    // fakeGamma parameter. (It's only used when we fall-back to bitmap text).
     SkGlyphCache* cache = blob->setupCache(runIndex, props, SkPaint::FakeGamma::Off,
                                            dfPaint, nullptr);
     SkPaint::GlyphCacheProc glyphCacheProc = dfPaint.getGlyphCacheProc(true);
@@ -387,8 +392,8 @@ void GrTextUtils::DrawDFPosText(GrAtlasTextBlob* blob, int runIndex,
                 SkScalar x = offset.x() + pos[0];
                 SkScalar y = offset.y() + (2 == scalarsPerPosition ? pos[1] : 0);
 
-                SkScalar advanceX = SkFixedToScalar(glyph.fAdvanceX) * alignMul * textRatio;
-                SkScalar advanceY = SkFixedToScalar(glyph.fAdvanceY) * alignMul * textRatio;
+                SkScalar advanceX = SkFloatToScalar(glyph.fAdvanceX) * alignMul * textRatio;
+                SkScalar advanceY = SkFloatToScalar(glyph.fAdvanceY) * alignMul * textRatio;
 
                 if (!DfAppendGlyph(blob,
                                    runIndex,
@@ -415,7 +420,7 @@ void GrTextUtils::DrawDFPosText(GrAtlasTextBlob* blob, int runIndex,
     if (fallbackTxt.count()) {
         blob->initOverride(runIndex);
         GrTextUtils::DrawBmpPosText(blob, runIndex, fontCache, props,
-                                    origPaint, origPaint.getColor(), viewMatrix,
+                                    origPaint, origPaint.getColor(), fakeGamma, viewMatrix,
                                     fallbackTxt.begin(), fallbackTxt.count(),
                                     fallbackPos.begin(), scalarsPerPosition, offset);
     }
@@ -517,7 +522,7 @@ void GrTextUtils::DrawPosTextAsPath(GrContext* context,
 
     // Now restore the original settings, so we "draw" with whatever style/stroking.
     paint.setStyle(origPaint.getStyle());
-    paint.setPathEffect(origPaint.getPathEffect());
+    paint.setPathEffect(sk_ref_sp(origPaint.getPathEffect()));
 
     while (text < stop) {
         const SkGlyph& glyph = glyphCacheProc(cache, &text);

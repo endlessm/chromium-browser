@@ -37,6 +37,9 @@ var (
 	numWorkers      = flag.Int("num-workers", runtime.NumCPU(), "The number of workers to run in parallel.")
 	shimPath        = flag.String("shim-path", "../../../build/ssl/test/bssl_shim", "The location of the shim binary.")
 	resourceDir     = flag.String("resource-dir", ".", "The directory in which to find certificate and key files.")
+	fuzzer          = flag.Bool("fuzzer", false, "If true, tests against a BoringSSL built in fuzzer mode.")
+	transcriptDir   = flag.String("transcript-dir", "", "The directory in which to write transcripts.")
+	timeout         = flag.Int("timeout", 15, "The number of seconds to wait for a read or write to bssl_shim.")
 )
 
 const (
@@ -244,15 +247,68 @@ type testCase struct {
 
 var testCases []testCase
 
+func writeTranscript(test *testCase, isResume bool, data []byte) {
+	if len(data) == 0 {
+		return
+	}
+
+	protocol := "tls"
+	if test.protocol == dtls {
+		protocol = "dtls"
+	}
+
+	side := "client"
+	if test.testType == serverTest {
+		side = "server"
+	}
+
+	dir := path.Join(*transcriptDir, protocol, side)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		fmt.Fprintf(os.Stderr, "Error making %s: %s\n", dir, err)
+		return
+	}
+
+	name := test.name
+	if isResume {
+		name += "-Resume"
+	} else {
+		name += "-Normal"
+	}
+
+	if err := ioutil.WriteFile(path.Join(dir, name), data, 0644); err != nil {
+		fmt.Fprintf(os.Stderr, "Error writing %s: %s\n", name, err)
+	}
+}
+
+// A timeoutConn implements an idle timeout on each Read and Write operation.
+type timeoutConn struct {
+	net.Conn
+	timeout time.Duration
+}
+
+func (t *timeoutConn) Read(b []byte) (int, error) {
+	if err := t.SetReadDeadline(time.Now().Add(t.timeout)); err != nil {
+		return 0, err
+	}
+	return t.Conn.Read(b)
+}
+
+func (t *timeoutConn) Write(b []byte) (int, error) {
+	if err := t.SetWriteDeadline(time.Now().Add(t.timeout)); err != nil {
+		return 0, err
+	}
+	return t.Conn.Write(b)
+}
+
 func doExchange(test *testCase, config *Config, conn net.Conn, isResume bool) error {
-	var connDamage *damageAdaptor
+	conn = &timeoutConn{conn, time.Duration(*timeout) * time.Second}
 
 	if test.protocol == dtls {
 		config.Bugs.PacketAdaptor = newPacketAdaptor(conn)
 		conn = config.Bugs.PacketAdaptor
 	}
 
-	if *flagDebug {
+	if *flagDebug || len(*transcriptDir) != 0 {
 		local, peer := "client", "server"
 		if test.testType == clientTest {
 			local, peer = peer, local
@@ -264,9 +320,14 @@ func doExchange(test *testCase, config *Config, conn net.Conn, isResume bool) er
 			peer:       peer,
 		}
 		conn = connDebug
-		defer func() {
-			connDebug.WriteTo(os.Stdout)
-		}()
+		if *flagDebug {
+			defer connDebug.WriteTo(os.Stdout)
+		}
+		if len(*transcriptDir) != 0 {
+			defer func() {
+				writeTranscript(test, isResume, connDebug.Transcript())
+			}()
+		}
 
 		if config.Bugs.PacketAdaptor != nil {
 			config.Bugs.PacketAdaptor.debug = connDebug
@@ -277,6 +338,7 @@ func doExchange(test *testCase, config *Config, conn net.Conn, isResume bool) er
 		conn = newReplayAdaptor(conn)
 	}
 
+	var connDamage *damageAdaptor
 	if test.damageFirstWrite {
 		connDamage = newDamageAdaptor(conn)
 		conn = connDamage
@@ -686,6 +748,9 @@ func runTest(test *testCase, shimPath string, mallocNumToFail int64) error {
 			config.ServerName = "test"
 		}
 	}
+	if *fuzzer {
+		config.Bugs.NullAllCiphers = true
+	}
 
 	conn, err := acceptOrWait(listener, waitChan)
 	if err == nil {
@@ -713,6 +778,9 @@ func runTest(test *testCase, shimPath string, mallocNumToFail int64) error {
 				resumeConfig.ClientSessionCache = config.ClientSessionCache
 				resumeConfig.ServerSessionCache = config.ServerSessionCache
 			}
+			if *fuzzer {
+				resumeConfig.Bugs.NullAllCiphers = true
+			}
 		} else {
 			resumeConfig = config
 		}
@@ -736,8 +804,18 @@ func runTest(test *testCase, shimPath string, mallocNumToFail int64) error {
 		}
 	}
 
-	stdout := string(stdoutBuf.Bytes())
-	stderr := string(stderrBuf.Bytes())
+	// Account for Windows line endings.
+	stdout := strings.Replace(string(stdoutBuf.Bytes()), "\r\n", "\n", -1)
+	stderr := strings.Replace(string(stderrBuf.Bytes()), "\r\n", "\n", -1)
+
+	// Separate the errors from the shim and those from tools like
+	// AddressSanitizer.
+	var extraStderr string
+	if stderrParts := strings.SplitN(stderr, "--- DONE ---\n", 2); len(stderrParts) == 2 {
+		stderr = stderrParts[0]
+		extraStderr = stderrParts[1]
+	}
+
 	failed := err != nil || childErr != nil
 	correctFailure := len(test.expectedError) == 0 || strings.Contains(stderr, test.expectedError)
 	localError := "none"
@@ -769,8 +847,8 @@ func runTest(test *testCase, shimPath string, mallocNumToFail int64) error {
 		return fmt.Errorf("%s: local error '%s', child error '%s', stdout:\n%s\nstderr:\n%s", msg, localError, childError, stdout, stderr)
 	}
 
-	if !*useValgrind && !failed && len(stderr) > 0 {
-		println(stderr)
+	if !*useValgrind && (len(extraStderr) > 0 || (!failed && len(stderr) > 0)) {
+		return fmt.Errorf("unexpected error output:\n%s\n%s", stderr, extraStderr)
 	}
 
 	return nil
@@ -1708,7 +1786,18 @@ func addBasicTests() {
 			expectedError: ":WRONG_CURVE:",
 		},
 		{
-			name: "BadFinished",
+			name: "BadFinished-Client",
+			config: Config{
+				Bugs: ProtocolBugs{
+					BadFinished: true,
+				},
+			},
+			shouldFail:    true,
+			expectedError: ":DIGEST_CHECK_FAILED:",
+		},
+		{
+			testType: serverTest,
+			name:     "BadFinished-Server",
 			config: Config{
 				Bugs: ProtocolBugs{
 					BadFinished: true,
@@ -2097,6 +2186,31 @@ func addBasicTests() {
 			resumeConfig:  &Config{},
 			resumeSession: true,
 		},
+		{
+			name: "InvalidECDHPoint-Client",
+			config: Config{
+				CipherSuites:     []uint16{TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256},
+				CurvePreferences: []CurveID{CurveP256},
+				Bugs: ProtocolBugs{
+					InvalidECDHPoint: true,
+				},
+			},
+			shouldFail:    true,
+			expectedError: ":INVALID_ENCODING:",
+		},
+		{
+			testType: serverTest,
+			name:     "InvalidECDHPoint-Server",
+			config: Config{
+				CipherSuites:     []uint16{TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256},
+				CurvePreferences: []CurveID{CurveP256},
+				Bugs: ProtocolBugs{
+					InvalidECDHPoint: true,
+				},
+			},
+			shouldFail:    true,
+			expectedError: ":INVALID_ENCODING:",
+		},
 	}
 	testCases = append(testCases, basicTests...)
 }
@@ -2402,7 +2516,7 @@ func addBadECDSASignatureTests() {
 					},
 				},
 				shouldFail:    true,
-				expectedError: "SIGNATURE",
+				expectedError: ":BAD_SIGNATURE:",
 			})
 		}
 	}
@@ -2428,7 +2542,7 @@ func addCBCPaddingTests() {
 			},
 		},
 		shouldFail:    true,
-		expectedError: "DECRYPTION_FAILED_OR_BAD_RECORD_MAC",
+		expectedError: ":DECRYPTION_FAILED_OR_BAD_RECORD_MAC:",
 	})
 	// OpenSSL previously had an issue where the first byte of padding in
 	// 255 bytes of padding wasn't checked.
@@ -2443,7 +2557,7 @@ func addCBCPaddingTests() {
 		},
 		messageLen:    12, // 20 bytes of SHA-1 + 12 == 0 % block size
 		shouldFail:    true,
-		expectedError: "DECRYPTION_FAILED_OR_BAD_RECORD_MAC",
+		expectedError: ":DECRYPTION_FAILED_OR_BAD_RECORD_MAC:",
 	})
 }
 
@@ -2542,6 +2656,39 @@ func addClientAuthTests() {
 			})
 		}
 	}
+
+	testCases = append(testCases, testCase{
+		testType:      serverTest,
+		name:          "RequireAnyClientCertificate",
+		flags:         []string{"-require-any-client-certificate"},
+		shouldFail:    true,
+		expectedError: ":PEER_DID_NOT_RETURN_A_CERTIFICATE:",
+	})
+
+	testCases = append(testCases, testCase{
+		testType: serverTest,
+		name:     "RequireAnyClientCertificate-SSL3",
+		config: Config{
+			MaxVersion: VersionSSL30,
+		},
+		flags:         []string{"-require-any-client-certificate"},
+		shouldFail:    true,
+		expectedError: ":PEER_DID_NOT_RETURN_A_CERTIFICATE:",
+	})
+
+	testCases = append(testCases, testCase{
+		testType: serverTest,
+		name:     "SkipClientCertificate",
+		config: Config{
+			Bugs: ProtocolBugs{
+				SkipClientCertificate: true,
+			},
+		},
+		// Setting SSL_VERIFY_PEER allows anonymous clients.
+		flags:         []string{"-verify-peer"},
+		shouldFail:    true,
+		expectedError: ":UNEXPECTED_MESSAGE:",
+	})
 }
 
 func addExtendedMasterSecretTests() {
@@ -2745,6 +2892,46 @@ func addStateMachineCoverageTests(async, splitHandshake bool, protocol protocol)
 	// TLS client auth.
 	tests = append(tests, testCase{
 		testType: clientTest,
+		name:     "ClientAuth-NoCertificate-Client",
+		config: Config{
+			ClientAuth: RequestClientCert,
+		},
+	})
+	tests = append(tests, testCase{
+		testType: serverTest,
+		name:     "ClientAuth-NoCertificate-Server",
+		// Setting SSL_VERIFY_PEER allows anonymous clients.
+		flags: []string{"-verify-peer"},
+	})
+	if protocol == tls {
+		tests = append(tests, testCase{
+			testType: clientTest,
+			name:     "ClientAuth-NoCertificate-Client-SSL3",
+			config: Config{
+				MaxVersion: VersionSSL30,
+				ClientAuth: RequestClientCert,
+			},
+		})
+		tests = append(tests, testCase{
+			testType: serverTest,
+			name:     "ClientAuth-NoCertificate-Server-SSL3",
+			config: Config{
+				MaxVersion: VersionSSL30,
+			},
+			// Setting SSL_VERIFY_PEER allows anonymous clients.
+			flags: []string{"-verify-peer"},
+		})
+	}
+	tests = append(tests, testCase{
+		testType: clientTest,
+		name:     "ClientAuth-NoCertificate-OldCallback",
+		config: Config{
+			ClientAuth: RequestClientCert,
+		},
+		flags: []string{"-use-old-client-cert-callback"},
+	})
+	tests = append(tests, testCase{
+		testType: clientTest,
 		name:     "ClientAuth-RSA-Client",
 		config: Config{
 			ClientAuth: RequireAnyClientCert,
@@ -2765,6 +2952,19 @@ func addStateMachineCoverageTests(async, splitHandshake bool, protocol protocol)
 			"-key-file", path.Join(*resourceDir, ecdsaKeyFile),
 		},
 	})
+	tests = append(tests, testCase{
+		testType: clientTest,
+		name:     "ClientAuth-OldCallback",
+		config: Config{
+			ClientAuth: RequireAnyClientCert,
+		},
+		flags: []string{
+			"-cert-file", path.Join(*resourceDir, rsaCertificateFile),
+			"-key-file", path.Join(*resourceDir, rsaKeyFile),
+			"-use-old-client-cert-callback",
+		},
+	})
+
 	if async {
 		// Test async keys against each key exchange.
 		tests = append(tests, testCase{
@@ -3402,6 +3602,16 @@ func addExtensionTests() {
 		expectedNextProto:     "foo",
 		expectedNextProtoType: alpn,
 		resumeSession:         true,
+	})
+	testCases = append(testCases, testCase{
+		testType: serverTest,
+		name:     "ALPNServer-Decline",
+		config: Config{
+			NextProtos: []string{"foo", "bar", "baz"},
+		},
+		flags:             []string{"-decline-alpn"},
+		expectNoNextProto: true,
+		resumeSession:     true,
 	})
 	// Test that the server prefers ALPN over NPN.
 	testCases = append(testCases, testCase{
@@ -4877,10 +5087,16 @@ func main() {
 		go worker(statusChan, testChan, *shimPath, &wg)
 	}
 
+	var foundTest bool
 	for i := range testCases {
 		if len(*testToRun) == 0 || *testToRun == testCases[i].name {
+			foundTest = true
 			testChan <- &testCases[i]
 		}
+	}
+	if !foundTest {
+		fmt.Fprintf(os.Stderr, "No test named '%s'\n", *testToRun)
+		os.Exit(1)
 	}
 
 	close(testChan)

@@ -15,6 +15,8 @@
 #include "base/i18n/rtl.h"
 #include "base/location.h"
 #include "base/macros.h"
+#include "base/memory/ptr_util.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/metrics/histogram.h"
 #include "base/single_thread_task_runner.h"
 #include "base/strings/string_util.h"
@@ -87,6 +89,7 @@
 #include "ui/gfx/canvas.h"
 #include "ui/gfx/color_utils.h"
 #include "ui/gfx/favicon_size.h"
+#include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/paint_vector_icon.h"
 #include "ui/gfx/scoped_canvas.h"
 #include "ui/gfx/text_constants.h"
@@ -188,6 +191,12 @@ int GetHorizontalMargin() {
   return kHorizontalMargin[ui::MaterialDesignController::GetMode()];
 }
 
+gfx::Rect CalculateInkDropBounds(const gfx::Size& size) {
+  gfx::Rect ink_drop_bounds(size);
+  ink_drop_bounds.Inset(0, 1);
+  return ink_drop_bounds;
+}
+
 // BookmarkButtonBase -----------------------------------------------
 
 // Base class for non-menu hosting buttons used on the bookmark bar.
@@ -214,8 +223,9 @@ class BookmarkButtonBase : public views::LabelButton {
     return HitTestPoint(point) && CanProcessEventsWithinSubtree() ? this : NULL;
   }
 
-  scoped_ptr<LabelButtonBorder> CreateDefaultBorder() const override {
-    scoped_ptr<LabelButtonBorder> border = LabelButton::CreateDefaultBorder();
+  std::unique_ptr<LabelButtonBorder> CreateDefaultBorder() const override {
+    std::unique_ptr<LabelButtonBorder> border =
+        LabelButton::CreateDefaultBorder();
     border->set_insets(gfx::Insets(kButtonPaddingVertical,
                                    kButtonPaddingHorizontal,
                                    kButtonPaddingVertical,
@@ -231,24 +241,22 @@ class BookmarkButtonBase : public views::LabelButton {
 
   scoped_ptr<views::InkDropAnimation> CreateInkDropAnimation() const override {
     return make_scoped_ptr(new views::FloodFillInkDropAnimation(
-        size(), GetInkDropCenter(), GetInkDropBaseColor()));
+        CalculateInkDropBounds(size()), GetInkDropCenter(),
+        GetInkDropBaseColor()));
   }
 
   scoped_ptr<views::InkDropHover> CreateInkDropHover() const override {
     if (!ShouldShowInkDropHover())
       return nullptr;
+
+    const gfx::Rect bounds = CalculateInkDropBounds(size());
     return make_scoped_ptr(new views::InkDropHover(
-        size(), 0, GetInkDropCenter(), GetInkDropBaseColor()));
+        bounds.size(), 0, bounds.CenterPoint(), GetInkDropBaseColor()));
   }
 
   SkColor GetInkDropBaseColor() const override {
-    // TODO(bruthig): Inject the color instead of assuming a ThemeProvider is
-    // always available. Fall back on LabelButton::GetInkDropBaseColor() so as
-    // to avoid difficult to track down crashes.
-    return GetThemeProvider()
-               ? GetThemeProvider()->GetColor(
-                     ThemeProperties::COLOR_TOOLBAR_BUTTON_ICON)
-               : views::LabelButton::GetInkDropBaseColor();
+    return GetThemeProvider()->GetColor(
+        ThemeProperties::COLOR_TOOLBAR_BUTTON_ICON);
   }
 
  private:
@@ -280,7 +288,7 @@ class BookmarkButton : public BookmarkButtonBase {
     gfx::Point location(p);
     ConvertPointToScreen(this, &location);
     *tooltip = BookmarkBarView::CreateToolTipForURLAndTitle(
-        GetWidget(), location, url_, GetText(), profile_);
+        GetWidget(), location, url_, GetText());
     return !tooltip->empty();
   }
 
@@ -334,21 +342,22 @@ class BookmarkMenuButtonBase : public views::MenuButton {
 
   scoped_ptr<views::InkDropAnimation> CreateInkDropAnimation() const override {
     return make_scoped_ptr(new views::FloodFillInkDropAnimation(
-        size(), GetInkDropCenter(), GetInkDropBaseColor()));
+        CalculateInkDropBounds(size()), GetInkDropCenter(),
+        GetInkDropBaseColor()));
   }
 
   scoped_ptr<views::InkDropHover> CreateInkDropHover() const override {
     if (!ShouldShowInkDropHover())
       return nullptr;
+
+    const gfx::Rect bounds = CalculateInkDropBounds(size());
     return make_scoped_ptr(new views::InkDropHover(
-        size(), 0, GetInkDropCenter(), GetInkDropBaseColor()));
+        bounds.size(), 0, bounds.CenterPoint(), GetInkDropBaseColor()));
   }
 
   SkColor GetInkDropBaseColor() const override {
-    return GetThemeProvider()
-               ? GetThemeProvider()->GetColor(
-                     ThemeProperties::COLOR_TOOLBAR_BUTTON_ICON)
-               : views::LabelButton::GetInkDropBaseColor();
+    return GetThemeProvider()->GetColor(
+        ThemeProperties::COLOR_TOOLBAR_BUTTON_ICON);
   }
 
  private:
@@ -406,7 +415,7 @@ class BookmarkFolderButton : public BookmarkMenuButtonBase {
   }
 
  private:
-  scoped_ptr<gfx::SlideAnimation> show_animation_;
+  std::unique_ptr<gfx::SlideAnimation> show_animation_;
 
   DISALLOW_COPY_AND_ASSIGN(BookmarkFolderButton);
 };
@@ -516,9 +525,8 @@ void PaintVerticalDivider(gfx::Canvas* canvas,
                           SkColor bottom_color) {
   // Draw the upper half of the divider.
   SkPaint paint;
-  skia::RefPtr<SkShader> shader = gfx::CreateGradientShader(
-      vertical_padding + 1, height / 2, top_color, middle_color);
-  paint.setShader(shader.get());
+  paint.setShader(gfx::CreateGradientShader(
+      vertical_padding + 1, height / 2, top_color, middle_color));
   SkRect rc = { SkIntToScalar(x),
                 SkIntToScalar(vertical_padding + 1),
                 SkIntToScalar(x + 1),
@@ -527,9 +535,8 @@ void PaintVerticalDivider(gfx::Canvas* canvas,
 
   // Draw the lower half of the divider.
   SkPaint paint_down;
-  shader = gfx::CreateGradientShader(
-      height / 2, height - vertical_padding, middle_color, bottom_color);
-  paint_down.setShader(shader.get());
+  paint_down.setShader(gfx::CreateGradientShader(
+      height / 2, height - vertical_padding, middle_color, bottom_color));
   SkRect rc_down = { SkIntToScalar(x),
                      SkIntToScalar(height / 2),
                      SkIntToScalar(x + 1),
@@ -778,8 +785,7 @@ base::string16 BookmarkBarView::CreateToolTipForURLAndTitle(
     const views::Widget* widget,
     const gfx::Point& screen_loc,
     const GURL& url,
-    const base::string16& title,
-    Profile* profile) {
+    const base::string16& title) {
   const views::TooltipManager* tooltip_manager = widget->GetTooltipManager();
   int max_width = tooltip_manager->GetMaxWidth(screen_loc);
   const gfx::FontList tt_fonts = tooltip_manager->GetFontList();
@@ -804,10 +810,8 @@ base::string16 BookmarkBarView::CreateToolTipForURLAndTitle(
     // "/http://www.yahoo.com" when rendered, as is, in an RTL context since
     // the Unicode BiDi algorithm puts certain characters on the left by
     // default.
-    std::string languages = profile->GetPrefs()->GetString(
-        prefs::kAcceptLanguages);
     base::string16 elided_url(
-        url_formatter::ElideUrl(url, tt_fonts, max_width, languages));
+        url_formatter::ElideUrl(url, tt_fonts, max_width));
     elided_url = base::i18n::GetDisplayStringInLTRDirectionality(elided_url);
     result.append(elided_url);
   }
@@ -2141,11 +2145,13 @@ bool BookmarkBarView::UpdateOtherAndManagedButtonsVisibility() {
 }
 
 void BookmarkBarView::UpdateBookmarksSeparatorVisibility() {
+#if defined(USE_ASH)
   // Ash does not paint the bookmarks separator line because it looks odd on
   // the flat background.  We keep it present for layout, but don't draw it.
-  bookmarks_separator_view_->SetVisible(
-      browser_->host_desktop_type() != chrome::HOST_DESKTOP_TYPE_ASH &&
-      other_bookmarks_button_->visible());
+  bookmarks_separator_view_->SetVisible(false);
+#else
+  bookmarks_separator_view_->SetVisible(other_bookmarks_button_->visible());
+#endif
 }
 
 void BookmarkBarView::OnAppsPageShortcutVisibilityPrefChanged() {

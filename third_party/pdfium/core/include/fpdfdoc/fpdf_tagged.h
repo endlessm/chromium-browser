@@ -7,11 +7,11 @@
 #ifndef CORE_INCLUDE_FPDFDOC_FPDF_TAGGED_H_
 #define CORE_INCLUDE_FPDFDOC_FPDF_TAGGED_H_
 
+#include "core/include/fxge/fx_dib.h"
+
 class CPDF_Document;
-class CPDF_Page;
 class CPDF_StructElement;
 class CPDF_StructTree;
-class IPDF_ReflowedPage;
 struct CPDF_StructKid;
 
 class CPDF_StructTree {
@@ -37,21 +37,21 @@ struct CPDF_StructKid {
       CPDF_Dictionary* m_pDict;
     } m_Element;
     struct {
-      FX_DWORD m_PageObjNum;
+      uint32_t m_PageObjNum;
 
-      FX_DWORD m_ContentId;
+      uint32_t m_ContentId;
     } m_PageContent;
     struct {
-      FX_DWORD m_PageObjNum;
+      uint32_t m_PageObjNum;
 
-      FX_DWORD m_ContentId;
+      uint32_t m_ContentId;
 
-      FX_DWORD m_RefObjNum;
+      uint32_t m_RefObjNum;
     } m_StreamContent;
     struct {
-      FX_DWORD m_PageObjNum;
+      uint32_t m_PageObjNum;
 
-      FX_DWORD m_RefObjNum;
+      uint32_t m_RefObjNum;
     } m_Object;
   };
 };

@@ -42,13 +42,13 @@ public:
         kANGLE_BackEndType,
 #endif // SK_ANGLE
 #if SK_COMMAND_BUFFER
-        kCommandBufferES2_BackEndType,
+        kCommandBuffer_BackEndType,
 #endif // SK_COMMAND_BUFFER
 #endif // SK_SUPPORT_GPU
     };
 
     bool attach(SkBackEndTypes attachType, int msaaSampleCount, AttachmentInfo*);
-    void detach();
+    void release();
     void present();
 
     bool wndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam);
@@ -98,10 +98,11 @@ private:
 #if SK_SUPPORT_GPU
     void*               fHGLRC;
 #if SK_ANGLE
-    EGLDisplay          fDisplay;
-    EGLContext          fContext;
-    EGLSurface          fSurface;
-    EGLConfig           fConfig;
+    EGLDisplay                        fDisplay;
+    EGLContext                        fContext;
+    EGLSurface                        fSurface;
+    EGLConfig                         fConfig;
+    SkAutoTUnref<const GrGLInterface> fANGLEInterface;
 #endif // SK_ANGLE
 #if SK_COMMAND_BUFFER
     SkCommandBufferGLContext* fCommandBuffer;

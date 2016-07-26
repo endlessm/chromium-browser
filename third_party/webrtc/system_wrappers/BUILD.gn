@@ -27,10 +27,8 @@ static_library("system_wrappers") {
     "include/fix_interlocked_exchange_pointer_win.h",
     "include/logging.h",
     "include/metrics.h",
-    "include/ref_count.h",
     "include/rtp_to_ntp.h",
     "include/rw_lock_wrapper.h",
-    "include/scoped_vector.h",
     "include/sleep.h",
     "include/sort.h",
     "include/static_instance.h",
@@ -109,6 +107,10 @@ static_library("system_wrappers") {
   if (is_linux) {
     defines += [ "WEBRTC_THREAD_RR" ]
 
+    if (!build_with_chromium) {
+      deps += [ ":cpu_features_linux" ]
+    }
+
     libs += [ "rt" ]
   }
 
@@ -177,5 +179,16 @@ if (is_android) {
     deps = [
       "//third_party/android_tools:cpu_features",
     ]
+  }
+}
+
+if (is_linux) {
+  source_set("cpu_features_linux") {
+    sources = [
+      "source/cpu_features_linux.c",
+    ]
+
+    configs += [ "..:common_config" ]
+    public_configs = [ "..:common_inherited_config" ]
   }
 }

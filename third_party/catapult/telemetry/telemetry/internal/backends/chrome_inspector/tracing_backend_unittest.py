@@ -5,7 +5,6 @@
 import timeit
 import unittest
 
-from telemetry import decorators
 from telemetry.internal.backends.chrome_inspector import tracing_backend
 from telemetry.internal.backends.chrome_inspector.tracing_backend import _DevToolsStreamReader
 from telemetry.testing import fakes
@@ -39,7 +38,6 @@ class TracingBackendTest(tab_test_case.TabTestCase):
     if not self._browser.supports_memory_dumping:
       self.skipTest('Browser does not support memory dumping, skipping test.')
 
-  @decorators.Disabled('win')  # crbug.com/570955
   def testDumpMemorySuccess(self):
     # Check that dumping memory before tracing starts raises an exception.
     self.assertRaises(Exception, self._browser.DumpMemory)
@@ -74,7 +72,6 @@ class TracingBackendTest(tab_test_case.TabTestCase):
     actual_dump_ids = [d.dump_id for d in model.IterGlobalMemoryDumps()]
     self.assertEqual(actual_dump_ids, expected_dump_ids)
 
-  @decorators.Disabled('win')  # crbug.com/570955
   def testDumpMemoryFailure(self):
     # Check that dumping memory before tracing starts raises an exception.
     self.assertRaises(Exception, self._browser.DumpMemory)
@@ -164,6 +161,19 @@ class TracingBackendUnitTest(unittest.TestCase):
     backend = tracing_backend.TracingBackend(self._inspector_socket)
 
     self.assertIsNone(backend.DumpMemory())
+
+  def testStartTracingFailure(self):
+    self._inspector_socket.AddResponseHandler(
+        'Tracing.start',
+        lambda req: {'error': {'message': 'Tracing is already started'}})
+    self._inspector_socket.AddResponseHandler(
+        'Tracing.hasCompleted', lambda req: {})
+    backend = tracing_backend.TracingBackend(self._inspector_socket)
+    self.assertRaisesRegexp(
+        tracing_backend.TracingUnexpectedResponseException,
+        'Tracing is already started',
+        backend.StartTracing, tracing_config.TracingConfig())
+
 
 class DevToolsStreamPerformanceTest(unittest.TestCase):
   def setUp(self):

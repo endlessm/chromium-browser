@@ -14,8 +14,8 @@ from telemetry.internal.browser import browser_options
 from telemetry.internal.results import results_options
 from telemetry.internal import story_runner
 from telemetry.internal.util import binary_manager
-from telemetry.internal.util import command_line
 from telemetry.page import page_test
+from telemetry.util import matching
 from telemetry.util import wpr_modes
 from telemetry.web_perf import timeline_based_measurement
 from telemetry.web_perf import timeline_based_page_test
@@ -203,7 +203,7 @@ class WprRecorder(object):
 
   def _HintMostLikelyBenchmarksStories(self, target):
     def _Impl(all_items, category_name):
-      candidates = command_line.GetMostLikelyMatchedObject(
+      candidates = matching.GetMostLikelyMatchedObject(
           all_items.iteritems(), target, name_func=lambda kv: kv[1].Name())
       if candidates:
         sys.stderr.write('\nDo you mean any of those %s below?\n' %
@@ -236,9 +236,7 @@ class WprRecorder(object):
         upload_to_cloud_storage)
 
 
-# TODO(nednguyen): use benchmark.Environment instead of base_dir for discovering
-# benchmark & story classes.
-def Main(base_dir):
+def Main(environment):
 
   parser = argparse.ArgumentParser(
       usage='Record a benchmark or a story (page set).')
@@ -259,9 +257,9 @@ def Main(base_dir):
 
   if args.list_benchmarks or args.list_stories:
     if args.list_benchmarks:
-      _PrintAllBenchmarks(base_dir, sys.stderr)
+      _PrintAllBenchmarks(environment.top_level_dir, sys.stderr)
     if args.list_stories:
-      _PrintAllStories(base_dir, sys.stderr)
+      _PrintAllStories(environment.top_level_dir, sys.stderr)
     return 0
 
   target = args.benchmark or args.story
@@ -272,14 +270,13 @@ def Main(base_dir):
     parser.print_help()
     return 0
 
-  # TODO(aiolos): We should add getting the client config from the
-  # benchmark.Environment once it's added. Not currently needed though.
-  binary_manager.InitDependencyManager(None)
+  binary_manager.InitDependencyManager(environment.client_config)
+
 
   # TODO(nednguyen): update WprRecorder so that it handles the difference
   # between recording a benchmark vs recording a story better based on
   # the distinction between args.benchmark & args.story
-  wpr_recorder = WprRecorder(base_dir, target, extra_args)
+  wpr_recorder = WprRecorder(environment.top_level_dir, target, extra_args)
   results = wpr_recorder.CreateResults()
   wpr_recorder.Record(results)
   wpr_recorder.HandleResults(results, args.upload)

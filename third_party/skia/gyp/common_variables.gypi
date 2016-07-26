@@ -53,18 +53,14 @@
         'skia_os%': '<(skia_os)',
         'vulkan_merged_into_skia': '1',
         'skia_android_framework%': 0,
+        # RAW codec needs exceptions. Due to that, it is a separate target. Its usage can be
+        # controlled by skia_codec_decodes_raw.
+        'skia_codec_decodes_raw%' : 1,
         'conditions' : [
           [ 'skia_os in ["linux", "freebsd", "openbsd", "solaris", "mac"]', {
             'skia_arch_type%': 'x86_64',
           }, {
             'skia_arch_type%': 'x86',
-          }],
-          # RAW codec needs exceptions. Due to that, it is a separate target. Its usage can be
-          # controlled by skia_codec_decodes_raw.
-          ['skia_os == "win"', {
-            'skia_codec_decodes_raw%' : 0,
-          }, {
-            'skia_codec_decodes_raw%' : 1,
           }],
         ],
         'arm_version%': 0,
@@ -250,7 +246,6 @@
     'skia_use_sdl%': 0,
     'skia_fast%': 0,
     'skia_dump_stats%': 0,
-    'skia_build_server%': 0,
     'vulkan_merged_into_skia%': '<(vulkan_merged_into_skia)',
     'skia_fast_flags': [
         '-O3',                   # Even for Debug builds.

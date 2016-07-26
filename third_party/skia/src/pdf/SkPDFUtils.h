@@ -1,4 +1,3 @@
-
 /*
  * Copyright 2011 Google Inc.
  *
@@ -35,8 +34,8 @@ class SkWStream;
 
 class SkPDFUtils {
 public:
-    static SkPDFArray* RectToArray(const SkRect& rect);
-    static SkPDFArray* MatrixToArray(const SkMatrix& matrix);
+    static sk_sp<SkPDFArray> RectToArray(const SkRect& rect);
+    static sk_sp<SkPDFArray> MatrixToArray(const SkMatrix& matrix);
     static void AppendTransform(const SkMatrix& matrix, SkWStream* content);
 
     static void MoveTo(SkScalar x, SkScalar y, SkWStream* content);

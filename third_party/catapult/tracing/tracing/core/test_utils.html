@@ -88,25 +88,25 @@ tr.exportTo('tr.c', function() {
     return s;
   };
 
+  function getColorId(colorId) {
+    if (colorId) {
+      if (colorId === 'random') {
+        colorId = Math.floor(
+            Math.random() *
+            ColorScheme.proprties.numGeneralPurposeColorIds);
+      }
+    } else {
+      colorId = 0;
+    }
+    return colorId;
+  }
+
   TestUtils.newAsyncSliceEx = function(options) {
     var sd = TestUtils.getStartAndDurationFromDict(options);
 
     var cat = options.cat ? options.cat : 'cat';
     var title = options.title ? options.title : 'a';
-
-    var colorId;
-    if (options.colorId) {
-      if (options.colorId === 'random') {
-        colorId = Math.floor(
-            Math.random() *
-            ColorScheme.proprties.numGeneralPurposeColorIds);
-      } else {
-        colorId = options.colorId;
-      }
-    } else {
-      colorId = 0;
-    }
-
+    var colorId = getColorId(options.colorId);
 
     var isTopLevel;
     if (options.isTopLevel !== undefined)
@@ -204,15 +204,6 @@ tr.exportTo('tr.c', function() {
     return event;
   };
 
-  TestUtils.newSlice = function(start, duration) {
-    return TestUtils.newSliceNamed('a', start, duration);
-  };
-
-  TestUtils.newSliceNamed = function(name, start, duration) {
-    var s = new tr.model.Slice('', name, 0, start, {}, duration);
-    return s;
-  };
-
   TestUtils.newThreadSlice = function(thread, state, start, duration, opt_cpu) {
     var s = new tr.model.ThreadTimeSlice(
         thread, state, 'cat', start, {}, duration);
@@ -233,12 +224,6 @@ tr.exportTo('tr.c', function() {
                                         sampleName, start,
                                         sf,
                                         1);
-    return s;
-  };
-
-  TestUtils.newSliceCategory = function(category, name, start, duration) {
-    var s = new tr.model.Slice(
-        category, name, 0, start, {}, duration);
     return s;
   };
 
@@ -266,6 +251,8 @@ tr.exportTo('tr.c', function() {
         sd.duration,
         cpuSD.start, cpuSD.duration);
 
+    if (options.isTopLevel)
+      slice.isTopLevel = true;
 
     return slice;
   };
@@ -311,6 +298,8 @@ tr.exportTo('tr.c', function() {
     var io = new tr.importer.ImportOptions();
     io.showImportWarnings = false;
     io.customizeModelCallback = opts.customizeModelCallback;
+    io.trackDetailedModelStats = opts.trackDetailedModelStats === undefined ?
+        false : opts.trackDetailedModelStats;
     io.shiftWorldToZero = opts.shiftWorldToZero === undefined ?
         true : opts.shiftWorldToZero;
     io.pruneEmptyContainers = opts.pruneEmptyContainers === undefined ?
@@ -457,6 +446,21 @@ tr.exportTo('tr.c', function() {
     outputEl.appendChild(copyButtonEl);
     outputEl.appendChild(testSourceEl);
     test.addHTMLOutput(outputEl);
+  };
+
+  TestUtils.newInstantEvent = function(options) {
+    var title = options.title;
+    var start = options.start;
+    if ((title === undefined) ||
+        (title === '') ||
+        (start === undefined))
+      throw new Error('too little information');
+
+    var category = options.category || 'category';
+    var colorId = getColorId(options.colorId);
+    var args = options.args || {};
+    return new tr.model.InstantEvent(
+        category, title, colorId, start, args);
   };
 
   return {

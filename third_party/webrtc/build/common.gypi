@@ -112,7 +112,7 @@
     'have_dbus_glib%': 0,
 
     # Make it possible to provide custom locations for some libraries.
-    'libvpx_dir%': '<(DEPTH)/third_party/libvpx_new',
+    'libvpx_dir%': '<(DEPTH)/third_party/libvpx',
     'libyuv_dir%': '<(DEPTH)/third_party/libyuv',
     'opus_dir%': '<(opus_dir)',
 
@@ -140,6 +140,12 @@
     # Enable this to use HW H.264 encoder/decoder on iOS/Mac PeerConnections.
     # Enabling this may break interop with Android clients that support H264.
     'use_objc_h264%': 0,
+
+    # Enable this to prevent extern symbols from being hidden on iOS builds.
+    # The chromium settings we inherit hide symbols by default on Release
+    # builds. We want our symbols to be visible when distributing WebRTC via
+    # static libraries to avoid linker warnings.
+    'ios_override_visibility%': 0,
 
     # Determines whether QUIC code will be built.
     'use_quic%': 0,
@@ -199,7 +205,7 @@
       ['OS=="ios"', {
         'build_libjpeg%': 0,
       }],
-      ['target_arch=="arm" or target_arch=="arm64"', {
+      ['target_arch=="arm" or target_arch=="arm64" or target_arch=="mipsel"', {
         'prefer_fixed_point%': 1,
       }],
       ['(target_arch=="arm" and (arm_neon==1 or arm_neon_optional==1)) or target_arch=="arm64"', {
@@ -380,6 +386,12 @@
           'WEBRTC_IOS',
         ],
       }],
+      ['OS=="ios" and ios_override_visibility==1', {
+        'xcode_settings': {
+          'GCC_INLINES_ARE_PRIVATE_EXTERN': 'NO',
+          'GCC_SYMBOLS_PRIVATE_EXTERN': 'NO',
+        }
+      }],
       ['OS=="ios" and use_objc_h264==1', {
         'defines': [
           'WEBRTC_OBJC_H264',
@@ -495,4 +507,3 @@
     },
   }, # target_defaults
 }
-

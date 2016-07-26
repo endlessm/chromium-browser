@@ -1,4 +1,3 @@
-
 /*
 * Copyright 2015 Google Inc.
 *
@@ -96,9 +95,7 @@ int GrFragmentProcessor::registerChildProcessor(const GrFragmentProcessor* child
     int index = fChildProcessors.count();
     fChildProcessors.push_back(SkRef(child));
 
-    if (child->willReadFragmentPosition()) {
-        this->setWillReadFragmentPosition();
-    }
+    this->combineRequiredFeatures(*child);
 
     if (child->usesLocalCoords()) {
         fUsesLocalCoords = true;
@@ -375,4 +372,3 @@ const GrFragmentProcessor* GrFragmentProcessor::RunInSeries(const GrFragmentProc
         return new SeriesFragmentProcessor(series, cnt);
     }
 }
-

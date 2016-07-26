@@ -14,27 +14,27 @@
 
 #ifndef WEBRTC_MEDIA_DEVICES_GDIVIDEORENDERER_H_
 #define WEBRTC_MEDIA_DEVICES_GDIVIDEORENDERER_H_
-
 #ifdef WIN32
-#include "webrtc/base/scoped_ptr.h"
-#include "webrtc/media/base/videorenderer.h"
+
+#include <memory>
+
+#include "webrtc/media/base/videosinkinterface.h"
 
 namespace cricket {
 
-class GdiVideoRenderer : public VideoRenderer {
+class VideoFrame;
+
+class GdiVideoRenderer : public rtc::VideoSinkInterface<cricket::VideoFrame> {
  public:
   GdiVideoRenderer(int x, int y);
   virtual ~GdiVideoRenderer();
 
-  // Implementation of pure virtual methods of VideoRenderer.
-  // These two methods may be executed in different threads.
-  // SetSize is called before RenderFrame.
-  virtual bool SetSize(int width, int height, int reserved);
-  virtual bool RenderFrame(const VideoFrame* frame);
+  // Implementation of VideoSinkInterface
+  void OnFrame(const VideoFrame& frame) override;
 
  private:
   class VideoWindow;  // forward declaration, defined in the .cc file
-  rtc::scoped_ptr<VideoWindow> window_;
+  std::unique_ptr<VideoWindow> window_;
   // The initial position of the window.
   int initial_x_;
   int initial_y_;

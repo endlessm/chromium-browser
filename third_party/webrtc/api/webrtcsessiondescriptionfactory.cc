@@ -112,6 +112,9 @@ void WebRtcSessionDescriptionFactory::CopyCandidatesFromSessionDescription(
       source_desc->candidates(mediasection_index);
   const IceCandidateCollection* dest_candidates =
       dest_desc->candidates(mediasection_index);
+  if (!source_candidates || !dest_candidates) {
+    return;
+  }
   for (size_t n = 0; n < source_candidates->count(); ++n) {
     const IceCandidateInterface* new_candidate = source_candidates->at(n);
     if (!dest_candidates->HasCandidate(new_candidate)) {
@@ -185,13 +188,15 @@ WebRtcSessionDescriptionFactory::WebRtcSessionDescriptionFactory(
   identity_request_observer_->SignalCertificateReady.connect(
       this, &WebRtcSessionDescriptionFactory::SetCertificate);
 
-  rtc::KeyType key_type = rtc::KT_DEFAULT;
+  rtc::KeyParams key_params = rtc::KeyParams();
   LOG(LS_VERBOSE) << "DTLS-SRTP enabled; sending DTLS identity request (key "
-                  << "type: " << key_type << ").";
+                  << "type: " << key_params.type() << ").";
 
   // Request identity. This happens asynchronously, so the caller will have a
   // chance to connect to SignalIdentityReady.
-  dtls_identity_store_->RequestIdentity(key_type, identity_request_observer_);
+  dtls_identity_store_->RequestIdentity(key_params,
+                                        rtc::Optional<uint64_t>(),
+                                        identity_request_observer_);
 }
 
 WebRtcSessionDescriptionFactory::WebRtcSessionDescriptionFactory(
@@ -277,7 +282,6 @@ void WebRtcSessionDescriptionFactory::CreateOffer(
 
 void WebRtcSessionDescriptionFactory::CreateAnswer(
     CreateSessionDescriptionObserver* observer,
-    const MediaConstraintsInterface* constraints,
     const cricket::MediaSessionOptions& session_options) {
   std::string error = "CreateAnswer";
   if (certificate_request_state_ == CERTIFICATE_FAILED) {

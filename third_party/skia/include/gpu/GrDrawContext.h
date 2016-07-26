@@ -11,6 +11,7 @@
 #include "GrColor.h"
 #include "GrRenderTarget.h"
 #include "SkRefCnt.h"
+#include "SkRegion.h"
 #include "SkSurfaceProps.h"
 #include "../private/GrSingleOwner.h"
 
@@ -19,6 +20,7 @@ class GrAuditTrail;
 class GrClip;
 class GrContext;
 class GrDrawBatch;
+class GrDrawContextPriv;
 class GrDrawPathBatchBase;
 class GrDrawingManager;
 class GrDrawTarget;
@@ -100,7 +102,7 @@ public:
                   const GrPaint& paint,
                   const SkMatrix& viewMatrix,
                   const SkRect&,
-                  const GrStrokeInfo* strokeInfo = NULL);
+                  const GrStrokeInfo* strokeInfo = nullptr);
 
     /**
      * Maps a rectangle of shader coordinates to a rectangle and fills that rectangle.
@@ -139,6 +141,22 @@ public:
                    const SkMatrix& viewMatrix,
                    const SkRRect& rrect,
                    const GrStrokeInfo&);
+
+    /**
+     *  Shortcut for drawing an SkPath consisting of nested rrects using a paint.
+     *  Does not support stroking. The result is undefined if outer does not contain
+     *  inner.
+     *
+     *  @param paint        describes how to color pixels.
+     *  @param viewMatrix   transformation matrix
+     *  @param outer        the outer roundrect
+     *  @param inner        the inner roundrect
+     */
+    void drawDRRect(const GrClip&,
+                    const GrPaint&,
+                    const SkMatrix& viewMatrix,
+                    const SkRRect& outer,
+                    const SkRRect& inner);
 
     /**
      * Draws a path.
@@ -258,12 +276,13 @@ public:
     int width() const { return fRenderTarget->width(); }
     int height() const { return fRenderTarget->height(); }
     int numColorSamples() const { return fRenderTarget->numColorSamples(); }
+    bool allowSRGBInputs() const { return fSurfaceProps.allowSRGBInputs(); }
 
     GrRenderTarget* accessRenderTarget() { return fRenderTarget; }
 
-    ///////////////////////////////////////////////////////////////////////////////////////////////
-    // Functions intended for internal use only.
-    void internal_drawBatch(const GrPipelineBuilder& pipelineBuilder, GrDrawBatch* batch);
+    // Provides access to functions that aren't part of the public API.
+    GrDrawContextPriv drawContextPriv();
+    const GrDrawContextPriv drawContextPriv() const;
 
 protected:
     GrDrawContext(GrContext*, GrDrawingManager*, GrRenderTarget*,
@@ -279,13 +298,23 @@ protected:
 private:
     friend class GrAtlasTextBlob; // for access to drawBatch
     friend class GrDrawingManager; // for ctor
+    friend class GrDrawContextPriv;
 
-    void internalDrawPath(GrPipelineBuilder*,
+    bool drawFilledDRRect(const GrClip& clip,
+                          const GrPaint& paint,
                           const SkMatrix& viewMatrix,
-                          GrColor,
-                          bool useAA,
-                          const SkPath&,
-                          const GrStrokeInfo&);
+                          const SkRRect& origOuter,
+                          const SkRRect& origInner);
+
+    GrDrawBatch* getFillRectBatch(const GrPaint& paint,
+                                  const SkMatrix& viewMatrix,
+                                  const SkRect& rect);
+
+    void internalDrawPath(const GrClip& clip,
+                          const GrPaint& paint,
+                          const SkMatrix& viewMatrix,
+                          const SkPath& path,
+                          const GrStrokeInfo& strokeInfo);
 
     // This entry point allows the GrTextContext-derived classes to add their batches to
     // the drawTarget.

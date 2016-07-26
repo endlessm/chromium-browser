@@ -11,7 +11,7 @@
 #include <memory>
 #include <vector>
 
-#include "core/include/fpdftext/fpdf_text.h"
+#include "core/fpdfapi/fpdf_parser/include/cpdf_document.h"
 #include "fpdfsdk/include/fsdk_actionhandler.h"
 #include "fpdfsdk/include/fsdk_annothandler.h"
 #include "fpdfsdk/include/fsdk_baseannot.h"
@@ -19,23 +19,17 @@
 #include "fpdfsdk/include/fsdk_common.h"
 #include "fpdfsdk/include/fsdk_define.h"
 #include "fpdfsdk/include/fx_systemhandler.h"
-#include "javascript/IJavaScript.h"
 #include "public/fpdf_formfill.h"
-#include "public/fpdf_fwlevent.h"  // cross platform keycode and events define.
-
-#ifdef PDF_ENABLE_XFA
-#include "fpdfsdk/include/fpdfxfa/fpdfxfa_doc.h"
-#include "fpdfsdk/include/fpdfxfa/fpdfxfa_page.h"
-#endif  // PDF_ENABLE_XFA
+#include "public/fpdf_fwlevent.h"
 
 class CFFL_IFormFiller;
 class CPDFSDK_ActionHandler;
 class CPDFSDK_Annot;
-class CPDFSDK_Document;
 class CPDFSDK_InterForm;
 class CPDFSDK_PageView;
 class CPDFSDK_Widget;
 class IFX_SystemHandler;
+class IJS_Runtime;
 
 // NOTE: |bsUTF16LE| must outlive the use of the result. Care must be taken
 // since modifying the result would impact |bsUTF16LE|.
@@ -109,19 +103,19 @@ class CPDFDoc_Environment final {
       m_pInfo->FFI_OnChange(m_pInfo);
   }
 
-  FX_BOOL FFI_IsSHIFTKeyDown(FX_DWORD nFlag) const {
+  FX_BOOL FFI_IsSHIFTKeyDown(uint32_t nFlag) const {
     return (nFlag & FWL_EVENTFLAG_ShiftKey) != 0;
   }
 
-  FX_BOOL FFI_IsCTRLKeyDown(FX_DWORD nFlag) const {
+  FX_BOOL FFI_IsCTRLKeyDown(uint32_t nFlag) const {
     return (nFlag & FWL_EVENTFLAG_ControlKey) != 0;
   }
 
-  FX_BOOL FFI_IsALTKeyDown(FX_DWORD nFlag) const {
+  FX_BOOL FFI_IsALTKeyDown(uint32_t nFlag) const {
     return (nFlag & FWL_EVENTFLAG_AltKey) != 0;
   }
 
-  FX_BOOL FFI_IsINSERTKeyDown(FX_DWORD nFlag) const { return FALSE; }
+  FX_BOOL FFI_IsINSERTKeyDown(uint32_t nFlag) const { return FALSE; }
 
   FPDF_PAGE FFI_GetPage(FPDF_DOCUMENT document, int nPageIndex) {
     if (m_pInfo && m_pInfo->FFI_GetPage)
@@ -404,9 +398,9 @@ class CPDFDoc_Environment final {
     return L"";
   }
 
-  void FFI_PageEvent(int iPageIndex, FX_DWORD dwEventType) const {
+  void FFI_PageEvent(int iPageCount, uint32_t dwEventType) const {
     if (m_pInfo && m_pInfo->FFI_PageEvent)
-      m_pInfo->FFI_PageEvent(m_pInfo, iPageIndex, dwEventType);
+      m_pInfo->FFI_PageEvent(m_pInfo, iPageCount, dwEventType);
   }
 #endif  // PDF_ENABLE_XFA
 
@@ -519,14 +513,14 @@ class CPDFSDK_Document {
   FX_BOOL SetFocusAnnot(CPDFSDK_Annot* pAnnot, FX_UINT nFlag = 0);
   FX_BOOL KillFocusAnnot(FX_UINT nFlag = 0);
 
-  FX_BOOL ExtractPages(const std::vector<FX_WORD>& arrExtraPages,
+  FX_BOOL ExtractPages(const std::vector<uint16_t>& arrExtraPages,
                        CPDF_Document* pDstDoc);
   FX_BOOL InsertPages(int nInsertAt,
                       const CPDF_Document* pSrcDoc,
-                      const std::vector<FX_WORD>& arrSrcPages);
+                      const std::vector<uint16_t>& arrSrcPages);
   FX_BOOL ReplacePages(int nPage,
                        const CPDF_Document* pSrcDoc,
-                       const std::vector<FX_WORD>& arrSrcPages);
+                       const std::vector<uint16_t>& arrSrcPages);
 
   void OnCloseDocument();
 
@@ -593,8 +587,8 @@ class CPDFSDK_PageView final {
   CPDFSDK_Annot* GetAnnotByDict(CPDF_Dictionary* pDict);
 
 #ifdef PDF_ENABLE_XFA
-  CPDFSDK_Annot* AddAnnot(IXFA_Widget* pPDFAnnot);
-  CPDFSDK_Annot* GetAnnotByXFAWidget(IXFA_Widget* hWidget);
+  CPDFSDK_Annot* AddAnnot(CXFA_FFWidget* pPDFAnnot);
+  CPDFSDK_Annot* GetAnnotByXFAWidget(CXFA_FFWidget* hWidget);
   CPDFXFA_Page* GetPDFXFAPage() { return m_page; }
   CPDF_Page* GetPDFPage();
 #else
@@ -603,20 +597,20 @@ class CPDFSDK_PageView final {
 
   CPDF_Document* GetPDFDocument();
   CPDFSDK_Document* GetSDKDocument() { return m_pSDKDoc; }
-  FX_BOOL OnLButtonDown(const CPDF_Point& point, FX_UINT nFlag);
-  FX_BOOL OnLButtonUp(const CPDF_Point& point, FX_UINT nFlag);
+  FX_BOOL OnLButtonDown(const CFX_FloatPoint& point, FX_UINT nFlag);
+  FX_BOOL OnLButtonUp(const CFX_FloatPoint& point, FX_UINT nFlag);
 #ifdef PDF_ENABLE_XFA
-  FX_BOOL OnRButtonDown(const CPDF_Point& point, FX_UINT nFlag);
-  FX_BOOL OnRButtonUp(const CPDF_Point& point, FX_UINT nFlag);
+  FX_BOOL OnRButtonDown(const CFX_FloatPoint& point, FX_UINT nFlag);
+  FX_BOOL OnRButtonUp(const CFX_FloatPoint& point, FX_UINT nFlag);
 #endif  // PDF_ENABLE_XFA
   FX_BOOL OnChar(int nChar, FX_UINT nFlag);
   FX_BOOL OnKeyDown(int nKeyCode, int nFlag);
   FX_BOOL OnKeyUp(int nKeyCode, int nFlag);
 
-  FX_BOOL OnMouseMove(const CPDF_Point& point, int nFlag);
+  FX_BOOL OnMouseMove(const CFX_FloatPoint& point, int nFlag);
   FX_BOOL OnMouseWheel(double deltaX,
                        double deltaY,
-                       const CPDF_Point& point,
+                       const CFX_FloatPoint& point,
                        int nFlag);
   bool IsValidAnnot(const CPDF_Annot* p) const;
   void GetCurrentMatrix(CFX_Matrix& matrix) { matrix = m_curMatrix; }

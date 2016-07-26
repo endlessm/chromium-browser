@@ -102,7 +102,8 @@ public final class EglBase14 extends EglBase {
     int[] surfaceAttribs = {EGL14.EGL_WIDTH, width, EGL14.EGL_HEIGHT, height, EGL14.EGL_NONE};
     eglSurface = EGL14.eglCreatePbufferSurface(eglDisplay, eglConfig, surfaceAttribs, 0);
     if (eglSurface == EGL14.EGL_NO_SURFACE) {
-      throw new RuntimeException("Failed to create pixel buffer surface");
+      throw new RuntimeException(
+          "Failed to create pixel buffer surface with size: " + width + "x" + height);
     }
   }
 
@@ -164,17 +165,21 @@ public final class EglBase14 extends EglBase {
     if (eglSurface == EGL14.EGL_NO_SURFACE) {
       throw new RuntimeException("No EGLSurface - can't make current");
     }
-    if (!EGL14.eglMakeCurrent(eglDisplay, eglSurface, eglSurface, eglContext)) {
-      throw new RuntimeException("eglMakeCurrent failed");
+    synchronized (EglBase.lock) {
+      if (!EGL14.eglMakeCurrent(eglDisplay, eglSurface, eglSurface, eglContext)) {
+        throw new RuntimeException("eglMakeCurrent failed");
+      }
     }
   }
 
   // Detach the current EGL context, so that it can be made current on another thread.
   @Override
   public void detachCurrent() {
-    if (!EGL14.eglMakeCurrent(
-        eglDisplay, EGL14.EGL_NO_SURFACE, EGL14.EGL_NO_SURFACE, EGL14.EGL_NO_CONTEXT)) {
-      throw new RuntimeException("eglMakeCurrent failed");
+    synchronized (EglBase.lock) {
+      if (!EGL14.eglMakeCurrent(
+          eglDisplay, EGL14.EGL_NO_SURFACE, EGL14.EGL_NO_SURFACE, EGL14.EGL_NO_CONTEXT)) {
+        throw new RuntimeException("eglDetachCurrent failed");
+      }
     }
   }
 
@@ -184,7 +189,9 @@ public final class EglBase14 extends EglBase {
     if (eglSurface == EGL14.EGL_NO_SURFACE) {
       throw new RuntimeException("No EGLSurface - can't swap buffers");
     }
-    EGL14.eglSwapBuffers(eglDisplay, eglSurface);
+    synchronized (EglBase.lock) {
+      EGL14.eglSwapBuffers(eglDisplay, eglSurface);
+    }
   }
 
   public void swapBuffers(long timeStampNs) {
@@ -192,9 +199,11 @@ public final class EglBase14 extends EglBase {
     if (eglSurface == EGL14.EGL_NO_SURFACE) {
       throw new RuntimeException("No EGLSurface - can't swap buffers");
     }
-    // See https://android.googlesource.com/platform/frameworks/native/+/tools_r22.2/opengl/specs/EGL_ANDROID_presentation_time.txt
-    EGLExt.eglPresentationTimeANDROID(eglDisplay, eglSurface, timeStampNs);
-    EGL14.eglSwapBuffers(eglDisplay, eglSurface);
+    synchronized (EglBase.lock) {
+      // See https://android.googlesource.com/platform/frameworks/native/+/tools_r22.2/opengl/specs/EGL_ANDROID_presentation_time.txt
+      EGLExt.eglPresentationTimeANDROID(eglDisplay, eglSurface, timeStampNs);
+      EGL14.eglSwapBuffers(eglDisplay, eglSurface);
+    }
   }
 
   // Return an EGLDisplay, or die trying.
@@ -216,9 +225,16 @@ public final class EglBase14 extends EglBase {
     int[] numConfigs = new int[1];
     if (!EGL14.eglChooseConfig(
         eglDisplay, configAttributes, 0, configs, 0, configs.length, numConfigs, 0)) {
+      throw new RuntimeException("eglChooseConfig failed");
+    }
+    if (numConfigs[0] <= 0) {
       throw new RuntimeException("Unable to find any matching EGL config");
     }
-    return configs[0];
+    final EGLConfig eglConfig = configs[0];
+    if (eglConfig == null) {
+      throw new RuntimeException("eglChooseConfig returned null");
+    }
+    return eglConfig;
   }
 
   // Return an EGLConfig, or die trying.

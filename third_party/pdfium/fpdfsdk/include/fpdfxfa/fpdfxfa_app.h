@@ -9,6 +9,7 @@
 
 #include "xfa/include/fxfa/fxfa.h"
 
+class CPDFDoc_Environment;
 class IFXJS_Runtime;
 
 class CPDFXFA_App : public IXFA_AppProvider {
@@ -20,7 +21,7 @@ class CPDFXFA_App : public IXFA_AppProvider {
   ~CPDFXFA_App() override;
 
   FX_BOOL Initialize(FXJSE_HRUNTIME hRuntime);
-  IXFA_App* GetXFAApp() { return m_pXFAApp; }
+  CXFA_FFApp* GetXFAApp() { return m_pXFAApp; }
 
   FX_BOOL AddFormFillEnv(CPDFDoc_Environment* pEnv);
   FX_BOOL RemoveFormFillEnv(CPDFDoc_Environment* pEnv);
@@ -49,11 +50,11 @@ class CPDFXFA_App : public IXFA_AppProvider {
     wsFoxitName = L"Foxit";
   }
 
-  void Beep(FX_DWORD dwType) override;
+  void Beep(uint32_t dwType) override;
   int32_t MsgBox(const CFX_WideStringC& wsMessage,
                  const CFX_WideStringC& wsTitle,
-                 FX_DWORD dwIconType,
-                 FX_DWORD dwButtonType) override;
+                 uint32_t dwIconType,
+                 uint32_t dwButtonType) override;
   void Response(CFX_WideString& wsAnswer,
                 const CFX_WideStringC& wsQuestion,
                 const CFX_WideStringC& wsTitle,
@@ -87,8 +88,7 @@ class CPDFXFA_App : public IXFA_AppProvider {
   static CPDFXFA_App* g_pApp;
 
   FX_BOOL m_bJavaScriptInitialized;
-  IXFA_App* m_pXFAApp;
-  IXFA_FontMgr* m_pFontMgr;
+  CXFA_FFApp* m_pXFAApp;
   FXJSE_HRUNTIME m_hJSERuntime;
   IFXJS_Runtime* m_pJSRuntime;
   CFX_WideString m_csAppType;

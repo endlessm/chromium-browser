@@ -40,12 +40,12 @@ public:
         kANGLE_BackEndType,
 #endif // SK_ANGLE
 #if SK_COMMAND_BUFFER
-        kCommandBufferES2_BackEndType,
+        kCommandBuffer_BackEndType,
 #endif // SK_COMMAND_BUFFER
     };
 
     bool attach(SkBackEndTypes attachType, int msaaSampleCount, AttachmentInfo*);
-    void detach();
+    void release();
     void present();
 
     int getMSAASampleCount() const { return fMSAASampleCount; }

@@ -387,6 +387,7 @@ void SkLightingImageFilterInternal::drawRect(GrDrawContext* drawContext,
                                              const SkIRect& bounds) const {
     SkRect srcRect = dstRect.makeOffset(SkIntToScalar(bounds.x()), SkIntToScalar(bounds.y()));
     GrPaint paint;
+    // SRGBTODO: AllowSRGBInputs?
     GrFragmentProcessor* fp = this->getFragmentProcessor(src, matrix, srcBounds, boundaryMode);
     paint.addColorFragmentProcessor(fp)->unref();
     paint.setPorterDuffXPFactory(SkXfermode::kSrc_Mode);
@@ -743,7 +744,7 @@ class GrGLLight;
 
 class SkImageFilterLight : public SkRefCnt {
 public:
-    
+
 
     enum LightType {
         kDistant_LightType,
@@ -880,8 +881,8 @@ public:
         // Use X scale and Y scale on Z and average the result
         SkPoint locationZ = SkPoint::Make(fLocation.fZ, fLocation.fZ);
         matrix.mapVectors(&locationZ, 1);
-        SkPoint3 location = SkPoint3::Make(location2.fX, 
-                                           location2.fY, 
+        SkPoint3 location = SkPoint3::Make(location2.fX,
+                                           location2.fY,
                                            SkScalarAve(locationZ.fX, locationZ.fY));
         return new SkPointLight(location, color());
     }
@@ -1210,12 +1211,13 @@ SkDiffuseLightingImageFilter::SkDiffuseLightingImageFilter(SkImageFilterLight* l
 {
 }
 
-SkFlattenable* SkDiffuseLightingImageFilter::CreateProc(SkReadBuffer& buffer) {
+sk_sp<SkFlattenable> SkDiffuseLightingImageFilter::CreateProc(SkReadBuffer& buffer) {
     SK_IMAGEFILTER_UNFLATTEN_COMMON(common, 1);
     SkAutoTUnref<SkImageFilterLight> light(SkImageFilterLight::UnflattenLight(buffer));
     SkScalar surfaceScale = buffer.readScalar();
     SkScalar kd = buffer.readScalar();
-    return Create(light, surfaceScale, kd, common.getInput(0), &common.cropRect());
+    return sk_sp<SkFlattenable>(Create(light, surfaceScale, kd, common.getInput(0).get(),
+                                       &common.cropRect()));
 }
 
 void SkDiffuseLightingImageFilter::flatten(SkWriteBuffer& buffer) const {
@@ -1352,13 +1354,14 @@ SkSpecularLightingImageFilter::SkSpecularLightingImageFilter(SkImageFilterLight*
 {
 }
 
-SkFlattenable* SkSpecularLightingImageFilter::CreateProc(SkReadBuffer& buffer) {
+sk_sp<SkFlattenable> SkSpecularLightingImageFilter::CreateProc(SkReadBuffer& buffer) {
     SK_IMAGEFILTER_UNFLATTEN_COMMON(common, 1);
     SkAutoTUnref<SkImageFilterLight> light(SkImageFilterLight::UnflattenLight(buffer));
     SkScalar surfaceScale = buffer.readScalar();
     SkScalar ks = buffer.readScalar();
     SkScalar shine = buffer.readScalar();
-    return Create(light, surfaceScale, ks, shine, common.getInput(0), &common.cropRect());
+    return sk_sp<SkFlattenable>(Create(light, surfaceScale, ks, shine, common.getInput(0).get(),
+                                       &common.cropRect()));
 }
 
 void SkSpecularLightingImageFilter::flatten(SkWriteBuffer& buffer) const {

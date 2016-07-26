@@ -252,11 +252,24 @@ source_set("jpeg") {
   ]
 }
 
+config("fx_libopenjpeg_warnings") {
+  visibility = [ ":*" ]
+  if (is_win) {
+    cflags = [
+      # Signed/unsigned comparisons.
+      "/wd4018",
+    ]
+  }
+}
+
 source_set("fx_libopenjpeg") {
   configs -= [ "//build/config/compiler:chromium_code" ]
   configs += [
     "//build/config/compiler:no_chromium_code",
     "//third_party/pdfium:pdfium_config",
+
+    # Must be after no_chromium_code for warning flags to be ordered correctly.
+    ":fx_libopenjpeg_warnings",
   ]
   sources = [
     "libopenjpeg20/bio.c",
@@ -298,6 +311,7 @@ source_set("fx_lpng") {
     "libpng16/pnglibconf.h",
     "libpng16/pngmem.c",
     "libpng16/pngpread.c",
+    "libpng16/pngprefix.h",
     "libpng16/pngpriv.h",
     "libpng16/pngread.c",
     "libpng16/pngrio.c",
@@ -320,10 +334,10 @@ if (pdf_enable_xfa) {
       "//build/config/compiler:no_chromium_code",
       "//third_party/pdfium:pdfium_config",
     ]
-    deps = [ "//third_party:jpeg" ]
+    deps = [
+      "//third_party:jpeg",
+    ]
     sources = [
-      "libtiff/tiffiop.h",
-      "libtiff/tiffvers.h",
       "libtiff/tif_aux.c",
       "libtiff/tif_close.c",
       "libtiff/tif_codec.c",
@@ -359,6 +373,8 @@ if (pdf_enable_xfa) {
       "libtiff/tif_warning.c",
       "libtiff/tif_write.c",
       "libtiff/tif_zip.c",
+      "libtiff/tiffiop.h",
+      "libtiff/tiffvers.h",
     ]
   }
 }

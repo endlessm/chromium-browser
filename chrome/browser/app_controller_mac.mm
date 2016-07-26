@@ -34,9 +34,12 @@
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/first_run/first_run.h"
 #include "chrome/browser/lifetime/application_lifetime.h"
+#include "chrome/browser/lifetime/keep_alive_types.h"
+#include "chrome/browser/lifetime/scoped_keep_alive.h"
 #include "chrome/browser/mac/mac_startup_profiler.h"
 #include "chrome/browser/prefs/incognito_mode_prefs.h"
-#include "chrome/browser/profiles/profile_info_cache_observer.h"
+#include "chrome/browser/profiles/profile_attributes_entry.h"
+#include "chrome/browser/profiles/profile_attributes_storage.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/profiles/profiles_state.h"
 #include "chrome/browser/sessions/session_restore.h"
@@ -67,7 +70,6 @@
 #include "chrome/browser/ui/cocoa/last_active_browser_cocoa.h"
 #import "chrome/browser/ui/cocoa/profiles/profile_menu_controller.h"
 #include "chrome/browser/ui/extensions/application_launch.h"
-#include "chrome/browser/ui/host_desktop.h"
 #include "chrome/browser/ui/startup/startup_browser_creator.h"
 #include "chrome/browser/ui/startup/startup_browser_creator_impl.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
@@ -199,12 +201,11 @@ bool IsProfileSignedOut(Profile* profile) {
   // --new-profile-management flag.
   if (!switches::IsNewProfileManagement())
     return false;
-  ProfileInfoCache& cache =
-      g_browser_process->profile_manager()->GetProfileInfoCache();
-  size_t profile_index = cache.GetIndexOfProfileWithPath(profile->GetPath());
-  if (profile_index == std::string::npos)
-    return false;
-  return cache.ProfileIsSigninRequiredAtIndex(profile_index);
+  ProfileAttributesEntry* entry;
+  bool has_entry =
+      g_browser_process->profile_manager()->GetProfileAttributesStorage().
+          GetProfileAttributesWithPath(profile->GetPath(), &entry);
+  return has_entry && entry->IsSigninRequired();
 }
 
 }  // namespace
@@ -258,7 +259,7 @@ bool IsProfileSignedOut(Profile* profile) {
 - (GURL)handoffURLFromWebContents:(content::WebContents*)webContents;
 @end
 
-class AppControllerProfileObserver : public ProfileInfoCacheObserver {
+class AppControllerProfileObserver : public ProfileAttributesStorage::Observer {
  public:
   AppControllerProfileObserver(
       ProfileManager* profile_manager, AppController* app_controller)
@@ -266,16 +267,16 @@ class AppControllerProfileObserver : public ProfileInfoCacheObserver {
         app_controller_(app_controller) {
     DCHECK(profile_manager_);
     DCHECK(app_controller_);
-    profile_manager_->GetProfileInfoCache().AddObserver(this);
+    profile_manager_->GetProfileAttributesStorage().AddObserver(this);
   }
 
   ~AppControllerProfileObserver() override {
     DCHECK(profile_manager_);
-    profile_manager_->GetProfileInfoCache().RemoveObserver(this);
+    profile_manager_->GetProfileAttributesStorage().RemoveObserver(this);
   }
 
  private:
-  // ProfileInfoCacheObserver implementation:
+  // ProfileAttributesStorage::Observer implementation:
 
   void OnProfileAdded(const base::FilePath& profile_path) override {}
 
@@ -520,7 +521,7 @@ class AppControllerProfileObserver : public ProfileInfoCacheObserver {
 
   // Tell BrowserList not to keep the browser process alive. Once all the
   // browsers get dealloc'd, it will stop the RunLoop and fall back into main().
-  chrome::DecrementKeepAliveCount();
+  keep_alive_.reset();
 
   // Reset all pref watching, as this object outlives the prefs system.
   profilePrefRegistrar_.reset();
@@ -728,7 +729,8 @@ class AppControllerProfileObserver : public ProfileInfoCacheObserver {
 
   // Notify BrowserList to keep the application running so it doesn't go away
   // when all the browser windows get closed.
-  chrome::IncrementKeepAliveCount();
+  keep_alive_.reset(new ScopedKeepAlive(KeepAliveOrigin::APP_CONTROLLER,
+                                        KeepAliveRestartOption::DISABLED));
 
   [self setUpdateCheckInterval];
 
@@ -753,9 +755,9 @@ class AppControllerProfileObserver : public ProfileInfoCacheObserver {
   EncodingMenuControllerDelegate::BuildEncodingMenu([self lastProfile],
                                                     encodingMenu);
 
-  // Instantiate the ProfileInfoCache observer so that we can get
+  // Instantiate the ProfileAttributesStorage observer so that we can get
   // notified when a profile is deleted.
-  profileInfoCacheObserver_.reset(new AppControllerProfileObserver(
+  profileAttributesStorageObserver_.reset(new AppControllerProfileObserver(
       g_browser_process->profile_manager(), self));
 
   // Since Chrome is localized to more languages than the OS, tell Cocoa which
@@ -792,12 +794,6 @@ class AppControllerProfileObserver : public ProfileInfoCacheObserver {
 
   handoff_active_url_observer_bridge_.reset(
       new HandoffActiveURLObserverBridge(self));
-}
-
-// This is called after profiles have been loaded and preferences registered.
-// It is safe to access the default profile here.
-- (void)applicationDidBecomeActive:(NSNotification*)notify {
-  content::PluginService::GetInstance()->AppActivated();
 }
 
 // Helper function for populating and displaying the in progress downloads at

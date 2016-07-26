@@ -13,13 +13,13 @@
 #include "GrAllocator.h"
 #include "glsl/GrGLSLShaderVar.h"
 
-static const int kUniformsPerBlock = 8;
-
 class GrVkUniformHandler : public GrGLSLUniformHandler {
 public:
+    static const int kUniformsPerBlock = 8;
+
     enum {
-        kSamplerDescSet = 0,
-        kUniformBufferDescSet = 1,
+        kUniformBufferDescSet = 0,
+        kSamplerDescSet = 1,
     };
     enum {
         kVertexBinding = 0,
@@ -77,7 +77,7 @@ private:
     uint32_t         fCurrentFragmentUBOOffset;
     uint32_t         fCurrentSamplerBinding;
 
-    friend class GrVkProgramBuilder;
+    friend class GrVkPipelineStateBuilder;
 
     typedef GrGLSLUniformHandler INHERITED;
 };

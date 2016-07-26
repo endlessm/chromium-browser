@@ -11,6 +11,7 @@
 #ifndef WEBRTC_VOICE_ENGINE_CHANNEL_PROXY_H_
 #define WEBRTC_VOICE_ENGINE_CHANNEL_PROXY_H_
 
+#include "webrtc/base/constructormagic.h"
 #include "webrtc/base/thread_checker.h"
 #include "webrtc/voice_engine/channel_manager.h"
 #include "webrtc/voice_engine/include/voe_rtp_rtcp.h"
@@ -68,7 +69,7 @@ class ChannelProxy {
   virtual uint32_t GetDelayEstimate() const;
 
   virtual bool SetSendTelephoneEventPayloadType(int payload_type);
-  virtual bool SendTelephoneEventOutband(uint8_t event, uint32_t duration_ms);
+  virtual bool SendTelephoneEventOutband(int event, int duration_ms);
 
   virtual void SetSink(std::unique_ptr<AudioSinkInterface> sink);
 
@@ -77,6 +78,8 @@ class ChannelProxy {
 
   rtc::ThreadChecker thread_checker_;
   ChannelOwner channel_owner_;
+
+  RTC_DISALLOW_COPY_AND_ASSIGN(ChannelProxy);
 };
 }  // namespace voe
 }  // namespace webrtc

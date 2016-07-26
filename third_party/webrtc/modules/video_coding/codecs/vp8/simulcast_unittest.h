@@ -12,17 +12,16 @@
 #define WEBRTC_MODULES_VIDEO_CODING_CODECS_VP8_SIMULCAST_UNITTEST_H_
 
 #include <algorithm>
+#include <memory>
 #include <vector>
 
+#include "testing/gtest/include/gtest/gtest.h"
 #include "webrtc/base/checks.h"
-#include "webrtc/base/scoped_ptr.h"
 #include "webrtc/common_video/libyuv/include/webrtc_libyuv.h"
 #include "webrtc/modules/video_coding/include/mock/mock_video_codec_interface.h"
 #include "webrtc/modules/video_coding/codecs/vp8/include/vp8.h"
 #include "webrtc/modules/video_coding/codecs/vp8/temporal_layers.h"
 #include "webrtc/video_frame.h"
-
-#include "gtest/gtest.h"
 
 using ::testing::_;
 using ::testing::AllOf;
@@ -944,9 +943,9 @@ class TestVp8Simulcast : public ::testing::Test {
     }
   }
 
-  rtc::scoped_ptr<VP8Encoder> encoder_;
+  std::unique_ptr<VP8Encoder> encoder_;
   MockEncodedImageCallback encoder_callback_;
-  rtc::scoped_ptr<VP8Decoder> decoder_;
+  std::unique_ptr<VP8Decoder> decoder_;
   MockDecodedImageCallback decoder_callback_;
   VideoCodec settings_;
   VideoFrame input_frame_;

@@ -137,7 +137,7 @@ class DtlsTransportChannelWrapper : public TransportChannelImpl {
 
   // Once DTLS has been established, this method retrieves the certificate in
   // use by the remote peer, for use in external identity verification.
-  bool GetRemoteSSLCertificate(rtc::SSLCertificate** cert) const override;
+  rtc::scoped_ptr<rtc::SSLCertificate> GetRemoteSSLCertificate() const override;
 
   // Once DTLS has established (i.e., this channel is writable), this method
   // extracts the keys negotiated during the DTLS handshake, for use in external
@@ -186,6 +186,9 @@ class DtlsTransportChannelWrapper : public TransportChannelImpl {
   void AddRemoteCandidate(const Candidate& candidate) override {
     channel_->AddRemoteCandidate(candidate);
   }
+  void RemoveRemoteCandidate(const Candidate& candidate) override {
+    channel_->RemoveRemoteCandidate(candidate);
+  }
 
   void SetIceConfig(const IceConfig& config) override {
     channel_->SetIceConfig(config);
@@ -209,8 +212,14 @@ class DtlsTransportChannelWrapper : public TransportChannelImpl {
   bool HandleDtlsPacket(const char* data, size_t size);
   void OnGatheringState(TransportChannelImpl* channel);
   void OnCandidateGathered(TransportChannelImpl* channel, const Candidate& c);
+  void OnCandidatesRemoved(TransportChannelImpl* channel,
+                           const Candidates& candidates);
   void OnRoleConflict(TransportChannelImpl* channel);
   void OnRouteChange(TransportChannel* channel, const Candidate& candidate);
+  void OnSelectedCandidatePairChanged(
+      TransportChannel* channel,
+      CandidatePairInterface* selected_candidate_pair,
+      int last_sent_packet_id);
   void OnConnectionRemoved(TransportChannelImpl* channel);
   void Reconnect();
 

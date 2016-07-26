@@ -2,6 +2,7 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+import atexit
 import logging
 import os
 import shutil
@@ -21,6 +22,15 @@ _STARTUP_TRACING_OS_NAMES = _DESKTOP_OS_NAMES + ['android']
 # src/components/tracing/trace_config_file.[h|cc]
 _CHROME_TRACE_CONFIG_DIR_ANDROID = '/data/local/'
 _CHROME_TRACE_CONFIG_FILE_NAME = 'chrome-trace-config.json'
+
+
+def ClearStarupTracingStateIfNeeded(platform_backend):
+  # Trace config file has fixed path on Android and temporary path on desktop.
+  if platform_backend.GetOSName() == 'android':
+    trace_config_file = os.path.join(_CHROME_TRACE_CONFIG_DIR_ANDROID,
+                                     _CHROME_TRACE_CONFIG_FILE_NAME)
+    platform_backend.device.RunShellCommand(
+        ['rm', '-f', trace_config_file], check_return=True, as_root=True)
 
 
 class ChromeTracingStartedError(Exception):
@@ -108,7 +118,13 @@ class ChromeTracingAgent(tracing_agent.TracingAgent):
       return True
     return False
 
-  def StopAgentTracing(self, trace_data_builder):
+  def StopAgentTracing(self):
+    # TODO: Split collection and stopping.
+    pass
+
+  def CollectAgentTraceData(self, trace_data_builder, timeout=None):
+    # TODO: Move stopping to StopAgentTracing.
+    del timeout # Unused.
     if not self._trace_config:
       raise ChromeTracingStoppedError(
           'Tracing is not running on platform backend %s.'
@@ -154,6 +170,9 @@ class ChromeTracingAgent(tracing_agent.TracingAgent):
                                              _CHROME_TRACE_CONFIG_FILE_NAME)
       self._platform_backend.device.WriteFile(self._trace_config_file,
           self._CreateTraceConfigFileString(config), as_root=True)
+      # The config file has fixed path on Android. We need to ensure it is
+      # always cleaned up.
+      atexit.register(self._RemoveTraceConfigFile)
     elif self._platform_backend.GetOSName() in _DESKTOP_OS_NAMES:
       self._trace_config_file = os.path.join(tempfile.mkdtemp(),
                                              _CHROME_TRACE_CONFIG_FILE_NAME)
@@ -180,3 +199,30 @@ class ChromeTracingAgent(tracing_agent.TracingAgent):
     else:
       raise NotImplementedError
     self._trace_config_file = None
+
+  def SupportsFlushingAgentTracing(self):
+    return True
+
+  def FlushAgentTracing(self, config, timeout, trace_data_builder):
+    if not self._trace_config:
+      raise ChromeTracingStoppedError(
+          'Tracing is not running on platform backend %s.'
+          % self._platform_backend)
+
+    for backend in self._IterInspectorBackends():
+      backend.EvaluateJavaScript("console.time('flush-tracing');")
+
+    self.StopAgentTracing()
+    self.CollectAgentTraceData(trace_data_builder)
+    self.StartAgentTracing(config, timeout)
+
+    for backend in self._IterInspectorBackends():
+      backend.EvaluateJavaScript("console.timeEnd('flush-tracing');")
+
+  def _IterInspectorBackends(self):
+    for client in chrome_tracing_devtools_manager.GetDevToolsClients(
+        self._platform_backend):
+      context_map = client.GetUpdatedInspectableContexts()
+      for context in context_map.contexts:
+        if context['type'] in ['iframe', 'page', 'webview']:
+          yield context_map.GetInspectorBackend(context['id'])

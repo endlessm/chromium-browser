@@ -6,6 +6,7 @@ found in the LICENSE file.
 -->
 
 <link rel="import" href="/tracing/base/color_scheme.html">
+<link rel="import" href="/tracing/base/iteration_helpers.html">
 <link rel="import" href="/tracing/extras/importer/linux_perf/android_parser.html">
 <link rel="import" href="/tracing/extras/importer/linux_perf/binder_parser.html">
 <link rel="import" href="/tracing/extras/importer/linux_perf/bus_parser.html">
@@ -53,7 +54,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
    * Imports linux perf events into a specified model.
    * @constructor
    */
-  function LinuxPerfImporter(model, events) {
+  function FTraceImporter(model, events) {
     this.importPriority = 2;
     this.model_ = model;
     this.events_ = events;
@@ -61,7 +62,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
     this.wakeups_ = [];
     this.blocked_reasons_ = [];
     this.kernelThreadStates_ = {};
-    this.buildMapFromLinuxPidsToThreads();
+    this.buildMapFromLinuxPidsToThreads_();
     this.lines_ = [];
     this.pseudoThreadCounter = 1;
     this.parsers_ = [];
@@ -162,7 +163,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
    * kernels can optionally trace the TGID.
    *
    * @return {function} the function for parsing data when the format is
-   * recognized; otherwise null.
+   * recognized; otherwise undefined.
    */
   function autoDetectLineParser(line) {
     if (line[0] == '{')
@@ -173,7 +174,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
       return lineParserWithIRQInfo;
     if (lineREWithLegacyFmt.test(line))
       return lineParserWithLegacyFmt;
-    return null;
+    return undefined;
   };
   TestExports.autoDetectLineParser = autoDetectLineParser;
 
@@ -185,14 +186,14 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
    *
    * @return {boolean} True when events is a linux perf array.
    */
-  LinuxPerfImporter.canImport = function(events) {
+  FTraceImporter.canImport = function(events) {
     if (!(typeof(events) === 'string' || events instanceof String))
       return false;
 
-    if (LinuxPerfImporter._extractEventsFromSystraceHTML(events, false).ok)
+    if (FTraceImporter._extractEventsFromSystraceHTML(events, false).ok)
       return true;
 
-    if (LinuxPerfImporter._extractEventsFromSystraceMultiHTML(events, false).ok)
+    if (FTraceImporter._extractEventsFromSystraceMultiHTML(events, false).ok)
       return true;
 
     if (/^# tracer:/.test(events))
@@ -208,7 +209,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
     return false;
   };
 
-  LinuxPerfImporter._extractEventsFromSystraceHTML = function(
+  FTraceImporter._extractEventsFromSystraceHTML = function(
       incoming_events, produce_result) {
     var failure = {ok: false};
     if (produce_result === undefined)
@@ -273,7 +274,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
       events_begin_at_line: events_begin_at_line};
   };
 
-  LinuxPerfImporter._extractEventsFromSystraceMultiHTML = function(
+  FTraceImporter._extractEventsFromSystraceMultiHTML = function(
       incoming_events, produce_result) {
     var failure = {ok: false};
     if (produce_result === undefined)
@@ -313,11 +314,11 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
       events_begin_at_line: events_begin_at_line};
   };
 
-  LinuxPerfImporter.prototype = {
+  FTraceImporter.prototype = {
     __proto__: tr.importer.Importer.prototype,
 
     get importerName() {
-      return 'LinuxPerfImporter';
+      return 'FTraceImporter';
     },
 
     get model() {
@@ -325,17 +326,33 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
     },
 
     /**
-     * Precomputes a lookup table from linux pids back to existing
-     * Threads. This is used during importing to add information to each
-     * thread about whether it was running, descheduled, sleeping, et
-     * cetera.
+     * Imports the data in this.events_ into model_.
      */
-    buildMapFromLinuxPidsToThreads: function() {
-      this.threadsByLinuxPid = {};
-      this.model_.getAllThreads().forEach(
-          function(thread) {
-            this.threadsByLinuxPid[thread.tid] = thread;
-          }.bind(this));
+    importEvents: function() {
+      this.parsers_ = this.createParsers_();
+      this.registerDefaultHandlers_();
+      this.parseLines_();
+      this.importClockSyncRecords_();
+      var modelTimeTransformer = this.getModelTimeTransformer_();
+      if (modelTimeTransformer === undefined) {
+        this.model_.importWarning({
+          type: 'clock_sync',
+          message: 'Cannot import kernel trace without a clock sync.'
+        });
+        return;
+      }
+      this.shiftNewlyAddedClockSyncRecords_(modelTimeTransformer);
+      this.importCpuData_(modelTimeTransformer);
+      this.buildMapFromLinuxPidsToThreads_();
+      this.buildPerThreadCpuSlicesFromCpuState_();
+    },
+
+    /**
+     * Registers a linux perf event parser used by importCpuData_.
+     */
+    registerEventHandler: function(eventName, handler) {
+      // TODO(sleffler) how to handle conflicts?
+      this.eventHandlers_[eventName] = handler;
     },
 
     /**
@@ -402,26 +419,41 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
     },
 
     /**
-     * Imports the data in this.events_ into model_.
+     * Records the fact that a pid has become runnable. This data will
+     * eventually get used to derive each thread's timeSlices array.
      */
-    importEvents: function(isSecondaryImport) {
-      this.parsers_ = this.createParsers_();
-      this.registerDefaultHandlers_();
-      this.parseLines();
-      this.importClockSyncRecords();
-      var timeShift = this.computeTimeTransform();
-      if (timeShift === undefined) {
-        this.model_.importWarning({
-          type: 'clock_sync',
-          message: 'Cannot import kernel trace without a clock sync.'
-        });
-        return;
-      }
-      this.shiftNewlyAddedClockSyncRecords(timeShift);
-      this.importCpuData(timeShift);
-      this.buildMapFromLinuxPidsToThreads();
-      this.buildPerThreadCpuSlicesFromCpuState();
-      this.computeCpuTimestampsForSlicesAsNeeded();
+    markPidRunnable: function(ts, pid, comm, prio, fromPid) {
+      // The the pids that get passed in to this function are Linux kernel
+      // pids, which identify threads.  The rest of trace-viewer refers to
+      // these as tids, so the change of nomenclature happens in the following
+      // construction of the wakeup object.
+      this.wakeups_.push({ts: ts, tid: pid, fromTid: fromPid});
+    },
+
+    /**
+     * Records the reason why a pid has gone into uninterruptible sleep.
+     */
+    addPidBlockedReason: function(ts, pid, iowait, caller) {
+      // The the pids that get passed in to this function are Linux kernel
+      // pids, which identify threads.  The rest of trace-viewer refers to
+      // these as tids, so the change of nomenclature happens in the following
+      // construction of the wakeup object.
+      this.blocked_reasons_.push({ts: ts, tid: pid, iowait: iowait,
+                                  caller: caller});
+    },
+
+    /**
+     * Precomputes a lookup table from linux pids back to existing
+     * Threads. This is used during importing to add information to each
+     * thread about whether it was running, descheduled, sleeping, et
+     * cetera.
+     */
+    buildMapFromLinuxPidsToThreads_: function() {
+      this.threadsByLinuxPid = {};
+      this.model_.getAllThreads().forEach(
+          function(thread) {
+            this.threadsByLinuxPid[thread.tid] = thread;
+          }.bind(this));
     },
 
     /**
@@ -430,7 +462,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
      * already in the model, on the assumption that not having any traced data
      * on a thread means that it is not of interest to the user.
      */
-    buildPerThreadCpuSlicesFromCpuState: function() {
+    buildPerThreadCpuSlicesFromCpuState_: function() {
       var SCHEDULING_STATE = tr.model.SCHEDULING_STATE;
 
       // Push the cpu slices to the threads that they run on.
@@ -641,36 +673,42 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
       }, this);
     },
 
-    computeCpuTimestampsForSlicesAsNeeded: function() {
-      /* iterate all slices and try to figure out cpuStart/endTimes */
-
-    },
-
     /**
-     * Computes a time transform from perf time to parent time based on the
-     * imported clock sync records.
-     * @return {number} offset from perf time to parent time or undefined if
-     * the necessary sync records were not found.
+     * Returns a function that acccepts a timestamp in the ftrace global clock
+     * domain and returns that same timestamp in the model's clock domain. If
+     * there are insufficient sync markers to create such a function, undefined
+     * is returned.
      */
-    computeTimeTransform: function() {
-      var isSecondaryImport = this.model.getClockSyncRecordsNamed(
+    getModelTimeTransformer_: function() {
+      // When the trace event importer is run, it creates a clock sync record
+      // with a syncId of 'ftrace_importer' as a signal to this importer that
+      // a Chrome trace is present.
+      var isAttachedToChromeTrace = this.model.getClockSyncRecordsWithSyncId(
           'ftrace_importer').length !== 0;
 
-      var mSyncs = this.model_.getClockSyncRecordsNamed('monotonic');
-      // If this is a secondary import, and no clock syncing records were
-      // found, then abort the import. Otherwise, just skip clock alignment.
-      if (mSyncs.length == 0)
-        return isSecondaryImport ? undefined : 0;
+      var monotonicSyncs = this.model_.getClockSyncRecordsWithSyncId(
+          'ftrace_global_to_monotonic');
 
-      // Shift all the slice times based on the sync record.
+      // If there's no sync to the monotonic clock available, it's okay as long
+      // as there's not a Chrome trace present, because that means that the
+      // ftrace global clock is the model clock domain. If there is a Chrome
+      // trace present, abort the import (by returning undefined).
+      if (monotonicSyncs.length == 0)
+        return isAttachedToChromeTrace ? undefined : tr.b.identity;
+
       // TODO(skyostil): Compute a scaling factor if we have multiple clock sync
       // records.
-      var sync = mSyncs[0].args;
-      // NB: parentTS of zero denotes no times-shift; this is
-      // used when user and kernel event clocks are identical.
-      if (sync.parentTS == 0 || sync.parentTS == sync.perfTS)
-        return 0;
-      return sync.parentTS - sync.perfTS;
+      var ftraceGlobalTs = monotonicSyncs[0].start;
+      var monotonicTs = monotonicSyncs[0].args.monotonicTs;
+
+      // A monotonic timestamp of zero is used as a sentinel value to indicate
+      // that CLOCK_MONOTONIC and the ftrace global clock are identical.
+      if (monotonicTs === 0)
+        return tr.b.identity;
+
+      return function(ts) {
+        return ts + monotonicTs - ftraceGlobalTs;
+      };
     },
 
     /**
@@ -693,10 +731,10 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
 
     registerDefaultHandlers_: function() {
       this.registerEventHandler('tracing_mark_write',
-          LinuxPerfImporter.prototype.traceMarkingWriteEvent.bind(this));
+          FTraceImporter.prototype.traceMarkingWriteEvent_.bind(this));
       // NB: old-style trace markers; deprecated
       this.registerEventHandler('0',
-          LinuxPerfImporter.prototype.traceMarkingWriteEvent.bind(this));
+          FTraceImporter.prototype.traceMarkingWriteEvent_.bind(this));
       // Register dummy clock sync handlers to avoid warnings in the log.
       this.registerEventHandler('tracing_mark_write:trace_event_clock_sync',
           function() { return true; });
@@ -705,48 +743,16 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
     },
 
     /**
-     * Registers a linux perf event parser used by importCpuData.
-     */
-    registerEventHandler: function(eventName, handler) {
-      // TODO(sleffler) how to handle conflicts?
-      this.eventHandlers_[eventName] = handler;
-    },
-
-    /**
-     * Records the fact that a pid has become runnable. This data will
-     * eventually get used to derive each thread's timeSlices array.
-     */
-    markPidRunnable: function(ts, pid, comm, prio, fromPid) {
-      // The the pids that get passed in to this function are Linux kernel
-      // pids, which identify threads.  The rest of trace-viewer refers to
-      // these as tids, so the change of nomenclature happens in the following
-      // construction of the wakeup object.
-      this.wakeups_.push({ts: ts, tid: pid, fromTid: fromPid});
-    },
-
-    /**
-     * Records the reason why a pid has gone into uninterruptible sleep.
-     */
-    addPidBlockedReason: function(ts, pid, iowait, caller) {
-      // The the pids that get passed in to this function are Linux kernel
-      // pids, which identify threads.  The rest of trace-viewer refers to
-      // these as tids, so the change of nomenclature happens in the following
-      // construction of the wakeup object.
-      this.blocked_reasons_.push({ts: ts, tid: pid, iowait: iowait,
-                                  caller: caller});
-    },
-
-    /**
      * Processes a trace_event_clock_sync event.
      */
-    traceClockSyncEvent: function(eventName, cpuNumber, pid, ts, eventBase) {
+    traceClockSyncEvent_: function(eventName, cpuNumber, pid, ts, eventBase) {
       // Check for new-style clock sync records.
       var event = /name=(\w+?)\s(.+)/.exec(eventBase.details);
       if (event) {
         var name = event[1];
         var pieces = event[2].split(' ');
         var args = {
-          perfTS: ts
+          perfTs: ts
         };
         for (var i = 0; i < pieces.length; i++) {
           var parts = pieces[i].split('=');
@@ -754,7 +760,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
             throw new Error('omgbbq');
           args[parts[0]] = parts[1];
         }
-        this.addClockSyncRecord(new InstantClockSyncRecord(name, ts, args));
+        this.addClockSyncRecord_(new InstantClockSyncRecord(name, ts, args));
         return true;
       }
 
@@ -763,17 +769,16 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
       if (!event)
         return false;
 
-      this.addClockSyncRecord(new InstantClockSyncRecord('monotonic', ts, {
-        perfTS: ts,
-        parentTS: event[1] * 1000
-      }));
+      var monotonicTs = event[1] * 1000;
+      this.addClockSyncRecord_(new InstantClockSyncRecord(
+          'ftrace_global_to_monotonic', ts, { monotonicTs: monotonicTs }));
       return true;
     },
 
     /**
      * Processes a trace_marking_write event.
      */
-    traceMarkingWriteEvent: function(eventName, cpuNumber, pid, ts, eventBase,
+    traceMarkingWriteEvent_: function(eventName, cpuNumber, pid, ts, eventBase,
                                      threadName) {
 
       // Some profiles end up with a \n\ on the end of each line. Strip it
@@ -810,13 +815,13 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
     /**
      * Populates model clockSyncRecords with found clock sync markers.
      */
-    importClockSyncRecords: function() {
-      this.forEachLine(function(text, eventBase, cpuNumber, pid, ts) {
+    importClockSyncRecords_: function() {
+      this.forEachLine_(function(text, eventBase, cpuNumber, pid, ts) {
         var eventName = eventBase.eventName;
         if (eventName !== 'tracing_mark_write' && eventName !== '0')
           return;
         if (traceEventClockSyncRE.exec(eventBase.details))
-          this.traceClockSyncEvent(eventName, cpuNumber, pid, ts, eventBase);
+          this.traceClockSyncEvent_(eventName, cpuNumber, pid, ts, eventBase);
         if (realTimeClockSyncRE.exec(eventBase.details)) {
           // This entry maps realtime to clock_monotonic; store in the model
           // so that importers parsing files with realtime timestamps can
@@ -825,25 +830,26 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
           this.model_.realtime_to_monotonic_offset_ms = ts - match[1];
         }
         if (genericClockSyncRE.exec(eventBase.details))
-          this.traceClockSyncEvent(eventName, cpuNumber, pid, ts, eventBase);
+          this.traceClockSyncEvent_(eventName, cpuNumber, pid, ts, eventBase);
       }.bind(this));
     },
-    addClockSyncRecord: function(csr) {
+
+    addClockSyncRecord_: function(csr) {
       this.newlyAddedClockSyncRecords_.push(csr);
       this.model_.clockSyncRecords.push(csr);
     },
 
-    shiftNewlyAddedClockSyncRecords: function(timeShift) {
+    shiftNewlyAddedClockSyncRecords_: function(modelTimeTransformer) {
       this.newlyAddedClockSyncRecords_.forEach(function(csr) {
-        csr.start += timeShift;
+        csr.start = modelTimeTransformer(csr.start);
       });
     },
 
     /**
      * Walks the this.events_ structure and creates Cpu objects.
      */
-    importCpuData: function(timeShift) {
-      this.forEachLine(function(text, eventBase, cpuNumber, pid, ts) {
+    importCpuData_: function(modelTimeTransformer) {
+      this.forEachLine_(function(text, eventBase, cpuNumber, pid, ts) {
         var eventName = eventBase.eventName;
         var handler = this.eventHandlers_[eventName];
         if (!handler) {
@@ -853,7 +859,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
           });
           return;
         }
-        ts += timeShift;
+        ts = modelTimeTransformer(ts);
         if (!handler(eventName, cpuNumber, pid, ts, eventBase)) {
           this.model_.importWarning({
             type: 'parse_error',
@@ -866,24 +872,25 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
     /**
      * Walks the this.events_ structure and populates this.lines_.
      */
-    parseLines: function() {
+    parseLines_: function() {
       var lines = [];
-      var extractResult = LinuxPerfImporter._extractEventsFromSystraceHTML(
+      var extractResult = FTraceImporter._extractEventsFromSystraceHTML(
           this.events_, true);
       if (!extractResult.ok)
-        extractResult = LinuxPerfImporter._extractEventsFromSystraceMultiHTML(
+        extractResult = FTraceImporter._extractEventsFromSystraceMultiHTML(
             this.events_, true);
       var lines = extractResult.ok ?
         extractResult.lines : this.events_.split('\n');
 
-      var lineParser = null;
+      var lineParser = undefined;
       for (var lineNumber = 0; lineNumber < lines.length; ++lineNumber) {
         var line = lines[lineNumber].trim();
         if (line.length == 0 || /^#/.test(line))
           continue;
-        if (lineParser == null) {
+
+        if (!lineParser) {
           lineParser = autoDetectLineParser(line);
-          if (lineParser == null) {
+          if (!lineParser) {
             this.model_.importWarning({
               type: 'parse_error',
               message: 'Cannot parse line: ' + line
@@ -891,6 +898,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
             continue;
           }
         }
+
         var eventBase = lineParser(line);
         if (!eventBase) {
           this.model_.importWarning({
@@ -913,7 +921,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
     /**
      * Calls |handler| for every parsed line.
      */
-    forEachLine: function(handler) {
+    forEachLine_: function(handler) {
       for (var i = 0; i < this.lines_.length; ++i) {
         var line = this.lines_[i];
         handler.apply(this, line);
@@ -921,11 +929,11 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
     }
   };
 
-  tr.importer.Importer.register(LinuxPerfImporter);
+  tr.importer.Importer.register(FTraceImporter);
 
   return {
-    LinuxPerfImporter: LinuxPerfImporter,
-    _LinuxPerfImporterTestExports: TestExports
+    FTraceImporter: FTraceImporter,
+    _FTraceImporterTestExports: TestExports
   };
 });
 </script>

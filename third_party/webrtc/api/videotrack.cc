@@ -17,41 +17,59 @@ namespace webrtc {
 const char MediaStreamTrackInterface::kVideoKind[] = "video";
 
 VideoTrack::VideoTrack(const std::string& label,
-                       VideoSourceInterface* video_source)
+                       VideoTrackSourceInterface* video_source)
     : MediaStreamTrack<VideoTrackInterface>(label),
       video_source_(video_source) {
-  if (video_source_)
-    video_source_->AddSink(&renderers_);
+  video_source_->RegisterObserver(this);
 }
 
 VideoTrack::~VideoTrack() {
-  if (video_source_)
-    video_source_->RemoveSink(&renderers_);
+  video_source_->UnregisterObserver(this);
 }
 
 std::string VideoTrack::kind() const {
   return kVideoKind;
 }
 
-void VideoTrack::AddRenderer(VideoRendererInterface* renderer) {
-  renderers_.AddRenderer(renderer);
+void VideoTrack::AddOrUpdateSink(
+    rtc::VideoSinkInterface<cricket::VideoFrame>* sink,
+    const rtc::VideoSinkWants& wants) {
+  RTC_DCHECK(thread_checker_.CalledOnValidThread());
+  VideoSourceBase::AddOrUpdateSink(sink, wants);
+  rtc::VideoSinkWants modified_wants = wants;
+  modified_wants.black_frames = !enabled();
+  video_source_->AddOrUpdateSink(sink, modified_wants);
 }
 
-void VideoTrack::RemoveRenderer(VideoRendererInterface* renderer) {
-  renderers_.RemoveRenderer(renderer);
-}
-
-rtc::VideoSinkInterface<cricket::VideoFrame>* VideoTrack::GetSink() {
-  return &renderers_;
+void VideoTrack::RemoveSink(
+    rtc::VideoSinkInterface<cricket::VideoFrame>* sink) {
+  RTC_DCHECK(thread_checker_.CalledOnValidThread());
+  VideoSourceBase::RemoveSink(sink);
+  video_source_->RemoveSink(sink);
 }
 
 bool VideoTrack::set_enabled(bool enable) {
-  renderers_.SetEnabled(enable);
+  RTC_DCHECK(thread_checker_.CalledOnValidThread());
+  for (auto& sink_pair : sink_pairs()) {
+    rtc::VideoSinkWants modified_wants = sink_pair.wants;
+    modified_wants.black_frames = !enable;
+    video_source_->AddOrUpdateSink(sink_pair.sink, modified_wants);
+  }
   return MediaStreamTrack<VideoTrackInterface>::set_enabled(enable);
 }
 
+void VideoTrack::OnChanged() {
+  RTC_DCHECK(thread_checker_.CalledOnValidThread());
+  if (video_source_->state() == MediaSourceInterface::kEnded) {
+    set_state(kEnded);
+  } else {
+    set_state(kLive);
+  }
+}
+
 rtc::scoped_refptr<VideoTrack> VideoTrack::Create(
-    const std::string& id, VideoSourceInterface* source) {
+    const std::string& id,
+    VideoTrackSourceInterface* source) {
   rtc::RefCountedObject<VideoTrack>* track =
       new rtc::RefCountedObject<VideoTrack>(id, source);
   return track;

@@ -13,10 +13,10 @@ found in the LICENSE file.
 <link rel="import" href="/tracing/extras/importer/trace_code_map.html">
 <link rel="import" href="/tracing/extras/importer/v8/codemap.html">
 <link rel="import" href="/tracing/importer/importer.html">
-<link rel="import" href="/tracing/model/attribute.html">
 <link rel="import" href="/tracing/model/clock_sync_record.html">
 <link rel="import" href="/tracing/model/comment_box_annotation.html">
 <link rel="import" href="/tracing/model/constants.html">
+<link rel="import" href="/tracing/model/container_memory_dump.html">
 <link rel="import" href="/tracing/model/counter_series.html">
 <link rel="import" href="/tracing/model/flow_event.html">
 <link rel="import" href="/tracing/model/global_memory_dump.html">
@@ -28,7 +28,9 @@ found in the LICENSE file.
 <link rel="import" href="/tracing/model/rect_annotation.html">
 <link rel="import" href="/tracing/model/scoped_id.html">
 <link rel="import" href="/tracing/model/slice_group.html">
+<link rel="import" href="/tracing/model/vm_region.html">
 <link rel="import" href="/tracing/model/x_marker_annotation.html">
+<link rel="import" href="/tracing/value/numeric.html">
 <link rel="import" href="/tracing/value/unit.html">
 
 <script>
@@ -59,8 +61,22 @@ tr.exportTo('tr.e.importer', function() {
   var CONSUMER = 'consumer';
   var STEP = 'step';
 
-  var MEMORY_DUMP_LEVELS_OF_DETAIL = [undefined, 'light', 'detailed'];
+  var LIGHT = tr.model.ContainerMemoryDump.LevelOfDetail.LIGHT;
+  var DETAILED = tr.model.ContainerMemoryDump.LevelOfDetail.DETAILED;
+  var MEMORY_DUMP_LEVEL_OF_DETAIL_ORDER = [undefined, LIGHT, DETAILED];
+
   var GLOBAL_MEMORY_ALLOCATOR_DUMP_PREFIX = 'global/';
+
+  // Map from raw memory dump byte stat names to model byte stat names. See
+  // //base/trace_event/process_memory_maps.cc in Chromium.
+  var BYTE_STAT_NAME_MAP = {
+    'pc': 'privateCleanResident',
+    'pd': 'privateDirtyResident',
+    'sc': 'sharedCleanResident',
+    'sd': 'sharedDirtyResident',
+    'pss': 'proportionalResident',
+    'sw': 'swapped'
+  };
 
   // See tr.model.MemoryAllocatorDump 'weak' field and
   // base::trace_event::MemoryAllocatorDump::Flags::WEAK in the Chromium
@@ -105,12 +121,17 @@ tr.exportTo('tr.e.importer', function() {
 
     this.v8ProcessCodeMaps_ = {};
     this.v8ProcessRootStackFrame_ = {};
+    this.v8SamplingData_ = [];
 
     // Dump ID -> PID -> [process memory dump events].
     this.allMemoryDumpEvents_ = {};
 
     // PID -> Object type ID -> Object type name.
     this.objectTypeNameMap_ = {};
+
+    // For old Chrome traces with no clock domain metadata, just use a
+    // placeholder clock domain.
+    this.clockDomainId_ = tr.model.ClockDomainId.UNKNOWN_CHROME_LEGACY;
 
     if (typeof(eventData) === 'string' || eventData instanceof String) {
       eventData = eventData.trim();
@@ -178,9 +199,13 @@ tr.exportTo('tr.e.importer', function() {
           continue;
         this.model_.metadata.push({name: fieldName,
           value: container[fieldName]});
-        if (fieldName === 'metadata' && container[fieldName]['highres-ticks']) {
-          this.model_.isTimeHighResolution =
-              container[fieldName]['highres-ticks'];
+
+        if (fieldName === 'metadata') {
+          var metadata = container[fieldName];
+          if (metadata['highres-ticks'])
+            this.model_.isTimeHighResolution = metadata['highres-ticks'];
+          if (metadata['clock-domain'])
+            this.clockDomainId_ = metadata['clock-domain'];
         }
       }
     }
@@ -443,7 +468,29 @@ tr.exportTo('tr.e.importer', function() {
       return slice;
     },
 
+    processJitCodeEvent: function(event) {
+      if (this.v8ProcessCodeMaps_[event.pid] === undefined)
+        this.v8ProcessCodeMaps_[event.pid] = new tr.e.importer.TraceCodeMap();
+      var map = this.v8ProcessCodeMaps_[event.pid];
+
+      var data = event.args.data;
+      // TODO(dsinclair): There are _a lot_ of JitCode events so I'm skipping
+      // the display for now. Can revisit later if we want to show them.
+      // Handle JitCodeMoved and JitCodeAdded event.
+      if (event.name === 'JitCodeMoved')
+        map.moveEntry(data.code_start, data.new_code_start, data.code_len);
+      else  // event.name === 'JitCodeAdded'
+        map.addEntry(data.code_start, data.code_len, data.name, data.script_id);
+    },
+
     processMetadataEvent: function(event) {
+      // V8 JIT events are currently logged as phase 'M' so we need to
+      // separate them out and handle specially.
+      if (event.name === 'JitCodeAdded' || event.name === 'JitCodeMoved') {
+        this.v8SamplingData_.push(event);
+        return;
+      }
+
       // The metadata events aren't useful without args.
       if (event.argsStripped)
         return;
@@ -505,26 +552,11 @@ tr.exportTo('tr.e.importer', function() {
       }
     },
 
-    processJitCodeEvent: function(event) {
-      if (this.v8ProcessCodeMaps_[event.pid] === undefined)
-        this.v8ProcessCodeMaps_[event.pid] = new tr.e.importer.TraceCodeMap();
-      var map = this.v8ProcessCodeMaps_[event.pid];
-
-      var data = event.args.data;
-      if (event.name === 'JitCodeMoved')
-        map.moveEntry(data.code_start, data.new_code_start, data.code_len);
-      else
-        map.addEntry(data.code_start, data.code_len, data.name, data.script_id);
-    },
-
     processInstantEvent: function(event) {
-      // V8 JIT events are logged as phase 'I' so we need to separate them out
-      // and handle specially.
-      //
-      // TODO(dsinclair): There are _a lot_ of JitCode events so I'm skipping
-      // the display for now. Can revisit later if we want to show them.
+      // V8 JIT events were logged as phase 'I' in the old format,
+      // so we need to separate them out and handle specially.
       if (event.name === 'JitCodeAdded' || event.name === 'JitCodeMoved') {
-        this.processJitCodeEvent(event);
+        this.v8SamplingData_.push(event);
         return;
       }
 
@@ -556,12 +588,12 @@ tr.exportTo('tr.e.importer', function() {
 
       switch (instantEvent.type) {
         case tr.model.InstantEventType.GLOBAL:
-          this.model_.pushInstantEvent(instantEvent);
+          this.model_.instantEvents.push(instantEvent);
           break;
 
         case tr.model.InstantEventType.PROCESS:
           var process = this.model_.getOrCreateProcess(event.pid);
-          process.pushInstantEvent(instantEvent);
+          process.instantEvents.push(instantEvent);
           break;
 
         default:
@@ -654,7 +686,7 @@ tr.exportTo('tr.e.importer', function() {
 
     processTraceSampleEvent: function(event) {
       if (event.name === 'V8Sample') {
-        this.processV8Sample(event);
+        this.v8SamplingData_.push(event);
         return;
       }
 
@@ -726,34 +758,91 @@ tr.exportTo('tr.e.importer', function() {
       if (event.ph !== 'c')
         throw new Error('Invalid clock sync event phase "' + event.ph + '".');
 
-      var sync_id = event.args.sync_id;
-      var issue_start_ts = event.args.issue_ts;
-      var issue_end_ts = event.ts;
+      var syncId = event.args.sync_id;
+      var issueStartTs = event.args.issue_ts;
+      var issueEndTs = event.ts;
 
-      if (sync_id === undefined) {
+      if (syncId === undefined) {
         this.model_.importWarning({
           type: 'clock_sync_parse_error',
-          message: 'Clock sync at time ' + issue_end_ts + ' without an ID.'
+          message: 'Clock sync at time ' + issueEndTs + ' without an ID.'
         });
         return;
       }
 
-      if (issue_start_ts === undefined) {
+      if (issueStartTs === undefined) {
         this.model_.importWarning({
           type: 'clock_sync_parse_error',
-          message: 'Clock sync at time ' + issue_end_ts + ' with ID ' +
-              sync_id + ' without a start timestamp.'
+          message: 'Clock sync at time ' + issueEndTs + ' with ID ' + syncId +
+              ' without a start timestamp.'
         });
         return;
       }
 
-      var clock_sync_args = {
-        duration: timestampFromUs(issue_end_ts - issue_start_ts)
-      };
+      this.model_.clockSyncManager.addClockSyncMarker(
+          this.clockDomainId_, syncId, timestampFromUs(issueStartTs),
+          timestampFromUs(issueEndTs - issueStartTs));
+
+      // TODO(charliea): Remove this once the new clock sync system is fully
+      // implemented.
       this.model_.clockSyncRecords.push(new tr.model.PingPongClockSyncRecord(
-        sync_id, timestampFromUs(issue_start_ts),
-        timestampFromUs(issue_end_ts - issue_start_ts)
-      ));
+          syncId, timestampFromUs(issueStartTs),
+          timestampFromUs(issueEndTs - issueStartTs)));
+    },
+
+    // Because the order of Jit code events and V8 samples are not guaranteed,
+    // We store them in an array, sort by timestamp, and then process them.
+    processV8Events: function() {
+      this.v8SamplingData_.sort(function(a, b) {
+        if (a.ts !== b.ts)
+          return a.ts - b.ts;
+        if (a.ph === 'M' || a.ph === 'I')
+          return -1;
+        else if (b.ph === 'M' || b.ph === 'I')
+          return 1;
+        return 0;
+      });
+      var length = this.v8SamplingData_.length;
+      for (var i = 0; i < length; ++i) {
+        var event = this.v8SamplingData_[i];
+        if (event.ph === 'M' || event.ph === 'I') {
+          this.processJitCodeEvent(event);
+        } else if (event.ph === 'P') {
+          this.processV8Sample(event);
+        }
+      }
+    },
+
+    importClockSyncMarkers: function() {
+      // TODO(charliea): Remove this once we're fully moved over to using the
+      // ClockSyncManager.
+      //
+      // Note that we don't insert a "new style" ftrace_importer marker here.
+      // The reason for this is that ftrace uses this marker as a means to
+      // implement the following logic:
+      //
+      //   If there are multiple clock domains, throw an error if they don't
+      //   have clock sync markers connecting them.
+      //
+      // The new ClockSyncManager takes care of this already, so we don't
+      // need such a marker.
+      this.model_.clockSyncRecords.push(
+          new tr.model.InstantClockSyncRecord('ftrace_importer', 0, {}));
+
+      for (var i = 0; i < this.events_.length; i++) {
+        var event = this.events_[i];
+
+        if (event.ph !== 'c')
+          continue;
+
+        var eventSizeInBytes =
+            this.model_.importOptions.trackDetailedModelStats ?
+                JSON.stringify(event).length : undefined;
+
+        this.model_.stats.willProcessBasicTraceEvent(
+            'clock_sync', event.cat, event.name, event.ts, eventSizeInBytes);
+        this.processClockSyncEvent(event);
+      }
     },
 
     /**
@@ -761,8 +850,6 @@ tr.exportTo('tr.e.importer', function() {
      * model_.
      */
     importEvents: function() {
-      var csr = new tr.model.InstantClockSyncRecord('ftrace_importer', 0, {});
-      this.model_.clockSyncRecords.push(csr);
       if (this.stackFrameEvents_)
         this.importStackFrames_(this.stackFrameEvents_, 'g');
 
@@ -773,7 +860,6 @@ tr.exportTo('tr.e.importer', function() {
       var trackDetailedModelStats = importOptions.trackDetailedModelStats;
 
       var modelStats = this.model_.stats;
-      modelStats.size = 0;
 
       var events = this.events_;
       for (var eI = 0; eI < events.length; eI++) {
@@ -792,13 +878,14 @@ tr.exportTo('tr.e.importer', function() {
 
         if (event.ph === 'B' || event.ph === 'E') {
           modelStats.willProcessBasicTraceEvent(
-              'begin_end (non-comopact)', event.cat, event.name,
+              'begin_end (non-compact)', event.cat, event.name, event.ts,
               eventSizeInBytes);
           this.processDurationEvent(event);
 
         } else if (event.ph === 'X') {
           modelStats.willProcessBasicTraceEvent(
-              'begin_end (compact)', event.cat, event.name, eventSizeInBytes);
+              'begin_end (compact)', event.cat, event.name, event.ts,
+              eventSizeInBytes);
           var slice = this.processCompleteEvent(event);
           // TODO(yuhaoz): If Chrome supports creating other events with flow,
           // we will need to call processFlowEvent for them also.
@@ -810,51 +897,51 @@ tr.exportTo('tr.e.importer', function() {
                    event.ph === 'S' || event.ph === 'F' || event.ph === 'T' ||
                    event.ph === 'p') {
           modelStats.willProcessBasicTraceEvent(
-              'async', event.cat, event.name, eventSizeInBytes);
+              'async', event.cat, event.name, event.ts, eventSizeInBytes);
           this.processAsyncEvent(event);
 
         // Note, I is historic. The instant event marker got changed, but we
         // want to support loading old trace files so we have both I and i.
         } else if (event.ph === 'I' || event.ph === 'i' || event.ph === 'R') {
           modelStats.willProcessBasicTraceEvent(
-              'instant', event.cat, event.name, eventSizeInBytes);
+              'instant', event.cat, event.name, event.ts, eventSizeInBytes);
           this.processInstantEvent(event);
 
         } else if (event.ph === 'P') {
           modelStats.willProcessBasicTraceEvent(
-              'samples', event.cat, event.name, eventSizeInBytes);
+              'samples', event.cat, event.name, event.ts, eventSizeInBytes);
           this.processTraceSampleEvent(event);
         } else if (event.ph === 'C') {
           modelStats.willProcessBasicTraceEvent(
-              'counters', event.cat, event.name, eventSizeInBytes);
+              'counters', event.cat, event.name, event.ts, eventSizeInBytes);
           this.processCounterEvent(event);
         } else if (event.ph === 'M') {
           modelStats.willProcessBasicTraceEvent(
-              'metadata', event.cat, event.name, eventSizeInBytes);
+              'metadata', event.cat, event.name, event.ts, eventSizeInBytes);
           this.processMetadataEvent(event);
 
         } else if (event.ph === 'N' || event.ph === 'D' || event.ph === 'O') {
           modelStats.willProcessBasicTraceEvent(
-              'objects', event.cat, event.name, eventSizeInBytes);
+              'objects', event.cat, event.name, event.ts, eventSizeInBytes);
           this.processObjectEvent(event);
 
         } else if (event.ph === 's' || event.ph === 't' || event.ph === 'f') {
           modelStats.willProcessBasicTraceEvent(
-              'flows', event.cat, event.name, eventSizeInBytes);
+              'flows', event.cat, event.name, event.ts, eventSizeInBytes);
           this.processFlowEvent(event);
 
         } else if (event.ph === 'v') {
           modelStats.willProcessBasicTraceEvent(
-              'memory_dumps', event.cat, event.name, eventSizeInBytes);
+              'memory_dumps', event.cat, event.name, event.ts,
+              eventSizeInBytes);
           this.processMemoryDumpEvent(event);
 
         } else if (event.ph === 'c') {
-          modelStats.willProcessBasicTraceEvent(
-              'clock_sync', event.cat, event.name, eventSizeInBytes);
-          this.processClockSyncEvent(event);
+          // No-op. Clock sync events have already been processed in
+          // importClockSyncMarkers().
         } else {
           modelStats.willProcessBasicTraceEvent(
-              'unknown', event.cat, event.name, eventSizeInBytes);
+              'unknown', event.cat, event.name, event.ts, eventSizeInBytes);
           this.model_.importWarning({
             type: 'parse_error',
             message: 'Unrecognized event phase: ' +
@@ -862,6 +949,7 @@ tr.exportTo('tr.e.importer', function() {
           });
         }
       }
+      this.processV8Events();
 
       // Remove all the root stack frame children as they should
       // already be added.
@@ -2031,7 +2119,7 @@ tr.exportTo('tr.e.importer', function() {
       this.model_.globalMemoryDumps.push(globalMemoryDump);
 
       var globalMemoryAllocatorDumpsByFullName = {};
-      var levelOfDetailIndices = {};
+      var levelsOfDetail = {};
       var allMemoryAllocatorDumpsByGuid = {};
 
       // 2. Create a ProcessMemoryDump for each PID in the provided process
@@ -2040,15 +2128,14 @@ tr.exportTo('tr.e.importer', function() {
       // this step.
       for (var pid in dumpIdEvents) {
         this.createProcessMemoryDump_(globalMemoryDump,
-            globalMemoryAllocatorDumpsByFullName, levelOfDetailIndices,
+            globalMemoryAllocatorDumpsByFullName, levelsOfDetail,
             allMemoryAllocatorDumpsByGuid, dumpIdEvents[pid], pid, dumpId);
       }
 
       // 3. Set the level of detail and memory allocator dumps of the
       // GlobalMemoryDump, which come from the process memory dump trace
       // events parsed in the prebvious step.
-      globalMemoryDump.levelOfDetail =
-          MEMORY_DUMP_LEVELS_OF_DETAIL[levelOfDetailIndices.global];
+      globalMemoryDump.levelOfDetail = levelsOfDetail.global;
 
       // Find the root allocator dumps and establish the parent links of
       // the global memory dump.
@@ -2065,7 +2152,7 @@ tr.exportTo('tr.e.importer', function() {
     },
 
     createProcessMemoryDump_: function(globalMemoryDump,
-        globalMemoryAllocatorDumpsByFullName, levelOfDetailIndices,
+        globalMemoryAllocatorDumpsByFullName, levelsOfDetail,
         allMemoryAllocatorDumpsByGuid, processEvents, pid, dumpId) {
       // Calculate the range of the process memory dump.
       var processRange = new tr.b.Range();
@@ -2109,7 +2196,7 @@ tr.exportTo('tr.e.importer', function() {
         // All process memory dump trace events for the newly created
         // ProcessMemoryDump must be processed before level of detail and
         // allocator dumps can be added to it.
-        this.parseMemoryDumpLevelOfDetail_(levelOfDetailIndices, dumps, pid,
+        this.parseMemoryDumpLevelOfDetail_(levelsOfDetail, dumps, pid,
             dumpId);
         this.parseMemoryDumpAllocatorDumps_(processMemoryDump, globalMemoryDump,
             processMemoryAllocatorDumpsByFullName,
@@ -2117,9 +2204,22 @@ tr.exportTo('tr.e.importer', function() {
             allMemoryAllocatorDumpsByGuid, dumps, pid, dumpId);
       }
 
-      processMemoryDump.levelOfDetail =
-          MEMORY_DUMP_LEVELS_OF_DETAIL[levelOfDetailIndices.process];
-      delete levelOfDetailIndices.process;  // Reused for all process dumps.
+      if (levelsOfDetail.process === undefined) {
+        // Infer level of detail from the presence of VM regions in legacy
+        // traces (where raw process memory dump events don't contain the
+        // level_of_detail field).
+        levelsOfDetail.process = processMemoryDump.vmRegions ? DETAILED : LIGHT;
+      }
+      if (!this.updateMemoryDumpLevelOfDetail_(
+          levelsOfDetail, 'global', levelsOfDetail.process)) {
+        this.model_.importWarning({
+          type: 'memory_dump_parse_error',
+          message: 'diffent levels of detail provided for global memory' +
+              ' dump (dump ID=' + dumpId + ').'
+        });
+      }
+      processMemoryDump.levelOfDetail = levelsOfDetail.process;
+      delete levelsOfDetail.process;  // Reused for all process dumps.
 
       // Find the root allocator dumps and establish the parent links of
       // the process memory dump.
@@ -2220,25 +2320,38 @@ tr.exportTo('tr.e.importer', function() {
         return;
       }
 
-      function parseByteStat(rawValue) {
-        if (rawValue === undefined)
-          return undefined;
-        return parseInt(rawValue, 16);
-      }
-
+      // See //base/trace_event/process_memory_maps.cc in Chromium.
       var vmRegions = new Array(rawVmRegions.length);
-
       for (var i = 0; i < rawVmRegions.length; i++) {
         var rawVmRegion = rawVmRegions[i];
 
-        // See //base/trace_event/process_memory_maps.cc in Chromium.
-        var byteStats = new tr.model.VMRegionByteStats(
-            parseByteStat(rawVmRegion.bs.pc),
-            parseByteStat(rawVmRegion.bs.pd),
-            parseByteStat(rawVmRegion.bs.sc),
-            parseByteStat(rawVmRegion.bs.sd),
-            parseByteStat(rawVmRegion.bs.pss),
-            parseByteStat(rawVmRegion.bs.sw));
+        var byteStats = {};
+        var rawByteStats = rawVmRegion.bs;
+        for (var rawByteStatName in rawByteStats) {
+          var rawByteStatValue = rawByteStats[rawByteStatName];
+          if (rawByteStatValue === undefined) {
+            this.model_.importWarning({
+              type: 'memory_dump_parse_error',
+              message: 'Byte stat \'' + rawByteStatName + '\' of VM region ' +
+                  i + ' (' + rawVmRegion.mf + ') in process memory dump for ' +
+                  'PID=' + pid + ' and dump ID=' + dumpId +
+                  ' does not have a value.'
+            });
+            continue;
+          }
+          var byteStatName = BYTE_STAT_NAME_MAP[rawByteStatName];
+          if (byteStatName === undefined) {
+            this.model_.importWarning({
+              type: 'memory_dump_parse_error',
+              message: 'Unknown byte stat name \'' + rawByteStatName + '\' (' +
+                  rawByteStatValue + ') of VM region ' + i + ' (' +
+                  rawVmRegion.mf + ') in process memory dump for PID=' + pid +
+                  ' and dump ID=' + dumpId + '.'
+            });
+            continue;
+          }
+          byteStats[byteStatName] = parseInt(rawByteStatValue, 16);
+        }
 
         vmRegions[i] = new tr.model.VMRegion(
             parseInt(rawVmRegion.sa, 16),  // startAddress
@@ -2248,7 +2361,8 @@ tr.exportTo('tr.e.importer', function() {
             byteStats);
       }
 
-      processMemoryDump.vmRegions = vmRegions;
+      processMemoryDump.vmRegions =
+          tr.model.VMRegionClassificationNode.fromRegions(vmRegions);
     },
 
     parseMemoryDumpHeapDumps_: function(processMemoryDump, dumps, pid, dumpId) {
@@ -2415,49 +2529,56 @@ tr.exportTo('tr.e.importer', function() {
         processMemoryDump.heapDumps = heapDumps;
     },
 
-    parseMemoryDumpLevelOfDetail_: function(levelOfDetailIndices, dumps, pid,
+    parseMemoryDumpLevelOfDetail_: function(levelsOfDetail, dumps, pid,
         dumpId) {
       var rawLevelOfDetail = dumps.level_of_detail;
-
-      // Determine the index of the level of detail of the dump.
-      var index = MEMORY_DUMP_LEVELS_OF_DETAIL.indexOf(rawLevelOfDetail);
-      if (index < 0) {
-        this.model_.importWarning({
-          type: 'memory_dump_parse_error',
-          message: 'unknown level of detail \'' + rawLevelOfDetail +
-              '\' of process memory dump for PID=' + pid +
-              ' and dump ID=' + dumpId + '.'
-        });
-        return;
+      var level;
+      switch (rawLevelOfDetail) {
+        case 'light':
+          level = LIGHT;
+          break;
+        case 'detailed':
+          level = DETAILED;
+          break;
+        case undefined:
+          level = undefined;
+          break;
+        default:
+          this.model_.importWarning({
+            type: 'memory_dump_parse_error',
+            message: 'unknown raw level of detail \'' + rawLevelOfDetail +
+                '\' of process memory dump for PID=' + pid +
+                ' and dump ID=' + dumpId + '.'
+          });
+          return;
       }
 
-      // If the process memory dump events have different levels of detail
-      // (for the particular process and/or globally), show a warning and use
-      // the highest level.
-
-      if (levelOfDetailIndices.process === undefined) {
-        levelOfDetailIndices.process = index;
-      } else if (index !== levelOfDetailIndices.process) {
+      if (!this.updateMemoryDumpLevelOfDetail_(
+          levelsOfDetail, 'process', level)) {
         this.model_.importWarning({
           type: 'memory_dump_parse_error',
           message: 'diffent levels of detail provided for process memory' +
               ' dump for PID=' + pid + ' (dump ID=' + dumpId + ').'
         });
-        levelOfDetailIndices.process =
-            Math.max(levelOfDetailIndices.process, index);
+      }
+    },
+
+    updateMemoryDumpLevelOfDetail_: function(levelsOfDetail, scope, level) {
+      // If all process memory dump events have the same level of detail (for
+      // the particular 'process' or 'global' scope), return true.
+      if (!(scope in levelsOfDetail) || level === levelsOfDetail[scope]) {
+        levelsOfDetail[scope] = level;
+        return true;
       }
 
-      if (levelOfDetailIndices.global === undefined) {
-        levelOfDetailIndices.global = index;
-      } else if (index !== levelOfDetailIndices.global) {
-        this.model_.importWarning({
-          type: 'memory_dump_parse_error',
-          message: 'diffent levels of detail provided for global memory' +
-              ' dump (dump ID=' + dumpId + ').'
-        });
-        levelOfDetailIndices.global =
-            Math.max(levelOfDetailIndices.global, index);
+      // If the process memory dump events have different levels of detail (for
+      // the particular 'process' or 'global' scope), use the highest level and
+      // return false.
+      if (MEMORY_DUMP_LEVEL_OF_DETAIL_ORDER.indexOf(level) >
+          MEMORY_DUMP_LEVEL_OF_DETAIL_ORDER.indexOf(levelsOfDetail[scope])) {
+        levelsOfDetail[scope] = level;
       }
+      return false;
     },
 
     parseMemoryDumpAllocatorDumps_: function(processMemoryDump,
@@ -2568,20 +2689,54 @@ tr.exportTo('tr.e.importer', function() {
         }
 
         for (var attrName in attributes) {
-          if (attrName in allocatorDump.attributes) {
-            // Skip existing attributes of the memory allocator dump.
-            this.model_.importWarning({
-            type: 'memory_dump_parse_error',
-            message: 'Multiple values provided for attribute ' + attrName +
-                ' of memory allocator dump ' + fullName + ' (GUID=' + guid +
-                ') for PID=' + pid + ' and dump ID=' + dumpId + '.'
-            });
-            continue;
-          }
-
           var attrArgs = attributes[attrName];
-          var attrValue = tr.model.Attribute.fromDictIfPossible(attrArgs);
-          allocatorDump.addAttribute(attrName, attrValue);
+          var attrType = attrArgs.type;
+          var attrValue = attrArgs.value;
+
+          switch (attrType) {
+            case 'scalar':
+              if (attrName in allocatorDump.numerics) {
+                this.model_.importWarning({
+                type: 'memory_dump_parse_error',
+                message: 'Multiple values provided for scalar attribute ' +
+                    attrName + ' of memory allocator dump ' + fullName +
+                    ' (GUID=' + guid + ') for PID=' + pid + ' and dump ID=' +
+                    dumpId + '.'
+                });
+                break;
+              }
+              var unit = attrArgs.units === 'bytes' ?
+                  tr.v.Unit.byName.sizeInBytes_smallerIsBetter :
+                  tr.v.Unit.byName.unitlessNumber_smallerIsBetter;
+              var value = parseInt(attrValue, 16);
+              allocatorDump.addNumeric(attrName,
+                  new tr.v.ScalarNumeric(unit, value));
+              break;
+
+            case 'string':
+              if (attrName in allocatorDump.diagnostics) {
+                this.model_.importWarning({
+                type: 'memory_dump_parse_error',
+                message: 'Multiple values provided for string attribute ' +
+                    attrName + ' of memory allocator dump ' + fullName +
+                    ' (GUID=' + guid + ') for PID=' + pid + ' and dump ID=' +
+                    dumpId + '.'
+                });
+                break;
+              }
+              allocatorDump.addDiagnostic(attrName, attrValue);
+              break;
+
+            default:
+              this.model_.importWarning({
+              type: 'memory_dump_parse_error',
+              message: 'Unknown type provided for attribute ' + attrName +
+                  ' of memory allocator dump ' + fullName + ' (GUID=' + guid +
+                  ') for PID=' + pid + ' and dump ID=' + dumpId + ': ' +
+                  attrType
+              });
+              break;
+          }
         }
       }
     },

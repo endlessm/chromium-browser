@@ -26,26 +26,24 @@ public:
     ~SkImage_Gpu() override;
 
     void applyBudgetDecision() const {
-        GrTexture* tex = this->getTexture();
-        SkASSERT(tex);
         if (SkBudgeted::kYes == fBudgeted) {
-            tex->resourcePriv().makeBudgeted();
+            fTexture->resourcePriv().makeBudgeted();
         } else {
-            tex->resourcePriv().makeUnbudgeted();
+            fTexture->resourcePriv().makeUnbudgeted();
         }
     }
 
     bool getROPixels(SkBitmap*, CachingHint) const override;
     GrTexture* asTextureRef(GrContext* ctx, const GrTextureParams& params) const override;
-    SkImage* onNewSubset(const SkIRect&) const override;
+    sk_sp<SkImage> onMakeSubset(const SkIRect&) const override;
 
     GrTexture* peekTexture() const override { return fTexture; }
     bool isOpaque() const override;
     bool onReadPixels(const SkImageInfo&, void* dstPixels, size_t dstRowBytes,
                       int srcX, int srcY, CachingHint) const override;
 
-    SkSurface* onNewSurface(const SkImageInfo& info) const override {
-        return SkSurface::NewRenderTarget(fTexture->getContext(), SkBudgeted::kNo, info);
+    sk_sp<SkSurface> onNewSurface(const SkImageInfo& info) const override {
+        return SkSurface::MakeRenderTarget(fTexture->getContext(), SkBudgeted::kNo, info);
     }
 
     bool asBitmapForImageFilters(SkBitmap* bitmap) const override;

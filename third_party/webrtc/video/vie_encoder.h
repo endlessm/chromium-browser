@@ -11,25 +11,21 @@
 #ifndef WEBRTC_VIDEO_VIE_ENCODER_H_
 #define WEBRTC_VIDEO_VIE_ENCODER_H_
 
+#include <memory>
 #include <vector>
 
 #include "webrtc/base/criticalsection.h"
-#include "webrtc/base/scoped_ptr.h"
 #include "webrtc/base/scoped_ref_ptr.h"
 #include "webrtc/base/thread_annotations.h"
-#include "webrtc/call/bitrate_allocator.h"
 #include "webrtc/common_types.h"
 #include "webrtc/frame_callback.h"
 #include "webrtc/modules/rtp_rtcp/include/rtp_rtcp_defines.h"
 #include "webrtc/modules/video_coding/include/video_coding_defines.h"
 #include "webrtc/modules/video_processing/include/video_processing.h"
 #include "webrtc/typedefs.h"
-#include "webrtc/video/video_capture_input.h"
 
 namespace webrtc {
 
-class BitrateAllocator;
-class BitrateObserver;
 class Config;
 class EncodedImageCallback;
 class OveruseFrameDetector;
@@ -41,11 +37,11 @@ class SendStatisticsProxy;
 class ViEBitrateObserver;
 class ViEEffectFilter;
 class VideoCodingModule;
+class VideoEncoder;
 
 class ViEEncoder : public VideoEncoderRateObserver,
                    public VCMPacketizationCallback,
-                   public VCMSendStatisticsCallback,
-                   public VideoCaptureCallback {
+                   public VCMSendStatisticsCallback {
  public:
   friend class ViEBitrateObserver;
 
@@ -56,8 +52,7 @@ class ViEEncoder : public VideoEncoderRateObserver,
              I420FrameCallback* pre_encode_callback,
              OveruseFrameDetector* overuse_detector,
              PacedSender* pacer,
-             PayloadRouter* payload_router,
-             BitrateAllocator* bitrate_allocator);
+             PayloadRouter* payload_router);
   ~ViEEncoder();
 
   bool Init();
@@ -78,11 +73,9 @@ class ViEEncoder : public VideoEncoderRateObserver,
                                   uint8_t pl_type,
                                   bool internal_source);
   int32_t DeRegisterExternalEncoder(uint8_t pl_type);
-  int32_t SetEncoder(const VideoCodec& video_codec);
+  void SetEncoder(const VideoCodec& video_codec, int min_transmit_bitrate_bps);
 
-  // Implementing VideoCaptureCallback.
-  void DeliverFrame(VideoFrame video_frame) override;
-
+  void EncodeVideoFrame(const VideoFrame& video_frame);
   void SendKeyFrame();
 
   uint32_t LastObservedBitrateBps() const;
@@ -112,22 +105,13 @@ class ViEEncoder : public VideoEncoderRateObserver,
   virtual void OnReceivedSLI(uint32_t ssrc, uint8_t picture_id);
   virtual void OnReceivedRPSI(uint32_t ssrc, uint64_t picture_id);
 
-  void SetMinTransmitBitrate(int min_transmit_bitrate_kbps);
-
-  // Lets the sender suspend video when the rate drops below
-  // |threshold_bps|, and turns back on when the rate goes back up above
-  // |threshold_bps| + |window_bps|.
-  void SuspendBelowMinBitrate();
-
   // New-style callbacks, used by VideoSendStream.
   void RegisterPostEncodeImageCallback(
         EncodedImageCallback* post_encode_callback);
 
   int GetPaddingNeededBps() const;
 
- protected:
-  // Called by BitrateObserver.
-  void OnNetworkChanged(uint32_t bitrate_bps,
+  void OnBitrateUpdated(uint32_t bitrate_bps,
                         uint8_t fraction_lost,
                         int64_t round_trip_time_ms);
 
@@ -139,26 +123,24 @@ class ViEEncoder : public VideoEncoderRateObserver,
   const uint32_t number_of_cores_;
   const std::vector<uint32_t> ssrcs_;
 
-  const rtc::scoped_ptr<VideoProcessing> vp_;
-  const rtc::scoped_ptr<QMVideoSettingsCallback> qm_callback_;
-  const rtc::scoped_ptr<VideoCodingModule> vcm_;
+  const std::unique_ptr<VideoProcessing> vp_;
+  const std::unique_ptr<QMVideoSettingsCallback> qm_callback_;
+  const std::unique_ptr<VideoCodingModule> vcm_;
 
   rtc::CriticalSection data_cs_;
-  rtc::scoped_ptr<BitrateObserver> bitrate_observer_;
 
   SendStatisticsProxy* const stats_proxy_;
   I420FrameCallback* const pre_encode_callback_;
   OveruseFrameDetector* const overuse_detector_;
   PacedSender* const pacer_;
   PayloadRouter* const send_payload_router_;
-  BitrateAllocator* const bitrate_allocator_;
 
   // The time we last received an input frame or encoded frame. This is used to
   // track when video is stopped long enough that we also want to stop sending
   // padding.
   int64_t time_of_last_frame_activity_ms_ GUARDED_BY(data_cs_);
   VideoCodec encoder_config_ GUARDED_BY(data_cs_);
-  int min_transmit_bitrate_kbps_ GUARDED_BY(data_cs_);
+  int min_transmit_bitrate_bps_ GUARDED_BY(data_cs_);
   uint32_t last_observed_bitrate_bps_ GUARDED_BY(data_cs_);
   bool network_is_transmitting_ GUARDED_BY(data_cs_);
   bool encoder_paused_ GUARDED_BY(data_cs_);

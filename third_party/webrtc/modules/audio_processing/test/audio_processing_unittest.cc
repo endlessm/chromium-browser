@@ -54,12 +54,7 @@ bool write_ref_data = false;
 const google::protobuf::int32 kChannels[] = {1, 2};
 const int kSampleRates[] = {8000, 16000, 32000, 48000};
 
-#if defined(WEBRTC_AUDIOPROC_FIXED_PROFILE)
-// AECM doesn't support super-wb.
-const int kProcessSampleRates[] = {8000, 16000};
-#elif defined(WEBRTC_AUDIOPROC_FLOAT_PROFILE)
 const int kProcessSampleRates[] = {8000, 16000, 32000, 48000};
-#endif
 
 enum StreamDirection { kForward = 0, kReverse };
 
@@ -204,10 +199,10 @@ int16_t MaxAudioFrame(const AudioFrame& frame) {
 #if defined(WEBRTC_AUDIOPROC_FLOAT_PROFILE)
 void TestStats(const AudioProcessing::Statistic& test,
                const audioproc::Test::Statistic& reference) {
-  EXPECT_NEAR(reference.instant(), test.instant, 1);
-  EXPECT_EQ(reference.average(), test.average);
-  EXPECT_EQ(reference.maximum(), test.maximum);
-  EXPECT_NEAR(reference.minimum(), test.minimum, 1);
+  EXPECT_NEAR(reference.instant(), test.instant, 2);
+  EXPECT_NEAR(reference.average(), test.average, 2);
+  EXPECT_NEAR(reference.maximum(), test.maximum, 3);
+  EXPECT_NEAR(reference.minimum(), test.minimum, 2);
 }
 
 void WriteStatsMessage(const AudioProcessing::Statistic& output,
@@ -435,11 +430,7 @@ void ApmTest::SetUp() {
   frame_ = new AudioFrame();
   revframe_ = new AudioFrame();
 
-#if defined(WEBRTC_AUDIOPROC_FIXED_PROFILE)
-  Init(16000, 16000, 16000, 2, 2, 2, false);
-#else
   Init(32000, 32000, 32000, 2, 2, 2, false);
-#endif
 }
 
 void ApmTest::TearDown() {
@@ -593,7 +584,7 @@ int ApmTest::ProcessStreamChooser(Format format) {
 
 int ApmTest::AnalyzeReverseStreamChooser(Format format) {
   if (format == kIntFormat) {
-    return apm_->AnalyzeReverseStream(revframe_);
+    return apm_->ProcessReverseStream(revframe_);
   }
   return apm_->AnalyzeReverseStream(
       revfloat_cb_->channels(),
@@ -649,7 +640,7 @@ void ApmTest::ProcessDelayVerificationTest(int delay_ms, int system_delay_ms,
       process_frame = &tmp_frame;
       process_frame->CopyFrom(*frame);
     }
-    EXPECT_EQ(apm_->kNoError, apm_->AnalyzeReverseStream(reverse_frame));
+    EXPECT_EQ(apm_->kNoError, apm_->ProcessReverseStream(reverse_frame));
     EXPECT_EQ(apm_->kNoError, apm_->set_stream_delay_ms(system_delay_ms));
     EXPECT_EQ(apm_->kNoError, apm_->ProcessStream(process_frame));
     frame = frame_queue.front();
@@ -819,7 +810,7 @@ void ApmTest::TestChangingChannelsInt16Interface(
     AudioProcessing::Error expected_return) {
   frame_->num_channels_ = num_channels;
   EXPECT_EQ(expected_return, apm_->ProcessStream(frame_));
-  EXPECT_EQ(expected_return, apm_->AnalyzeReverseStream(frame_));
+  EXPECT_EQ(expected_return, apm_->ProcessReverseStream(frame_));
 }
 
 void ApmTest::TestChangingForwardChannels(
@@ -1039,18 +1030,6 @@ TEST_F(ApmTest, DISABLED_EchoCancellationReportsCorrectDelays) {
 }
 
 TEST_F(ApmTest, EchoControlMobile) {
-  // AECM won't use super-wideband.
-  SetFrameSampleRate(frame_, 32000);
-  EXPECT_NOERR(apm_->ProcessStream(frame_));
-  EXPECT_EQ(apm_->kBadSampleRateError,
-            apm_->echo_control_mobile()->Enable(true));
-  SetFrameSampleRate(frame_, 16000);
-  EXPECT_NOERR(apm_->ProcessStream(frame_));
-  EXPECT_EQ(apm_->kNoError,
-            apm_->echo_control_mobile()->Enable(true));
-  SetFrameSampleRate(frame_, 32000);
-  EXPECT_EQ(apm_->kUnsupportedComponentError, apm_->ProcessStream(frame_));
-
   // Turn AECM on (and AEC off)
   Init(16000, 16000, 16000, 2, 2, 2, false);
   EXPECT_EQ(apm_->kNoError, apm_->echo_control_mobile()->Enable(true));
@@ -1610,7 +1589,7 @@ TEST_F(ApmTest, IdenticalInputChannelsResultInIdenticalOutputChannels) {
     while (ReadFrame(far_file_, revframe_) && ReadFrame(near_file_, frame_)) {
       CopyLeftToRightChannel(revframe_->data_, revframe_->samples_per_channel_);
 
-      ASSERT_EQ(kNoErr, apm_->AnalyzeReverseStream(revframe_));
+      ASSERT_EQ(kNoErr, apm_->ProcessReverseStream(revframe_));
 
       CopyLeftToRightChannel(frame_->data_, frame_->samples_per_channel_);
       frame_->vad_activity_ = AudioFrame::kVadUnknown;
@@ -1885,7 +1864,7 @@ TEST_F(ApmTest, DebugDump) {
 
   EXPECT_EQ(apm_->kNoError, apm_->StartDebugRecording(filename.c_str(), -1));
   EXPECT_EQ(apm_->kNoError, apm_->ProcessStream(frame_));
-  EXPECT_EQ(apm_->kNoError, apm_->AnalyzeReverseStream(revframe_));
+  EXPECT_EQ(apm_->kNoError, apm_->ProcessReverseStream(revframe_));
   EXPECT_EQ(apm_->kNoError, apm_->StopDebugRecording());
 
   // Verify the file has been written.
@@ -1919,7 +1898,7 @@ TEST_F(ApmTest, DebugDumpFromFileHandle) {
   EXPECT_EQ(apm_->kNoError, apm_->StopDebugRecording());
 
   EXPECT_EQ(apm_->kNoError, apm_->StartDebugRecording(fid, -1));
-  EXPECT_EQ(apm_->kNoError, apm_->AnalyzeReverseStream(revframe_));
+  EXPECT_EQ(apm_->kNoError, apm_->ProcessReverseStream(revframe_));
   EXPECT_EQ(apm_->kNoError, apm_->ProcessStream(frame_));
   EXPECT_EQ(apm_->kNoError, apm_->StopDebugRecording());
 
@@ -1974,11 +1953,12 @@ TEST_F(ApmTest, FloatAndIntInterfacesGiveSimilarResults) {
                                         num_input_channels);
 
     int analog_level = 127;
+    size_t num_bad_chunks = 0;
     while (ReadFrame(far_file_, revframe_, revfloat_cb_.get()) &&
            ReadFrame(near_file_, frame_, float_cb_.get())) {
       frame_->vad_activity_ = AudioFrame::kVadUnknown;
 
-      EXPECT_NOERR(apm_->AnalyzeReverseStream(revframe_));
+      EXPECT_NOERR(apm_->ProcessReverseStream(revframe_));
       EXPECT_NOERR(fapm->AnalyzeReverseStream(
           revfloat_cb_->channels(),
           samples_per_channel,
@@ -2012,18 +1992,13 @@ TEST_F(ApmTest, FloatAndIntInterfacesGiveSimilarResults) {
         float snr = ComputeSNR(output_int16.channels()[j],
                                output_cb.channels()[j],
                                samples_per_channel, &variance);
-  #if defined(WEBRTC_AUDIOPROC_FIXED_PROFILE)
-        // There are a few chunks in the fixed-point profile that give low SNR.
-        // Listening confirmed the difference is acceptable.
-        const float kVarianceThreshold = 150;
-        const float kSNRThreshold = 10;
-  #else
+
         const float kVarianceThreshold = 20;
         const float kSNRThreshold = 20;
-  #endif
+
         // Skip frames with low energy.
-        if (sqrt(variance) > kVarianceThreshold) {
-          EXPECT_LT(kSNRThreshold, snr);
+        if (sqrt(variance) > kVarianceThreshold && snr < kSNRThreshold) {
+          ++num_bad_chunks;
         }
       }
 
@@ -2039,6 +2014,16 @@ TEST_F(ApmTest, FloatAndIntInterfacesGiveSimilarResults) {
       // Reset in case of downmixing.
       frame_->num_channels_ = static_cast<size_t>(test->num_input_channels());
     }
+
+#if defined(WEBRTC_AUDIOPROC_FLOAT_PROFILE)
+    const size_t kMaxNumBadChunks = 0;
+#elif defined(WEBRTC_AUDIOPROC_FIXED_PROFILE)
+    // There are a few chunks in the fixed-point profile that give low SNR.
+    // Listening confirmed the difference is acceptable.
+    const size_t kMaxNumBadChunks = 60;
+#endif
+    EXPECT_LE(num_bad_chunks, kMaxNumBadChunks);
+
     rewind(far_file_);
     rewind(near_file_);
   }
@@ -2113,7 +2098,7 @@ TEST_F(ApmTest, Process) {
     float ns_speech_prob_average = 0.0f;
 
     while (ReadFrame(far_file_, revframe_) && ReadFrame(near_file_, frame_)) {
-      EXPECT_EQ(apm_->kNoError, apm_->AnalyzeReverseStream(revframe_));
+      EXPECT_EQ(apm_->kNoError, apm_->ProcessReverseStream(revframe_));
 
       frame_->vad_activity_ = AudioFrame::kVadUnknown;
 
@@ -2189,7 +2174,7 @@ TEST_F(ApmTest, Process) {
       // or generate a separate android reference.
 #if defined(WEBRTC_ANDROID)
       const int kHasVoiceCountOffset = 3;
-      const int kHasVoiceCountNear = 3;
+      const int kHasVoiceCountNear = 4;
       const int kMaxOutputAverageOffset = 9;
       const int kMaxOutputAverageNear = 9;
 #else
@@ -2560,9 +2545,9 @@ TEST_P(AudioProcessingTest, Formats) {
       } else {
         ref_rate = 8000;
       }
-#ifdef WEBRTC_AUDIOPROC_FIXED_PROFILE
+#ifdef WEBRTC_ARCH_ARM_FAMILY
       if (file_direction == kForward) {
-        ref_rate = std::min(ref_rate, 16000);
+        ref_rate = std::min(ref_rate, 32000);
       }
 #endif
       FILE* out_file = fopen(
@@ -2645,9 +2630,7 @@ TEST_P(AudioProcessingTest, Formats) {
         EXPECT_NE(0, expected_snr);
         std::cout << "SNR=" << snr << " dB" << std::endl;
       } else {
-        EXPECT_EQ(expected_snr, 0);
-        std::cout << "SNR="
-                  << "inf dB" << std::endl;
+        std::cout << "SNR=inf dB" << std::endl;
       }
 
       fclose(out_file);
@@ -2729,9 +2712,9 @@ INSTANTIATE_TEST_CASE_P(
                     std::tr1::make_tuple(48000, 16000, 32000, 16000, 20, 20),
                     std::tr1::make_tuple(48000, 16000, 16000, 16000, 20, 0),
 
-                    std::tr1::make_tuple(44100, 48000, 48000, 48000, 20, 0),
-                    std::tr1::make_tuple(44100, 48000, 32000, 48000, 20, 30),
-                    std::tr1::make_tuple(44100, 48000, 16000, 48000, 20, 20),
+                    std::tr1::make_tuple(44100, 48000, 48000, 48000, 15, 0),
+                    std::tr1::make_tuple(44100, 48000, 32000, 48000, 15, 30),
+                    std::tr1::make_tuple(44100, 48000, 16000, 48000, 15, 20),
                     std::tr1::make_tuple(44100, 44100, 48000, 44100, 15, 20),
                     std::tr1::make_tuple(44100, 44100, 32000, 44100, 15, 15),
                     std::tr1::make_tuple(44100, 44100, 16000, 44100, 15, 15),
@@ -2742,15 +2725,15 @@ INSTANTIATE_TEST_CASE_P(
                     std::tr1::make_tuple(44100, 16000, 32000, 16000, 20, 20),
                     std::tr1::make_tuple(44100, 16000, 16000, 16000, 20, 0),
 
-                    std::tr1::make_tuple(32000, 48000, 48000, 48000, 20, 0),
-                    std::tr1::make_tuple(32000, 48000, 32000, 48000, 20, 30),
-                    std::tr1::make_tuple(32000, 48000, 16000, 48000, 20, 20),
-                    std::tr1::make_tuple(32000, 44100, 48000, 44100, 15, 20),
-                    std::tr1::make_tuple(32000, 44100, 32000, 44100, 15, 15),
-                    std::tr1::make_tuple(32000, 44100, 16000, 44100, 15, 15),
-                    std::tr1::make_tuple(32000, 32000, 48000, 32000, 20, 35),
-                    std::tr1::make_tuple(32000, 32000, 32000, 32000, 20, 0),
-                    std::tr1::make_tuple(32000, 32000, 16000, 32000, 20, 20),
+                    std::tr1::make_tuple(32000, 48000, 48000, 48000, 35, 0),
+                    std::tr1::make_tuple(32000, 48000, 32000, 48000, 65, 30),
+                    std::tr1::make_tuple(32000, 48000, 16000, 48000, 40, 20),
+                    std::tr1::make_tuple(32000, 44100, 48000, 44100, 20, 20),
+                    std::tr1::make_tuple(32000, 44100, 32000, 44100, 20, 15),
+                    std::tr1::make_tuple(32000, 44100, 16000, 44100, 20, 15),
+                    std::tr1::make_tuple(32000, 32000, 48000, 32000, 35, 35),
+                    std::tr1::make_tuple(32000, 32000, 32000, 32000, 0, 0),
+                    std::tr1::make_tuple(32000, 32000, 16000, 32000, 40, 20),
                     std::tr1::make_tuple(32000, 16000, 48000, 16000, 20, 20),
                     std::tr1::make_tuple(32000, 16000, 32000, 16000, 20, 20),
                     std::tr1::make_tuple(32000, 16000, 16000, 16000, 20, 0),

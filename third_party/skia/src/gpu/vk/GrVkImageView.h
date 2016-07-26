@@ -12,7 +12,7 @@
 
 #include "GrVkResource.h"
 
-#include "vulkan/vulkan.h"
+#include "vk/GrVkDefines.h"
 
 class GrVkImageView : public GrVkResource {
 public:
@@ -20,7 +20,7 @@ public:
         kColor_Type,
         kStencil_Type
     };
-    
+
     static const GrVkImageView* Create(GrVkGpu* gpu, VkImage image, VkFormat format, Type viewType);
 
     VkImageView imageView() const { return fImageView; }

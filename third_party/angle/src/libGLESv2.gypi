@@ -109,6 +109,8 @@
             'libANGLE/Shader.h',
             'libANGLE/State.cpp',
             'libANGLE/State.h',
+            'libANGLE/Stream.cpp',
+            'libANGLE/Stream.h',
             'libANGLE/Surface.cpp',
             'libANGLE/Surface.h',
             'libANGLE/Texture.cpp',
@@ -151,6 +153,7 @@
             'libANGLE/renderer/Renderer.h',
             'libANGLE/renderer/SamplerImpl.h',
             'libANGLE/renderer/ShaderImpl.h',
+            'libANGLE/renderer/StreamImpl.h',
             'libANGLE/renderer/SurfaceImpl.cpp',
             'libANGLE/renderer/SurfaceImpl.h',
             'libANGLE/renderer/TextureImpl.h',
@@ -378,10 +381,10 @@
             'libANGLE/renderer/d3d/d3d11/shaders/compiled/swizzleui3dps.h',
             'libANGLE/renderer/d3d/d3d11/StateManager11.cpp',
             'libANGLE/renderer/d3d/d3d11/StateManager11.h',
+            'libANGLE/renderer/d3d/d3d11/Stream11.cpp',
+            'libANGLE/renderer/d3d/d3d11/Stream11.h',
             'libANGLE/renderer/d3d/d3d11/SwapChain11.cpp',
             'libANGLE/renderer/d3d/d3d11/SwapChain11.h',
-            'libANGLE/renderer/d3d/d3d11/swizzle_format_info.h',
-            'libANGLE/renderer/d3d/d3d11/swizzle_format_info_autogen.cpp',
             'libANGLE/renderer/d3d/d3d11/TextureStorage11.cpp',
             'libANGLE/renderer/d3d/d3d11/TextureStorage11.h',
             'libANGLE/renderer/d3d/d3d11/Trim11.cpp',
@@ -389,6 +392,7 @@
             'libANGLE/renderer/d3d/d3d11/texture_format_table_autogen.cpp',
             'libANGLE/renderer/d3d/d3d11/texture_format_table_autogen.h',
             'libANGLE/renderer/d3d/d3d11/texture_format_table.h',
+            'libANGLE/renderer/d3d/d3d11/VertexArray11.cpp',
             'libANGLE/renderer/d3d/d3d11/VertexArray11.h',
             'libANGLE/renderer/d3d/d3d11/VertexBuffer11.cpp',
             'libANGLE/renderer/d3d/d3d11/VertexBuffer11.h',
@@ -615,7 +619,7 @@
                                 'defines':
                                 [
                                     'ANGLE_USE_X11',
-                                ]
+                                ],
                             }],
                         ],
                     }],
@@ -734,16 +738,20 @@
                             [
                                 'ANGLE_USE_X11',
                             ],
+                            'dependencies':
+                            [
+                                '<(angle_path)/src/third_party/libXNVCtrl/libXNVCtrl.gyp:libXNVCtrl',
+                            ],
                             'sources':
                             [
                                 '<@(libangle_gl_glx_sources)',
                             ],
                             'link_settings': {
                                 'ldflags': [
-                                    '<!@(<(pkg-config) --libs-only-L --libs-only-other x11 xi)',
+                                    '<!@(<(pkg-config) --libs-only-L --libs-only-other x11 xi xext)',
                                 ],
                                 'libraries': [
-                                    '<!@(<(pkg-config) --libs-only-l x11 xi) -ldl',
+                                    '<!@(<(pkg-config) --libs-only-l x11 xi xext) -ldl',
                                 ],
                             },
                         }],

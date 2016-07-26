@@ -88,12 +88,16 @@ public:
 
         /**
          *  Apply this cropRect to the imageBounds. If a given edge of the cropRect is not
-         *  set, then the corresponding edge from imageBounds will be used.
+         *  set, then the corresponding edge from imageBounds will be used. If "embiggen"
+         *  is true, the crop rect is allowed to enlarge the size of the rect, otherwise
+         *  it may only reduce the rect. Filters that can affect transparent black should 
+         *  pass "true", while all other filters should pass "false".
          *
          *  Note: imageBounds is in "device" space, as the output cropped rectangle will be,
          *  so the matrix is ignored for those. It is only applied the croprect's bounds.
          */
-        void applyTo(const SkIRect& imageBounds, const SkMatrix&, SkIRect* cropped) const;
+        void applyTo(const SkIRect& imageBounds, const SkMatrix&, bool embiggen,
+                     SkIRect* cropped) const;
 
     private:
         SkRect fRect;
@@ -137,19 +141,20 @@ public:
 
     /**
      *  Request a new (result) image to be created from the src image.
-     *  If the src has no pixels (isNull()) then the request just wants to
-     *  receive the config and width/height of the result.
      *
-     *  The matrix is the current matrix on the canvas.
+     *  The context contains the environment in which the filter is occurring.
+     *  It includes the clip bounds, CTM and cache.
      *
      *  Offset is the amount to translate the resulting image relative to the
      *  src when it is drawn. This is an out-param.
      *
-     *  If the result image cannot be created, return false, in which case both
-     *  the result and offset parameters will be ignored by the caller.
+     *  If the result image cannot be created, return null, in which case
+     *  the offset parameters will be ignored by the caller.
+     *
+     *  TODO: Right now the imagefilters sometimes return empty result bitmaps/
+     *        specialimages. That doesn't seem quite right.
      */
-    bool filterImageDeprecated(Proxy*, const SkBitmap& src, const Context&,
-                               SkBitmap* result, SkIPoint* offset) const;
+    sk_sp<SkSpecialImage> filterImage(SkSpecialImage* src, const Context&, SkIPoint* offset) const;
 
     enum MapDirection {
         kForward_MapDirection,
@@ -159,15 +164,15 @@ public:
      * Map a device-space rect recursively forward or backward through the
      * filter DAG. kForward_MapDirection is used to determine which pixels of
      * the destination canvas a source image rect would touch after filtering.
-     * kBackward_MapDirection is used to determine which rect of the source
+     * kReverse_MapDirection is used to determine which rect of the source
      * image would be required to fill the given rect (typically, clip bounds).
      * Used for clipping and temp-buffer allocations, so the result need not
      * be exact, but should never be smaller than the real answer. The default
-     * implementation recursively unions all input bounds, or returns false if
-     * no inputs.
+     * implementation recursively unions all input bounds, or returns the
+     * source rect if no inputs.
      */
-    bool filterBounds(const SkIRect& src, const SkMatrix& ctm, SkIRect* dst,
-                      MapDirection = kReverse_MapDirection) const;
+    SkIRect filterBounds(const SkIRect& src, const SkMatrix& ctm,
+                         MapDirection = kReverse_MapDirection) const;
 
     /**
      *  Returns true if the filter can be processed on the GPU.  This is most
@@ -245,23 +250,42 @@ public:
     CropRect getCropRect() const { return fCropRect; }
 
     // Default impl returns union of all input bounds.
-    virtual void computeFastBounds(const SkRect&, SkRect*) const;
+    virtual SkRect computeFastBounds(const SkRect&) const;
 
     // Can this filter DAG compute the resulting bounds of an object-space rectangle?
-    virtual bool canComputeFastBounds() const;
+    bool canComputeFastBounds() const;
 
     /**
      *  If this filter can be represented by another filter + a localMatrix, return that filter,
      *  else return null.
      */
-    SkImageFilter* newWithLocalMatrix(const SkMatrix& matrix) const;
+    sk_sp<SkImageFilter> makeWithLocalMatrix(const SkMatrix&) const;
+
+#ifdef SK_SUPPORT_LEGACY_IMAGEFILTER_PTR
+    SkImageFilter* newWithLocalMatrix(const SkMatrix& matrix) const {
+        return this->makeWithLocalMatrix(matrix).release();
+    }
+#endif
 
     /**
      * Create an SkMatrixImageFilter, which transforms its input by the given matrix.
      */
+    static sk_sp<SkImageFilter> MakeMatrixFilter(const SkMatrix& matrix,
+                                                 SkFilterQuality,
+                                                 sk_sp<SkImageFilter> input);
+#ifdef SK_SUPPORT_LEGACY_IMAGEFILTER_PTR
     static SkImageFilter* CreateMatrixFilter(const SkMatrix& matrix,
-                                             SkFilterQuality,
-                                             SkImageFilter* input = NULL);
+                                             SkFilterQuality filterQuality,
+                                             SkImageFilter* input = nullptr) {
+        return MakeMatrixFilter(matrix, filterQuality, sk_ref_sp<SkImageFilter>(input)).release();
+    }
+#endif
+
+
+    sk_sp<SkSpecialImage> filterInput(int index,
+                                      SkSpecialImage* src,
+                                      const Context&, 
+                                      SkIPoint* offset) const;
 
 #if SK_SUPPORT_GPU
     // Helper function which invokes GPU filter processing on the
@@ -281,9 +305,6 @@ public:
 protected:
     class Common {
     public:
-        Common() {}
-        ~Common();
-
         /**
          *  Attempt to unflatten the cropRect and the expected number of input filters.
          *  If any number of input filters is valid, pass -1.
@@ -296,9 +317,9 @@ protected:
 
         const CropRect& cropRect() const { return fCropRect; }
         int             inputCount() const { return fInputs.count(); }
-        SkImageFilter** inputs() const { return fInputs.get(); }
+        sk_sp<SkImageFilter>* inputs() const { return fInputs.get(); }
 
-        SkImageFilter*  getInput(int index) const { return fInputs[index]; }
+        sk_sp<SkImageFilter>  getInput(int index) const { return fInputs[index]; }
 
         // If the caller wants a copy of the inputs, call this and it will transfer ownership
         // of the unflattened input filters to the caller. This is just a short-cut for copying
@@ -309,12 +330,14 @@ protected:
     private:
         CropRect fCropRect;
         // most filters accept at most 2 input-filters
-        SkAutoSTArray<2, SkImageFilter*> fInputs;
+        SkAutoSTArray<2, sk_sp<SkImageFilter>> fInputs;
 
         void allocInputs(int count);
     };
 
-    SkImageFilter(int inputCount, SkImageFilter** inputs, const CropRect* cropRect = NULL);
+    SkImageFilter(int inputCount, SkImageFilter** inputs, const CropRect* cropRect = nullptr);
+
+    SkImageFilter(sk_sp<SkImageFilter>* inputs, int inputCount, const CropRect* cropRect);
 
     virtual ~SkImageFilter();
 
@@ -348,20 +371,21 @@ protected:
     virtual bool onFilterImageDeprecated(Proxy*, const SkBitmap& src, const Context&,
                                          SkBitmap* result, SkIPoint* offset) const;
 
+    virtual sk_sp<SkSpecialImage> onFilterImage(SkSpecialImage* src, const Context&,
+                                                SkIPoint* offset) const;
+
     /**
-     * This function recurses into its inputs with the given clip rect (first
+     * This function recurses into its inputs with the given rect (first
      * argument), calls filterBounds() with the given map direction on each,
-     * and unions the result (third argument). If the rect cannot be mapped,
-     * false is returned and the destination rect is left unchanged.
-     * If a derived class has special recursion requirements (e.g., it has an
-     * input which does not participate in bounds computation), it can be
-     * overridden here.
+     * and returns the union of those results. If a derived class has special
+     * recursion requirements (e.g., it has an input which does not participate
+     * in bounds computation), it can be overridden here.
      *
      * Note that this function is *not* responsible for mapping the rect for
      * this node's filter bounds requirements (i.e., calling
      * onFilterNodeBounds()); that is handled by filterBounds().
      */
-    virtual bool onFilterBounds(const SkIRect&, const SkMatrix&, SkIRect*, MapDirection) const;
+    virtual SkIRect onFilterBounds(const SkIRect&, const SkMatrix&, MapDirection) const;
 
     /**
      * Performs a forwards or reverse mapping of the given rect to accommodate
@@ -376,7 +400,7 @@ protected:
      * in both forward and reverse directions. Unlike
      * onFilterBounds(), this function is non-recursive.
      */
-    virtual void onFilterNodeBounds(const SkIRect&, const SkMatrix&, SkIRect*, MapDirection) const;
+    virtual SkIRect onFilterNodeBounds(const SkIRect&, const SkMatrix&, MapDirection) const;
 
     // Helper function which invokes filter processing on the input at the
     // specified "index". If the input is null, it leaves "result" and
@@ -417,6 +441,9 @@ protected:
     bool applyCropRectDeprecated(const Context&, Proxy* proxy, const SkBitmap& src,
                                  SkIPoint* srcOffset, SkIRect* bounds, SkBitmap* result) const;
 
+    sk_sp<SkSpecialImage> applyCropRect(const Context&, SkSpecialImage* src, SkIPoint* srcOffset,
+                                        SkIRect* bounds) const;
+
     /**
      *  Returns true if the filter can be expressed a single-pass
      *  GrProcessor, used to process this filter on the GPU, or false if
@@ -447,7 +474,11 @@ private:
     friend class SkGraphics;
     static void PurgeCache();
 
+    bool filterImageDeprecated(Proxy*, const SkBitmap& src, const Context&,
+                               SkBitmap* result, SkIPoint* offset) const;
+
     bool usesSrcInput() const { return fUsesSrcInput; }
+    virtual bool affectsTransparentBlack() const { return false; }
 
     typedef SkFlattenable INHERITED;
     int fInputCount;

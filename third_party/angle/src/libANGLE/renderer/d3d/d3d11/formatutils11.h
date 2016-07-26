@@ -38,15 +38,9 @@ struct DXGIFormat
     GLuint sharedBits;
 
     GLuint depthBits;
-    GLuint depthOffset;
     GLuint stencilBits;
-    GLuint stencilOffset;
 
-    GLenum internalFormat;
     GLenum componentType;
-
-    MipGenerationFunction mipGenerationFunction;
-    ColorReadFunction colorReadFunction;
 
     FastCopyFunctionMap fastCopyFunctions;
 

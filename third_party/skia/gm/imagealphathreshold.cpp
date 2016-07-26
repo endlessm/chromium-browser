@@ -35,7 +35,7 @@ SkPaint create_filter_paint() {
     region.setRects(rects, 2);
 
     SkPaint paint;
-    paint.setImageFilter(SkAlphaThresholdFilter::Create(region, 0.2f, 0.7f))->unref();
+    paint.setImageFilter(SkAlphaThresholdFilter::Make(region, 0.2f, 0.7f, nullptr));
     return paint;
 }
 
@@ -95,17 +95,16 @@ protected:
 
     void onDraw(SkCanvas* canvas) override {
         SkImageInfo info = SkImageInfo::MakeN32(WIDTH, HEIGHT, kOpaque_SkAlphaType);
-        SkAutoTUnref<SkSurface> surface(canvas->newSurface(info));
+        auto surface(canvas->makeSurface(info));
         if (nullptr == surface) {
-            surface.reset(SkSurface::NewRaster(info));
+            surface = SkSurface::MakeRaster(info);
         }
         surface->getCanvas()->clear(SK_ColorWHITE);
         draw_rects(surface->getCanvas());
 
-        SkAutoTUnref<SkImage> image(surface->newImageSnapshot());
         SkPaint paint = create_filter_paint();
         canvas->clipRect(SkRect::MakeLTRB(100, 100, WIDTH - 100, HEIGHT - 100));
-        canvas->drawImage(image, 0, 0, &paint);
+        canvas->drawImage(surface->makeImageSnapshot().get(), 0, 0, &paint);
     }
 
 private:

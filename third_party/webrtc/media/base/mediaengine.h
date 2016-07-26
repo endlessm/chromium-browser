@@ -19,6 +19,7 @@
 #include <vector>
 
 #include "webrtc/audio_state.h"
+#include "webrtc/api/rtpparameters.h"
 #include "webrtc/base/fileutils.h"
 #include "webrtc/base/sigslotrepeater.h"
 #include "webrtc/media/base/codec.h"
@@ -26,13 +27,13 @@
 #include "webrtc/media/base/mediacommon.h"
 #include "webrtc/media/base/videocapturer.h"
 #include "webrtc/media/base/videocommon.h"
-#include "webrtc/media/devices/devicemanager.h"
 
 #if defined(GOOGLE_CHROME_BUILD) || defined(CHROMIUM_BUILD)
 #define DISABLE_MEDIA_ENGINE_FACTORY
 #endif
 
 namespace webrtc {
+class AudioDeviceModule;
 class Call;
 }
 
@@ -54,9 +55,7 @@ class MediaEngineInterface {
 
   // Initialization
   // Starts the engine.
-  virtual bool Init(rtc::Thread* worker_thread) = 0;
-  // Shuts down the engine.
-  virtual void Terminate() = 0;
+  virtual bool Init() = 0;
   // TODO(solenberg): Remove once VoE API refactoring is done.
   virtual rtc::scoped_refptr<webrtc::AudioState> GetAudioState() const = 0;
 
@@ -125,15 +124,11 @@ class MediaEngineFactory {
 template<class VOICE, class VIDEO>
 class CompositeMediaEngine : public MediaEngineInterface {
  public:
+  explicit CompositeMediaEngine(webrtc::AudioDeviceModule* adm) : voice_(adm) {}
   virtual ~CompositeMediaEngine() {}
-  virtual bool Init(rtc::Thread* worker_thread) {
-    if (!voice_.Init(worker_thread))
-      return false;
+  virtual bool Init() {
     video_.Init();
     return true;
-  }
-  virtual void Terminate() {
-    voice_.Terminate();
   }
 
   virtual rtc::scoped_refptr<webrtc::AudioState> GetAudioState() const {
@@ -204,6 +199,8 @@ class DataEngineInterface {
   virtual DataMediaChannel* CreateChannel(DataChannelType type) = 0;
   virtual const std::vector<DataCodec>& data_codecs() = 0;
 };
+
+webrtc::RtpParameters CreateRtpParametersWithOneEncoding();
 
 }  // namespace cricket
 

@@ -13,6 +13,7 @@
 NS_ASSUME_NONNULL_BEGIN
 
 @class RTCAudioTrack;
+@class RTCPeerConnectionFactory;
 @class RTCVideoTrack;
 
 @interface RTCMediaStream : NSObject

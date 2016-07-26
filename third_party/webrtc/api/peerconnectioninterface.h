@@ -223,6 +223,36 @@ class PeerConnectionInterface : public rtc::RefCountInterface {
 
   // TODO(hbos): Change into class with private data and public getters.
   struct RTCConfiguration {
+    // This struct is subject to reorganization, both for naming
+    // consistency, and to group settings to match where they are used
+    // in the implementation. To do that, we need getter and setter
+    // methods for all settings which are of interest to applications,
+    // Chrome in particular.
+
+    bool dscp() { return enable_dscp.value_or(false); }
+    void set_dscp(bool enable) { enable_dscp = rtc::Optional<bool>(enable); }
+
+    // TODO(nisse): The corresponding flag in MediaConfig and
+    // elsewhere should be renamed enable_cpu_adaptation.
+    bool cpu_adaptation() { return cpu_overuse_detection.value_or(true); }
+    void set_cpu_adaptation(bool enable) {
+      cpu_overuse_detection = rtc::Optional<bool>(enable);
+    }
+
+    // TODO(nisse): Currently no getter method, since it collides with
+    // the flag itself. Add when the flag is moved to MediaConfig.
+    void set_suspend_below_min_bitrate(bool enable) {
+      suspend_below_min_bitrate = rtc::Optional<bool>(enable);
+    }
+
+    // TODO(nisse): The negation in the corresponding MediaConfig
+    // attribute is inconsistent, and it should be renamed at some
+    // point.
+    bool prerenderer_smoothing() { return !disable_prerenderer_smoothing; }
+    void set_prerenderer_smoothing(bool enable) {
+      disable_prerenderer_smoothing = !enable;
+    }
+
     static const int kUndefined = -1;
     // Default maximum number of packets in the audio jitter buffer.
     static const int kAudioJitterBufferMaxPackets = 50;
@@ -242,6 +272,18 @@ class PeerConnectionInterface : public rtc::RefCountInterface {
     ContinualGatheringPolicy continual_gathering_policy;
     std::vector<rtc::scoped_refptr<rtc::RTCCertificate>> certificates;
     bool disable_prerenderer_smoothing;
+    bool prioritize_most_likely_ice_candidate_pairs;
+    // Flags corresponding to values set by constraint flags.
+    // rtc::Optional flags can be "missing", in which case the webrtc
+    // default applies.
+    bool disable_ipv6;
+    rtc::Optional<bool> enable_dscp;
+    bool enable_rtp_data_channel;
+    rtc::Optional<bool> cpu_overuse_detection;
+    rtc::Optional<bool> suspend_below_min_bitrate;
+    rtc::Optional<int> screencast_min_bitrate;
+    rtc::Optional<bool> combined_audio_video_bwe;
+    rtc::Optional<bool> enable_dtls_srtp;
     RTCConfiguration()
         : type(kAll),
           bundle_policy(kBundlePolicyBalanced),
@@ -252,7 +294,10 @@ class PeerConnectionInterface : public rtc::RefCountInterface {
           ice_connection_receiving_timeout(kUndefined),
           ice_backup_candidate_pair_ping_interval(kUndefined),
           continual_gathering_policy(GATHER_ONCE),
-          disable_prerenderer_smoothing(false) {}
+          disable_prerenderer_smoothing(false),
+          prioritize_most_likely_ice_candidate_pairs(false),
+          disable_ipv6(false),
+          enable_rtp_data_channel(false) {}
   };
 
   struct RTCOfferAnswerOptions {
@@ -380,7 +425,13 @@ class PeerConnectionInterface : public rtc::RefCountInterface {
   // Create an answer to an offer.
   // The CreateSessionDescriptionObserver callback will be called when done.
   virtual void CreateAnswer(CreateSessionDescriptionObserver* observer,
-                            const MediaConstraintsInterface* constraints) = 0;
+                            const RTCOfferAnswerOptions& options) {}
+  // Deprecated - use version above.
+  // TODO(hta): Remove and remove default implementations when all callers
+  // are updated.
+  virtual void CreateAnswer(CreateSessionDescriptionObserver* observer,
+                            const MediaConstraintsInterface* constraints) {}
+
   // Sets the local session description.
   // JsepInterface takes the ownership of |desc| even if it fails.
   // The |observer| callback will be called when done.
@@ -398,6 +449,7 @@ class PeerConnectionInterface : public rtc::RefCountInterface {
                          const MediaConstraintsInterface* constraints) {
     return false;
   }
+  virtual bool UpdateIce(const IceServers& configuration) { return false; }
   // Sets the PeerConnection's global configuration to |config|.
   // Any changes to STUN/TURN servers or ICE candidate policy will affect the
   // next gathering phase, and cause the next call to createOffer to generate
@@ -416,6 +468,12 @@ class PeerConnectionInterface : public rtc::RefCountInterface {
   // TODO(ronghuawu): Consider to change this so that the AddIceCandidate will
   // take the ownership of the |candidate|.
   virtual bool AddIceCandidate(const IceCandidateInterface* candidate) = 0;
+
+  // Removes a group of remote candidates from the ICE agent.
+  virtual bool RemoveIceCandidates(
+      const std::vector<cricket::Candidate>& candidates) {
+    return false;
+  }
 
   virtual void RegisterUMAObserver(UMAObserver* observer) = 0;
 
@@ -473,6 +531,12 @@ class PeerConnectionObserver {
   // New Ice candidate have been found.
   virtual void OnIceCandidate(const IceCandidateInterface* candidate) = 0;
 
+  // Ice candidates have been removed.
+  // TODO(honghaiz): Make this a pure virtual method when all its subclasses
+  // implement it.
+  virtual void OnIceCandidatesRemoved(
+      const std::vector<cricket::Candidate>& candidates) {}
+
   // Called when the ICE connection receiving status changes.
   virtual void OnIceConnectionReceivingChange(bool receiving) {}
 
@@ -524,26 +588,40 @@ class PeerConnectionFactoryInterface : public rtc::RefCountInterface {
       rtc::scoped_ptr<DtlsIdentityStoreInterface> dtls_identity_store,
       PeerConnectionObserver* observer) = 0;
 
+  virtual rtc::scoped_refptr<PeerConnectionInterface> CreatePeerConnection(
+      const PeerConnectionInterface::RTCConfiguration& configuration,
+      rtc::scoped_ptr<cricket::PortAllocator> allocator,
+      rtc::scoped_ptr<DtlsIdentityStoreInterface> dtls_identity_store,
+      PeerConnectionObserver* observer) = 0;
+
   virtual rtc::scoped_refptr<MediaStreamInterface>
       CreateLocalMediaStream(const std::string& label) = 0;
 
   // Creates a AudioSourceInterface.
   // |constraints| decides audio processing settings but can be NULL.
   virtual rtc::scoped_refptr<AudioSourceInterface> CreateAudioSource(
+      const cricket::AudioOptions& options) = 0;
+  // Deprecated - use version above.
+  virtual rtc::scoped_refptr<AudioSourceInterface> CreateAudioSource(
       const MediaConstraintsInterface* constraints) = 0;
 
-  // Creates a VideoSourceInterface. The new source take ownership of
-  // |capturer|. |constraints| decides video resolution and frame rate but can
+  // Creates a VideoTrackSourceInterface. The new source take ownership of
+  // |capturer|.
+  virtual rtc::scoped_refptr<VideoTrackSourceInterface> CreateVideoSource(
+      cricket::VideoCapturer* capturer) = 0;
+  // A video source creator that allows selection of resolution and frame rate.
+  // |constraints| decides video resolution and frame rate but can
   // be NULL.
-  virtual rtc::scoped_refptr<VideoSourceInterface> CreateVideoSource(
+  // In the NULL case, use the version above.
+  virtual rtc::scoped_refptr<VideoTrackSourceInterface> CreateVideoSource(
       cricket::VideoCapturer* capturer,
       const MediaConstraintsInterface* constraints) = 0;
 
   // Creates a new local VideoTrack. The same |source| can be used in several
   // tracks.
-  virtual rtc::scoped_refptr<VideoTrackInterface>
-      CreateVideoTrack(const std::string& label,
-                       VideoSourceInterface* source) = 0;
+  virtual rtc::scoped_refptr<VideoTrackInterface> CreateVideoTrack(
+      const std::string& label,
+      VideoTrackSourceInterface* source) = 0;
 
   // Creates an new AudioTrack. At the moment |source| can be NULL.
   virtual rtc::scoped_refptr<AudioTrackInterface>
@@ -586,12 +664,25 @@ class PeerConnectionFactoryInterface : public rtc::RefCountInterface {
 };
 
 // Create a new instance of PeerConnectionFactoryInterface.
+//
+// This method relies on the thread it's called on as the "signaling thread"
+// for the PeerConnectionFactory it creates.
+//
+// As such, if the current thread is not already running an rtc::Thread message
+// loop, an application using this method must eventually either call
+// rtc::Thread::Current()->Run(), or call
+// rtc::Thread::Current()->ProcessMessages() within the application's own
+// message loop.
 rtc::scoped_refptr<PeerConnectionFactoryInterface>
 CreatePeerConnectionFactory();
 
 // Create a new instance of PeerConnectionFactoryInterface.
-// Ownership of |factory|, |default_adm|, and optionally |encoder_factory| and
-// |decoder_factory| transferred to the returned factory.
+//
+// |worker_thread| and |signaling_thread| are the only mandatory
+// parameters.
+//
+// If non-null, ownership of |default_adm|, |encoder_factory| and
+// |decoder_factory| are transferred to the returned factory.
 rtc::scoped_refptr<PeerConnectionFactoryInterface>
 CreatePeerConnectionFactory(
     rtc::Thread* worker_thread,

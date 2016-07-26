@@ -32,7 +32,8 @@ SkWindow::~SkWindow() {
 
 SkSurface* SkWindow::createSurface() {
     const SkBitmap& bm = this->getBitmap();
-    return SkSurface::NewRasterDirect(bm.info(), bm.getPixels(), bm.rowBytes(), &fSurfaceProps);
+    return SkSurface::MakeRasterDirect(bm.info(), bm.getPixels(), bm.rowBytes(),
+                                       &fSurfaceProps).release();
 }
 
 void SkWindow::setMatrix(const SkMatrix& matrix) {
@@ -69,6 +70,13 @@ void SkWindow::resize(int width, int height) {
 void SkWindow::setColorType(SkColorType ct, SkColorProfileType pt) {
     const SkImageInfo& info = fBitmap.info();
     this->resize(SkImageInfo::Make(info.width(), info.height(), ct, kPremul_SkAlphaType, pt));
+
+    // Set the global flag that enables or disables "legacy" mode, depending on our format.
+    // With sRGB 32-bit or linear FP 16, we turn on gamma-correct handling of inputs:
+    SkSurfaceProps props = this->getSurfaceProps();
+    uint32_t flags = (props.flags() & ~SkSurfaceProps::kAllowSRGBInputs_Flag) |
+        (SkColorAndProfileAreGammaCorrect(ct, pt) ? SkSurfaceProps::kAllowSRGBInputs_Flag : 0);
+    this->setSurfaceProps(SkSurfaceProps(flags, props.pixelGeometry()));
 }
 
 bool SkWindow::handleInval(const SkRect* localR) {
@@ -326,7 +334,15 @@ GrRenderTarget* SkWindow::renderTarget(const AttachmentInfo& attachmentInfo,
     GrBackendRenderTargetDesc desc;
     desc.fWidth = SkScalarRoundToInt(this->width());
     desc.fHeight = SkScalarRoundToInt(this->height());
-    desc.fConfig = kSkia8888_GrPixelConfig;
+    // TODO: Query the actual framebuffer for sRGB capable. However, to
+    // preserve old (fake-linear) behavior, we don't do this. Instead, rely
+    // on the flag (currently driven via 'C' mode in SampleApp).
+    //
+    // Also, we may not have real sRGB support (ANGLE, in particular), so check for
+    // that, and fall back to L32:
+    desc.fConfig = grContext->caps()->srgbSupport() && SkImageInfoIsGammaCorrect(info())
+        ? kSkiaGamma8888_GrPixelConfig
+        : kSkia8888_GrPixelConfig;
     desc.fOrigin = kBottomLeft_GrSurfaceOrigin;
     desc.fSampleCnt = attachmentInfo.fSampleCount;
     desc.fStencilBits = attachmentInfo.fStencilBits;

@@ -7,8 +7,8 @@
 #ifndef CORE_INCLUDE_FXGE_FX_DIB_H_
 #define CORE_INCLUDE_FXGE_FX_DIB_H_
 
-#include "core/include/fxcrt/fx_basic.h"
-#include "core/include/fxcrt/fx_coordinates.h"
+#include "core/fxcrt/include/fx_basic.h"
+#include "core/fxcrt/include/fx_coordinates.h"
 
 enum FXDIB_Format {
   FXDIB_Invalid = 0,
@@ -41,9 +41,6 @@ enum FXDIB_Channel {
 #define FXDIB_INTERPOL 0x20
 #define FXDIB_BICUBIC_INTERPOL 0x80
 #define FXDIB_NOSMOOTH 0x100
-#define FXDIB_PALETTE_LOC 0x01
-#define FXDIB_PALETTE_WIN 0x02
-#define FXDIB_PALETTE_MAC 0x04
 #define FXDIB_BLEND_NORMAL 0
 #define FXDIB_BLEND_MULTIPLY 1
 #define FXDIB_BLEND_SCREEN 2
@@ -63,9 +60,9 @@ enum FXDIB_Channel {
 #define FXDIB_BLEND_COLOR 23
 #define FXDIB_BLEND_LUMINOSITY 24
 #define FXDIB_BLEND_UNSUPPORTED -1
-typedef FX_DWORD FX_ARGB;
-typedef FX_DWORD FX_COLORREF;
-typedef FX_DWORD FX_CMYK;
+typedef uint32_t FX_ARGB;
+typedef uint32_t FX_COLORREF;
+typedef uint32_t FX_CMYK;
 class CFX_ClipRgn;
 class CFX_DIBSource;
 class CFX_DIBitmap;
@@ -96,7 +93,7 @@ FX_ARGB ArgbEncode(int a, FX_COLORREF rgb);
 #define FXARGB_G(argb) ((uint8_t)((argb) >> 8))
 #define FXARGB_B(argb) ((uint8_t)(argb))
 #define FXARGB_MAKE(a, r, g, b) \
-  (((FX_DWORD)(a) << 24) | ((r) << 16) | ((g) << 8) | (b))
+  (((uint32_t)(a) << 24) | ((r) << 16) | ((g) << 8) | (b))
 #define FXARGB_MUL_ALPHA(argb, alpha) \
   (((((argb) >> 24) * (alpha) / 255) << 24) | ((argb)&0xffffff))
 #define FXRGB2GRAY(r, g, b) (((b)*11 + (g)*59 + (r)*30) / 100)
@@ -160,30 +157,23 @@ FX_ARGB ArgbEncode(int a, FX_COLORREF rgb);
 #define FXSETFLAG_ALPHA_FILL(flag, val) flag = ((val) | (flag & 0xffffff00))
 #define FXSETFLAG_ALPHA_STROKE(flag, val) \
   flag = (((val) << 16) | (flag & 0xff00ffff))
+
 class CFX_DIBSource {
  public:
   virtual ~CFX_DIBSource();
 
   int GetWidth() const { return m_Width; }
-
   int GetHeight() const { return m_Height; }
 
   FXDIB_Format GetFormat() const {
     return (FXDIB_Format)(m_AlphaFlag * 0x100 + m_bpp);
   }
+  uint32_t GetPitch() const { return m_Pitch; }
+  uint32_t* GetPalette() const { return m_pPalette; }
 
-  FX_DWORD GetPitch() const { return m_Pitch; }
-
-  FX_DWORD* GetPalette() const { return m_pPalette; }
-
-  virtual uint8_t* GetBuffer() const { return NULL; }
-
+  virtual uint8_t* GetBuffer() const;
   virtual const uint8_t* GetScanline(int line) const = 0;
-
-  virtual FX_BOOL SkipToScanline(int line, IFX_Pause* pPause) const {
-    return FALSE;
-  }
-
+  virtual FX_BOOL SkipToScanline(int line, IFX_Pause* pPause) const;
   virtual void DownSampleScanline(int line,
                                   uint8_t* dest_scan,
                                   int dest_bpp,
@@ -191,7 +181,6 @@ class CFX_DIBSource {
                                   FX_BOOL bFlipX,
                                   int clip_left,
                                   int clip_width) const = 0;
-
   virtual void SetDownSampleSize(int width, int height) {}
 
   int GetBPP() const { return m_bpp; }
@@ -199,47 +188,41 @@ class CFX_DIBSource {
   // TODO(thestig): Investigate this. Given the possible values of FXDIB_Format,
   // it feels as though this should be implemented as !!(m_AlphaFlag & 1) and
   // IsOpaqueImage() below should never be able to return TRUE.
-  FX_BOOL IsAlphaMask() const { return m_AlphaFlag == 1; }
-
-  FX_BOOL HasAlpha() const { return !!(m_AlphaFlag & 2); }
-
-  FX_BOOL IsOpaqueImage() const { return !(m_AlphaFlag & 3); }
-
-  FX_BOOL IsCmykImage() const { return !!(m_AlphaFlag & 4); }
+  bool IsAlphaMask() const { return m_AlphaFlag == 1; }
+  bool HasAlpha() const { return !!(m_AlphaFlag & 2); }
+  bool IsOpaqueImage() const { return !(m_AlphaFlag & 3); }
+  bool IsCmykImage() const { return !!(m_AlphaFlag & 4); }
 
   int GetPaletteSize() const {
     return IsAlphaMask() ? 0 : (m_bpp == 1 ? 2 : (m_bpp == 8 ? 256 : 0));
   }
 
-  FX_DWORD GetPaletteEntry(int index) const;
+  uint32_t GetPaletteEntry(int index) const;
 
-  void SetPaletteEntry(int index, FX_DWORD color);
-  FX_DWORD GetPaletteArgb(int index) const { return GetPaletteEntry(index); }
-  void SetPaletteArgb(int index, FX_DWORD color) {
+  void SetPaletteEntry(int index, uint32_t color);
+  uint32_t GetPaletteArgb(int index) const { return GetPaletteEntry(index); }
+  void SetPaletteArgb(int index, uint32_t color) {
     SetPaletteEntry(index, color);
   }
 
-  void CopyPalette(const FX_DWORD* pSrcPal, FX_DWORD size = 256);
+  void CopyPalette(const uint32_t* pSrcPal, uint32_t size = 256);
 
   CFX_DIBitmap* Clone(const FX_RECT* pClip = NULL) const;
-
   CFX_DIBitmap* CloneConvert(FXDIB_Format format,
                              const FX_RECT* pClip = NULL,
                              void* pIccTransform = NULL) const;
 
   CFX_DIBitmap* StretchTo(int dest_width,
                           int dest_height,
-                          FX_DWORD flags = 0,
+                          uint32_t flags = 0,
                           const FX_RECT* pClip = NULL) const;
-
   CFX_DIBitmap* TransformTo(const CFX_Matrix* pMatrix,
                             int& left,
                             int& top,
-                            FX_DWORD flags = 0,
+                            uint32_t flags = 0,
                             const FX_RECT* pClip = NULL) const;
 
   CFX_DIBitmap* GetAlphaMask(const FX_RECT* pClip = NULL) const;
-
   FX_BOOL CopyAlphaMask(const CFX_DIBSource* pAlphaMask,
                         const FX_RECT* pClip = NULL);
 
@@ -265,24 +248,16 @@ class CFX_DIBSource {
   CFX_DIBSource();
 
   int m_Width;
-
   int m_Height;
-
   int m_bpp;
-
-  FX_DWORD m_AlphaFlag;
-
-  FX_DWORD m_Pitch;
-
-  FX_DWORD* m_pPalette;
+  uint32_t m_AlphaFlag;
+  uint32_t m_Pitch;
+  uint32_t* m_pPalette;
 
   void BuildPalette();
-
   FX_BOOL BuildAlphaMask();
-
-  int FindPalette(FX_DWORD color) const;
-
-  void GetPalette(FX_DWORD* pal, int alpha) const;
+  int FindPalette(uint32_t color) const;
+  void GetPalette(uint32_t* pal, int alpha) const;
 };
 class CFX_DIBitmap : public CFX_DIBSource {
  public:
@@ -299,10 +274,8 @@ class CFX_DIBitmap : public CFX_DIBSource {
   FX_BOOL Copy(const CFX_DIBSource* pSrc);
 
   // CFX_DIBSource
-  uint8_t* GetBuffer() const override { return m_pBuffer; }
-  const uint8_t* GetScanline(int line) const override {
-    return m_pBuffer ? m_pBuffer + line * m_Pitch : NULL;
-  }
+  uint8_t* GetBuffer() const override;
+  const uint8_t* GetScanline(int line) const override;
   void DownSampleScanline(int line,
                           uint8_t* dest_scan,
                           int dest_bpp,
@@ -315,11 +288,11 @@ class CFX_DIBitmap : public CFX_DIBSource {
 
   FX_BOOL ConvertFormat(FXDIB_Format format, void* pIccTransform = NULL);
 
-  void Clear(FX_DWORD color);
+  void Clear(uint32_t color);
 
-  FX_DWORD GetPixel(int x, int y) const;
+  uint32_t GetPixel(int x, int y) const;
 
-  void SetPixel(int x, int y, FX_DWORD color);
+  void SetPixel(int x, int y, uint32_t color);
 
   FX_BOOL LoadChannel(FXDIB_Channel destChannel,
                       const CFX_DIBSource* pSrcBitmap,
@@ -357,7 +330,7 @@ class CFX_DIBitmap : public CFX_DIBSource {
                        int width,
                        int height,
                        const CFX_DIBSource* pMask,
-                       FX_DWORD color,
+                       uint32_t color,
                        int src_left,
                        int src_top,
                        int alpha_flag = 0,
@@ -368,7 +341,7 @@ class CFX_DIBitmap : public CFX_DIBSource {
                         int width,
                         int height,
                         const CFX_DIBSource* pMask,
-                        FX_DWORD color,
+                        uint32_t color,
                         int src_left,
                         int src_top,
                         int blend_type = FXDIB_BLEND_NORMAL,
@@ -381,13 +354,13 @@ class CFX_DIBitmap : public CFX_DIBSource {
                         int dest_top,
                         int width,
                         int height,
-                        FX_DWORD color,
+                        uint32_t color,
                         int alpha_flag = 0,
                         void* pIccTransform = NULL);
 
-  FX_BOOL ConvertColorScale(FX_DWORD forecolor, FX_DWORD backcolor);
+  FX_BOOL ConvertColorScale(uint32_t forecolor, uint32_t backcolor);
 
-  FX_BOOL DitherFS(const FX_DWORD* pPalette,
+  FX_BOOL DitherFS(const uint32_t* pPalette,
                    int pal_size,
                    const FX_RECT* pRect = NULL);
 
@@ -420,7 +393,7 @@ class CFX_FilteredDIB : public CFX_DIBSource {
 
   virtual FXDIB_Format GetDestFormat() = 0;
 
-  virtual FX_DWORD* GetDestPalette() = 0;
+  virtual uint32_t* GetDestPalette() = 0;
 
   virtual void TranslateScanline(uint8_t* dest_buf,
                                  const uint8_t* src_buf) const = 0;
@@ -459,7 +432,7 @@ class IFX_ScanlineComposer {
   virtual FX_BOOL SetInfo(int width,
                           int height,
                           FXDIB_Format src_format,
-                          FX_DWORD* pSrcPalette) = 0;
+                          uint32_t* pSrcPalette) = 0;
 };
 class CFX_ScanlineCompositor {
  public:
@@ -470,8 +443,8 @@ class CFX_ScanlineCompositor {
   FX_BOOL Init(FXDIB_Format dest_format,
                FXDIB_Format src_format,
                int32_t width,
-               FX_DWORD* pSrcPalette,
-               FX_DWORD mask_color,
+               uint32_t* pSrcPalette,
+               uint32_t mask_color,
                int blend_type,
                FX_BOOL bClip,
                FX_BOOL bRgbByteOrder = FALSE,
@@ -509,7 +482,7 @@ class CFX_ScanlineCompositor {
  protected:
   int m_Transparency;
   FXDIB_Format m_SrcFormat, m_DestFormat;
-  FX_DWORD* m_pSrcPalette;
+  uint32_t* m_pSrcPalette;
 
   int m_MaskAlpha, m_MaskRed, m_MaskGreen, m_MaskBlue, m_MaskBlack;
   int m_BlendType;
@@ -527,7 +500,7 @@ class CFX_BitmapComposer : public IFX_ScanlineComposer {
   void Compose(CFX_DIBitmap* pDest,
                const CFX_ClipRgn* pClipRgn,
                int bitmap_alpha,
-               FX_DWORD mask_color,
+               uint32_t mask_color,
                FX_RECT& dest_rect,
                FX_BOOL bVertical,
                FX_BOOL bFlipX,
@@ -541,7 +514,7 @@ class CFX_BitmapComposer : public IFX_ScanlineComposer {
   FX_BOOL SetInfo(int width,
                   int height,
                   FXDIB_Format src_format,
-                  FX_DWORD* pSrcPalette) override;
+                  uint32_t* pSrcPalette) override;
 
   void ComposeScanline(int line,
                        const uint8_t* scanline,
@@ -558,7 +531,7 @@ class CFX_BitmapComposer : public IFX_ScanlineComposer {
   const CFX_ClipRgn* m_pClipRgn;
   FXDIB_Format m_SrcFormat;
   int m_DestLeft, m_DestTop, m_DestWidth, m_DestHeight, m_BitmapAlpha;
-  FX_DWORD m_MaskColor;
+  uint32_t m_MaskColor;
   const CFX_DIBitmap* m_pClipMask;
   CFX_ScanlineCompositor m_Compositor;
   FX_BOOL m_bVertical, m_bFlipX, m_bFlipY;
@@ -588,7 +561,7 @@ class CFX_BitmapStorer : public IFX_ScanlineComposer {
   FX_BOOL SetInfo(int width,
                   int height,
                   FXDIB_Format src_format,
-                  FX_DWORD* pSrcPalette) override;
+                  uint32_t* pSrcPalette) override;
 
   CFX_DIBitmap* GetBitmap() { return m_pBitmap; }
 
@@ -610,7 +583,7 @@ class CFX_ImageStretcher {
                 int dest_width,
                 int dest_height,
                 const FX_RECT& bitmap_rect,
-                FX_DWORD flags);
+                uint32_t flags);
 
   FX_BOOL Continue(IFX_Pause* pPause);
   FX_BOOL StartQuickStretch();
@@ -621,7 +594,7 @@ class CFX_ImageStretcher {
   IFX_ScanlineComposer* m_pDest;
   const CFX_DIBSource* m_pSource;
   CStretchEngine* m_pStretchEngine;
-  FX_DWORD m_Flags;
+  uint32_t m_Flags;
   FX_BOOL m_bFlipX;
   FX_BOOL m_bFlipY;
   int m_DestWidth;
@@ -654,7 +627,7 @@ class CFX_ImageTransformer {
   CFX_Matrix m_dest2stretch;
   CFX_ImageStretcher m_Stretcher;
   CFX_BitmapStorer m_Storer;
-  FX_DWORD m_Flags;
+  uint32_t m_Flags;
   int m_Status;
 };
 class CFX_ImageRenderer {
@@ -666,9 +639,9 @@ class CFX_ImageRenderer {
                 const CFX_ClipRgn* pClipRgn,
                 const CFX_DIBSource* pSource,
                 int bitmap_alpha,
-                FX_DWORD mask_color,
+                uint32_t mask_color,
                 const CFX_Matrix* pMatrix,
-                FX_DWORD dib_flags,
+                uint32_t dib_flags,
                 FX_BOOL bRgbByteOrder = FALSE,
                 int alpha_flag = 0,
                 void* pIccTransform = NULL,
@@ -680,14 +653,14 @@ class CFX_ImageRenderer {
   CFX_DIBitmap* m_pDevice;
   const CFX_ClipRgn* m_pClipRgn;
   int m_BitmapAlpha;
-  FX_DWORD m_MaskColor;
+  uint32_t m_MaskColor;
   CFX_Matrix m_Matrix;
   CFX_ImageTransformer* m_pTransformer;
   CFX_ImageStretcher m_Stretcher;
   CFX_BitmapComposer m_Composer;
   int m_Status;
   FX_RECT m_ClipBox;
-  FX_DWORD m_Flags;
+  uint32_t m_Flags;
   int m_AlphaFlag;
   void* m_pIccTransform;
   FX_BOOL m_bRgbByteOrder;

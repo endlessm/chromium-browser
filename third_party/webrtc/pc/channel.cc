@@ -12,15 +12,16 @@
 
 #include "webrtc/pc/channel.h"
 
-#include "webrtc/audio/audio_sink.h"
+#include "webrtc/audio_sink.h"
 #include "webrtc/base/bind.h"
-#include "webrtc/base/buffer.h"
 #include "webrtc/base/byteorder.h"
 #include "webrtc/base/common.h"
+#include "webrtc/base/copyonwritebuffer.h"
 #include "webrtc/base/dscp.h"
 #include "webrtc/base/logging.h"
+#include "webrtc/base/networkroute.h"
 #include "webrtc/base/trace_event.h"
-#include "webrtc/media/base/constants.h"
+#include "webrtc/media/base/mediaconstants.h"
 #include "webrtc/media/base/rtputils.h"
 #include "webrtc/p2p/base/transportchannel.h"
 #include "webrtc/pc/channelmanager.h"
@@ -29,10 +30,10 @@ namespace cricket {
 using rtc::Bind;
 
 namespace {
-// See comment below for why we need to use a pointer to a scoped_ptr.
+// See comment below for why we need to use a pointer to a unique_ptr.
 bool SetRawAudioSink_w(VoiceMediaChannel* channel,
                        uint32_t ssrc,
-                       rtc::scoped_ptr<webrtc::AudioSinkInterface>* sink) {
+                       std::unique_ptr<webrtc::AudioSinkInterface>* sink) {
   channel->SetRawAudioSink(ssrc, std::move(*sink));
   return true;
 }
@@ -40,7 +41,6 @@ bool SetRawAudioSink_w(VoiceMediaChannel* channel,
 
 enum {
   MSG_EARLYMEDIATIMEOUT = 1,
-  MSG_SCREENCASTWINDOWEVENT,
   MSG_RTPPACKET,
   MSG_RTCPPACKET,
   MSG_CHANNEL_ERROR,
@@ -62,15 +62,8 @@ static void SafeSetError(const std::string& message, std::string* error_desc) {
 }
 
 struct PacketMessageData : public rtc::MessageData {
-  rtc::Buffer packet;
+  rtc::CopyOnWriteBuffer packet;
   rtc::PacketOptions options;
-};
-
-struct ScreencastEventMessageData : public rtc::MessageData {
-  ScreencastEventMessageData(uint32_t s, rtc::WindowEvent we)
-      : ssrc(s), event(we) {}
-  uint32_t ssrc;
-  rtc::WindowEvent event;
 };
 
 struct VoiceChannelErrorMessageData : public rtc::MessageData {
@@ -101,7 +94,7 @@ static const char* PacketType(bool rtcp) {
   return (!rtcp) ? "RTP" : "RTCP";
 }
 
-static bool ValidPacket(bool rtcp, const rtc::Buffer* packet) {
+static bool ValidPacket(bool rtcp, const rtc::CopyOnWriteBuffer* packet) {
   // Check the packet size. We could check the header too if needed.
   return (packet &&
           packet->size() >= (!rtcp ? kMinRtpPacketLen : kMinRtcpPacketLen) &&
@@ -141,10 +134,10 @@ void RtpParametersFromMediaDescription(
   params->rtcp.reduced_size = desc->rtcp_reduced_size();
 }
 
-template <class Codec, class Options>
+template <class Codec>
 void RtpSendParametersFromMediaDescription(
     const MediaContentDescriptionImpl<Codec>* desc,
-    RtpSendParameters<Codec, Options>* send_params) {
+    RtpSendParameters<Codec>* send_params) {
   RtpParametersFromMediaDescription(desc, send_params);
   send_params->max_bandwidth_bps = desc->bandwidth();
 }
@@ -177,6 +170,7 @@ BaseChannel::BaseChannel(rtc::Thread* thread,
 }
 
 BaseChannel::~BaseChannel() {
+  TRACE_EVENT0("webrtc", "BaseChannel::~BaseChannel");
   ASSERT(worker_thread_ == rtc::Thread::Current());
   Deinit();
   StopConnectionMonitor();
@@ -353,6 +347,8 @@ void BaseChannel::ConnectToTransportChannel(TransportChannel* tc) {
   tc->SignalReadPacket.connect(this, &BaseChannel::OnChannelRead);
   tc->SignalReadyToSend.connect(this, &BaseChannel::OnReadyToSend);
   tc->SignalDtlsState.connect(this, &BaseChannel::OnDtlsState);
+  tc->SignalSelectedCandidatePairChanged.connect(
+      this, &BaseChannel::OnSelectedCandidatePairChanged);
 }
 
 void BaseChannel::DisconnectFromTransportChannel(TransportChannel* tc) {
@@ -442,12 +438,12 @@ bool BaseChannel::IsReadyToSend() const {
          (srtp_filter_.IsActive() || !ShouldSetupDtlsSrtp());
 }
 
-bool BaseChannel::SendPacket(rtc::Buffer* packet,
+bool BaseChannel::SendPacket(rtc::CopyOnWriteBuffer* packet,
                              const rtc::PacketOptions& options) {
   return SendPacket(false, packet, options);
 }
 
-bool BaseChannel::SendRtcp(rtc::Buffer* packet,
+bool BaseChannel::SendRtcp(rtc::CopyOnWriteBuffer* packet,
                            const rtc::PacketOptions& options) {
   return SendPacket(true, packet, options);
 }
@@ -486,7 +482,7 @@ void BaseChannel::OnChannelRead(TransportChannel* channel,
   // When using RTCP multiplexing we might get RTCP packets on the RTP
   // transport. We feed RTP traffic into the demuxer to determine if it is RTCP.
   bool rtcp = PacketIsRtcp(channel, data, len);
-  rtc::Buffer packet(data, len);
+  rtc::CopyOnWriteBuffer packet(data, len);
   HandlePacket(rtcp, &packet, packet_time);
 }
 
@@ -509,6 +505,22 @@ void BaseChannel::OnDtlsState(TransportChannel* channel,
   if (state != DTLS_TRANSPORT_CONNECTED) {
     srtp_filter_.ResetParams();
   }
+}
+
+void BaseChannel::OnSelectedCandidatePairChanged(
+    TransportChannel* channel,
+    CandidatePairInterface* selected_candidate_pair,
+    int last_sent_packet_id) {
+  ASSERT(channel == transport_channel_ || channel == rtcp_transport_channel_);
+  NetworkRoute network_route;
+  if (selected_candidate_pair) {
+    network_route =
+        NetworkRoute(selected_candidate_pair->local_candidate().network_id(),
+                     selected_candidate_pair->remote_candidate().network_id(),
+                     last_sent_packet_id);
+  }
+  media_channel()->OnNetworkRouteChanged(channel->transport_name(),
+                                         network_route);
 }
 
 void BaseChannel::SetReadyToSend(bool rtcp, bool ready) {
@@ -536,7 +548,7 @@ bool BaseChannel::PacketIsRtcp(const TransportChannel* channel,
 }
 
 bool BaseChannel::SendPacket(bool rtcp,
-                             rtc::Buffer* packet,
+                             rtc::CopyOnWriteBuffer* packet,
                              const rtc::PacketOptions& options) {
   // SendPacket gets called from MediaEngine, typically on an encoder thread.
   // If the thread is not our worker thread, we will post to our worker
@@ -657,7 +669,7 @@ bool BaseChannel::SendPacket(bool rtcp,
   return true;
 }
 
-bool BaseChannel::WantsPacket(bool rtcp, rtc::Buffer* packet) {
+bool BaseChannel::WantsPacket(bool rtcp, const rtc::CopyOnWriteBuffer* packet) {
   // Protect ourselves against crazy data.
   if (!ValidPacket(rtcp, packet)) {
     LOG(LS_ERROR) << "Dropping incoming " << content_name_ << " "
@@ -670,10 +682,10 @@ bool BaseChannel::WantsPacket(bool rtcp, rtc::Buffer* packet) {
     return true;
   }
   // Check whether we handle this payload.
-  return bundle_filter_.DemuxPacket(packet->data<uint8_t>(), packet->size());
+  return bundle_filter_.DemuxPacket(packet->data(), packet->size());
 }
 
-void BaseChannel::HandlePacket(bool rtcp, rtc::Buffer* packet,
+void BaseChannel::HandlePacket(bool rtcp, rtc::CopyOnWriteBuffer* packet,
                                const rtc::PacketTime& packet_time) {
   if (!WantsPacket(rtcp, packet)) {
     return;
@@ -1014,6 +1026,7 @@ bool BaseChannel::SetSrtp_w(const std::vector<CryptoParams>& cryptos,
                             ContentAction action,
                             ContentSource src,
                             std::string* error_desc) {
+  TRACE_EVENT0("webrtc", "BaseChannel::SetSrtp_w");
   if (action == CA_UPDATE) {
     // no crypto params.
     return true;
@@ -1325,6 +1338,7 @@ VoiceChannel::VoiceChannel(rtc::Thread* thread,
       received_media_(false) {}
 
 VoiceChannel::~VoiceChannel() {
+  TRACE_EVENT0("webrtc", "VoiceChannel::~VoiceChannel");
   StopAudioMonitor();
   StopMediaMonitor();
   // this can't be done in the base class, since it calls a virtual
@@ -1342,9 +1356,9 @@ bool VoiceChannel::Init() {
 bool VoiceChannel::SetAudioSend(uint32_t ssrc,
                                 bool enable,
                                 const AudioOptions* options,
-                                AudioRenderer* renderer) {
+                                AudioSource* source) {
   return InvokeOnWorker(Bind(&VoiceMediaChannel::SetAudioSend, media_channel(),
-                             ssrc, enable, options, renderer));
+                             ssrc, enable, options, source));
 }
 
 // TODO(juberti): Handle early media the right way. We should get an explicit
@@ -1382,11 +1396,35 @@ bool VoiceChannel::SetOutputVolume(uint32_t ssrc, double volume) {
 
 void VoiceChannel::SetRawAudioSink(
     uint32_t ssrc,
-    rtc::scoped_ptr<webrtc::AudioSinkInterface> sink) {
-  // We need to work around Bind's lack of support for scoped_ptr and ownership
+    std::unique_ptr<webrtc::AudioSinkInterface> sink) {
+  // We need to work around Bind's lack of support for unique_ptr and ownership
   // passing.  So we invoke to our own little routine that gets a pointer to
   // our local variable.  This is OK since we're synchronously invoking.
   InvokeOnWorker(Bind(&SetRawAudioSink_w, media_channel(), ssrc, &sink));
+}
+
+webrtc::RtpParameters VoiceChannel::GetRtpParameters(uint32_t ssrc) const {
+  return worker_thread()->Invoke<webrtc::RtpParameters>(
+      Bind(&VoiceChannel::GetRtpParameters_w, this, ssrc));
+}
+
+webrtc::RtpParameters VoiceChannel::GetRtpParameters_w(uint32_t ssrc) const {
+  // Not yet implemented.
+  // TODO(skvlad): Add support for limiting send bitrate for audio channels.
+  return webrtc::RtpParameters();
+}
+
+bool VoiceChannel::SetRtpParameters(uint32_t ssrc,
+                                    const webrtc::RtpParameters& parameters) {
+  return InvokeOnWorker(
+      Bind(&VoiceChannel::SetRtpParameters_w, this, ssrc, parameters));
+}
+
+bool VoiceChannel::SetRtpParameters_w(uint32_t ssrc,
+                                      webrtc::RtpParameters parameters) {
+  // Not yet implemented.
+  // TODO(skvlad): Add support for limiting send bitrate for audio channels.
+  return false;
 }
 
 bool VoiceChannel::GetStats(VoiceMediaInfo* stats) {
@@ -1462,10 +1500,7 @@ void VoiceChannel::ChangeState() {
   // Send outgoing data if we're the active call, we have the remote content,
   // and we have had some form of connectivity.
   bool send = IsReadyToSend();
-  SendFlags send_flag = send ? SEND_MICROPHONE : SEND_NOTHING;
-  if (!media_channel()->SetSend(send_flag)) {
-    LOG(LS_ERROR) << "Failed to SetSend " << send_flag << " on voice channel";
-  }
+  media_channel()->SetSend(send);
 
   LOG(LS_INFO) << "Changing voice state, recv=" << recv << " send=" << send;
 }
@@ -1544,7 +1579,9 @@ bool VoiceChannel::SetRemoteContent_w(const MediaContentDescription* content,
   if (audio->agc_minus_10db()) {
     send_params.options.adjust_agc_delta = rtc::Optional<int>(kAgcMinus10db);
   }
-  if (!media_channel()->SetSendParameters(send_params)) {
+
+  bool parameters_applied = media_channel()->SetSendParameters(send_params);
+  if (!parameters_applied) {
     SafeSetError("Failed to set remote audio description send parameters.",
                  error_desc);
     return false;
@@ -1632,8 +1669,7 @@ VideoChannel::VideoChannel(rtc::Thread* thread,
                   media_channel,
                   transport_controller,
                   content_name,
-                  rtcp),
-      previous_we_(rtc::WE_CLOSE) {}
+                  rtcp) {}
 
 bool VideoChannel::Init() {
   if (!BaseChannel::Init()) {
@@ -1643,17 +1679,7 @@ bool VideoChannel::Init() {
 }
 
 VideoChannel::~VideoChannel() {
-  std::vector<uint32_t> screencast_ssrcs;
-  ScreencastMap::iterator iter;
-  while (!screencast_capturers_.empty()) {
-    if (!RemoveScreencast(screencast_capturers_.begin()->first)) {
-      LOG(LS_ERROR) << "Unable to delete screencast with ssrc "
-                    << screencast_capturers_.begin()->first;
-      ASSERT(false);
-      break;
-    }
-  }
-
+  TRACE_EVENT0("webrtc", "VideoChannel::~VideoChannel");
   StopMediaMonitor();
   // this can't be done in the base class, since it calls a virtual
   DisableMedia_w();
@@ -1668,22 +1694,9 @@ bool VideoChannel::SetSink(uint32_t ssrc,
   return true;
 }
 
-bool VideoChannel::AddScreencast(uint32_t ssrc, VideoCapturer* capturer) {
-  return worker_thread()->Invoke<bool>(Bind(
-      &VideoChannel::AddScreencast_w, this, ssrc, capturer));
-}
-
 bool VideoChannel::SetCapturer(uint32_t ssrc, VideoCapturer* capturer) {
   return InvokeOnWorker(Bind(&VideoMediaChannel::SetCapturer,
                              media_channel(), ssrc, capturer));
-}
-
-bool VideoChannel::RemoveScreencast(uint32_t ssrc) {
-  return InvokeOnWorker(Bind(&VideoChannel::RemoveScreencast_w, this, ssrc));
-}
-
-bool VideoChannel::IsScreencasting() {
-  return InvokeOnWorker(Bind(&VideoChannel::IsScreencasting_w, this));
 }
 
 bool VideoChannel::SetVideoSend(uint32_t ssrc,
@@ -1693,6 +1706,25 @@ bool VideoChannel::SetVideoSend(uint32_t ssrc,
                              ssrc, mute, options));
 }
 
+webrtc::RtpParameters VideoChannel::GetRtpParameters(uint32_t ssrc) const {
+  return worker_thread()->Invoke<webrtc::RtpParameters>(
+      Bind(&VideoChannel::GetRtpParameters_w, this, ssrc));
+}
+
+webrtc::RtpParameters VideoChannel::GetRtpParameters_w(uint32_t ssrc) const {
+  return media_channel()->GetRtpParameters(ssrc);
+}
+
+bool VideoChannel::SetRtpParameters(uint32_t ssrc,
+                                    const webrtc::RtpParameters& parameters) {
+  return InvokeOnWorker(
+      Bind(&VideoChannel::SetRtpParameters_w, this, ssrc, parameters));
+}
+
+bool VideoChannel::SetRtpParameters_w(uint32_t ssrc,
+                                      webrtc::RtpParameters parameters) {
+  return media_channel()->SetRtpParameters(ssrc, parameters);
+}
 void VideoChannel::ChangeState() {
   // Send outgoing data if we're the active call, we have the remote content,
   // and we have had some form of connectivity.
@@ -1800,7 +1832,10 @@ bool VideoChannel::SetRemoteContent_w(const MediaContentDescription* content,
   if (video->conference_mode()) {
     send_params.conference_mode = true;
   }
-  if (!media_channel()->SetSendParameters(send_params)) {
+
+  bool parameters_applied = media_channel()->SetSendParameters(send_params);
+
+  if (!parameters_applied) {
     SafeSetError("Failed to set remote video description send parameters.",
                  error_desc);
     return false;
@@ -1825,45 +1860,8 @@ bool VideoChannel::SetRemoteContent_w(const MediaContentDescription* content,
   return true;
 }
 
-bool VideoChannel::AddScreencast_w(uint32_t ssrc, VideoCapturer* capturer) {
-  if (screencast_capturers_.find(ssrc) != screencast_capturers_.end()) {
-    return false;
-  }
-  capturer->SignalStateChange.connect(this, &VideoChannel::OnStateChange);
-  screencast_capturers_[ssrc] = capturer;
-  return true;
-}
-
-bool VideoChannel::RemoveScreencast_w(uint32_t ssrc) {
-  ScreencastMap::iterator iter = screencast_capturers_.find(ssrc);
-  if (iter  == screencast_capturers_.end()) {
-    return false;
-  }
-  // Clean up VideoCapturer.
-  delete iter->second;
-  screencast_capturers_.erase(iter);
-  return true;
-}
-
-bool VideoChannel::IsScreencasting_w() const {
-  return !screencast_capturers_.empty();
-}
-
-void VideoChannel::OnScreencastWindowEvent_s(uint32_t ssrc,
-                                             rtc::WindowEvent we) {
-  ASSERT(signaling_thread() == rtc::Thread::Current());
-  SignalScreencastWindowEvent(ssrc, we);
-}
-
 void VideoChannel::OnMessage(rtc::Message *pmsg) {
   switch (pmsg->message_id) {
-    case MSG_SCREENCASTWINDOWEVENT: {
-      const ScreencastEventMessageData* data =
-          static_cast<ScreencastEventMessageData*>(pmsg->pdata);
-      OnScreencastWindowEvent_s(data->ssrc, data->event);
-      delete data;
-      break;
-    }
     case MSG_CHANNEL_ERROR: {
       const VideoChannelErrorMessageData* data =
           static_cast<VideoChannelErrorMessageData*>(pmsg->pdata);
@@ -1889,48 +1887,6 @@ void VideoChannel::OnMediaMonitorUpdate(
   SignalMediaMonitor(this, info);
 }
 
-void VideoChannel::OnScreencastWindowEvent(uint32_t ssrc,
-                                           rtc::WindowEvent event) {
-  ScreencastEventMessageData* pdata =
-      new ScreencastEventMessageData(ssrc, event);
-  signaling_thread()->Post(this, MSG_SCREENCASTWINDOWEVENT, pdata);
-}
-
-void VideoChannel::OnStateChange(VideoCapturer* capturer, CaptureState ev) {
-  // Map capturer events to window events. In the future we may want to simply
-  // pass these events up directly.
-  rtc::WindowEvent we;
-  if (ev == CS_STOPPED) {
-    we = rtc::WE_CLOSE;
-  } else if (ev == CS_PAUSED) {
-    we = rtc::WE_MINIMIZE;
-  } else if (ev == CS_RUNNING && previous_we_ == rtc::WE_MINIMIZE) {
-    we = rtc::WE_RESTORE;
-  } else {
-    return;
-  }
-  previous_we_ = we;
-
-  uint32_t ssrc = 0;
-  if (!GetLocalSsrc(capturer, &ssrc)) {
-    return;
-  }
-
-  OnScreencastWindowEvent(ssrc, we);
-}
-
-bool VideoChannel::GetLocalSsrc(const VideoCapturer* capturer, uint32_t* ssrc) {
-  *ssrc = 0;
-  for (ScreencastMap::iterator iter = screencast_capturers_.begin();
-       iter != screencast_capturers_.end(); ++iter) {
-    if (iter->second == capturer) {
-      *ssrc = iter->first;
-      return true;
-    }
-  }
-  return false;
-}
-
 void VideoChannel::GetSrtpCryptoSuites(std::vector<int>* crypto_suites) const {
   GetSupportedVideoCryptoSuites(crypto_suites);
 }
@@ -1949,6 +1905,7 @@ DataChannel::DataChannel(rtc::Thread* thread,
       ready_to_send_data_(false) {}
 
 DataChannel::~DataChannel() {
+  TRACE_EVENT0("webrtc", "DataChannel::~DataChannel");
   StopMediaMonitor();
   // this can't be done in the base class, since it calls a virtual
   DisableMedia_w();
@@ -1970,7 +1927,7 @@ bool DataChannel::Init() {
 }
 
 bool DataChannel::SendData(const SendDataParams& params,
-                           const rtc::Buffer& payload,
+                           const rtc::CopyOnWriteBuffer& payload,
                            SendDataResult* result) {
   return InvokeOnWorker(Bind(&DataMediaChannel::SendData,
                              media_channel(), params, payload, result));
@@ -1981,7 +1938,7 @@ const ContentInfo* DataChannel::GetFirstContent(
   return GetFirstDataContent(sdesc);
 }
 
-bool DataChannel::WantsPacket(bool rtcp, rtc::Buffer* packet) {
+bool DataChannel::WantsPacket(bool rtcp, const rtc::CopyOnWriteBuffer* packet) {
   if (data_channel_type_ == DCT_SCTP) {
     // TODO(pthatcher): Do this in a more robust way by checking for
     // SCTP or DTLS.

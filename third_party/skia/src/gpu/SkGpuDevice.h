@@ -1,4 +1,3 @@
-
 /*
  * Copyright 2010 Google Inc.
  *
@@ -180,7 +179,7 @@ private:
 
     SkBaseDevice* onCreateDevice(const CreateInfo&, const SkPaint*) override;
 
-    SkSurface* newSurface(const SkImageInfo&, const SkSurfaceProps&) override;
+    sk_sp<SkSurface> makeSurface(const SkImageInfo&, const SkSurfaceProps&) override;
 
     SkImageFilter::Cache* getImageFilterCache() override;
 
@@ -261,6 +260,9 @@ private:
 
     static GrRenderTarget* CreateRenderTarget(GrContext*, SkBudgeted, const SkImageInfo&,
                                               int sampleCount, GrTextureStorageAllocator);
+
+    void drawSpriteWithFilter(const SkDraw&, const SkBitmap&, int x, int y,
+                              const SkPaint&) override;
 
     friend class GrAtlasTextContext;
     friend class SkSurface_Gpu;      // for access to surfaceProps

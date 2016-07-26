@@ -15,7 +15,6 @@
 
 #include "webrtc/base/constructormagic.h"
 #include "webrtc/base/criticalsection.h"
-#include "webrtc/base/scoped_ptr.h"
 #include "webrtc/base/thread_annotations.h"
 #include "webrtc/base/thread_checker.h"
 #include "webrtc/common_types.h"
@@ -37,8 +36,8 @@ class PacketRouter : public PacedSender::Callback,
   PacketRouter();
   virtual ~PacketRouter();
 
-  void AddRtpModule(RtpRtcp* rtp_module, bool sender);
-  void RemoveRtpModule(RtpRtcp* rtp_module, bool sender);
+  void AddRtpModule(RtpRtcp* rtp_module);
+  void RemoveRtpModule(RtpRtcp* rtp_module);
 
   // Implements PacedSender::Callback.
   bool TimeToSendPacket(uint32_t ssrc,
@@ -57,8 +56,7 @@ class PacketRouter : public PacedSender::Callback,
  private:
   rtc::ThreadChecker pacer_thread_checker_;
   rtc::CriticalSection modules_crit_;
-  std::list<RtpRtcp*> send_rtp_modules_ GUARDED_BY(modules_crit_);
-  std::list<RtpRtcp*> recv_rtp_modules_ GUARDED_BY(modules_crit_);
+  std::list<RtpRtcp*> rtp_modules_ GUARDED_BY(modules_crit_);
 
   volatile int transport_seq_;
 

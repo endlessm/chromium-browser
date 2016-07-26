@@ -26,10 +26,6 @@ public:
 
     bool isOpaque() const override;
 
-    size_t contextSize(const ContextRec&) const override {
-        return sizeof(ColorShaderContext);
-    }
-
     class ColorShaderContext : public SkShader::Context {
     public:
         ColorShaderContext(const SkColorShader& shader, const ContextRec&);
@@ -38,6 +34,9 @@ public:
         void shadeSpan(int x, int y, SkPMColor span[], int count) override;
         void shadeSpanAlpha(int x, int y, uint8_t alpha[], int count) override;
         void shadeSpan4f(int x, int y, SkPM4f[], int count) override;
+
+    protected:
+        bool onChooseBlitProcs(const SkImageInfo&, BlitState*) override;
 
     private:
         SkPM4f      fPM4f;
@@ -61,6 +60,7 @@ protected:
     SkColorShader(SkReadBuffer&);
     void flatten(SkWriteBuffer&) const override;
     Context* onCreateContext(const ContextRec&, void* storage) const override;
+    size_t onContextSize(const ContextRec&) const override { return sizeof(ColorShaderContext); }
     bool onAsLuminanceColor(SkColor* lum) const override {
         *lum = fColor;
         return true;

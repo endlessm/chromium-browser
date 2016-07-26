@@ -34,12 +34,12 @@ _SAMPLE_BISECT_RESULTS_JSON = {
         'commit_info': 'commit info',
         'revisions_links': ['http://src.chromium.org/viewvc/chrome?view='
                             'revision&revision=306476'],
-        'cl': '306476'
+        'cl': '306476abcdabcdfabcdfabcdfabcdfabcdfabcdf'
     },
     'revision_data': [
         {
             'depot_name': 'chromium',
-            'commit_hash': '3064750000000000000000000000000000000000',
+            'commit_hash': '306475abcdabcdfabcdfabcdfabcdfabcdfabcdf',
             'revision_string': 'chromium@306475',
             'mean_value': 70,
             'std_dev': 0,
@@ -48,7 +48,7 @@ _SAMPLE_BISECT_RESULTS_JSON = {
         },
         {
             'revision_string': 'chromium@306476',
-            'commit_hash': '3064761111111111111111111111111111111111',
+            'commit_hash': '306476abcdabcdfabcdfabcdfabcdfabcdfabcdf',
             'depot_name': 'chromium',
             'mean_value': 80,
             'std_dev': 0,
@@ -58,7 +58,7 @@ _SAMPLE_BISECT_RESULTS_JSON = {
         {
             'revision_string': 'chromium@306477',
             'depot_name': 'chromium',
-            'commit_hash': '3064772222222222222222222222222222222222',
+            'commit_hash': '306477abcdabcdfabcdfabcdfabcdfabcdfabcdf',
             'mean_value': 80,
             'std_dev': 0,
             'values': [80, 80, 80],
@@ -100,14 +100,14 @@ Subject : subject
 Author  : author
 Commit description:
   commit info
-Commit  : 306476
+Commit  : 306476abcdabcdfabcdfabcdfabcdfabcdfabcdf
 Date    : 1/2/2015
 
 
 ===== TESTED REVISIONS =====
 Revision                Mean Value  Std. Dev.   Num Values  Good?
 chromium@306475         70          0           3           good
-chromium@306476         80          0           3           bad
+chromium@306476         80          0           3           bad         <-
 chromium@306477         80          0           3           bad
 
 Bisect job ran on: linux
@@ -124,8 +124,7 @@ Job details: https://test-rietveld.appspot.com/200039
 
 | O O | Visit http://www.chromium.org/developers/speed-infra/perf-bug-faq
 |  X  | for more information addressing perf regression bugs. For feedback,
-| / \ | file a bug with label Cr-Tests-AutoBisect.  Thank you!"""
-
+| / \ | file a bug with component Tests>AutoBisect.  Thank you!"""
     self.assertEqual(log_with_culprit, bisect_report.GetReport(job))
 
   def testGetReport_CompletedWithoutCulprit(self):
@@ -158,7 +157,7 @@ Job details: https://test-rietveld.appspot.com/200039
 
 | O O | Visit http://www.chromium.org/developers/speed-infra/perf-bug-faq
 |  X  | for more information addressing perf regression bugs. For feedback,
-| / \ | file a bug with label Cr-Tests-AutoBisect.  Thank you!"""
+| / \ | file a bug with component Tests>AutoBisect.  Thank you!"""
 
     self.assertEqual(log_without_culprit, bisect_report.GetReport(job))
 
@@ -188,7 +187,7 @@ Job details: https://test-rietveld.appspot.com/200039
 
 | O O | Visit http://www.chromium.org/developers/speed-infra/perf-bug-faq
 |  X  | for more information addressing perf regression bugs. For feedback,
-| / \ | file a bug with label Cr-Tests-AutoBisect.  Thank you!"""
+| / \ | file a bug with component Tests>AutoBisect.  Thank you!"""
 
     self.assertEqual(log_failed_bisect, bisect_report.GetReport(job))
 
@@ -224,7 +223,7 @@ Job details: https://test-rietveld.appspot.com/200039
 
 | O O | Visit http://www.chromium.org/developers/speed-infra/perf-bug-faq
 |  X  | for more information addressing perf regression bugs. For feedback,
-| / \ | file a bug with label Cr-Tests-AutoBisect.  Thank you!"""
+| / \ | file a bug with component Tests>AutoBisect.  Thank you!"""
 
     self.assertEqual(log_failed_bisect, bisect_report.GetReport(job))
 
@@ -259,10 +258,45 @@ Job details: https://test-rietveld.appspot.com/200039
 
 | O O | Visit http://www.chromium.org/developers/speed-infra/perf-bug-faq
 |  X  | for more information addressing perf regression bugs. For feedback,
-| / \ | file a bug with label Cr-Tests-AutoBisect.  Thank you!"""
+| / \ | file a bug with component Tests>AutoBisect.  Thank you!"""
 
     self.assertEqual(log_failed_bisect, bisect_report.GetReport(job))
 
+  def testGetReport_WithBugIdBadBisectFeedback(self):
+    results_data = self._BisectResults(6789, 12345, 'completed',
+                                       culprit_data=None, score=0)
+    job = self._AddTryJob(results_data, bug_id=6789)
+
+    log_without_culprit = r"""
+===== BISECT JOB RESULTS =====
+Status: completed
+
+
+===== TESTED REVISIONS =====
+Revision                Mean Value  Std. Dev.   Num Values  Good?
+chromium@306475         70          0           3           good
+chromium@306476         80          0           3           bad
+chromium@306477         80          0           3           bad
+
+Bisect job ran on: linux
+Bug ID: 12345
+
+Test Command: tools/perf/run_benchmark -v --browser=release page_cycler
+Test Metric: page_load_time
+Relative Change: 10
+Score: 0
+
+Buildbot stdio: http://build.chromium.org/513
+Job details: https://test-rietveld.appspot.com/200039
+
+
+Not what you expected? We'll investigate and get back to you!
+  https://chromeperf.appspot.com/bad_bisect?try_job_id=6789
+
+| O O | Visit http://www.chromium.org/developers/speed-infra/perf-bug-faq
+|  X  | for more information addressing perf regression bugs. For feedback,
+| / \ | file a bug with component Tests>AutoBisect.  Thank you!"""
+    self.assertEqual(log_without_culprit, bisect_report.GetReport(job))
 
 if __name__ == '__main__':
   unittest.main()

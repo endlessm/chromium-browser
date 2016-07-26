@@ -7,7 +7,8 @@
 #ifndef XFA_INCLUDE_FXFA_FXFA_BASIC_H_
 #define XFA_INCLUDE_FXFA_FXFA_BASIC_H_
 
-#include "xfa/include/fxjse/fxjse.h"
+#include "xfa/fxjse/cfxjse_arguments.h"
+#include "xfa/fxjse/include/fxjse.h"
 
 class CXFA_Measurement;
 #define XFA_HASHCODE_Xfa 0xc56b9ff
@@ -83,11 +84,11 @@ struct XFA_PACKETINFO {
   const FX_WCHAR* pName;
   XFA_XDPPACKET eName;
   const FX_WCHAR* pURI;
-  FX_DWORD eFlags;
+  uint32_t eFlags;
 };
 
 const XFA_PACKETINFO* XFA_GetPacketByName(const CFX_WideStringC& wsName);
-const XFA_PACKETINFO* XFA_GetPacketByID(FX_DWORD dwPacket);
+const XFA_PACKETINFO* XFA_GetPacketByID(uint32_t dwPacket);
 const XFA_PACKETINFO* XFA_GetPacketByIndex(XFA_PACKET ePacket);
 
 enum XFA_ATTRIBUTEENUM {
@@ -922,8 +923,8 @@ struct XFA_ELEMENTINFO {
   uint32_t uHash;
   const FX_WCHAR* pName;
   XFA_ELEMENT eName;
-  FX_DWORD dwPackets;
-  FX_DWORD eObjectType;
+  uint32_t dwPackets;
+  uint32_t eObjectType;
 };
 int32_t XFA_GetElementCount();
 const XFA_ELEMENTINFO* XFA_GetElementByName(const CFX_WideStringC& wsName);
@@ -941,7 +942,7 @@ struct XFA_ATTRIBUTEINFO {
   const FX_WCHAR* pName;
   XFA_ATTRIBUTE eName;
   XFA_ATTRIBUTETYPE eType;
-  FX_DWORD dwPackets;
+  uint32_t dwPackets;
   void* pDefValue;
 };
 int32_t XFA_GetAttributeCount();
@@ -951,47 +952,48 @@ FX_BOOL XFA_GetAttributeDefaultValue(void*& pValue,
                                      XFA_ELEMENT eElement,
                                      XFA_ATTRIBUTE eAttribute,
                                      XFA_ATTRIBUTETYPE eType,
-                                     FX_DWORD dwPacket);
+                                     uint32_t dwPacket);
 XFA_ATTRIBUTEENUM XFA_GetAttributeDefaultValue_Enum(XFA_ELEMENT eElement,
                                                     XFA_ATTRIBUTE eAttribute,
-                                                    FX_DWORD dwPacket);
+                                                    uint32_t dwPacket);
 CFX_WideStringC XFA_GetAttributeDefaultValue_Cdata(XFA_ELEMENT eElement,
                                                    XFA_ATTRIBUTE eAttribute,
-                                                   FX_DWORD dwPacket);
+                                                   uint32_t dwPacket);
 FX_BOOL XFA_GetAttributeDefaultValue_Boolean(XFA_ELEMENT eElement,
                                              XFA_ATTRIBUTE eAttribute,
-                                             FX_DWORD dwPacket);
+                                             uint32_t dwPacket);
 int32_t XFA_GetAttributeDefaultValue_Integer(XFA_ELEMENT eElement,
                                              XFA_ATTRIBUTE eAttribute,
-                                             FX_DWORD dwPacket);
+                                             uint32_t dwPacket);
 CXFA_Measurement XFA_GetAttributeDefaultValue_Measure(XFA_ELEMENT eElement,
                                                       XFA_ATTRIBUTE eAttribute,
-                                                      FX_DWORD dwPacket);
+                                                      uint32_t dwPacket);
 struct XFA_ELEMENTHIERARCHY {
-  FX_WORD wStart;
-  FX_WORD wCount;
-  FX_WORD wParentIndex;
+  uint16_t wStart;
+  uint16_t wCount;
 };
+
 struct XFA_SCRIPTHIERARCHY {
-  FX_WORD wMethodStart;
-  FX_WORD wMethodCount;
-  FX_WORD wAttributeStart;
-  FX_WORD wAttributeCount;
+  uint16_t wMethodStart;
+  uint16_t wMethodCount;
+  uint16_t wAttributeStart;
+  uint16_t wAttributeCount;
   int16_t wParentIndex;
 };
+
 typedef XFA_SCRIPTHIERARCHY const* XFA_LPCSCRIPTHIERARCHY;
-const FX_WORD* XFA_GetElementChildren(XFA_ELEMENT eElement, int32_t& iCount);
+const uint16_t* XFA_GetElementChildren(XFA_ELEMENT eElement, int32_t& iCount);
 const uint8_t* XFA_GetElementAttributes(XFA_ELEMENT eElement, int32_t& iCount);
 const XFA_ELEMENTINFO* XFA_GetChildOfElement(XFA_ELEMENT eElement,
                                              XFA_ELEMENT eChild,
-                                             FX_DWORD dwPacket);
+                                             uint32_t dwPacket);
 const XFA_ATTRIBUTEINFO* XFA_GetAttributeOfElement(XFA_ELEMENT eElement,
                                                    XFA_ATTRIBUTE eAttribute,
-                                                   FX_DWORD dwPacket);
+                                                   uint32_t dwPacket);
 #define XFA_PROPERTYFLAG_OneOf 0x01
 #define XFA_PROPERTYFLAG_DefaultOneOf 0x02
 struct XFA_PROPERTY {
-  FX_WORD eName;
+  uint16_t eName;
   uint8_t uOccur;
   uint8_t uFlags;
 };
@@ -999,7 +1001,7 @@ const XFA_PROPERTY* XFA_GetElementProperties(XFA_ELEMENT eElement,
                                              int32_t& iCount);
 const XFA_PROPERTY* XFA_GetPropertyOfElement(XFA_ELEMENT eElement,
                                              XFA_ELEMENT eProperty,
-                                             FX_DWORD dwPacket);
+                                             uint32_t dwPacket);
 struct XFA_ATTRIBUTEENUMINFO {
   uint32_t uHash;
   const FX_WCHAR* pName;
@@ -1068,7 +1070,7 @@ struct XFA_SCRIPTATTRIBUTEINFO {
   const FX_WCHAR* pName;
   XFA_ATTRIBUTE_CALLBACK lpfnCallback;
   int32_t eAttribute;
-  FX_WORD eValueType;
+  uint16_t eValueType;
 };
 const XFA_SCRIPTATTRIBUTEINFO* XFA_GetScriptAttributeByName(
     XFA_ELEMENT eElement,

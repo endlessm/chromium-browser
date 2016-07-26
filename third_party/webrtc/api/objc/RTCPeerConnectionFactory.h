@@ -12,7 +12,44 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
+@class RTCAVFoundationVideoSource;
+@class RTCAudioTrack;
+@class RTCConfiguration;
+@class RTCMediaConstraints;
+@class RTCMediaStream;
+@class RTCPeerConnection;
+@class RTCVideoSource;
+@class RTCVideoTrack;
+@protocol RTCPeerConnectionDelegate;
+
 @interface RTCPeerConnectionFactory : NSObject
+
+- (instancetype)init NS_DESIGNATED_INITIALIZER;
+
+/** Initialize an RTCAVFoundationVideoSource with constraints. */
+- (RTCAVFoundationVideoSource *)avFoundationVideoSourceWithConstraints:
+    (nullable RTCMediaConstraints *)constraints;
+
+/** Initialize an RTCAudioTrack with an id. */
+- (RTCAudioTrack *)audioTrackWithTrackId:(NSString *)trackId;
+
+/** Initialize an RTCVideoTrack with a source and an id. */
+- (RTCVideoTrack *)videoTrackWithSource:(RTCVideoSource *)source
+                                trackId:(NSString *)trackId;
+
+/** Initialize an RTCMediaStream with an id. */
+- (RTCMediaStream *)mediaStreamWithStreamId:(NSString *)streamId;
+
+/** Initialize an RTCPeerConnection with a configuration, constraints, and
+ *  delegate.
+ */
+- (RTCPeerConnection *)peerConnectionWithConfiguration:
+    (RTCConfiguration *)configuration
+                                           constraints:
+    (RTCMediaConstraints *)constraints
+                                              delegate:
+    (nullable id<RTCPeerConnectionDelegate>)delegate;
+
 @end
 
 NS_ASSUME_NONNULL_END

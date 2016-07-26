@@ -11,6 +11,8 @@
 #ifndef WEBRTC_MEDIA_ENGINE_WEBRTCVIDEOFRAME_H_
 #define WEBRTC_MEDIA_ENGINE_WEBRTCVIDEOFRAME_H_
 
+#include <memory>
+
 #include "webrtc/base/buffer.h"
 #include "webrtc/base/refcount.h"
 #include "webrtc/base/scoped_ref_ptr.h"
@@ -49,22 +51,11 @@ class WebRtcVideoFrame : public VideoFrame {
 
   void InitToEmptyBuffer(int w, int h, int64_t time_stamp_ns);
 
-  bool InitToBlack(int w, int h, int64_t time_stamp_ns) override;
+  bool InitToBlack(int w, int h, int64_t time_stamp_ns);
 
-  // From base class VideoFrame.
-  bool Reset(uint32_t format,
-                     int w,
-                     int h,
-                     int dw,
-                     int dh,
-                     uint8_t* sample,
-                     size_t sample_size,
-                     int64_t time_stamp_ns,
-                     webrtc::VideoRotation rotation,
-                     bool apply_rotation) override;
+  int width() const override;
+  int height() const override;
 
-  size_t GetWidth() const override;
-  size_t GetHeight() const override;
   const uint8_t* GetYPlane() const override;
   const uint8_t* GetUPlane() const override;
   const uint8_t* GetVPlane() const override;
@@ -89,7 +80,6 @@ class WebRtcVideoFrame : public VideoFrame {
 
   VideoFrame* Copy() const override;
   bool IsExclusive() const override;
-  bool MakeExclusive() override;
   size_t ConvertToRgbBuffer(uint32_t to_fourcc,
                             uint8_t* buffer,
                             size_t size,
@@ -101,6 +91,21 @@ class WebRtcVideoFrame : public VideoFrame {
   void SetRotation(webrtc::VideoRotation rotation) override {
     rotation_ = rotation;
   }
+  // Creates a frame from a raw sample with FourCC |format| and size |w| x |h|.
+  // |h| can be negative indicating a vertically flipped image.
+  // |dw| is destination width; can be less than |w| if cropping is desired.
+  // |dh| is destination height, like |dw|, but must be a positive number.
+  // Returns whether the function succeeded or failed.
+  bool Reset(uint32_t format,
+                     int w,
+                     int h,
+                     int dw,
+                     int dh,
+                     uint8_t* sample,
+                     size_t sample_size,
+                     int64_t time_stamp_ns,
+                     webrtc::VideoRotation rotation,
+                     bool apply_rotation);
 
  private:
   VideoFrame* CreateEmptyFrame(int w, int h,
@@ -113,7 +118,7 @@ class WebRtcVideoFrame : public VideoFrame {
 
   // This is mutable as the calculation is expensive but once calculated, it
   // remains const.
-  mutable rtc::scoped_ptr<VideoFrame> rotated_frame_;
+  mutable std::unique_ptr<VideoFrame> rotated_frame_;
 };
 
 }  // namespace cricket

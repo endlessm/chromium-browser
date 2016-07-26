@@ -45,7 +45,7 @@ class TracingAgent(object):
     """
     raise NotImplementedError
 
-  def StopAgentTracing(self, trace_data_builder):
+  def StopAgentTracing(self):
     """ Override to add tracing agent's custom logic to stop tracing.
 
     StopAgentTracing() should guarantee tracing is stopped, even if there may
@@ -53,16 +53,35 @@ class TracingAgent(object):
     """
     raise NotImplementedError
 
+  def SupportsFlushingAgentTracing(self):
+    """ Override to indicate support of flushing tracing. """
+    return False
+
+  def FlushAgentTracing(self, config, timeout, trace_data_builder):
+    """ Override to add tracing agent's custom logic to flush tracing. """
+    del config, timeout, trace_data_builder  # unused
+    raise NotImplementedError
+
   def SupportsExplicitClockSync(self):
     """ Override to indicate support of explicit clock syncing. """
     return False
 
-  def RecordClockSyncMarker(self, sync_id):
+  def RecordClockSyncMarker(self, sync_id,
+                            record_controller_clocksync_marker_callback):
     """ Override to record clock sync marker.
 
     Only override if supports explicit clock syncing.
     Args:
       sync_id: Unqiue id for sync event.
+      record_controller_clocksync_marker_callback: Function that takes sync_id
+        and a timestamp as argument.
     """
     del sync_id # unused
+    del record_controller_clocksync_marker_callback # unused
+    raise NotImplementedError
+
+  def CollectAgentTraceData(self, trace_data_builder, timeout=None):
+    """ Override to add agent's custom logic to collect tracing data. """
+    del trace_data_builder
+    del timeout
     raise NotImplementedError

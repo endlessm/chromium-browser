@@ -60,7 +60,7 @@ CHROME_PACKAGE_NAMES = {
       ['com.chrome.canary',
        android_browser_backend_settings.ChromeBackendSettings,
        None],
-  'android-jb-system-chrome':
+  'android-system-chrome':
       ['com.android.chrome',
        android_browser_backend_settings.ChromeBackendSettings,
        None],
@@ -121,8 +121,7 @@ class PossibleAndroidBrowser(possible_browser.PossibleBrowser):
         self._platform_backend,
         finder_options.browser_options, self._backend_settings,
         output_profile_path=finder_options.output_profile_path,
-        extensions_to_load=finder_options.extensions_to_load,
-        target_arch=finder_options.target_arch)
+        extensions_to_load=finder_options.extensions_to_load)
     try:
       return browser.Browser(
           browser_backend, self._platform_backend, self._credentials_path)
@@ -186,14 +185,15 @@ def _FindAllPossibleBrowsers(finder_options, android_platform):
   if (finder_options.browser_executable and
       CanPossiblyHandlePath(finder_options.browser_executable)):
     apk_name = os.path.basename(finder_options.browser_executable)
-    package_info = next((info for info in CHROME_PACKAGE_NAMES.itervalues()
-                         if info[2] == apk_name), None)
+    normalized_path = os.path.expanduser(finder_options.browser_executable)
+    exact_package = apk_helper.GetPackageName(normalized_path)
+    package_info = next(
+        (info for info in CHROME_PACKAGE_NAMES.itervalues()
+         if info[0] == exact_package or info[2] == apk_name), None)
 
-    # It is okay if the APK name doesn't match any of known chrome browser APKs,
-    # since it may be of a different browser.
+    # It is okay if the APK name or package doesn't match any of known chrome
+    # browser APKs, since it may be of a different browser.
     if package_info:
-      normalized_path = os.path.expanduser(finder_options.browser_executable)
-      exact_package = apk_helper.GetPackageName(normalized_path)
       if not exact_package:
         raise exceptions.PackageDetectionError(
             'Unable to find package for %s specified by --browser-executable' %
@@ -215,7 +215,7 @@ def _FindAllPossibleBrowsers(finder_options, android_platform):
   # Add the reference build if found.
   os_version = dependency_util.GetChromeApkOsVersion(
       android_platform.GetOSVersionName())
-  arch = finder_options.target_arch or android_platform.GetArchName()
+  arch = android_platform.GetArchName()
   try:
     reference_build = binary_manager.FetchPath(
         'chrome_stable', arch, 'android', os_version)
@@ -236,12 +236,14 @@ def _FindAllPossibleBrowsers(finder_options, android_platform):
 
   # Add any known local versions.
   for name, package_info in CHROME_PACKAGE_NAMES.iteritems():
-    package, backend_settings, local_apk = package_info
+    package, backend_settings, apk_name = package_info
+    if apk_name and not finder_options.chrome_root:
+      continue
     b = PossibleAndroidBrowser(name,
                                finder_options,
                                android_platform,
                                backend_settings(package),
-                               local_apk)
+                               apk_name)
     if b.platform.CanLaunchApplication(package) or b.HaveLocalAPK():
       possible_browsers.append(b)
   return possible_browsers

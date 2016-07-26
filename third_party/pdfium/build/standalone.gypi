@@ -171,6 +171,7 @@
     },
     'cflags': [
       '-Wall',
+      '-Werror',
       '-W',
       '-Wno-missing-field-initializers',
       # Code might someday be made clean for -Wsign-compare, but for now
@@ -183,7 +184,8 @@
     ],
     'cflags_cc': [
       '-std=c++11',
-      '-Wnon-virtual-dtor',
+      # Add back when ICU is clean
+      # '-Wnon-virtual-dtor',
       '-fno-rtti',
     ],
     'ldflags': [
@@ -316,6 +318,40 @@
           }, {
             'WarnAsError': 'true',
           }],
+          ['clang==1', {
+            'AdditionalOptions': [
+              # Don't warn about unused function parameters.
+              # (This is also used on other platforms.)
+              '-Wno-unused-parameter',
+              # Don't warn about the "struct foo f = {0};" initialization
+              # pattern.
+              '-Wno-missing-field-initializers',
+
+              # Many files use intrinsics without including this header.
+              # TODO(hans): Fix those files, or move this to sub-GYPs.
+              '/FIIntrin.h',
+
+              # TODO(hans): Make this list shorter eventually, http://crbug.com/504657
+              '-Qunused-arguments',  # http://crbug.com/504658
+              '-Wno-microsoft-enum-value',  # http://crbug.com/505296
+              '-Wno-unknown-pragmas',  # http://crbug.com/505314
+              '-Wno-microsoft-cast',  # http://crbug.com/550065
+            ],
+          }],
+          ['OS=="win" and clang==1 and MSVS_VERSION == "2013"', {
+            'VCCLCompilerTool': {
+              'AdditionalOptions': [
+                '-fmsc-version=1800',
+              ],
+            },
+          }],
+          ['OS=="win" and clang==1 and MSVS_VERSION == "2015"', {
+            'VCCLCompilerTool': {
+              'AdditionalOptions': [
+                '-fmsc-version=1900',
+              ],
+            },
+          }],
         ],
       },
       'VCLibrarianTool': {
@@ -418,7 +454,7 @@
         ],  # target_conditions
         'variables': {
           'mac_sdk_min': '10.10',
-          'mac_sdk%': '<!(python <(DEPTH)/build/gyp/tools/mac_find_sdk.py <(mac_sdk_min))',
+          'mac_sdk%': '<!(python <(DEPTH)/build/mac_find_sdk.py <(mac_sdk_min))',
         },
         'xcode_settings': {
           'SDKROOT': 'macosx<(mac_sdk)',  # -isysroot
@@ -452,6 +488,15 @@
         }],
       ],
     }],  # OS=="linux" or OS=="mac"
+    ['OS=="win"', {
+      'conditions': [
+        ['clang==1', {
+          'make_global_settings': [
+            ['CC', '<(clang_dir)/bin/clang-cl'],
+          ],
+        }],
+      ],
+    }],  # OS=="win"
     ["use_goma==1", {
       'make_global_settings': [
         ['CC_wrapper', '<(gomadir)/gomacc'],

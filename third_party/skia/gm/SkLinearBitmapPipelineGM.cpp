@@ -57,17 +57,19 @@ static void draw_rect_orig(SkCanvas* canvas, const SkRect& r, SkColor c, const S
 
     SkImageInfo info = SkImageInfo::MakeN32Premul(ir.width(), ir.height(), kLinear_SkColorProfileType);
 
-    SkAutoTUnref<SkImage> image{SkImage::NewRasterCopy(
-        info, pmsrc.addr32(), pmsrc.rowBytes())};
+    sk_sp<SkImage> image(SkImage::MakeRasterCopy(SkPixmap(info, pmsrc.addr32(), pmsrc.rowBytes())));
     SkPaint paint;
-    int32_t storage[200];
-    SkShader* shader = image->newShader(SkShader::kClamp_TileMode, SkShader::kClamp_TileMode);
+    int32_t storage[300];
+
+    sk_sp<SkShader> shader = image->makeShader(SkShader::kRepeat_TileMode,
+                                               SkShader::kRepeat_TileMode);
+
     if (useBilerp) {
         paint.setFilterQuality(SkFilterQuality::kLow_SkFilterQuality);
     } else {
         paint.setFilterQuality(SkFilterQuality::kNone_SkFilterQuality);
     }
-    paint.setShader(shader)->unref();
+    paint.setShader(std::move(shader));
     const SkShader::ContextRec rec(paint, *mat, nullptr,
                                    SkBlitter::PreferredShaderDest(pmsrc.info()));
     SkASSERT(paint.getShader()->contextSize(rec) <= sizeof(storage));
@@ -81,7 +83,6 @@ static void draw_rect_orig(SkCanvas* canvas, const SkRect& r, SkColor c, const S
     canvas->drawBitmap(bmdst, r.left(), r.top(), nullptr);
 
     ctx->~Context();
-
 }
 
 static void draw_rect_fp(SkCanvas* canvas, const SkRect& r, SkColor c, const SkMatrix* mat, bool useBilerp) {
@@ -119,7 +120,7 @@ static void draw_rect_fp(SkCanvas* canvas, const SkRect& r, SkColor c, const SkM
 
     SkLinearBitmapPipeline pipeline{
             inv, filterQuality,
-            SkShader::kClamp_TileMode, SkShader::kClamp_TileMode, pmsrc};
+            SkShader::kRepeat_TileMode, SkShader::kRepeat_TileMode, 1.0f, pmsrc};
 
     for (int y = 0; y < ir.height(); y++) {
         pipeline.shadeSpan4f(0, y, dstBits, ir.width());
@@ -143,7 +144,7 @@ static void draw_rect_none(SkCanvas* canvas, const SkRect& r, SkColor c) {
 /*
  *  Test SkXfer4fProcs directly for src-over, comparing them to current SkColor blits.
  */
-DEF_SIMPLE_GM(linear_pipeline, canvas, 580, 1400) {
+DEF_SIMPLE_GM(linear_pipeline, canvas, 580, 2200) {
     const int IW = 50;
     const SkScalar W = IW;
     const SkScalar H = 100;
@@ -156,14 +157,20 @@ DEF_SIMPLE_GM(linear_pipeline, canvas, 580, 1400) {
     canvas->translate(20, 20);
 
     SkMatrix mi = SkMatrix::I();
+    SkMatrix mlr;
+    mlr.setScale(-1.0f, 1.0f, 20, 0.0f);
     SkMatrix mt;
     mt.setTranslate(8, 8);
+    SkMatrix mt2;
+    mt2.setTranslate(-18, -18);
     SkMatrix ms;
-    ms.setScale(2.7f, 2.7f);
+    ms.setScale(2.7f, 2.7f, -1.5f, 0);
+    SkMatrix ms2;
+    ms2.setScale(-0.4f, 0.4f);
     SkMatrix mr;
     mr.setRotate(10);
 
-    const SkMatrix* mats[] = {nullptr, &mi, &mt, &ms, &mr};
+    const SkMatrix* mats[] = {nullptr, &mi, &mlr, &mt, &mt2, &ms, &ms2, &mr};
 
     const SkRect r = SkRect::MakeWH(W, H);
     bool useBilerp = false;

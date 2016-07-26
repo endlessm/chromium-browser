@@ -156,6 +156,15 @@ public:
     }
 
     /**
+     * Version of above that uses a move constructor to initialize the new item
+     */
+    T& push_back(T&& t) {
+        T* newT = reinterpret_cast<T*>(this->push_back_raw(1));
+        new (newT) T(std::move(t));
+        return *newT;
+    }
+
+    /**
      *  Construct a new T at the back of this array.
      */
     template<class... Args> T& emplace_back(Args&&... args) {
@@ -185,7 +194,7 @@ public:
         SkASSERT(n >= 0);
         T* newTs = reinterpret_cast<T*>(this->push_back_raw(n));
         for (int i = 0; i < n; ++i) {
-            new (newTs[i]) T(t);
+            new (newTs + i) T(t);
         }
         return newTs;
     }

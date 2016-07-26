@@ -2,6 +2,12 @@
      Use of this source code is governed by a BSD-style license that can be
      found in the LICENSE file.
 -->
+# Code of Conduct
+
+We follow the [Chromium code of conduct](
+https://chromium.googlesource.com/chromium/src/+/master/CODE_OF_CONDUCT.md) in
+our our repos and organizations, mailing lists, and other communications.
+
 # Workflow
 
 Install [depot_tools]
@@ -41,7 +47,7 @@ git checkout master
 git branch -D foo
 ```
 
-# Legal
+# Becoming a committer
 
 If you're new to the chromium-family of projects, you will also need to sign the
 chrome contributors license agreement. You can sign the
@@ -55,6 +61,9 @@ us as described on that page.
 
 If you've never submitted code before, you must add your (or your
 organization's) name and contact info to the Chromium AUTHORS file.
+
+Next, ask an admin to add you (see
+[adding committers](/docs/adding-committers.md))
 
 # Contributing from a Chromium checkout
 
@@ -79,15 +88,11 @@ catapult folder (third_party/catapult):
 
 # Code style
 
-We follow the [Chromium style]
-(https://www.chromium.org/developers/coding-style).
-
-If you're contributing to Trace Viewer, refer to the [Trace Viewer style guide](https://docs.google.com/document/d/1MMOfywou2Oaho4jOttUk-ZSJcHVd5G5BTsD48rPrBtQ/edit).
+See the [style guide](/docs/style-guide.md).
 
 # Individual project documentation
 
 Look to individual project documentation for more info on getting started:
-   * [lighthouse](/lighthouse/README.md)
    * [perf dashboard](/dashboard/README.md)
    * [systrace](/systrace/README.md)
    * [telemetry](/telemetry/README.md)
@@ -106,54 +111,10 @@ automatically runs all tests. Run the tests before committing with the
 
 Chromium's DEPS file needs to be rolled to the catapult revision containing your
 change in order for it to appear in Chrome's about:tracing or other
-third_party/catapult files. This should happen automatically, but you may need
-to do it manually in rare cases. See below for more details.
+third_party/catapult files. Follow the [directions for rolling DEPS]
+(/docs/rolling-deps.md) to do this.
 
-## Automatic rolls
+# Adding a new project
 
-DEPS should be automatically rolled by the auto-roll bot at
-[catapult-roll.skia.org](https://catapult-roll.skia.org/).
-[catapult-sheriff@chromium.org](https://groups.google.com/a/chromium.org/forum/#!forum/catapult-sheriff)
-will be cc-ed on all reviews, and anyone who wants to join that list can
-subscribe. It's also the correct list to report a problem with the autoroll. If
-you need to stop the autoroll, either sign into that page with a google.com
-account, or contact catapult-sheriff@chromium.org.
-
-## Manual rolls
-
-In rare cases, you may need to make changes to chromium at the same time as you
-roll catapult DEPs. In this case you would need to do a manual roll. Here are
-instructions for rolling catapult DEPS, your CL would also include any other
-changes to chromium needed to complete the roll.
-
-First, commit to catapult. Then check the [mirror]
-(https://chromium.googlesource.com/external/github.com/catapult-project/catapult.git)
-to find the git hash of your commit. (Note: it may take a few minutes to be
-mirrored).
-
-Then edit Chrome's [src/DEPS]
-(https://code.google.com/p/chromium/codesearch#chromium/src/DEPS) file. Look for
-a line like:
-
-```
-  'src/third_party/catapult':
-    Var('chromium_git') + '/external/github.com/catapult-project/catapult.git' + '@' +
-    '2da8924915bd6fb7609c518f5b1f63cb606248eb',
-```
-
-Update the number to the git hash you want to roll to, and [contribute a
-codereview to chrome](http://www.chromium.org/developers/contributing-code)
-for your edit. If you are a Chromium committer, feel free to TBR this.
-
-# Adding contributors
-
-Admins (nduca, sullivan) can add contributors to the project. There are two
-steps:
-
-1.  Add the person's github account to the [catapult]
-(https://github.com/orgs/catapult-project/teams/catapult) team.
-2.  Add the person's email to the [commit queue list]
-(https://chrome-infra-auth.appspot.com/auth/groups#project-catapult-committers).
-
-Because there is no API to retrieve a person's GitHub ID from their email
-address or vice versa, we cannot automate this into one step.
+Please read the [directory structure guide](/docs/directory-structure.md)
+to learn the conventions for new directories.

@@ -20,6 +20,8 @@ class GrVkGpu;
 class GrVkImageView;
 class GrVkStencilAttachment;
 
+struct GrVkTextureInfo;
+
 #ifdef SK_BUILD_FOR_WIN
 // Windows gives bogus warnings about inheriting asTexture/asRenderTarget via dominance.
 #pragma warning(push)
@@ -34,7 +36,7 @@ public:
 
     static GrVkRenderTarget* CreateWrappedRenderTarget(GrVkGpu*, const GrSurfaceDesc&,
                                                        GrGpuResource::LifeCycle,
-                                                       const GrVkImage::Resource* resource);
+                                                       const GrVkTextureInfo*);
 
     ~GrVkRenderTarget() override;
 
@@ -61,7 +63,7 @@ public:
     // Returns the total number of attachments
     void getAttachmentsDescriptor(GrVkRenderPass::AttachmentsDescriptor* desc,
                                   GrVkRenderPass::AttachmentFlags* flags) const;
-    
+
     void addResources(GrVkCommandBuffer& commandBuffer) const;
 
 protected:
@@ -128,7 +130,7 @@ private:
     const GrVkImage::Resource* fMSAAImageResource;
     const GrVkImageView*       fResolveAttachmentView;
     int                        fColorValuesPerPixel;
-    
+
     // This is a cached pointer to a simple render pass. The render target should unref it
     // once it is done with it.
     const GrVkRenderPass*      fCachedSimpleRenderPass;

@@ -10,6 +10,8 @@
 #include "GrVkImageView.h"
 #include "GrVkUtil.h"
 
+#include "vk/GrVkTypes.h"
+
 #define VK_CALL(GPU, X) GR_VK_CALL(GPU->vkInterface(), X)
 
 // Because this class is virtually derived from GrSurface we must explicitly call its constructor.
@@ -20,7 +22,8 @@ GrVkTexture::GrVkTexture(GrVkGpu* gpu,
                          const GrVkImageView* view)
     : GrSurface(gpu, lifeCycle, desc)
     , GrVkImage(imageResource)
-    , INHERITED(gpu, lifeCycle, desc)
+    , INHERITED(gpu, lifeCycle, desc, kSampler2D_GrSLType,
+                false) // false because we don't upload MIP data in Vk yet
     , fTextureView(view) {
     this->registerWithCache();
 }
@@ -34,7 +37,8 @@ GrVkTexture::GrVkTexture(GrVkGpu* gpu,
                          Derived)
     : GrSurface(gpu, lifeCycle, desc)
     , GrVkImage(imageResource)
-    , INHERITED(gpu, lifeCycle, desc)
+    , INHERITED(gpu, lifeCycle, desc, kSampler2D_GrSLType,
+                false) // false because we don't upload MIP data in Vk yet
     , fTextureView(view) {}
 
 
@@ -72,13 +76,33 @@ GrVkTexture* GrVkTexture::CreateNewTexture(GrVkGpu* gpu, const GrSurfaceDesc& de
 
 GrVkTexture* GrVkTexture::CreateWrappedTexture(GrVkGpu* gpu, const GrSurfaceDesc& desc,
                                                GrGpuResource::LifeCycle lifeCycle,
-                                               VkFormat format, 
-                                               const GrVkImage::Resource* imageResource) {
-    SkASSERT(imageResource);
+                                               VkFormat format,
+                                               const GrVkTextureInfo* info) {
+    SkASSERT(info);
+    // Wrapped textures require both image and allocation (because they can be mapped)
+    SkASSERT(VK_NULL_HANDLE != info->fImage && VK_NULL_HANDLE != info->fAlloc);
 
-    // Note: we assume the caller will unref the imageResource
-    // Create() will increment the refCount, and we'll unref when we're done with it
-    return Create(gpu, desc, lifeCycle, format, imageResource);
+    GrVkImage::Resource::Flags flags = (VK_IMAGE_TILING_LINEAR == info->fImageTiling)
+                                     ? Resource::kLinearTiling_Flag : Resource::kNo_Flags;
+
+    const GrVkImage::Resource* imageResource;
+    if (kBorrowed_LifeCycle == lifeCycle) {
+        imageResource = new GrVkImage::BorrowedResource(info->fImage, info->fAlloc, flags);
+    } else {
+        imageResource = new GrVkImage::Resource(info->fImage, info->fAlloc, flags);
+    }
+    if (!imageResource) {
+        return nullptr;
+    }
+
+    GrVkTexture* texture = Create(gpu, desc, lifeCycle, format, imageResource);
+    if (texture) {
+        texture->fCurrentLayout = info->fImageLayout;
+    }
+    // Create() will increment the refCount of the image resource if it succeeds
+    imageResource->unref(gpu);
+
+    return texture;
 }
 
 GrVkTexture::~GrVkTexture() {
@@ -121,4 +145,3 @@ GrVkGpu* GrVkTexture::getVkGpu() const {
     SkASSERT(!this->wasDestroyed());
     return static_cast<GrVkGpu*>(this->getGpu());
 }
-

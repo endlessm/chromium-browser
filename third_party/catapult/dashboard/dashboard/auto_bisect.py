@@ -166,7 +166,8 @@ def _MakeBisectTryJob(bug_id, run_count=0):
   if not bisect_bot or '_' not in bisect_bot:
     raise NotBisectableError('Could not select a bisect bot.')
 
-  use_recipe = bool(start_try_job.GetBisectDirectorForTester(bisect_bot))
+  use_recipe = bool(start_try_job.GetBisectDirectorForTester(
+      test.master_name, bisect_bot))
 
   new_bisect_config = start_try_job.GetBisectConfig(
       bisect_bot=bisect_bot,
@@ -322,7 +323,7 @@ def _GetRevisionForBisect(revision, test_key):
 
 
 def _PrintStartedAndFailedBisectJobs():
-  """Print started and failed bisect jobs in datastore."""
+  """Prints started and failed bisect jobs in datastore."""
   failed_jobs = try_job.TryJob.query(
       try_job.TryJob.status == 'failed').fetch()
   started_jobs = try_job.TryJob.query(

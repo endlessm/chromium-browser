@@ -29,16 +29,37 @@ cov_start = lineno()+1   # We care about coverage starting just past this def.
 def get_args(bot):
   args = []
 
-  configs = ['565', '8888', 'gpu']
+  # 32-bit desktop bots tend to run out of memory, because they have relatively
+  # far more cores than RAM (e.g. 32 cores, 3G RAM).  Hold them back a bit.
+  if '-x86-' in bot and not 'NexusPlayer' in bot:
+    args.extend('--threads 4'.split(' '))
 
-  if 'Android' not in bot:
-    configs.extend(('upright-matrix-8888', 'upright-matrix-gpu'))
-    args.extend('--matrix 0 1 1 0'.split(' '))
+  # These are the canonical configs that we would ideally run on all bots. We
+  # may opt out or substitute some below for specific bots
+  configs = ['565', '8888', 'gpu', 'gpusrgb', 'pdf']
+  # Add in either msaa4 or msaa16 to the canonical set of configs to run
+  if 'Android' in bot or 'iOS' in bot:
+    configs.append('msaa4')
+  else:
+    configs.append('msaa16')
+
+  # With msaa, the S4 crashes and the NP produces a long error stream when we
+  # run with MSAA. The Tegra2 and Tegra3 just don't support it. No record of
+  # why we're not running msaa on iOS, probably started with gpu config and just
+  # haven't tried.
+  if ('GalaxyS4'    in bot or
+      'NexusPlayer' in bot or
+      'Tegra3'      in bot or
+      'iOS'         in bot):
+    configs = [x for x in configs if 'msaa' not in x]
+
+  # Runs out of memory on Android bots and Daisy.  Everyone else seems fine.
+  if 'Android' in bot or 'Daisy' in bot:
+    configs.remove('pdf')
 
   if '-GCE-' in bot:
-    configs.append('sp-8888')
-    configs.extend(['twice-8888', '2ndpic-8888'])
-    configs.extend(['remote-8888', 'remote_cache-8888'])
+    configs.extend(['f16', 'srgb'])              # Gamma-correct formats.
+    configs.extend(['sp-8888', '2ndpic-8888'])   # Test niche uses of SkPicture.
 
   if '-TSAN' not in bot:
     if ('TegraK1'  in bot or
@@ -46,24 +67,14 @@ def get_args(bot):
         'GTX660'   in bot or
         'GT610'    in bot):
       if 'Android' in bot:
-        configs.append('nvprmsaa4')
+        configs.append('nvprdit4')
       else:
-        configs.append('nvprmsaa16')
+        configs.append('nvprdit16')
 
-  # The S4 crashes and the NP produces a long error stream when we run with
-  # MSAA.  The Tegra2 and Tegra3 just don't support it.
-  if ('GalaxyS4'    not in bot and
-      'NexusPlayer' not in bot and
-      'Tegra3'      not in bot and
-      'iOS'         not in bot):
-    if 'Android' in bot:
-      configs.append('msaa4')
-    else:
-      configs.append('msaa16')
-  # Runs out of memory on Android bots and Daisy.  Everyone else seems fine.
-  if 'Android' not in bot and 'Daisy' not in bot:
-    configs.append('pdf')
-    configs.append('pdf_poppler')
+  # We want to test the OpenGL config not the GLES config on the X1
+  if 'TegraX1' in bot:
+    configs = [x.replace('gpu', 'gl') for x in configs]
+    configs = [x.replace('msaa', 'glmsaa') for x in configs]
 
   # NP is running out of RAM when we run all these modes.  skia:3255
   if 'NexusPlayer' not in bot:
@@ -89,6 +100,12 @@ def get_args(bot):
 
   blacklist = []
 
+  # TODO: ???
+  blacklist.extend('f16 _ _ dstreadshuffle'.split(' '))
+  blacklist.extend('f16 image _ _'.split(' '))
+  blacklist.extend('srgb image _ _'.split(' '))
+  blacklist.extend('gpusrgb image _ _'.split(' '))
+
   # Certain gm's on win7 gpu and pdf are never finishing and keeping the test
   # running forever
   if 'Win7' in bot:
@@ -107,18 +124,39 @@ def get_args(bot):
     blacklist.extend('gpu skp _ _ msaa skp _ _'.split(' '))
     blacklist.extend('msaa16 gm _ tilemodesProcess'.split(' '))
 
-  # the 32-bit GCE bots run out of memory in DM when running these large images
-  if 'x86' in bot and not 'x86-64' in bot:
-    blacklist.extend('_ image _ interlaced1.png'.split(' '))
-    blacklist.extend('_ image _ interlaced2.png'.split(' '))
-    blacklist.extend('_ image _ interlaced3.png'.split(' '))
+  if 'Mac' in bot or 'iOS' in bot:
+    # CG fails on questionable bmps
+    blacklist.extend('_ image gen_platf rgba32abf.bmp'.split(' '))
+    blacklist.extend('_ image gen_platf rgb24prof.bmp'.split(' '))
+    blacklist.extend('_ image gen_platf rgb24lprof.bmp'.split(' '))
+    blacklist.extend('_ image gen_platf 8bpp-pixeldata-cropped.bmp'.split(' '))
+    blacklist.extend('_ image gen_platf 4bpp-pixeldata-cropped.bmp'.split(' '))
+    blacklist.extend('_ image gen_platf 32bpp-pixeldata-cropped.bmp'.split(' '))
+    blacklist.extend('_ image gen_platf 24bpp-pixeldata-cropped.bmp'.split(' '))
+
+    # CG has unpredictable behavior on this questionable gif
+    # It's probably using uninitialized memory
+    blacklist.extend('_ image gen_platf frame_larger_than_image.gif'.split(' '))
+
+  # WIC fails on questionable bmps
+  if 'Win' in bot:
+    blacklist.extend('_ image gen_platf rle8-height-negative.bmp'.split(' '))
+    blacklist.extend('_ image gen_platf rle4-height-negative.bmp'.split(' '))
+    blacklist.extend('_ image gen_platf pal8os2v2.bmp'.split(' '))
+    blacklist.extend('_ image gen_platf pal8os2v2-16.bmp'.split(' '))
+    blacklist.extend('_ image gen_platf rgba32abf.bmp'.split(' '))
+    blacklist.extend('_ image gen_platf rgb24prof.bmp'.split(' '))
+    blacklist.extend('_ image gen_platf rgb24lprof.bmp'.split(' '))
+    blacklist.extend('_ image gen_platf 8bpp-pixeldata-cropped.bmp'.split(' '))
+    blacklist.extend('_ image gen_platf 4bpp-pixeldata-cropped.bmp'.split(' '))
+    blacklist.extend('_ image gen_platf 32bpp-pixeldata-cropped.bmp'.split(' '))
+    blacklist.extend('_ image gen_platf 24bpp-pixeldata-cropped.bmp'.split(' '))
 
   # skia:4095
   for test in ['not_native32_bitmap_config',
                'bleed_image',
                'bleed_alpha_image',
                'bleed_alpha_image_shader',
-               'blend',
                'c_gms',
                'colortype',
                'colortype_xfermodes',
@@ -130,22 +168,14 @@ def get_args(bot):
                'fontmgr_match',
                'fontmgr_iter',
                'lightingshader',
-               'localmatriximagefilter',
-               'path_stroke_with_zero_length',
-               'textblobgeometrychange',
                'verylargebitmap',              # Windows only.
                'verylarge_picture_image']:     # Windows only.
     blacklist.extend(['serialize-8888', 'gm', '_', test])
   # skia:4769
-  for test in ['blend',
-               'drawfilter',
-               'path_stroke_with_zero_length',
-               'textblobgeometrychange']:
+  for test in ['drawfilter']:
     blacklist.extend([    'sp-8888', 'gm', '_', test])
     blacklist.extend([   'pic-8888', 'gm', '_', test])
     blacklist.extend(['2ndpic-8888', 'gm', '_', test])
-  for test in ['patch_primitive']:
-    blacklist.extend(['sp-8888', 'gm', '_', test])
   # skia:4703
   for test in ['image-cacherator-from-picture',
                'image-cacherator-from-raster',
@@ -160,15 +190,18 @@ def get_args(bot):
        "ARW", "CR2", "DNG", "NEF", "NRW", "ORF", "RAF", "RW2", "PEF", "SRW"]
 
   # skbug.com/4888
-  # Blacklist RAW images on GPU tests until we can resolve failures
+  # Blacklist RAW images (and a few large PNGs) on GPU bots
+  # until we can resolve failures
   if 'GPU' in bot:
+    blacklist.extend('_ image _ interlaced1.png'.split(' '))
+    blacklist.extend('_ image _ interlaced2.png'.split(' '))
+    blacklist.extend('_ image _ interlaced3.png'.split(' '))
     for raw_ext in r:
       blacklist.extend(('_ image _ .%s' % raw_ext).split(' '))
 
-  # Blacklist RAW images on Win32 tests due to out-of-memory issue
-  if 'Win' in bot and not '64' in bot:
-    for raw_ext in r:
-      blacklist.extend(('_ image _ .%s' % raw_ext).split(' '))
+  # Large image that overwhelms older Mac bots
+  if 'MacMini4.1-GPU' in bot:
+    blacklist.extend('_ image _ abnormal.wbmp'.split(' '))
 
   match = []
   if 'Valgrind' in bot: # skia:3021
@@ -230,6 +263,8 @@ def self_test():
     'Test-Ubuntu-GCC-GCE-CPU-AVX2-x86_64-Release-Valgrind',
     'Test-Win7-MSVC-ShuttleA-GPU-HD2000-x86-Debug-ANGLE',
     'Test-Mac10.8-Clang-MacMini4.1-CPU-SSE4-x86_64-Release',
+    'Test-Mac-Clang-MacMini4.1-GPU-GeForce320M-x86_64-Release',
+    'Test-Android-GCC-NVIDIA_Shield-GPU-TegraX1-Arm64-Release',
   ]
 
   cov = coverage.coverage()

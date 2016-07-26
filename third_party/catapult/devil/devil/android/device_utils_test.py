@@ -10,6 +10,7 @@ Unit tests for the contents of device_utils.py (mostly DeviceUtils).
 # pylint: disable=protected-access
 # pylint: disable=unused-argument
 
+import json
 import logging
 import unittest
 
@@ -25,6 +26,17 @@ from devil.utils import mock_calls
 
 with devil_env.SysPath(devil_env.PYMOCK_PATH):
   import mock  # pylint: disable=import-error
+
+
+class AnyStringWith(object):
+  def __init__(self, value):
+    self._value = value
+
+  def __eq__(self, other):
+    return self._value in other
+
+  def __repr__(self):
+    return '<AnyStringWith: %s>' % self._value
 
 
 class _MockApkHelper(object):
@@ -172,6 +184,12 @@ class DeviceUtilsTest(mock_calls.TestCase):
     return mock.Mock(side_effect=device_errors.CommandTimeoutError(
         msg, str(self.device)))
 
+  def EnsureCacheInitialized(self, props=None, sdcard='/sdcard'):
+    props = props or []
+    ret = [sdcard, 'TOKEN'] + props
+    return (self.call.device.RunShellCommand(
+        AnyStringWith('getprop'), check_return=True, large_output=True), ret)
+
 
 class DeviceUtilsEqTest(DeviceUtilsTest):
 
@@ -305,13 +323,14 @@ class DeviceUtilsIsUserBuildTest(DeviceUtilsTest):
 class DeviceUtilsGetExternalStoragePathTest(DeviceUtilsTest):
 
   def testGetExternalStoragePath_succeeds(self):
-    with self.assertCall(
-        self.call.adb.Shell('echo $EXTERNAL_STORAGE'), '/fake/storage/path\n'):
+    with self.assertCalls(
+        self.EnsureCacheInitialized(sdcard='/fake/storage/path')):
       self.assertEquals('/fake/storage/path',
                         self.device.GetExternalStoragePath())
 
   def testGetExternalStoragePath_fails(self):
-    with self.assertCall(self.call.adb.Shell('echo $EXTERNAL_STORAGE'), '\n'):
+    with self.assertCalls(
+        self.EnsureCacheInitialized(sdcard='')):
       with self.assertRaises(device_errors.CommandFailedError):
         self.device.GetExternalStoragePath()
 
@@ -835,6 +854,12 @@ class DeviceUtilsRunShellCommandTest(DeviceUtilsTest):
       self.assertEquals(['file1', 'file2', 'file3'],
                         self.device.RunShellCommand(cmd))
 
+  def testRunShellCommand_manyLinesRawOutput(self):
+    cmd = 'ls /some/path'
+    with self.assertCall(self.call.adb.Shell(cmd), '\rfile1\nfile2\r\nfile3\n'):
+      self.assertEquals('\rfile1\nfile2\r\nfile3\n',
+                        self.device.RunShellCommand(cmd, raw_output=True))
+
   def testRunShellCommand_singleLine_success(self):
     cmd = 'echo $VALUE'
     with self.assertCall(self.call.adb.Shell(cmd), 'some value\n'):
@@ -1198,12 +1223,15 @@ class DeviceUtilsStartActivityTest(DeviceUtilsTest):
     test_intent = intent.Intent(action='android.intent.action.VIEW',
                                 package='test.package',
                                 activity='.Main',
-                                flags='0x10000000')
+                                flags=[
+                                  intent.FLAG_ACTIVITY_NEW_TASK,
+                                  intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED
+                                ])
     with self.assertCall(
         self.call.adb.Shell('am start '
                             '-a android.intent.action.VIEW '
                             '-n test.package/.Main '
-                            '-f 0x10000000'),
+                            '-f 0x10200000'),
         'Starting: Intent { act=android.intent.action.VIEW }'):
       self.device.StartActivity(test_intent)
 
@@ -1610,6 +1638,20 @@ class DeviceUtilsReadFileTest(DeviceUtilsTest):
       self.assertEqual('this is a test file\n',
                        self.device.ReadFile('/read/this/test/file'))
 
+  def testReadFile_exists2(self):
+    # Same as testReadFile_exists, but uses Android N ls output.
+    with self.assertCalls(
+        (self.call.device.RunShellCommand(
+            ['ls', '-l', '/read/this/test/file'],
+            as_root=False, check_return=True),
+         ['-rw-rw-rw- 1 root root 256 2016-03-15 03:27 /read/this/test/file']),
+        (self.call.device.RunShellCommand(
+            ['cat', '/read/this/test/file'],
+            as_root=False, check_return=True),
+         ['this is a test file'])):
+      self.assertEqual('this is a test file\n',
+                       self.device.ReadFile('/read/this/test/file'))
+
   def testReadFile_doesNotExist(self):
     with self.assertCall(
         self.call.device.RunShellCommand(
@@ -1852,6 +1894,34 @@ class DeviceUtilsSetJavaAssertsTest(DeviceUtilsTest):
       self.assertFalse(self.device.SetJavaAsserts(True))
 
 
+class DeviceUtilsEnsureCacheInitializedTest(DeviceUtilsTest):
+
+  def testEnsureCacheInitialized_noCache_success(self):
+    self.assertIsNone(self.device._cache['token'])
+    with self.assertCall(
+        self.call.device.RunShellCommand(
+            AnyStringWith('getprop'), check_return=True, large_output=True),
+        ['/sdcard', 'TOKEN']):
+      self.device._EnsureCacheInitialized()
+    self.assertIsNotNone(self.device._cache['token'])
+
+  def testEnsureCacheInitialized_noCache_failure(self):
+    self.assertIsNone(self.device._cache['token'])
+    with self.assertCall(
+        self.call.device.RunShellCommand(
+            AnyStringWith('getprop'), check_return=True, large_output=True),
+        self.TimeoutError()):
+      with self.assertRaises(device_errors.CommandTimeoutError):
+        self.device._EnsureCacheInitialized()
+    self.assertIsNone(self.device._cache['token'])
+
+  def testEnsureCacheInitialized_cache(self):
+    self.device._cache['token'] = 'TOKEN'
+    with self.assertCalls():
+      self.device._EnsureCacheInitialized()
+    self.assertIsNotNone(self.device._cache['token'])
+
+
 class DeviceUtilsGetPropTest(DeviceUtilsTest):
 
   def testGetProp_exists(self):
@@ -1875,30 +1945,12 @@ class DeviceUtilsGetPropTest(DeviceUtilsTest):
       self.assertEqual('', self.device.GetProp('property.does.not.exist'))
 
   def testGetProp_cachedRoProp(self):
-    with self.assertCall(
-        self.call.device.RunShellCommand(
-            ['getprop'], check_return=True, large_output=True,
-            timeout=self.device._default_timeout,
-            retries=self.device._default_retries),
-        ['[ro.build.type]: [userdebug]']):
-      self.assertEqual('userdebug',
-                       self.device.GetProp('ro.build.type', cache=True))
-      self.assertEqual('userdebug',
-                       self.device.GetProp('ro.build.type', cache=True))
-
-  def testGetProp_retryAndCache(self):
     with self.assertCalls(
-        (self.call.device.RunShellCommand(
-            ['getprop'], check_return=True, large_output=True,
-            timeout=self.device._default_timeout,
-            retries=3),
-         ['[ro.build.type]: [userdebug]'])):
+        self.EnsureCacheInitialized(props=['[ro.build.type]: [userdebug]'])):
       self.assertEqual('userdebug',
-                       self.device.GetProp('ro.build.type',
-                                           cache=True, retries=3))
+                       self.device.GetProp('ro.build.type', cache=True))
       self.assertEqual('userdebug',
-                       self.device.GetProp('ro.build.type',
-                                           cache=True, retries=3))
+                       self.device.GetProp('ro.build.type', cache=True))
 
 
 class DeviceUtilsSetPropTest(DeviceUtilsTest):
@@ -2178,25 +2230,28 @@ class DeviceUtilsGrantPermissionsTest(DeviceUtilsTest):
     with self.patch_call(self.call.device.build_version_sdk,
                          return_value=version_codes.MARSHMALLOW):
       with self.assertCalls(
-          (self.call.device.RunShellCommand(permissions_cmd), [])):
+          (self.call.device.RunShellCommand(
+              permissions_cmd, check_return=True), [])):
         self.device.GrantPermissions('package', ['p1'])
 
   def testGrantPermissions_multiple(self):
-    permissions_cmd = 'pm grant package p1;pm grant package p2'
+    permissions_cmd = 'pm grant package p1&&pm grant package p2'
     with self.patch_call(self.call.device.build_version_sdk,
                          return_value=version_codes.MARSHMALLOW):
       with self.assertCalls(
-          (self.call.device.RunShellCommand(permissions_cmd), [])):
+          (self.call.device.RunShellCommand(
+              permissions_cmd, check_return=True), [])):
         self.device.GrantPermissions('package', ['p1', 'p2'])
 
   def testGrantPermissions_WriteExtrnalStorage(self):
     permissions_cmd = (
-        'pm grant package android.permission.WRITE_EXTERNAL_STORAGE;'
+        'pm grant package android.permission.WRITE_EXTERNAL_STORAGE&&'
         'pm grant package android.permission.READ_EXTERNAL_STORAGE')
     with self.patch_call(self.call.device.build_version_sdk,
                          return_value=version_codes.MARSHMALLOW):
       with self.assertCalls(
-          (self.call.device.RunShellCommand(permissions_cmd), [])):
+          (self.call.device.RunShellCommand(
+              permissions_cmd, check_return=True), [])):
         self.device.GrantPermissions(
             'package', ['android.permission.WRITE_EXTERNAL_STORAGE'])
 
@@ -2289,6 +2344,31 @@ class DeviecUtilsSetScreen(DeviceUtilsTest):
         (self.call.device.IsScreenOn(), True),
         (self.call.device.IsScreenOn(), False)):
       self.device.SetScreen(False)
+
+class DeviecUtilsLoadCacheData(DeviceUtilsTest):
+
+  def testTokenMissing(self):
+    with self.assertCalls(
+        self.EnsureCacheInitialized()):
+      self.assertFalse(self.device.LoadCacheData('{}'))
+
+  def testTokenStale(self):
+    with self.assertCalls(
+        self.EnsureCacheInitialized()):
+      self.assertFalse(self.device.LoadCacheData('{"token":"foo"}'))
+
+  def testTokenMatches(self):
+    with self.assertCalls(
+        self.EnsureCacheInitialized()):
+      self.assertTrue(self.device.LoadCacheData('{"token":"TOKEN"}'))
+
+  def testDumpThenLoad(self):
+    with self.assertCalls(
+        self.EnsureCacheInitialized()):
+      data = json.loads(self.device.DumpCacheData())
+      data['token'] = 'TOKEN'
+      self.assertTrue(self.device.LoadCacheData(json.dumps(data)))
+
 
 if __name__ == '__main__':
   logging.getLogger().setLevel(logging.DEBUG)
