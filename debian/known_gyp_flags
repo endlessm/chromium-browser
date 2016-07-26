@@ -12,6 +12,7 @@ cfi_vptr
 chromecast
 chromeos
 chromium_code
+chromium_ios_signing_identity
 chromium_win_pch
 chroot_cmd
 clang
@@ -27,11 +28,9 @@ disable_ftp_support
 disable_nacl
 disable_newlib
 disable_pnacl
-dont_embed_build_metadata
 embedded
 enable_app_list
 enable_autofill_dialog
-enable_background
 enable_basic_printing
 enable_captive_portal_detection
 enable_extensions
@@ -93,6 +92,8 @@ order_profiling
 order_text_section
 os_bsd
 os_posix
+pdf_enable_v8
+pdf_enable_xfa
 pkg-config
 proprietary_codecs
 release_valgrind_build
@@ -120,10 +121,10 @@ use_cras
 use_custom_libcxx
 use_dbus
 use_default_render_theme
-use_gtk3
 use_glib
 use_gnome_keyring
 use_goma
+use_gtk3
 use_instrumented_libraries
 use_libjpeg_turbo
 use_libpci
@@ -131,6 +132,7 @@ use_lld
 use_lto
 use_lto_o2
 use_nss_certs
+use_nss_verifier
 use_openmax_dl_fft
 use_openssl
 use_openssl_certs
@@ -139,6 +141,7 @@ use_ozone_evdev
 use_pango
 use_prebuilt_instrumented_libraries
 use_sanitizer_options
+use_sysroot
 use_system_libjpeg
 use_titlecase_in_grd
 use_udev

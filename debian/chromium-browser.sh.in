@@ -52,7 +52,6 @@ export CPU_FEATURES_TESTED=1
 
 readonly APPNAME=chromium-browser
 LIBDIR=/usr/lib/chromium-browser
-EXTRA_CODECS_DIR=/var/lib/codecs/chromium-browser
 GDB=/usr/bin/gdb
 readonly BUILD_DIST="@BUILD_DIST@"
 readonly UPSTREAM_VERSION="@UPSTREAM_VERSION@"
@@ -113,9 +112,9 @@ fi
 
 # FFmpeg needs to know where its libs are located
 if [ "Z$LD_LIBRARY_PATH" != Z ] ; then
-  LD_LIBRARY_PATH=$EXTRA_CODECS_DIR:$LIBDIR:$LIBDIR/libs:$LD_LIBRARY_PATH
+  LD_LIBRARY_PATH=$LIBDIR:$LIBDIR/libs:$LD_LIBRARY_PATH
 else
-  LD_LIBRARY_PATH=$EXTRA_CODECS_DIR:$LIBDIR:$LIBDIR/libs
+  LD_LIBRARY_PATH=$LIBDIR:$LIBDIR/libs
 fi
 
 export LD_LIBRARY_PATH
@@ -217,19 +216,6 @@ if [ $want_debug -eq 1 ] ; then
   fi
   exit $?
 else
-  # Try to poke an existing chromium process through the unix socket. If this
-  # succeeds and we get "ACK" back, exit this script. Otherwise keep going as
-  # normal.
-  hexargs=""
-  for arg in "START" "$(pwd)" $LIBDIR/$APPNAME $CHROMIUM_FLAGS "$@"
-  do
-    hexargs="$hexargs$(echo -ne "\0$arg" | xxd -p)"
-  done
-
-  if echo $hexargs | sed "s/^00//" | xxd -r -p | nc -U "$HOME/.config/chromium/SingletonSocket" 2> /dev/null | grep "^ACK$" > /dev/null; then
-    exit 0
-  fi
-
   if [ $want_temp_profile -eq 0 ] ; then
     exec $LIBDIR/$APPNAME $CHROMIUM_FLAGS "$@"
   else
