@@ -1957,6 +1957,8 @@
       'browser/ui/webui/options/core_options_handler.h',
       'browser/ui/webui/options/create_profile_handler.cc',
       'browser/ui/webui/options/create_profile_handler.h',
+      'browser/ui/webui/options/desktop_integration_settings_handler.cc',
+      'browser/ui/webui/options/desktop_integration_settings_handler.h',
       'browser/ui/webui/options/easy_unlock_handler.cc',
       'browser/ui/webui/options/easy_unlock_handler.h',
       'browser/ui/webui/options/font_settings_handler.cc',
@@ -3098,6 +3100,7 @@
           ],
         }],
         ['use_aura==1 and chromeos==0 and use_ozone==0 and OS=="linux"', {
+          'cflags': [ '<!@(pkg-config --cflags glib-2.0)', ],
           'dependencies': [
             # gtk2 is the only component that can interact with gtk2 in our new
             # world.
