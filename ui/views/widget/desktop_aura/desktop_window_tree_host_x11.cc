@@ -9,6 +9,7 @@
 #include <X11/Xutil.h>
 #include <X11/extensions/XInput2.h>
 #include <X11/extensions/shape.h>
+#include <signal.h>
 #include <utility>
 
 #include "base/command_line.h"
@@ -108,6 +109,7 @@ const char* kAtomsToCache[] = {
   "_NET_WM_WINDOW_TYPE_NORMAL",
   "_NET_WM_WINDOW_TYPE_NOTIFICATION",
   "_NET_WM_WINDOW_TYPE_TOOLTIP",
+  "CHROMIUM_LINUX_SESSION_ID_PROPERTY",
   "XdndActionAsk",
   "XdndActionCopy",
   "XdndActionLink",
@@ -1416,6 +1418,22 @@ void DesktopWindowTreeHostX11::UpdateMinAndMaxSize() {
   }
 
   XSetWMNormalHints(xdisplay_, xwindow_, &hints);
+}
+
+void DesktopWindowTreeHostX11::SetSessionID(uint32_t session_id) {
+  if (session_id != 0) {
+    XChangeProperty(xdisplay_,
+                    xwindow_,
+                    atom_cache_.GetAtom("CHROMIUM_LINUX_SESSION_ID_PROPERTY"),
+                    XA_CARDINAL,
+                    32,
+                    PropModeReplace,
+                    reinterpret_cast<unsigned char*>(&session_id),
+                    1);
+    VLOG(1) << "Sent session id " << session_id << " to X window property";
+  } else {
+    VLOG(1) << "Session id is unlikely number.";
+  }
 }
 
 void DesktopWindowTreeHostX11::UpdateWMUserTime(

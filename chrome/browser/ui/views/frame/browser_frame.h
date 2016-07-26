@@ -96,6 +96,8 @@ class BrowserFrame
   // Called when BrowserView creates all it's child views.
   void OnBrowserViewInitViewsComplete();
 
+  void SendSessionIdToWindow();
+
   // Overridden from views::Widget:
   views::internal::RootView* CreateRootView() override;
   views::NonClientFrameView* CreateNonClientFrameView() override;

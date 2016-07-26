@@ -710,6 +710,7 @@ void BrowserView::Show() {
   force_location_bar_focus_ = false;
 
   browser()->OnWindowDidShow();
+  frame_->SendSessionIdToWindow();
 
   chrome::MaybeShowInvertBubbleView(this);
 }
