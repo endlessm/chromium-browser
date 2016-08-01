@@ -763,8 +763,7 @@ bool V4L2MjpegDecodeAccelerator::DequeueSourceChangeEvent() {
   if (device_->Ioctl(VIDIOC_DQEVENT, &ev) == 0) {
     if (ev.type == V4L2_EVENT_SOURCE_CHANGE) {
       VLOGF(2) << ": got source change event: " << ev.u.src_change.changes;
-      if (ev.u.src_change.changes &
-          (V4L2_EVENT_SRC_CH_RESOLUTION | V4L2_EVENT_SRC_CH_PIXELFORMAT)) {
+      if (ev.u.src_change.changes & V4L2_EVENT_SRC_CH_RESOLUTION) {
         return true;
       }
       VLOGF(1) << "unexpected source change event.";
@@ -957,6 +956,7 @@ bool V4L2MjpegDecodeAccelerator::ConvertOutputImage(
         VLOGF(1) << "Can't convert image from I420 to " << dst_frame->format();
         return false;
     }
+// FIXME: V4L2_PIX_FMT_YUV420M vs V4L2_PIX_FMT_YUV422M  0c92ba841f339e43d179d7dd9c05aacd89b51c7e
   } else if (output_buffer_pixelformat_ == V4L2_PIX_FMT_YUV422M) {
     DCHECK_EQ(output_buffer_num_planes_, 3u);
     switch (dst_frame->format()) {
