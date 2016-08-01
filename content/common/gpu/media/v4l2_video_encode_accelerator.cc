@@ -360,7 +360,9 @@ void V4L2VideoEncodeAccelerator::EncodeTask(
     std::vector<struct v4l2_ext_control> ctrls;
     struct v4l2_ext_control ctrl;
     memset(&ctrl, 0, sizeof(ctrl));
-    ctrl.id = V4L2_CID_MPEG_VIDEO_FORCE_KEY_FRAME;
+    // Requires kernel 4.6 to compile. This file is not used on Endless,
+    // so we can just comment it out until we upgrade our kernel.
+    //ctrl.id = V4L2_CID_MPEG_VIDEO_FORCE_KEY_FRAME;
     ctrls.push_back(ctrl);
     if (!SetExtCtrls(ctrls)) {
       // Some platforms still use the old control. Fallback before they are
