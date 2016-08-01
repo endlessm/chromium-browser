@@ -587,8 +587,7 @@ bool V4L2MjpegDecodeAccelerator::DequeueSourceChangeEvent() {
   if (device_->Ioctl(VIDIOC_DQEVENT, &ev) == 0) {
     if (ev.type == V4L2_EVENT_SOURCE_CHANGE) {
       VLOGF(2) << ": got source change event: " << ev.u.src_change.changes;
-      if (ev.u.src_change.changes &
-          (V4L2_EVENT_SRC_CH_RESOLUTION | V4L2_EVENT_SRC_CH_PIXELFORMAT)) {
+      if (ev.u.src_change.changes & V4L2_EVENT_SRC_CH_RESOLUTION) {
         return true;
       }
       VLOGF(1) << "unexpected source change event.";
@@ -715,8 +714,7 @@ bool V4L2MjpegDecodeAccelerator::ConvertOutputImage(
                << output_buffer_pixelformat_;
       return false;
     }
-  } else if (output_buffer_pixelformat_ == V4L2_PIX_FMT_YUV420M ||
-             output_buffer_pixelformat_ == V4L2_PIX_FMT_YUV422M) {
+  } else if (output_buffer_pixelformat_ == V4L2_PIX_FMT_YUV420M) {
     DCHECK(output_buffer_num_planes_ == 3);
     uint8_t* src_y = static_cast<uint8_t*>(output_buffer.address[0]);
     uint8_t* src_u = static_cast<uint8_t*>(output_buffer.address[1]);
