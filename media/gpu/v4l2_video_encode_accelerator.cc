@@ -435,7 +435,9 @@ void V4L2VideoEncodeAccelerator::EncodeTask(
     if (!SetExtCtrls(ctrls)) {
       ctrls.clear();
       memset(&ctrl, 0, sizeof(ctrl));
-      ctrl.id = V4L2_CID_MPEG_VIDEO_FORCE_KEY_FRAME;
+      // Requires kernel 4.6 to compile. This file is not used on Endless,
+      // so we can just comment it out until we upgrade our kernel.
+      //ctrl.id = V4L2_CID_MPEG_VIDEO_FORCE_KEY_FRAME;
       ctrls.push_back(ctrl);
       if (!SetExtCtrls(ctrls)) {
         LOG(ERROR) << "Failed requesting keyframe";
