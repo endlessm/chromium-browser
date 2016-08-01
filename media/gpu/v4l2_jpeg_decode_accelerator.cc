@@ -581,8 +581,7 @@ bool V4L2JpegDecodeAccelerator::DequeueSourceChangeEvent() {
     if (ev.type == V4L2_EVENT_SOURCE_CHANGE) {
       DVLOG(3) << __func__
                << ": got source change event: " << ev.u.src_change.changes;
-      if (ev.u.src_change.changes &
-          (V4L2_EVENT_SRC_CH_RESOLUTION | V4L2_EVENT_SRC_CH_PIXELFORMAT)) {
+      if (ev.u.src_change.changes & V4L2_EVENT_SRC_CH_RESOLUTION) {
         return true;
       }
       LOG(ERROR) << __func__ << ": unexpected source change event.";
@@ -698,8 +697,7 @@ bool V4L2JpegDecodeAccelerator::ConvertOutputImage(
                  << output_buffer_pixelformat_;
       return false;
     }
-  } else if (output_buffer_pixelformat_ == V4L2_PIX_FMT_YUV420M ||
-             output_buffer_pixelformat_ == V4L2_PIX_FMT_YUV422M) {
+  } else if (output_buffer_pixelformat_ == V4L2_PIX_FMT_YUV420M) {
     uint8_t* src_y = static_cast<uint8_t*>(output_buffer.address[0]);
     uint8_t* src_u = static_cast<uint8_t*>(output_buffer.address[1]);
     uint8_t* src_v = static_cast<uint8_t*>(output_buffer.address[2]);
