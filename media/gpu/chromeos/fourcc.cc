@@ -198,8 +198,10 @@ Fourcc Fourcc::FromV4L2PixFmt(uint32_t v4l2_pix_fmt) {
       return Fourcc(Fourcc::NV21);
     case V4L2_PIX_FMT_NV12M:
       return Fourcc(Fourcc::NM12);
+#if 0
     case V4L2_PIX_FMT_YUV422M:
       return Fourcc(Fourcc::YM16);
+#endif
     case V4L2_PIX_FMT_MT21C:
       return Fourcc(Fourcc::MT21);
     case V4L2_MM21:
