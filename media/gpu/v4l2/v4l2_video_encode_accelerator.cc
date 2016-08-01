@@ -1145,6 +1145,11 @@ bool V4L2VideoEncodeAccelerator::EnqueueInputRecord(
 
   // Enqueue an input (VIDEO_OUTPUT) buffer.
   InputFrameInfo frame_info = encoder_input_queue_.front();
+
+  // V4L2_CID_MPEG_VIDEO_FORCE_KEY_FRAME requires a newer V4L2 driver than
+  // the one we currently ship to compile. Fortunately, we don't really use
+  // this file on Endless, so we can just comment the whole block out.
+#if 0
   if (frame_info.force_keyframe) {
     if (!device_->SetExtCtrls(
             V4L2_CTRL_CLASS_MPEG,
@@ -1154,6 +1159,7 @@ bool V4L2VideoEncodeAccelerator::EnqueueInputRecord(
       return false;
     }
   }
+#endif
 
   scoped_refptr<VideoFrame> frame = frame_info.frame;
 
