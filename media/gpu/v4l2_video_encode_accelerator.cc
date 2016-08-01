@@ -370,6 +370,7 @@ V4L2VideoEncodeAccelerator::GetSupportedProfiles() {
         profile.profile = VP8PROFILE_ANY;
         profiles.push_back(profile);
         break;
+#if 0
       case V4L2_PIX_FMT_VP9:
         profile.profile = VP9PROFILE_PROFILE0;
         profiles.push_back(profile);
@@ -380,6 +381,7 @@ V4L2VideoEncodeAccelerator::GetSupportedProfiles() {
         profile.profile = VP9PROFILE_PROFILE3;
         profiles.push_back(profile);
         break;
+#endif
     }
   }
 
@@ -516,6 +518,10 @@ void V4L2VideoEncodeAccelerator::EncodeTask(
   encoder_input_queue_.push(frame);
   Enqueue();
 
+  // V4L2_CID_MPEG_VIDEO_FORCE_KEY_FRAME requires a newer V4L2 driver than
+  // the one we currently ship to compile. Fortunately, we don't really use
+  // this file on Endless, so we can just comment the whole block out.
+#if 0
   if (force_keyframe) {
     // TODO(posciak): this presently makes for slightly imprecise encoding
     // parameters updates.  To precisely align the parameter updates with the
@@ -533,6 +539,7 @@ void V4L2VideoEncodeAccelerator::EncodeTask(
       return;
     }
   }
+#endif
 }
 
 void V4L2VideoEncodeAccelerator::UseOutputBitstreamBufferTask(
