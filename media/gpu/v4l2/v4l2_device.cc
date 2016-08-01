@@ -1176,20 +1176,31 @@ scoped_refptr<V4L2Device> V4L2Device::Create() {
 // static
 uint32_t V4L2Device::VideoCodecProfileToV4L2PixFmt(VideoCodecProfile profile,
                                                    bool slice_based) {
+  if (slice_based){
+    LOG(FATAL) << "Endless does not support the V4L2 slice video decode accelerator!";
+    return 0;
+  }
+
   if (profile >= H264PROFILE_MIN && profile <= H264PROFILE_MAX) {
+#if 0
     if (slice_based)
       return V4L2_PIX_FMT_H264_SLICE;
     else
+#endif
       return V4L2_PIX_FMT_H264;
   } else if (profile >= VP8PROFILE_MIN && profile <= VP8PROFILE_MAX) {
+#if 0
     if (slice_based)
       return V4L2_PIX_FMT_VP8_FRAME;
     else
+#endif
       return V4L2_PIX_FMT_VP8;
   } else if (profile >= VP9PROFILE_MIN && profile <= VP9PROFILE_MAX) {
+#if 0
     if (slice_based)
       return V4L2_PIX_FMT_VP9_FRAME;
     else
+#endif
       return V4L2_PIX_FMT_VP9;
   } else {
     LOG(ERROR) << "Unknown profile: " << GetProfileName(profile);
@@ -1286,7 +1297,9 @@ std::vector<VideoCodecProfile> V4L2Device::V4L2PixFmtToVideoCodecProfiles(
   std::vector<VideoCodecProfile> profiles;
   switch (pix_fmt) {
     case V4L2_PIX_FMT_H264:
+#if 0
     case V4L2_PIX_FMT_H264_SLICE:
+#endif
       if (!get_supported_profiles(kCodecH264, &profiles)) {
         DLOG(WARNING) << "Driver doesn't support QUERY H264 profiles, "
                       << "use default values, Base, Main, High";
@@ -1298,11 +1311,15 @@ std::vector<VideoCodecProfile> V4L2Device::V4L2PixFmtToVideoCodecProfiles(
       }
       break;
     case V4L2_PIX_FMT_VP8:
+#if 0
     case V4L2_PIX_FMT_VP8_FRAME:
+#endif
       profiles = {VP8PROFILE_ANY};
       break;
     case V4L2_PIX_FMT_VP9:
+#if 0
     case V4L2_PIX_FMT_VP9_FRAME:
+#endif
       if (!get_supported_profiles(kCodecVP9, &profiles)) {
         DLOG(WARNING) << "Driver doesn't support QUERY VP9 profiles, "
                       << "use default values, Profile0";
