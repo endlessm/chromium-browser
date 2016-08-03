@@ -1120,6 +1120,10 @@ const char kHelpShort[]                     = "h";
 
 // Specifies which password store to use (detect, default, gnome, kwallet).
 const char kPasswordStore[]                 = "password-store";
+
+// The same as the --class argument in X applications.  Overrides the WM_CLASS
+// window property with the given value.
+const char kWmClass[]                       = "class";
 #endif
 
 #if defined(OS_MACOSX)
