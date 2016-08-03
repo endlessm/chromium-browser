@@ -338,6 +338,7 @@ extern const char kHelp[];
 extern const char kHelpShort[];
 extern const char kPasswordStore[];
 extern const char kWmUserTimeMs[];
+extern const char kWmClass[];
 #endif
 
 #if defined(OS_MACOSX)
