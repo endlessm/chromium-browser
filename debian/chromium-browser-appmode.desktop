@@ -1,0 +1,13 @@
+[Desktop Entry]
+Version=1.0
+Name=Web Browser in Application Mode
+GenericName=Web Browser in application mode
+Comment=Opens a webapp:// URI in the browser, in application mode
+Exec=chromium-browser-appmode %u
+Type=Application
+Terminal=false
+NoDisplay=true
+Icon=eos-app-chromium-browser
+Categories=Network;WebBrowser;
+MimeType=x-scheme-handler/webapp;
+X-Endless-LaunchMaximized=true
