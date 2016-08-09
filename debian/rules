@@ -570,7 +570,7 @@ BUILT_UNUSED_MATCH += ^usr/lib/chromium-browser/ar_sample_test_driver$$
 INDEP_MATCH = ^usr/lib/chromium-browser/.\*\(?\!\<pseudo-\)locales/.\*.pak$$
 
 PACKAGED_NOT_FROM_TREE_MATCH  = ^usr/share/applications/chromium-browser.desktop$$
-PACKAGED_NOT_FROM_TREE_MATCH += ^usr/share/applications/chromium-browser.desktop-appmode$$
+PACKAGED_NOT_FROM_TREE_MATCH += ^usr/share/applications/chromium-browser-appmode.desktop$$
 PACKAGED_NOT_FROM_TREE_MATCH += ^usr/share/apport/package-hooks/chromium-browser.py$$
 PACKAGED_NOT_FROM_TREE_MATCH += ^usr/share/doc/chromium-browser/README.source$$
 PACKAGED_NOT_FROM_TREE_MATCH += ^usr/share/doc/chromium-browser/TODO.Debian$$
