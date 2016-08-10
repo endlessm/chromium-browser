@@ -316,8 +316,6 @@ override_dh_install-arch:
 	@set -eux
 	# Two stages: Install out of source tree. Copy to packaging.
 
-	T=$$(mktemp -d -t chromium-comparisons-XXXXXXX);
-
 	# We don't want to ship the libwidevinecdm.so file, as it will be
 	# provided via our own downloader (eos-chrome-plugin-updater).
 	rm -f $(SRC_DIR)/out/$(BUILD_TYPE)-chromium/libwidevinecdm.so
@@ -358,6 +356,13 @@ endif
 	  fi; \
 	done
 	cp -a debian/chromium-browser.svg debian/chromium-browser/usr/share/icons/hicolor/scalable/apps
+
+
+	# Record files that were built, so we can compare later that we instlled everything.
+	@set -eux ; \
+	T=$$(mktemp -d -t chromium-comparisons-XXXXXXX) ; \
+	find debian/tmp debian/tmp-extra debian/tmp-std -type f |cut -d/ -f3- >$${T}/unfiltered-built ; \
+	grep -vE \($(subst $(SPACE),\|,$(BUILT_UNUSED_MATCH))\) $${T}/unfiltered-built $(foreach expr,$(RENAMED_FILE), |sed -r -e $(expr)) |grep -vE \($(subst $(SPACE),\|,$(INDEP_MATCH))\) | LC_ALL=C sort >$${T}/built ;
 
 	#
 	#
@@ -425,20 +430,56 @@ endif
 	dh_install -a
 
 
+	# compare built to packaged
+	DUPES=`find $(PKG_DIRS) -type f -print | grep -v /DEBIAN/ | cut -d/ -f3- | LC_ALL=C sort | uniq -c | grep -vE '^ *2 .*/libs/libffmpeg.so$$' | grep -vE '^  *1 '` || true ; \
+	if [ "Z$$DUPES" != Z ] ; then \
+	  echo " => Found duplicates:\n $$DUPES" ; \
+	  exit 1 ; \
+	fi;
+
+	@set -eux ; \
+	T="/tmp/$$(ls -1tr /tmp | grep chromium-comparisons- | tail -n 1)" ; \
+	find $(PKG_DIRS) -type f |grep -v /DEBIAN |cut -d/ -f3- |grep -v ^usr/lib/debug/ | LC_ALL=C sort >$${T}/unfiltered-packaged ; \
+	grep -vE \($(subst $(SPACE),\|,$(PACKAGED_NOT_FROM_TREE_MATCH))\) $${T}/unfiltered-packaged |grep -vE \($(subst $(SPACE),\|,$(INDEP_MATCH))\) >$${T}/packaged ; \
+	if ! diff -U0 $${T}/built $${T}/packaged; then \
+	  echo " => Found archdep differences, please investigate. $${T}/built $${T}/packaged" ; \
+	  exit 1 ; \
+	fi ; \
+	for expr in $(BUILT_UNUSED_MATCH); do if ! grep -E $$expr $${T}/unfiltered-built >/dev/null; then echo "Warning: Unused built matcher: $$expr in $${T}/unfiltered-built "; fi; done ; \
+	for expr in $(PACKAGED_NOT_FROM_TREE_MATCH); do if ! grep -E $$expr $${T}/unfiltered-packaged >/dev/null; then echo "Warning: Unused packaged matcher: $$expr"; fi; done ; \
+	rm -r $${T};
+
+
 override_dh_install-indep: INDEP_MATCH = ^usr/lib/chromium-browser/.\*\(?\!\<pseudo-\)locales/.\*.pak$$
 override_dh_install-indep: SPACE := $(eval) $(eval)
 override_dh_install-indep:
-	@set -eux
+	@set -eux ; \
 
 	### Step 1: install into tmp
-	mkdir -p debian/tmp/$(LIB_DIR)
-	(cd $(SRC_DIR)/out/$(BUILD_TYPE)-chromium && tar --remove-files -cf - $$(find *locales -type f -name \*.pak \! -name en-US.pak) --dereference;) | (cd debian/tmp/$(LIB_DIR) && tar xvf -;)
+	mkdir -p debian/tmp/$(LIB_DIR) ; \
+	(cd $(SRC_DIR)/out/$(BUILD_TYPE)-chromium && tar --remove-files -cf - $$(find *locales -type f -name \*.pak \! -name en-US.pak) --dereference;) | (cd debian/tmp/$(LIB_DIR) && tar xvf -;) ; \
+
+	# record built so we can compare later
+	T=$$(mktemp -d -t chromium-comparisons-XXXXXXX) ; \
+	find debian/tmp debian/tmp-extra -type f |cut -d/ -f3- >$${T}/unfiltered-built ; \
+	grep -E \($(subst $(SPACE),\|,$(INDEP_MATCH))\) $${T}/unfiltered-built $(foreach expr,$(RENAMED_FILE), |sed -r -e $(expr)) |grep -v /en-US.pak | LC_ALL=C sort >$${T}/built
+
 
 	### Step 2: install into packages
 	dh_install -i
 
 	install --directory debian/chromium-browser/etc/chromium-browser/customizations
 	install --owner=root --mode=0644 --no-target-directory debian/chromium-browser-customization-example debian/chromium-browser/etc/chromium-browser/customizations/00-example
+
+	@set -eux ; \
+	T="/tmp/$$(ls -1tr /tmp | grep chromium-comparisons- | tail -n 1)" ; \
+	dh_listpackages -i |while read pkgname; do find debian/$${pkgname} -type f; done |grep -v /DEBIAN |cut -d/ -f3- |grep -v ^usr/lib/debug/ | LC_ALL=C sort >$${T}/unfiltered-packaged ; \
+	grep -E \($(subst $(SPACE),\|,$(INDEP_MATCH))\) $${T}/unfiltered-packaged |grep -v /en-US.pak >$${T}/packaged || true ; \
+	if ! diff -U0 $${T}/built $${T}/packaged; then \
+	  echo " => Found indep differences, please investigate. $${T}/built $${T}/packaged" ; \
+	  exit 1 ; \
+	fi ; \
+	rm -r $${T}
 
 
 override_dh_clean:
@@ -529,7 +570,7 @@ BUILT_UNUSED_MATCH += ^usr/lib/chromium-browser/ar_sample_test_driver$$
 INDEP_MATCH = ^usr/lib/chromium-browser/.\*\(?\!\<pseudo-\)locales/.\*.pak$$
 
 PACKAGED_NOT_FROM_TREE_MATCH  = ^usr/share/applications/chromium-browser.desktop$$
-PACKAGED_NOT_FROM_TREE_MATCH += ^usr/share/applications/chromium-browser.desktop-appmode$$
+PACKAGED_NOT_FROM_TREE_MATCH += ^usr/share/applications/chromium-browser-appmode.desktop$$
 PACKAGED_NOT_FROM_TREE_MATCH += ^usr/share/apport/package-hooks/chromium-browser.py$$
 PACKAGED_NOT_FROM_TREE_MATCH += ^usr/share/doc/chromium-browser/README.source$$
 PACKAGED_NOT_FROM_TREE_MATCH += ^usr/share/doc/chromium-browser/TODO.Debian$$
@@ -575,25 +616,25 @@ patch-translations: GRIT_CONVERTER_FLAGS += --whitelisted-new-langs $$(echo $(GR
 endif
 patch-translations: PATCH_FILE := launchpad_translations.patch
 patch-translations:
-	@set -eux
-	ls $(GRIT_TEMPLATES)
-	ls $(OTHER_GRIT_TEMPLATES)
-	T=$$(mktemp --directory --tmpdir=.. -t chromium-launchpad-translations-XXXXXXX)
-	test "$${T}"
-	test -d $${T}
-	test -d $${T}/translations-tools || bzr export $${T}/translations-tools $(TRANSLATIONS_TOOLS_BRANCH)
-	test -d $${T}/translations-export || bzr export $${T}/translations-export $(TRANSLATIONS_EXPORT_BRANCH)
-	( cd $(DEB_TAR_SRCDIR) && $${T}/translations-tools/chromium2pot.py $(GRIT_CONVERTER_FLAGS) $$(ls $(GRIT_TEMPLATES)); )
-	quilt delete "$(PATCH_FILE)" || true
-	quilt new "$(PATCH_FILE)"
+	@set -eux ; \
+	ls $(GRIT_TEMPLATES) ; \
+	ls $(OTHER_GRIT_TEMPLATES) ; \
+	T=$$(mktemp --directory --tmpdir=.. -t chromium-launchpad-translations-XXXXXXX) ; \
+	test "$${T}" ; \
+	test -d $${T} ; \
+	test -d $${T}/translations-tools || bzr export $${T}/translations-tools $(TRANSLATIONS_TOOLS_BRANCH) ; \
+	test -d $${T}/translations-export || bzr export $${T}/translations-export $(TRANSLATIONS_EXPORT_BRANCH) ; \
+	( cd $(DEB_TAR_SRCDIR) && $${T}/translations-tools/chromium2pot.py $(GRIT_CONVERTER_FLAGS) $$(ls $(GRIT_TEMPLATES)); ) ; \
+	quilt delete "$(PATCH_FILE)" || true ; \
+	quilt new "$(PATCH_FILE)" ; \
 	( cd $${T}/translations-grit && find * -type f ) |while read updatedfile; do \
 		quilt add -P "$(PATCH_FILE)" $(DEB_TAR_SRCDIR)/"$$updatedfile"; \
 		cp $${T}/translations-grit/"$$updatedfile" $(DEB_TAR_SRCDIR)/"$$updatedfile"; \
-	done
-	{ echo "Description: Contributed translations from Launchpad. "; echo; } |quilt header -r "$(PATCH_FILE)"
-	quilt refresh -pab --no-timestamps "$(PATCH_FILE)";
-	echo "Patch needs committing."
-
+	done ; \
+	{ echo "Description: Contributed translations from Launchpad. "; echo; } |quilt header -r "$(PATCH_FILE)" ; \
+	quilt refresh -pab --no-timestamps "$(PATCH_FILE)" ; \
+	echo "Patch needs committing." ; \
+	rm -r $${T}
 
 
 .PHONY: binary binary-arch binary-indep build build-arch build-indep clean install install-arch install-indep patch get-packaged-orig-source gos override_dh_* local-install-* patch-translations compare-*
