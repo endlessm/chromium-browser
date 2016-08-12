@@ -678,3 +678,65 @@ if (use_linux_config && current_cpu == "arm" && arm_use_neon && ffmpeg_branding 
   ]
 }
 
+####################################################
+# ENDLESS OS specific definitions after this point #
+####################################################
+
+if ((is_linux && current_cpu == "arm" && ffmpeg_branding == "Chromium") ||
+    (is_linux && current_cpu == "arm64" && ffmpeg_branding == "Chromium") ||
+    (is_linux && current_cpu == "ia32" && ffmpeg_branding == "Chromium") ||
+    (is_linux && current_cpu == "x64" && ffmpeg_branding == "Chromium")) {
+  ffmpeg_c_sources += [
+    "libavcodec/autorename_libavcodec_mpegaudiodsp.c",
+    "libavcodec/dct.c",
+    "libavcodec/dct32_fixed.c",
+    "libavcodec/dct32_float.c",
+    "libavcodec/mpegaudio.c",
+    "libavcodec/mpegaudio_parser.c",
+    "libavcodec/mpegaudiodec_fixed.c",
+    "libavcodec/mpegaudiodecheader.c",
+    "libavcodec/mpegaudiodsp_data.c",
+    "libavcodec/mpegaudiodsp_fixed.c",
+    "libavcodec/mpegaudiodsp_float.c",
+    "libavformat/mp3dec.c",
+  ]
+}
+
+if ((is_linux && current_cpu == "ia32" && ffmpeg_branding == "Chromium") ||
+    (is_linux && current_cpu == "x64" && ffmpeg_branding == "Chromium")) {
+  ffmpeg_c_sources += [
+    "libavcodec/x86/dct_init.c",
+    "libavcodec/x86/mpegaudiodsp.c",
+  ]
+  ffmpeg_yasm_sources += [
+    "libavcodec/x86/dct32.asm",
+    "libavcodec/x86/imdct36.asm",
+  ]
+}
+
+if (is_linux && current_cpu == "arm" && ffmpeg_branding == "Chromium") {
+  ffmpeg_c_sources += [
+    "libavcodec/arm/mpegaudiodsp_init_arm.c",
+  ]
+  ffmpeg_gas_sources += [
+    "libavcodec/arm/mpegaudiodsp_fixed_armv6.S",
+  ]
+}
+
+if (is_linux && current_cpu == "arm64" && ffmpeg_branding == "Chromium") {
+  ffmpeg_c_sources += [
+    "libavcodec/aarch64/imdct15_init.c",
+    "libavcodec/aarch64/mpegaudiodsp_init.c",
+  ]
+  ffmpeg_gas_sources += [
+    "libavcodec/aarch64/imdct15_neon.S",
+    "libavcodec/aarch64/mpegaudiodsp_neon.S",
+  ]
+}
+
+if (is_linux && current_cpu == "mipsel" && ffmpeg_branding == "Chromium") {
+  ffmpeg_c_sources += [
+    "libavcodec/mips/idctdsp_init_mips.c",
+    "libavcodec/mips/mpegvideo_init_mips.c",
+  ]
+}
