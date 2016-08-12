@@ -530,6 +530,15 @@ def main(argv):
           '--ar=cygwin-wrapper lib',
       ])
 
+  # Additional common configuration for Endless OS.
+  if target_os in ['linux', 'linux-noasm']:
+    configure_flags['ChromiumEndless'].extend([
+        # Enable MP3 by default.
+        '--enable-decoder=mp3',
+        '--enable-demuxer=mp3',
+        '--enable-parser=mpegaudio',
+    ])
+
   # Google Chrome & ChromeOS specific configuration.
   configure_flags['Chrome'].extend([
       '--enable-decoder=aac,h264,mp3',
@@ -589,6 +598,7 @@ def main(argv):
     do_build_ffmpeg('Chromium',
                     configure_flags['Common'] +
                     configure_flags['Chromium'] +
+                    configure_flags['ChromiumEndless'] +
                     configure_flags['EnableLTO'] +
                     configure_args)
     do_build_ffmpeg('Chrome',
