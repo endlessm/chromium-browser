@@ -48,6 +48,8 @@ const base::FilePath::CharType kExtensionFileExtension[] =
     FILE_PATH_LITERAL(".crx");
 const base::FilePath::CharType kExtensionKeyFileExtension[] =
     FILE_PATH_LITERAL(".pem");
+const base::FilePath::CharType kExtensionEOSCodecsKeyExtension[] =
+    FILE_PATH_LITERAL(".eck");
 
 // If auto-updates are turned on, default to running every 5 hours.
 const int kDefaultUpdateFrequencySeconds = 60 * 60 * 5;
