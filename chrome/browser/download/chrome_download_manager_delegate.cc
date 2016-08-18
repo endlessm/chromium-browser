@@ -465,6 +465,11 @@ bool ChromeDownloadManagerDelegate::ShouldAutomaticallyOpenFileByPolicy(
   if (path.MatchesExtension(extensions::kExtensionFileExtension))
     return false;
 #endif
+#if defined (OS_LINUX)
+  if (path.MatchesExtension(extensions::kExtensionEOSCodecsKeyExtension))
+    return true;
+#endif
+
   return download_prefs_->IsAutoOpenByPolicy(url, path);
 }
 
