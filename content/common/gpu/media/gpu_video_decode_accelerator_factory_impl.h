@@ -89,7 +89,7 @@ public:
   scoped_ptr<media::VideoDecodeAccelerator> CreateDXVAVDA(
       const gpu::GpuPreferences& gpu_preferences) const;
 #endif
-#if defined(OS_CHROMEOS) && defined(USE_V4L2_CODEC)
+#if (defined(OS_CHROMEOS) || defined(OS_LINUX)) && defined(USE_V4L2_CODEC)
   scoped_ptr<media::VideoDecodeAccelerator> CreateV4L2VDA(
       const gpu::GpuPreferences& gpu_preferences) const;
   scoped_ptr<media::VideoDecodeAccelerator> CreateV4L2SVDA(
