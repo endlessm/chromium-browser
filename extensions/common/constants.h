@@ -66,6 +66,9 @@ extern const base::FilePath::CharType kExtensionFileExtension[];
 // The file extension (.pem) for private key files.
 extern const base::FilePath::CharType kExtensionKeyFileExtension[];
 
+// The file extension (.eck) for EOS Codecs Activation Keys.
+extern const base::FilePath::CharType kExtensionEOSCodecsKeyExtension[];
+
 // Default frequency for auto updates, if turned on.
 extern const int kDefaultUpdateFrequencySeconds;
 
