@@ -125,7 +125,7 @@ GpuVideoDecodeAcceleratorFactoryImpl::CreateVDA(
 #if defined(OS_WIN)
     &GpuVideoDecodeAcceleratorFactoryImpl::CreateDXVAVDA,
 #endif
-#if defined(OS_CHROMEOS) && defined(USE_V4L2_CODEC)
+#if (defined(OS_CHROMEOS) || defined(OS_LINUX)) && defined(USE_V4L2_CODEC)
     &GpuVideoDecodeAcceleratorFactoryImpl::CreateV4L2VDA,
     &GpuVideoDecodeAcceleratorFactoryImpl::CreateV4L2SVDA,
 #endif
