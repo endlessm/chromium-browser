@@ -256,6 +256,14 @@ void ExternalProtocolHandler::LaunchUrlWithDelegate(
 void ExternalProtocolHandler::LaunchUrlWithoutSecurityCheck(
     const GURL& url,
     content::WebContents* web_contents) {
+#if !defined(OS_CHROMEOS)
+  // For reasons unknown, tab_util::GetWebContentsByID returns nullptr here when
+  // it shouldn't, causing external launching to fail in the Exploration Center.
+  // It's only needed for the first parameter to platform_util::OpenExternal,
+  // and it turns out the first parameter is only used on ChromeOS, so pass nullptr
+  // instead as a workaround. https://phabricator.endlessm.com/T13313
+  platform_util::OpenExternal(nullptr, url);
+#else
   // |web_contents| is only passed in to find browser context. Do not assume
   // that the external protocol request came from the main frame.
   if (!web_contents)
@@ -263,6 +271,7 @@ void ExternalProtocolHandler::LaunchUrlWithoutSecurityCheck(
 
   platform_util::OpenExternal(
       Profile::FromBrowserContext(web_contents->GetBrowserContext()), url);
+#endif
 }
 
 // static
