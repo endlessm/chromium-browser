@@ -8,7 +8,6 @@
   </outputs>
   <release seq="1">
     <includes>
-      <include name="IDR_WEBUI_TEST_I18N_PROCESS_CSS_TEST" file="webui/i18n_process_css_test.html" flattenhtml="true" allowexternalscript="true" type="BINDATA" />
     </includes>
   </release>
 </grit>
