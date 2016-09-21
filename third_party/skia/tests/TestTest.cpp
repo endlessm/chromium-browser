@@ -31,16 +31,16 @@ DEF_GPUTEST(TestGpuFactory, reporter, factory) {
 #if SK_SUPPORT_GPU
 DEF_GPUTEST_FOR_ALL_GL_CONTEXTS(TestGpuAllContexts, reporter, ctxInfo) {
     REPORTER_ASSERT(reporter, reporter);
-    REPORTER_ASSERT(reporter, ctxInfo.fGrContext);
+    REPORTER_ASSERT(reporter, ctxInfo.grContext());
 }
 #endif
 
 // This is an example of a GPU test that tests a property that should work for all GPU contexts that
 // produce a rendering output.
 #if SK_SUPPORT_GPU
-DEF_GPUTEST_FOR_GL_RENDERING_CONTEXTS(TestGpuRenderingContexts, reporter, ctxInfo) {
+DEF_GPUTEST_FOR_RENDERING_CONTEXTS(TestGpuRenderingContexts, reporter, ctxInfo) {
     REPORTER_ASSERT(reporter, reporter);
-    REPORTER_ASSERT(reporter, ctxInfo.fGrContext);
+    REPORTER_ASSERT(reporter, ctxInfo.grContext());
 }
 #endif
 
@@ -49,6 +49,6 @@ DEF_GPUTEST_FOR_GL_RENDERING_CONTEXTS(TestGpuRenderingContexts, reporter, ctxInf
 #if SK_SUPPORT_GPU
 DEF_GPUTEST_FOR_NULLGL_CONTEXT(TestGpuNullContext, reporter, ctxInfo) {
     REPORTER_ASSERT(reporter, reporter);
-    REPORTER_ASSERT(reporter, ctxInfo.fGrContext);
+    REPORTER_ASSERT(reporter, ctxInfo.grContext());
 }
 #endif

@@ -6,6 +6,7 @@ found in the LICENSE file.
 -->
 
 <link rel="import" href="/tracing/base/event.html">
+<link rel="import" href="/tracing/base/iteration_helpers.html">
 <link rel="import" href="/tracing/base/settings.html">
 <link rel="import" href="/tracing/base/task.html">
 <link rel="import" href="/tracing/core/filter.html">
@@ -463,6 +464,14 @@ found in the LICENSE file.
       });
 
       addBinding({
+        keyCode: 'p'.charCodeAt(0),
+        callback: function(e) {
+          this.selectPowerSamplesInCurrentTimeRange_();
+          e.stopPropagation();
+        }
+      });
+
+      addBinding({
         keyCode: 'h'.charCodeAt(0),
         callback: function(e) {
           this.toggleHighDetails_();
@@ -524,11 +533,12 @@ found in the LICENSE file.
         return;
 
       var curSelection = this.brushingStateController_.selection;
-      if (!curSelection.length || !curSelection[0].title)
+      if (!curSelection.length || !tr.b.getOnlyElement(curSelection).title)
         return;
 
       var selection = new tr.model.EventSet();
-      var filter = new tr.c.ExactTitleFilter(curSelection[0].title);
+      var filter = new tr.c.ExactTitleFilter(
+          tr.b.getOnlyElement(curSelection).title);
       this.modelTrack_.addAllEventsMatchingFilterToSelection(filter,
                                                               selection);
 
@@ -733,6 +743,16 @@ found in the LICENSE file.
       this.xNavStringMarker_ =
           new tr.model.XMarkerAnnotation(worldCenter);
       this.model.addAnnotation(this.xNavStringMarker_);
+    },
+
+    selectPowerSamplesInCurrentTimeRange_: function() {
+      var selectionBounds = this.brushingStateController_.selection.bounds;
+      if (this.model.device.powerSeries && !selectionBounds.empty) {
+        var events = this.model.device.powerSeries.getSamplesWithinRange(
+            selectionBounds.min, selectionBounds.max);
+        var selection = new tr.model.EventSet(events);
+        this.brushingStateController_.changeSelectionFromTimeline(selection);
+      }
     },
 
     setCurrentSelectionAsInterestRange_: function() {

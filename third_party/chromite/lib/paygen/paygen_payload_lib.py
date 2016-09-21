@@ -19,6 +19,7 @@ from chromite.cbuildbot import constants
 from chromite.lib import cros_build_lib
 from chromite.lib import cros_logging as logging
 from chromite.lib import osutils
+from chromite.lib import path_util
 from chromite.lib.paygen import dryrun_lib
 from chromite.lib.paygen import filelib
 from chromite.lib.paygen import gspaths
@@ -55,6 +56,7 @@ class _PaygenPayload(object):
 
   TEST_IMAGE_NAME = 'chromiumos_test_image.bin'
   RECOVERY_IMAGE_NAME = 'chromiumos_recovery_image.bin'
+  BASE_IMAGE_NAME = 'chromiumos_base_image.bin'
 
   # Default names used by cros_generate_update_payload for extracting old/new
   # kernel/rootfs partitions.
@@ -62,11 +64,6 @@ class _PaygenPayload(object):
   _DEFAULT_OLD_ROOT_PART = 'old_root.dat'
   _DEFAULT_NEW_KERN_PART = 'new_kern.dat'
   _DEFAULT_NEW_ROOT_PART = 'new_root.dat'
-
-  # TODO(garnold)(chromium:243559) stop using these constants once we start
-  # embedding partition sizes in payloads.
-  _DEFAULT_ROOTFS_PART_SIZE = 2 * 1024 * 1024 * 1024
-  _DEFAULT_KERNEL_PART_SIZE = 16 * 1024 * 1024
 
   def __init__(self, payload, cache, work_dir, sign, verify,
                au_generator_uri_override, dry_run=False):
@@ -227,7 +224,8 @@ class _PaygenPayload(object):
     an on-disk format, as necessary.
 
     Args:
-      image: an object representing the image we're processing
+      image: an object representing the image we're processing, either
+             UnsignedImageArchive or Image type from gspaths module.
       image_file: file into which the prepared image should be copied.
     """
 
@@ -238,8 +236,16 @@ class _PaygenPayload(object):
         'signed': (None, True),
         'test': (self.TEST_IMAGE_NAME, False),
         'recovery': (self.RECOVERY_IMAGE_NAME, True),
+        'base': (self.BASE_IMAGE_NAME, True),
     }
-    extract_file, _ = image_handling_by_type[image.get('image_type', 'signed')]
+    if gspaths.IsImage(image):
+      # No need to extract.
+      extract_file = None
+    elif gspaths.IsUnsignedImageArchive(image):
+      extract_file, _ = image_handling_by_type[image.get('image_type',
+                                                         'signed')]
+    else:
+      raise Error('Unknown image type %s' % type(image))
 
     # Are we donwloading an archive that contains the image?
     if extract_file:
@@ -300,27 +306,29 @@ class _PaygenPayload(object):
     delta_log = self._RunGeneratorCmd(cmd)
     self._StoreDeltaLog(delta_log)
 
-  def _GenPayloadHash(self):
-    """Generate a hash of payload and metadata.
+  def _GenerateHashes(self):
+    """Generate a payload hash and a metadata hash.
 
     Works from an unsigned update payload.
 
     Returns:
-      payload_hash as a string.
+      payload_hash as a string, metadata_hash as a string.
     """
-    logging.info('Calculating payload hashes on %s.', self.payload_file)
+    logging.info('Calculating hashes on %s.', self.payload_file)
 
     # How big will the signatures be.
     signature_sizes = [str(size) for size in self.PAYLOAD_SIGNATURE_SIZES_BYTES]
 
-    with tempfile.NamedTemporaryFile('rb') as payload_hash_file:
-      cmd = ['delta_generator',
-             '-in_file=' + self.payload_file,
-             '-out_hash_file=' + payload_hash_file.name,
-             '-signature_size=' + ':'.join(signature_sizes)]
+    with tempfile.NamedTemporaryFile('rb') as payload_hash_file, \
+         tempfile.NamedTemporaryFile('rb') as metadata_hash_file:
+      cmd = ['brillo_update_payload', 'hash',
+             '--unsigned_payload', self.payload_file,
+             '--payload_hash_file', payload_hash_file.name,
+             '--metadata_hash_file', metadata_hash_file.name,
+             '--signature_size', ':'.join(signature_sizes)]
 
       self._RunGeneratorCmd(cmd)
-      return payload_hash_file.read()
+      return payload_hash_file.read(), metadata_hash_file.read()
 
   def _MetadataSize(self, payload_file):
     """Discover the metadata size.
@@ -339,28 +347,6 @@ class _PaygenPayload(object):
       payload = self._update_payload.Payload(payload_fd)
       payload.Init()
       return payload.data_offset
-
-  def _GenMetadataHash(self):
-    """Generate a hash of payload and metadata.
-
-    Works from an unsigned update payload.
-
-    Returns:
-      metadata_hash as a string.
-    """
-    logging.info('Calculating payload hashes on %s.', self.payload_file)
-
-    # How big will the signatures be.
-    signature_sizes = [str(size) for size in self.PAYLOAD_SIGNATURE_SIZES_BYTES]
-
-    with tempfile.NamedTemporaryFile('rb') as metadata_hash_file:
-      cmd = ['delta_generator',
-             '-in_file=' + self.payload_file,
-             '-out_metadata_hash_file=' + metadata_hash_file.name,
-             '-signature_size=' + ':'.join(signature_sizes)]
-
-      self._RunGeneratorCmd(cmd)
-      return metadata_hash_file.read()
 
   def _GenerateSignerResultsError(self, format_str, *args):
     """Helper for reporting errors with signer results."""
@@ -532,8 +518,7 @@ class _PaygenPayload(object):
       List of payload signatures, List of metadata signatures.
     """
     # Create hashes to sign.
-    payload_hash = self._GenPayloadHash()
-    metadata_hash = self._GenMetadataHash()
+    payload_hash, metadata_hash = self._GenerateHashes()
 
     # Sign them.
     # pylint: disable=unpacking-non-sequence
@@ -598,8 +583,6 @@ class _PaygenPayload(object):
         # generator can optimize away such cases.
         payload.Check(metadata_sig_file=metadata_sig_file,
                       assert_type=('delta' if is_delta else 'full'),
-                      rootfs_part_size=self._DEFAULT_ROOTFS_PART_SIZE,
-                      kernel_part_size=self._DEFAULT_KERNEL_PART_SIZE,
                       disabled_tests=['move-same-src-dst-block'])
       except self._update_payload.PayloadError as e:
         raise PayloadVerificationError(
@@ -741,7 +724,7 @@ def DefaultPayloadUri(payload, random_str=None):
   if payload.src_image:
     src_version = payload.src_image['version']
 
-  if payload.tgt_image.get('image_type', 'signed') == 'signed':
+  if gspaths.IsImage(payload.tgt_image):
     # Signed payload.
     return gspaths.ChromeosReleases.PayloadUri(
         channel=payload.tgt_image.channel,
@@ -753,7 +736,7 @@ def DefaultPayloadUri(payload, random_str=None):
         image_version=payload.tgt_image.image_version,
         src_version=src_version,
         bucket=payload.tgt_image.bucket)
-  else:
+  elif gspaths.IsUnsignedImageArchive(payload.tgt_image):
     # Unsigned test payload.
     return gspaths.ChromeosReleases.PayloadUri(
         channel=payload.tgt_image.channel,
@@ -762,6 +745,8 @@ def DefaultPayloadUri(payload, random_str=None):
         random_str=random_str,
         src_version=src_version,
         bucket=payload.tgt_image.bucket)
+  else:
+    raise Error('Unknown image type %s' % type(payload.tgt_image))
 
 
 def SetPayloadUri(payload, uri):
@@ -819,22 +804,14 @@ def FindExistingPayloads(payload):
   return _FilterNonPayloadUris(urilib.ListFiles(search_uri))
 
 
-def FindCacheDir(work_dir=None):
+def FindCacheDir():
   """Helper for deciding what cache directory to use.
 
-  Args:
-    work_dir: Directory that contains ALL work files, cache will
-              be created inside it, if present.
-
   Returns:
-    Returns a directory suitable for use with a DownloadCache. Will
-    always be consistent if a consistent work_dir is passed in.
+    Returns a directory suitable for use with a DownloadCache.
   """
   # Discover which directory to use for caching
-  if work_dir:
-    return os.path.join(work_dir, 'cache')
-  else:
-    return '/usr/local/google/payloads'
+  return os.path.join(path_util.GetCacheDir(), 'paygen_cache')
 
 
 def CreateAndUploadPayload(payload, cache, work_dir, sign=True, verify=True,

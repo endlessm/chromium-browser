@@ -24,7 +24,7 @@ tr.exportTo('tr.model', function() {
    * @constructor
    */
   function EventContainer() {
-    this.guid_ = tr.b.GUID.allocate();
+    this.guid_ = tr.b.GUID.allocateSimple();
     this.important = true;
     this.bounds_ = new tr.b.Range();
   }
@@ -106,6 +106,39 @@ tr.exportTo('tr.model', function() {
         ec.iterateAllChildEventContainers(visit);
       }
       visit(this);
+    },
+
+    /**
+     * Finds topmost slices in this container (see docstring for
+     * findTopmostSlices).
+     */
+    findTopmostSlicesInThisContainer: function(eventPredicate, callback,
+                                               opt_this) {
+      throw new Error('Not implemented.');
+    },
+
+    /**
+     * The findTopmostSlices* series of helpers find all topmost slices
+     * satisfying the given predicates.
+     *
+     * As an example, suppose we are trying to find slices named 'C', with the
+     * following thread:
+     *
+     *  -> |---C---| |-----D-----|
+     *       |-C-|      |---C---| <-
+     *
+     * findTopmostSlices would locate the pointed-to Cs, because the bottom C on
+     * the  left is not the topmost C, and the right one is, even though it is
+     * not itself a top-level slice.
+     */
+    findTopmostSlices: function(eventPredicate, callback, opt_this) {
+      this.iterateAllEventContainers(function(ec) {
+        ec.findTopmostSlicesInThisContainer(eventPredicate, callback, opt_this);
+      });
+    },
+
+    findTopmostSlicesNamed: function(name, callback, opt_this) {
+      this.findTopmostSlices(e => e.title === name, callback, opt_this);
     }
   };
 

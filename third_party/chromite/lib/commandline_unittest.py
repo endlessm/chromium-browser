@@ -12,7 +12,6 @@ import signal
 import os
 import sys
 
-from chromite.cbuildbot import constants
 from chromite.cli import command
 from chromite.lib import commandline
 from chromite.lib import cros_build_lib
@@ -20,7 +19,7 @@ from chromite.lib import cros_build_lib_unittest
 from chromite.lib import cros_test_lib
 from chromite.lib import gs
 from chromite.lib import path_util
-from chromite.lib import workspace_lib
+
 
 # pylint: disable=protected-access
 
@@ -241,81 +240,6 @@ class DeviceParseTest(cros_test_lib.OutputTestCase):
                            hostname='foo_host')
 
 
-class NormalizeWorkspacePathTest(cros_test_lib.WorkspaceTestCase):
-  """Tests for NormalizeWorkspacePath() and associated functions."""
-
-  def setUp(self):
-    self.CreateWorkspace()
-    # By default set the CWD to be the workspace directory.
-    self.cwd_mock = self.PatchObject(os, 'getcwd')
-    self.cwd_mock.return_value = self.workspace_path
-
-  def _VerifyNormalized(self, path, expected, **kwargs):
-    """Verifies tests on NormalizeWorkspacePath().
-
-    Args:
-      path: Input path to test.
-      expected: Expected output.
-      kwargs: Keyword args for NormalizeWorkspacePath().
-    """
-    self.assertEqual(expected,
-                     commandline.NormalizeWorkspacePath(path, **kwargs))
-
-
-  def testLocatorConversion(self):
-    """Tests NormalizeWorkspacePath() conversion to a locator."""
-    # Relative paths.
-    self._VerifyNormalized('a', '//a')
-    self._VerifyNormalized('a/b', '//a/b')
-
-    # Absolute paths.
-    self._VerifyNormalized(os.path.join(self.workspace_path, 'a'), '//a')
-    self._VerifyNormalized(os.path.join(self.workspace_path, 'a', 'b'), '//a/b')
-
-    # Locators should be unchanged.
-    self._VerifyNormalized('//a', '//a')
-    self._VerifyNormalized('//a/b', '//a/b')
-
-    # Paths outside the workspace should fail.
-    for path in ('/', '..'):
-      with self.assertRaises(ValueError):
-        commandline.NormalizeWorkspacePath(path)
-
-  def testDefaultDir(self):
-    """Tests the default_dir parameter."""
-    self._VerifyNormalized('a', '//default/a', default_dir='//default')
-    self._VerifyNormalized('a/b', '//a/b', default_dir='//default')
-    self._VerifyNormalized('./a', '//a', default_dir='//default')
-
-  def testExtension(self):
-    """Tests the extension parameter."""
-    self._VerifyNormalized('a', '//a.txt', extension='txt')
-    self._VerifyNormalized('a.bin', '//a.bin.txt', extension='txt')
-    self._VerifyNormalized('a.txt', '//a.txt', extension='txt')
-
-  def testSpecificPaths(self):
-    """Tests normalizing brick/BSP/blueprint paths."""
-    self.assertEqual('//bricks/a', commandline.NormalizeBrickPath('a'))
-    self.assertEqual('//bsps/a', commandline.NormalizeBspPath('a'))
-    self.assertEqual('//blueprints/a.json',
-                     commandline.NormalizeBlueprintPath('a'))
-
-  def testParser(self):
-    """Tests adding these types to a parser."""
-    parser = commandline.ArgumentParser()
-    parser.add_argument('path', type='workspace_path')
-    parser.add_argument('brick', type='brick_path')
-    parser.add_argument('bsp', type='bsp_path')
-    parser.add_argument('blueprint', type='blueprint_path')
-
-    options = parser.parse_args(['my_path', 'my_brick', 'my_bsp',
-                                 'my_blueprint'])
-    self.assertEqual('//my_path', options.path)
-    self.assertEqual('//bricks/my_brick', options.brick)
-    self.assertEqual('//bsps/my_bsp', options.bsp)
-    self.assertEqual('//blueprints/my_blueprint.json', options.blueprint)
-
-
 class CacheTest(cros_test_lib.MockTempDirTestCase):
   """Test cache dir default / override functionality."""
 
@@ -514,7 +438,6 @@ class TestRunInsideChroot(cros_test_lib.MockTestCase):
 
     # Return values for these two should be set by each test.
     self.mock_inside_chroot = self.PatchObject(cros_build_lib, 'IsInsideChroot')
-    self.mock_workspace_path = self.PatchObject(workspace_lib, 'WorkspacePath')
 
     # Mocked CliCommand object to pass to RunInsideChroot.
     self.cmd = command.CliCommand(argparse.Namespace())
@@ -524,14 +447,12 @@ class TestRunInsideChroot(cros_test_lib.MockTestCase):
     sys.argv = self.orig_argv
 
   def _VerifyRunInsideChroot(self, expected_cmd, expected_chroot_args=None,
-                             expected_extra_env=None, log_level_args=None,
-                             **kwargs):
+                             log_level_args=None, **kwargs):
     """Run RunInsideChroot, and verify it raises with expected values.
 
     Args:
       expected_cmd: Command that should be executed inside the chroot.
       expected_chroot_args: Args that should be passed as chroot args.
-      expected_extra_env: Environmental variables to set in the chroot.
       log_level_args: Args that set the log level of cros_sdk.
       kwargs: Additional args to pass to RunInsideChroot().
     """
@@ -549,33 +470,18 @@ class TestRunInsideChroot(cros_test_lib.MockTestCase):
 
     self.assertEqual(expected_cmd, cm.exception.cmd)
     self.assertEqual(expected_chroot_args, cm.exception.chroot_args)
-    self.assertEqual(expected_extra_env or {}, cm.exception.extra_env)
 
-  def testRunInsideChrootLogLevel(self):
-    self.cmd.options.log_level = 'notice'
+  def testRunInsideChroot(self):
+    """Test we can restart inside the chroot."""
     self.mock_inside_chroot.return_value = False
-    self.mock_workspace_path.return_value = None
-    self._VerifyRunInsideChroot(['/inside/cmd', 'arg1', 'arg2'],
-                                log_level_args=['--log-level', 'notice'])
-
-  def testRunInsideChrootNoWorkspace(self):
-    """Test we can restart inside the chroot, with no workspace."""
-    self.mock_inside_chroot.return_value = False
-    self.mock_workspace_path.return_value = None
-
     self._VerifyRunInsideChroot(['/inside/cmd', 'arg1', 'arg2'])
 
-  def testRunInsideChrootWithWorkspace(self):
-    """Test we can restart inside the chroot, with a workspace."""
+  def testRunInsideChrootLogLevel(self):
+    """Test chroot restart with properly inherited log-level."""
+    self.cmd.options.log_level = 'notice'
     self.mock_inside_chroot.return_value = False
-    self.mock_workspace_path.return_value = '/work'
-    self.PatchObject(path_util.ChrootPathResolver, 'ToChroot',
-                     return_value=constants.CHROOT_WORKSPACE_ROOT)
-
-    self._VerifyRunInsideChroot(
-        ['/inside/cmd', 'arg1', 'arg2'],
-        ['--chroot', '/work/.chroot', '--workspace', '/work'],
-        {commandline.CHROOT_CWD_ENV_VAR: constants.CHROOT_WORKSPACE_ROOT})
+    self._VerifyRunInsideChroot(['/inside/cmd', 'arg1', 'arg2'],
+                                log_level_args=['--log-level', 'notice'])
 
   def testRunInsideChrootAlreadyInside(self):
     """Test we don't restart inside the chroot if we are already there."""

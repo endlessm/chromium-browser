@@ -12,15 +12,17 @@ import os
 from chromite.cbuildbot import cbuildbot_unittest
 from chromite.cbuildbot import commands
 from chromite.cbuildbot import config_lib
-from chromite.cbuildbot import failures_lib
 from chromite.cbuildbot import constants
-from chromite.cbuildbot import lab_status
+from chromite.cbuildbot import failures_lib
+from chromite.cbuildbot import swarming_lib
+from chromite.cbuildbot import topology
 from chromite.cbuildbot.stages import artifact_stages
-from chromite.cbuildbot.stages import test_stages
 from chromite.cbuildbot.stages import generic_stages_unittest
+from chromite.cbuildbot.stages import test_stages
 from chromite.lib import cgroups
-from chromite.lib import cros_build_lib
 from chromite.lib import cros_build_lib_unittest
+from chromite.lib import cros_test_lib
+from chromite.lib import cros_logging as logging
 from chromite.lib import osutils
 from chromite.lib import path_util
 from chromite.lib import timeout_util
@@ -57,17 +59,45 @@ class VMTestStageTest(generic_stages_unittest.AbstractStageTestCase,
     # pylint: disable=W0212
     self._run.GetArchive().SetupArchivePath()
     stage = test_stages.VMTestStage(self._run, self._current_board)
+    image_dir = stage.GetImageDirSymlink()
+    osutils.Touch(os.path.join(image_dir, constants.TEST_KEY_PRIVATE),
+                  makedirs=True)
     return stage
 
   def testFullTests(self):
     """Tests if full unit and cros_au_test_harness tests are run correctly."""
-    self._run.config['vm_tests'] = [constants.FULL_AU_TEST_TYPE]
+    self._run.config['vm_tests'] = [
+        config_lib.VMTestConfig(constants.FULL_AU_TEST_TYPE)
+    ]
     self.RunStage()
 
   def testQuickTests(self):
     """Tests if quick unit and cros_au_test_harness tests are run correctly."""
-    self._run.config['vm_tests'] = [constants.SIMPLE_AU_TEST_TYPE]
+    self._run.config['vm_tests'] = [
+        config_lib.VMTestConfig(constants.SIMPLE_AU_TEST_TYPE)
+    ]
     self.RunStage()
+
+  def testGceTests(self):
+    """Tests if GCE_VM_TEST_TYPE tests are run on GCE."""
+    self._run.config['vm_tests'] = [
+        config_lib.VMTestConfig(constants.GCE_VM_TEST_TYPE)
+    ]
+    gce_tarball = constants.TEST_IMAGE_GCE_TAR
+
+    # pylint: disable=unused-argument
+    def _MockRunTestSuite(buildroot, board, image_path, results_dir, test_type,
+                          *args, **kwargs):
+      self.assertEndsWith(image_path, gce_tarball)
+      self.assertEqual(test_type, constants.GCE_VM_TEST_TYPE)
+    # pylint: enable=unused-argument
+
+    commands.RunTestSuite.side_effect = _MockRunTestSuite
+
+    self.RunStage()
+
+    self.assertTrue(commands.RunTestSuite.called and
+                    commands.RunTestSuite.call_count == 1)
 
   def testFailedTest(self):
     """Tests if quick unit and cros_au_test_harness tests are run correctly."""
@@ -121,12 +151,11 @@ class HWTestStageTest(generic_stages_unittest.AbstractStageTestCase,
   RELEASE_TAG = ''
 
   def setUp(self):
-    self.lab_status_mock = self.PatchObject(lab_status, 'CheckLabStatus')
     self.run_suite_mock = self.PatchObject(commands, 'RunHWTestSuite')
     self.warning_mock = self.PatchObject(
-        cros_build_lib, 'PrintBuildbotStepWarnings')
+        logging, 'PrintBuildbotStepWarnings')
     self.failure_mock = self.PatchObject(
-        cros_build_lib, 'PrintBuildbotStepFailure')
+        logging, 'PrintBuildbotStepFailure')
 
     self.suite_config = None
     self.suite = None
@@ -164,14 +193,15 @@ class HWTestStageTest(generic_stages_unittest.AbstractStageTestCase,
     # We choose to define these mocks in setUp() because they are
     # useful for tests that do not call this method. However, this
     # means we have to reset the mocks before each run.
-    self.lab_status_mock.reset_mock()
     self.run_suite_mock.reset_mock()
     self.warning_mock.reset_mock()
     self.failure_mock.reset_mock()
 
     to_raise = None
 
-    if cmd_fail_mode == 'timeout':
+    if cmd_fail_mode == None:
+      to_raise = None
+    elif cmd_fail_mode == 'timeout':
       to_raise = timeout_util.TimeoutError('Timed out')
     elif cmd_fail_mode == 'suite_timeout':
       to_raise = failures_lib.SuiteTimedOut('Suite timed out')
@@ -183,17 +213,19 @@ class HWTestStageTest(generic_stages_unittest.AbstractStageTestCase,
       to_raise = failures_lib.TestWarning('Suite passed with warnings')
     elif cmd_fail_mode == 'test_fail':
       to_raise = failures_lib.TestFailure('HWTest failed.')
-    elif cmd_fail_mode is not None:
+    else:
       raise ValueError('cmd_fail_mode %s not supported' % cmd_fail_mode)
 
-    self.run_suite_mock.side_effect = to_raise
+    if cmd_fail_mode == 'timeout':
+      self.run_suite_mock.side_effect = to_raise
+    else:
+      self.run_suite_mock.return_value = commands.HWTestSuiteResult(
+          to_raise, None)
 
     if fails:
       self.assertRaises(failures_lib.StepFailure, self.RunStage)
     else:
       self.RunStage()
-
-    self.lab_status_mock.assert_called_once()
 
     self.run_suite_mock.assert_called_once()
     self.assertEqual(self.run_suite_mock.call_args[1].get('debug'), debug)
@@ -304,13 +336,6 @@ class HWTestStageTest(generic_stages_unittest.AbstractStageTestCase,
     self._Prepare('falco-chrome-pfq')
     self._RunHWTestSuite(fails=True, cmd_fail_mode='timeout')
 
-  def testHandleLabDownAsFatal(self):
-    """Test that the stage fails when lab is down."""
-    self._Prepare('lumpy-paladin')
-    self.lab_status_mock.side_effect = lab_status.LabIsDownException(
-        'Lab is not up.')
-    self.assertRaises(failures_lib.StepFailure, self.RunStage)
-
   def testPayloadsNotGenerated(self):
     """Test that we exit early if payloads are not generated."""
     board_runattrs = self._run.GetBoardRunAttrs(self._current_board)
@@ -338,7 +363,8 @@ class HWTestStageTest(generic_stages_unittest.AbstractStageTestCase,
 
 class AUTestStageTest(generic_stages_unittest.AbstractStageTestCase,
                       cros_build_lib_unittest.RunCommandTestCase,
-                      cbuildbot_unittest.SimpleBuilderTestCase):
+                      cbuildbot_unittest.SimpleBuilderTestCase,
+                      cros_test_lib.MockTempDirTestCase):
   """Test only custom methods in AUTestStageTest."""
 
   BOT_ID = 'x86-mario-release'
@@ -348,7 +374,6 @@ class AUTestStageTest(generic_stages_unittest.AbstractStageTestCase,
   def setUp(self):
     self.PatchObject(commands, 'ArchiveFile', autospec=True,
                      return_value='foo.txt')
-    self.PatchObject(lab_status, 'CheckLabStatus', autospec=True)
 
     self.archive_stage = None
     self.suite_config = None
@@ -372,8 +397,32 @@ class AUTestStageTest(generic_stages_unittest.AbstractStageTestCase,
     return test_stages.AUTestStage(
         self._run, self._current_board, self.suite_config)
 
+  def _PatchJson(self):
+    """Mock out the code that loads from swarming task summary."""
+    # pylint: disable=protected-access
+    temp_json_path = os.path.join(self.tempdir, 'temp_summary.json')
+    orig_func = commands._CreateSwarmingArgs
+
+    def replacement(*args, **kargs):
+      swarming_args = orig_func(*args, **kargs)
+      swarming_args['temp_json_path'] = temp_json_path
+      return swarming_args
+
+    self.PatchObject(commands, '_CreateSwarmingArgs', side_effect=replacement)
+
+    j = {'shards':[{'name': 'fake_name', 'bot_id': 'chromeos-server990',
+                    'created_ts': '2015-06-12 12:00:00',
+                    'internal_failure': False,
+                    'outputs': ['some fake output']}]}
+    self.PatchObject(swarming_lib.SwarmingCommandResult, 'LoadJsonSummary',
+                     return_value=j)
+
   def testPerformStage(self):
     """Tests that we correctly generate a tarball and archive it."""
+    # pylint: disable=protected-access
+
+    topology.FetchTopologyFromCIDB(None)
+    self._PatchJson()
     stage = self.ConstructStage()
     stage.PerformStage()
     cmd = ['site_utils/autoupdate/full_release_test.py', '--npo', '--dump',
@@ -381,14 +430,15 @@ class AUTestStageTest(generic_stages_unittest.AbstractStageTestCase,
            self.archive_stage.release_tag, self._current_board]
     self.assertCommandContains(cmd)
     # pylint: disable=W0212
-    self.assertCommandContains([commands._AUTOTEST_RPC_CLIENT, self.suite])
+    self.assertCommandContains([swarming_lib._SWARMING_PROXY_CLIENT,
+                                commands._RUN_SUITE_PATH, self.suite])
 
   def testPayloadsNotGenerated(self):
     """Test that we exit early if payloads are not generated."""
     board_runattrs = self._run.GetBoardRunAttrs(self._current_board)
     board_runattrs.SetParallel('delta_payloads_generated', False)
     self.warning_mock = self.PatchObject(
-        cros_build_lib, 'PrintBuildbotStepWarnings')
+        logging, 'PrintBuildbotStepWarnings')
     self.run_suite_mock = self.PatchObject(commands, 'RunHWTestSuite')
 
     self.RunStage()

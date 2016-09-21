@@ -168,7 +168,8 @@ class Copier(object):
     """
     assert not os.path.isdir(src), '%s: Not expecting a directory!' % src
     osutils.SafeMakedirs(os.path.dirname(dest), mode=self.dir_mode)
-    if path.exe and self.strip_bin and path.strip and os.path.getsize(src) > 0:
+    is_bin = path.exe or src.endswith('.mojo')
+    if is_bin and self.strip_bin and path.strip and os.path.getsize(src) > 0:
       strip_flags = (['--strip-unneeded'] if self.strip_flags is None else
                      self.strip_flags)
       cros_build_lib.DebugRunCommand(
@@ -287,7 +288,11 @@ class Path(object):
 
   def ShouldProcess(self, gyp_defines, staging_flags):
     """Tests whether this artifact should be copied."""
-    if self.cond:
+    if self.cond and isinstance(self.cond, list):
+      for c in self.cond:
+        if not c(gyp_defines, staging_flags):
+          return False
+    elif self.cond:
       return self.cond(gyp_defines, staging_flags)
     return True
 
@@ -295,9 +300,11 @@ class Path(object):
 _DISABLE_NACL = 'disable_nacl'
 
 _CHROME_INTERNAL_FLAG = 'chrome_internal'
+_GN_FLAG = 'gn'
 _HIGHDPI_FLAG = 'highdpi'
 STAGING_FLAGS = (
     _CHROME_INTERNAL_FLAG,
+    _GN_FLAG,
     _HIGHDPI_FLAG,
 )
 
@@ -308,11 +315,6 @@ C = Conditions
 _COPY_PATHS_COMMON = (
     Path('chrome_sandbox', mode=0o4755, dest=_CHROME_SANDBOX_DEST),
     Path('icudtl.dat'),
-    # Set as optional for backwards compatibility.
-    Path('lib/libpeerconnection.so',
-         exe=True,
-         cond=C.StagingFlagSet(_CHROME_INTERNAL_FLAG),
-         optional=True),
     Path('libffmpegsumo.so', exe=True, optional=True),
     Path('libosmesa.so', exe=True, optional=True),
     Path('libpdf.so', exe=True, optional=True),
@@ -358,7 +360,12 @@ _COPY_PATHS_CHROME = (
     Path('keyboard_resources.pak'),
     Path('lib/*.so',
          exe=True,
-         cond=C.GypSet('component', value='shared_library')),
+         cond=[C.StagingFlagNotSet('gn'),
+               C.GypSet('component', value='shared_library')]),
+    Path('*.so',
+         exe=True,
+         cond=[C.StagingFlagSet('gn'),
+               C.GypSet('component', value='shared_library')]),
     # Set as optional for backwards compatibility.
     Path('libexif.so', exe=True, optional=True),
     # Widevine binaries are already pre-stripped.  In addition, they don't
@@ -383,10 +390,17 @@ _COPY_PATHS_ENVOY = (
     Path('envoy_shell.pak'),
 ) + _COPY_PATHS_COMMON
 
+_COPY_PATHS_MASH = (
+    Path('mojo_runner', exe=True),
+    Path('Mojo Applications/'),
+    Path('*_manifest.json'),
+) + _COPY_PATHS_CHROME
+
 _COPY_PATHS_MAP = {
     'app_shell': _COPY_PATHS_APP_SHELL,
     'chrome': _COPY_PATHS_CHROME,
     'envoy': _COPY_PATHS_ENVOY,
+    'mash': _COPY_PATHS_MASH,
 }
 
 

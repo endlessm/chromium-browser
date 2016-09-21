@@ -1,15 +1,10 @@
 # Copyright 2015 The Chromium Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
-import json
 import multiprocessing
 import sys
-import tempfile
 
 from perf_insights import map_single_trace
-from perf_insights.mre import file_handle
-from perf_insights.mre import mre_result
-from perf_insights.mre import reduce_map_results
 from perf_insights.mre import threaded_work_queue
 from perf_insights.results import gtest_progress_reporter
 
@@ -27,7 +22,8 @@ class MapRunner(object):
   def __init__(self, trace_handles, job,
                stop_on_error=False, progress_reporter=None,
                jobs=AUTO_JOB_COUNT,
-               output_formatters=None):
+               output_formatters=None,
+               extra_import_options=None):
     self._job = job
     self._stop_on_error = stop_on_error
     self._failed_canonical_url_to_dump = None
@@ -37,6 +33,7 @@ class MapRunner(object):
     else:
       self._progress_reporter = progress_reporter
     self._output_formatters = output_formatters or []
+    self._extra_import_options = extra_import_options
 
     self._trace_handles = trace_handles
     self._num_traces_merged_into_results = 0
@@ -52,7 +49,8 @@ class MapRunner(object):
     run_reporter = self._progress_reporter.WillRun(canonical_url)
     result = map_single_trace.MapSingleTrace(
         trace_handle,
-        self._job)
+        self._job,
+        extra_import_options=self._extra_import_options)
 
     had_failure = len(result.failures) > 0
 
@@ -60,10 +58,11 @@ class MapRunner(object):
       run_reporter.DidAddFailure(f)
     run_reporter.DidRun(had_failure)
 
-    self._wq.PostMainThreadTask(self._MergeResultIntoMaster, result)
+    self._wq.PostMainThreadTask(
+        self._MergeResultIntoMaster, result, trace_handle)
 
-  def _MergeResultIntoMaster(self, result):
-    self._map_results.append(result)
+  def _MergeResultIntoMaster(self, result, trace_handle):
+    self._map_results[trace_handle.canonical_url] = result
 
     had_failure = len(result.failures) > 0
     if self._stop_on_error and had_failure:
@@ -82,7 +81,7 @@ class MapRunner(object):
     self._wq.Stop()
 
   def RunMapper(self):
-    self._map_results = []
+    self._map_results = {}
 
     if not self._trace_handles:
       err = MapError("No trace handles specified.")
@@ -96,51 +95,9 @@ class MapRunner(object):
 
     return self._map_results
 
-  def _Reduce(self, job_results, key, map_results_file_name):
-    reduce_map_results.ReduceMapResults(job_results, key,
-                                        map_results_file_name, self._job)
-
-  def RunReducer(self, reduce_handles_with_keys):
-    if self._job.reduce_function_handle:
-      self._wq.Reset()
-
-      job_results = mre_result.MreResult()
-
-      for cur in reduce_handles_with_keys:
-        handle = cur['handle']
-        for key in cur['keys']:
-          self._wq.PostAnyThreadTask(
-              self._Reduce, job_results, key, handle)
-
-      def _Stop():
-        self._wq.Stop()
-
-      self._wq.PostAnyThreadTask(_Stop)
-      self._wq.Run()
-
-      return job_results
-    return None
-
-  def _ConvertResultsToFileHandlesAndKeys(self, results_list):
-    handles_and_keys = []
-    for current_result in results_list:
-      _, path = tempfile.mkstemp()
-      with open(path, 'w') as results_file:
-        json.dump(current_result.AsDict(), results_file)
-      rh = file_handle.URLFileHandle(path, 'file://' + path)
-      handles_and_keys.append(
-          {'handle': rh, 'keys': current_result.pairs.keys()})
-    return handles_and_keys
-
   def Run(self):
-    mapper_results = self.RunMapper()
-    reduce_handles = self._ConvertResultsToFileHandlesAndKeys(mapper_results)
-    reducer_results = self.RunReducer(reduce_handles)
-
-    if reducer_results:
-      results = [reducer_results]
-    else:
-      results = mapper_results
+    results_by_trace = self.RunMapper()
+    results = results_by_trace.values()
 
     for of in self._output_formatters:
       of.Format(results)

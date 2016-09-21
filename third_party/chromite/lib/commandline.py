@@ -15,7 +15,7 @@ import collections
 import datetime
 import functools
 import os
-import optparse
+import optparse  # pylint: disable=deprecated-module
 import signal
 import sys
 import urlparse
@@ -29,18 +29,11 @@ from chromite.lib import gs
 from chromite.lib import osutils
 from chromite.lib import path_util
 from chromite.lib import terminal
-from chromite.lib import workspace_lib
 
 
 DEVICE_SCHEME_FILE = 'file'
 DEVICE_SCHEME_SSH = 'ssh'
 DEVICE_SCHEME_USB = 'usb'
-
-
-# Setting this environment variable when entering the chroot selects
-# what the initial CWD will be. Needed for RunInsideChroot().
-# TODO(dpursell) unify with make_chroot.sh once it's converted to python.
-CHROOT_CWD_ENV_VAR = 'CHROOT_CWD'
 
 
 class ChrootRequiredError(Exception):
@@ -103,6 +96,20 @@ def NormalizeLocalOrGSPath(value):
   """Normalize a local or GS path."""
   ptype = 'gs_path' if gs.PathIsGs(value) else 'path'
   return VALID_TYPES[ptype](value)
+
+
+def NormalizeAbUrl(value):
+  """Normalize an androidbuild URL."""
+  if not value.startswith('ab://'):
+    # Give a helpful error message about the format expected.  Putting this
+    # message in the exception is useless because argparse ignores the
+    # exception message and just says the value is invalid.
+    msg = 'Invalid ab:// URL format: [%s].' % value
+    logging.error(msg)
+    raise ValueError(msg)
+
+  # If no errors, just return the unmodified value.
+  return value
 
 
 def ParseBool(value):
@@ -324,106 +331,14 @@ class DeviceParser(object):
       raise ValueError('Unknown device scheme "%s" in "%s"' % (scheme, value))
 
 
-def NormalizeWorkspacePath(path, default_dir=None, extension=None):
-  """Normalize a workspace path.
-
-  Converts |path| into a locator and applies |default_dir| and/or
-  |extension| if specified.
-
-  Args:
-    path: Relative, absolute, or locator path in the CWD workspace.
-    default_dir: If |path| does not contain '/', prepend this
-      directory to the result.
-    extension: If |path| doesn't end in this extension, append this
-      extension to the result.
-
-  Returns:
-    Workspace locator corresponding to the modified |path|.
-
-  Raises:
-    ValueError: |path| isn't in the workspace.
-  """
-  if default_dir and '/' not in path:
-    path = os.path.join(default_dir, path)
-
-  if extension:
-    extension = '.' + extension
-    if os.path.splitext(path)[1] != extension:
-      path += extension
-
-  if workspace_lib.IsLocator(path):
-    return path
-
-  locator = workspace_lib.PathToLocator(path)
-  if not locator:
-    # argparse ignores exception messages; log it as well so the user sees it.
-    error_message = '%s is not in the current workspace.' % path
-    logging.error(error_message)
-    raise ValueError(error_message)
-  return locator
-
-
-def NormalizeBrickPath(path):
-  """Normalize a brick path using some common assumptions.
-
-  Makes the following changes to |path|:
-    1. Put non-paths in //bricks (e.g. foo -> //bricks/foo).
-    2. Convert to a workspace locator.
-
-  Args:
-    path: brick path.
-
-  Returns:
-    Locator to the brick.
-  """
-  return NormalizeWorkspacePath(path, default_dir='//bricks')
-
-
-def NormalizeBspPath(path):
-  """Normalize a BSP path using some common assumptions.
-
-  Makes the following changes to |path|:
-    1. Put non-paths in //bsps (e.g. foo -> //bsps/foo).
-    2. Convert to a workspace locator.
-
-  Args:
-    path: BSP path.
-
-  Returns:
-    Locator to the BSP.
-  """
-  return NormalizeWorkspacePath(path, default_dir='//bsps')
-
-
-def NormalizeBlueprintPath(path):
-  """Normalize a blueprint path using some common assumptions.
-
-  Makes the following changes to |path|:
-    1. Put non-paths in //blueprints (e.g. foo -> //blueprints/foo).
-    2. Add .json if not already present.
-    3. Convert to a workspace locator.
-
-  Args:
-    path: blueprint path.
-
-  Returns:
-    Locator to the blueprint.
-  """
-  return NormalizeWorkspacePath(path, default_dir='//blueprints',
-                                extension='json')
-
-
 VALID_TYPES = {
+    'ab_url': NormalizeAbUrl,
     'bool': ParseBool,
     'date': ParseDate,
     'path': osutils.ExpandPath,
     'gs_path': NormalizeGSPath,
     'local_or_gs_path': NormalizeLocalOrGSPath,
     'path_or_uri': NormalizeUri,
-    'blueprint_path': NormalizeBlueprintPath,
-    'brick_path': NormalizeBrickPath,
-    'bsp_path': NormalizeBspPath,
-    'workspace_path': NormalizeWorkspacePath,
 }
 
 
@@ -832,7 +747,7 @@ def _RestartInChroot(cmd, chroot_args, extra_env):
                                    mute_output=False).returncode
 
 
-def RunInsideChroot(command, auto_detect_workspace=True, chroot_args=None):
+def RunInsideChroot(command, chroot_args=None):
   """Restart the current command inside the chroot.
 
   This method is only valid for any code that is run via ScriptWrapperMain.
@@ -841,7 +756,6 @@ def RunInsideChroot(command, auto_detect_workspace=True, chroot_args=None):
 
   Args:
     command: An instance of CliCommand to be restarted inside the chroot.
-    auto_detect_workspace: If true, sets up workspace automatically.
     chroot_args: List of command-line arguments to pass to cros_sdk, if invoked.
   """
   if cros_build_lib.IsInsideChroot():
@@ -851,22 +765,13 @@ def RunInsideChroot(command, auto_detect_workspace=True, chroot_args=None):
   argv = sys.argv[:]
   argv[0] = path_util.ToChrootPath(argv[0])
 
-  # Enter the chroot for the workspace, if we are in a workspace.
   # Set log-level of cros_sdk to be same as log-level of command entering the
   # chroot.
   if chroot_args is None:
     chroot_args = []
   chroot_args += ['--log-level', command.options.log_level]
-  extra_env = {}
-  if auto_detect_workspace:
-    workspace_path = workspace_lib.WorkspacePath()
-    if workspace_path:
-      chroot_args.extend(['--chroot', workspace_lib.ChrootPath(workspace_path),
-                          '--workspace', workspace_path])
-      resolver = path_util.ChrootPathResolver(workspace_path=workspace_path)
-      extra_env[CHROOT_CWD_ENV_VAR] = resolver.ToChroot(os.getcwd())
 
-  raise ChrootRequiredError(argv, chroot_args, extra_env)
+  raise ChrootRequiredError(argv, chroot_args)
 
 
 def ReExec():

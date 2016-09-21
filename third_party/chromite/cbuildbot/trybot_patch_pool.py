@@ -8,11 +8,15 @@ from __future__ import print_function
 
 import functools
 
+from chromite.cbuildbot import config_lib
 from chromite.cbuildbot import constants
 from chromite.lib import cros_logging as logging
 from chromite.lib import gerrit
 from chromite.lib import git
 from chromite.lib import patch as cros_patch
+
+
+site_config = config_lib.GetConfig()
 
 
 def ChromiteFilter(patch):
@@ -22,12 +26,12 @@ def ChromiteFilter(patch):
 
 def ExtManifestFilter(patch):
   """Used with FilterFn to isolate patches to the external manifest."""
-  return patch.project == constants.MANIFEST_PROJECT
+  return patch.project == site_config.params.MANIFEST_PROJECT
 
 
 def IntManifestFilter(patch):
   """Used with FilterFn to isolate patches to the internal manifest."""
-  return patch.project == constants.MANIFEST_INT_PROJECT
+  return patch.project == site_config.params.MANIFEST_INT_PROJECT
 
 
 def ManifestFilter(patch):
@@ -38,6 +42,11 @@ def ManifestFilter(patch):
 def BranchFilter(branch, patch):
   """Used with FilterFn to isolate patches based on a specific upstream."""
   return patch.tracking_branch == branch
+
+
+def GitRemoteUrlFilter(url, patch):
+  """Used with FilterFn to isolate a patch based on the url of its remote."""
+  return patch.git_remote_url == url
 
 
 class TrybotPatchPool(object):
@@ -98,6 +107,11 @@ class TrybotPatchPool(object):
   def FilterBranch(self, branch, negate=False):
     """Return a patch pool with only patches based on a particular branch."""
     return self.FilterFn(functools.partial(BranchFilter, branch), negate=negate)
+
+  def FilterGitRemoteUrl(self, url, negate=False):
+    """Return a patch pool where patches have a particular remote url."""
+    return self.FilterFn(functools.partial(GitRemoteUrlFilter, url),
+                         negate=negate)
 
   def __iter__(self):
     for source in [self.local_patches, self.remote_patches,

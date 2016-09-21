@@ -385,6 +385,8 @@ class SourceChecker(BaseChecker):
   class _MessageR9200(object): pass
   class _MessageR9201(object): pass
   class _MessageR9202(object): pass
+  class _MessageR9203(object): pass
+  class _MessageR9210(object): pass
   # pylint: enable=class-missing-docstring,multiple-statements
 
   name = 'source_checker'
@@ -397,6 +399,10 @@ class SourceChecker(BaseChecker):
                 ('missing-shebang'), _MessageR9201),
       'R9202': ('Shebang is set, but file is not executable',
                 ('spurious-shebang'), _MessageR9202),
+      'R9203': ('Unittest not named xxx_unittest.py',
+                ('unittest-misnamed'), _MessageR9203),
+      'R9210': ('Trailing new lines found at end of file',
+                ('excess-trailing-newlines'), _MessageR9210),
   }
   options = ()
 
@@ -405,6 +411,8 @@ class SourceChecker(BaseChecker):
     stream = node.file_stream
     stream.seek(0)
     self._check_shebang(node, stream)
+    self._check_module_name(node)
+    self._check_trailing_lines(node, stream)
 
   def _check_shebang(self, _node, stream):
     """Verify the shebang is version specific"""
@@ -423,6 +431,21 @@ class SourceChecker(BaseChecker):
     parts = shebang.split()
     if parts[0] not in ('#!/usr/bin/python2', '#!/usr/bin/python3'):
       self.add_message('R9200')
+
+  def _check_module_name(self, node):
+    """Make sure the module name is sane"""
+    # Catch various typos.
+    name = node.name.rsplit('.', 2)[-1]
+    if name.rsplit('_', 2)[-1] in ('unittests',):
+      self.add_message('R9203')
+
+  def _check_trailing_lines(self, _node, stream):
+    """Reject trailing lines"""
+    st = os.fstat(stream.fileno())
+    if st.st_size > 1:
+      stream.seek(st.st_size - 2)
+      if not stream.read().strip('\n'):
+        self.add_message('R9210')
 
 
 class ChromiteLoggingChecker(BaseChecker):

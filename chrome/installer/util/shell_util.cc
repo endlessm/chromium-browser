@@ -14,6 +14,7 @@
 #include <shobjidl.h>
 
 #include <limits>
+#include <memory>
 #include <string>
 
 #include "base/bind.h"
@@ -25,12 +26,12 @@
 #include "base/logging.h"
 #include "base/macros.h"
 #include "base/md5.h"
-#include "base/memory/scoped_ptr.h"
 #include "base/memory/scoped_vector.h"
 #include "base/metrics/sparse_histogram.h"
 #include "base/path_service.h"
 #include "base/strings/string16.h"
 #include "base/strings/string_number_conversions.h"
+#include "base/strings/string_piece.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
@@ -349,8 +350,7 @@ void GetChromeProgIdEntries(BrowserDistribution* dist,
                             const base::FilePath& chrome_exe,
                             const base::string16& suffix,
                             ScopedVector<RegistryEntry>* entries) {
-  int chrome_icon_index =
-      dist->GetIconIndex(BrowserDistribution::SHORTCUT_CHROME);
+  int chrome_icon_index = dist->GetIconIndex();
 
   ApplicationInfo app_info;
   app_info.prog_id = GetBrowserProgId(suffix);
@@ -411,8 +411,8 @@ void GetShellIntegrationEntries(BrowserDistribution* dist,
                                 const base::FilePath& chrome_exe,
                                 const base::string16& suffix,
                                 ScopedVector<RegistryEntry>* entries) {
-  const base::string16 icon_path(ShellUtil::FormatIconLocation(
-      chrome_exe, dist->GetIconIndex(BrowserDistribution::SHORTCUT_CHROME)));
+  const base::string16 icon_path(
+      ShellUtil::FormatIconLocation(chrome_exe, dist->GetIconIndex()));
   const base::string16 quoted_exe_path(L"\"" + chrome_exe.value() + L"\"");
 
   // Register for the Start Menu "Internet" link (pre-Win7).
@@ -540,7 +540,7 @@ void GetAppDefaultRegistrationEntries(const base::string16& prog_id,
   base::string16 key_name(ShellUtil::kRegClasses);
   key_name.push_back(base::FilePath::kSeparators[0]);
   key_name.append(ext);
-  scoped_ptr<RegistryEntry> default_association(
+  std::unique_ptr<RegistryEntry> default_association(
       new RegistryEntry(key_name, prog_id));
   if (overwrite_existing ||
       !default_association->KeyExistsInRegistry(RegistryEntry::LOOK_IN_HKCU)) {
@@ -599,8 +599,8 @@ void GetXPStyleDefaultBrowserUserEntries(BrowserDistribution* dist,
 
   // Protocols associations.
   base::string16 chrome_open = ShellUtil::GetChromeShellOpenCmd(chrome_exe);
-  base::string16 chrome_icon = ShellUtil::FormatIconLocation(
-      chrome_exe, dist->GetIconIndex(BrowserDistribution::SHORTCUT_CHROME));
+  base::string16 chrome_icon =
+      ShellUtil::FormatIconLocation(chrome_exe, dist->GetIconIndex());
   for (int i = 0; ShellUtil::kBrowserProtocolAssociations[i] != NULL; i++) {
     GetXPStyleUserProtocolEntries(ShellUtil::kBrowserProtocolAssociations[i],
                                   chrome_icon, chrome_open, entries);
@@ -707,26 +707,45 @@ bool ElevateAndRegisterChrome(BrowserDistribution* dist,
   return false;
 }
 
+// Returns the target used as a activate parameter when opening the settings
+// pointing to the page that is the most relevant to a user trying to change the
+// default handler for |protocol|.
+base::string16 GetTargetForDefaultAppsSettings(const wchar_t* protocol) {
+  static const wchar_t kSystemSettingsDefaultAppsFormat[] =
+      L"SystemSettings_DefaultApps_%ls";
+
+  if (base::EqualsCaseInsensitiveASCII(protocol, L"http"))
+    return base::StringPrintf(kSystemSettingsDefaultAppsFormat, L"Browser");
+  if (base::EqualsCaseInsensitiveASCII(protocol, L"mailto"))
+    return base::StringPrintf(kSystemSettingsDefaultAppsFormat, L"Email");
+  return L"SettingsPageAppsDefaultsProtocolView";
+}
+
 // Launches the Windows 'settings' modern app with the 'default apps' view
 // focused. This only works for Windows 8 and Windows 10. The appModelId
-// looks arbitrary but it is the same in Win8 and Win10 previews. There
-// is no easy way to retrieve the appModelId from the registry.
-bool LaunchDefaultAppsSettingsModernDialog() {
+// looks arbitrary but it is the same in Win8 and Win10. There is no easy way to
+// retrieve the appModelId from the registry.
+bool LaunchDefaultAppsSettingsModernDialog(const wchar_t* protocol) {
+  DCHECK(protocol);
+  static const wchar_t kControlPanelAppModelId[] =
+      L"windows.immersivecontrolpanel_cw5n1h2txyewy"
+      L"!microsoft.windows.immersivecontrolpanel";
+
   base::win::ScopedComPtr<IApplicationActivationManager> activator;
   HRESULT hr = activator.CreateInstance(CLSID_ApplicationActivationManager);
   if (SUCCEEDED(hr)) {
     DWORD pid = 0;
     CoAllowSetForegroundWindow(activator.get(), nullptr);
-    hr = activator->ActivateApplication(
-        L"windows.immersivecontrolpanel_cw5n1h2txyewy"
-        L"!microsoft.windows.immersivecontrolpanel",
-        L"page=SettingsPageAppsDefaults", AO_NONE, &pid);
+    hr = activator->ActivateApplication(kControlPanelAppModelId,
+                                        L"page=SettingsPageAppsDefaults",
+                                        AO_NONE, &pid);
     if (SUCCEEDED(hr)) {
       hr = activator->ActivateApplication(
-          L"windows.immersivecontrolpanel_cw5n1h2txyewy"
-          L"!microsoft.windows.immersivecontrolpanel",
-          L"page=SettingsPageAppsDefaults"
-          L"&target=SystemSettings_DefaultApps_Browser", AO_NONE, &pid);
+          kControlPanelAppModelId,
+          base::StringPrintf(L"page=SettingsPageAppsDefaults&target=%ls",
+                             GetTargetForDefaultAppsSettings(protocol).c_str())
+              .c_str(),
+          AO_NONE, &pid);
     }
     if (SUCCEEDED(hr))
       return true;
@@ -899,9 +918,7 @@ bool RegisterChromeAsDefaultProtocolClientXPStyle(
   const base::string16 chrome_open(
       ShellUtil::GetChromeShellOpenCmd(chrome_exe));
   const base::string16 chrome_icon(
-      ShellUtil::FormatIconLocation(
-          chrome_exe,
-          dist->GetIconIndex(BrowserDistribution::SHORTCUT_CHROME)));
+      ShellUtil::FormatIconLocation(chrome_exe, dist->GetIconIndex()));
   GetXPStyleUserProtocolEntries(protocol, chrome_icon, chrome_open, &entries);
   // Change the default protocol handler for current user.
   if (!ShellUtil::AddRegistryEntries(HKEY_CURRENT_USER, entries)) {
@@ -913,19 +930,15 @@ bool RegisterChromeAsDefaultProtocolClientXPStyle(
 }
 
 // Returns |properties.shortcut_name| if the property is set, otherwise it
-// returns dist->GetShortcutName(BrowserDistribution::SHORTCUT_CHROME). In any
-// case, it makes sure the return value is suffixed with ".lnk".
+// returns dist->GetShortcutName(). In any case, it makes sure the return value
+// is suffixed with ".lnk".
 base::string16 ExtractShortcutNameFromProperties(
     BrowserDistribution* dist,
     const ShellUtil::ShortcutProperties& properties) {
   DCHECK(dist);
-  base::string16 shortcut_name;
-  if (properties.has_shortcut_name()) {
-    shortcut_name = properties.shortcut_name;
-  } else {
-    shortcut_name =
-        dist->GetShortcutName(BrowserDistribution::SHORTCUT_CHROME);
-  }
+  base::string16 shortcut_name = properties.has_shortcut_name()
+                                     ? properties.shortcut_name
+                                     : dist->GetShortcutName();
 
   if (!base::EndsWith(shortcut_name, installer::kLnkExt,
                       base::CompareCase::INSENSITIVE_ASCII))
@@ -1391,6 +1404,9 @@ ShellUtil::ShortcutProperties::ShortcutProperties(ShellChange level_in)
       pin_to_taskbar(false),
       options(0U) {}
 
+ShellUtil::ShortcutProperties::ShortcutProperties(
+    const ShortcutProperties& other) = default;
+
 ShellUtil::ShortcutProperties::~ShortcutProperties() {
 }
 
@@ -1815,6 +1831,16 @@ bool ShellUtil::CanMakeChromeDefaultUnattended() {
   return base::win::GetVersion() < base::win::VERSION_WIN8;
 }
 
+// static
+ShellUtil::InteractiveSetDefaultMode ShellUtil::GetInteractiveSetDefaultMode() {
+  DCHECK(!CanMakeChromeDefaultUnattended());
+
+  if (base::win::GetVersion() >= base::win::VERSION_WIN10)
+    return InteractiveSetDefaultMode::SYSTEM_SETTINGS;
+
+  return InteractiveSetDefaultMode::INTENT_PICKER;
+}
+
 bool ShellUtil::MakeChromeDefault(BrowserDistribution* dist,
                                   int shell_change,
                                   const base::FilePath& chrome_exe,
@@ -1888,7 +1914,7 @@ bool ShellUtil::MakeChromeDefault(BrowserDistribution* dist,
 bool ShellUtil::ShowMakeChromeDefaultSystemUI(
     BrowserDistribution* dist,
     const base::FilePath& chrome_exe) {
-  DCHECK_GE(base::win::GetVersion(), base::win::VERSION_WIN8);
+  DCHECK(!CanMakeChromeDefaultUnattended());
   if (dist->GetDefaultBrowserControlPolicy() !=
       BrowserDistribution::DEFAULT_BROWSER_FULL_CONTROL) {
     return false;
@@ -1900,22 +1926,25 @@ bool ShellUtil::ShowMakeChromeDefaultSystemUI(
   bool succeeded = true;
   bool is_default = (GetChromeDefaultState() == IS_DEFAULT);
   if (!is_default) {
-    if (base::win::GetVersion() < base::win::VERSION_WIN10) {
-      // On Windows 8, you can't set yourself as the default handler
-      // programatically. In other words IApplicationAssociationRegistration
-      // has been rendered useless. What you can do is to launch
-      // "Set Program Associations" section of the "Default Programs"
-      // control panel, which is a mess, or pop the concise "How you want to
-      // open webpages?" dialog.  We choose the latter.
-      ScopedUserProtocolEntry user_protocol_entry;
-      succeeded = LaunchSelectDefaultProtocolHandlerDialog(L"http");
-    } else {
-      // On Windows 10, you can't even launch the associations dialog.
-      // So we launch the settings dialog. Quoting from MSDN: "The Open With
-      // dialog box can no longer be used to change the default program used to
-      // open a file extension. You can only use SHOpenWithDialog to open
-      // a single file."
-      succeeded = LaunchDefaultAppsSettingsModernDialog();
+    switch (GetInteractiveSetDefaultMode()) {
+      case INTENT_PICKER: {
+        // On Windows 8, you can't set yourself as the default handler
+        // programatically. In other words IApplicationAssociationRegistration
+        // has been rendered useless. What you can do is to launch
+        // "Set Program Associations" section of the "Default Programs"
+        // control panel, which is a mess, or pop the concise "How you want to
+        // open webpages?" dialog.  We choose the latter.
+        ScopedUserProtocolEntry user_protocol_entry(L"http");
+        succeeded = LaunchSelectDefaultProtocolHandlerDialog(L"http");
+      } break;
+      case SYSTEM_SETTINGS:
+        // On Windows 10, you can't even launch the associations dialog.
+        // So we launch the settings dialog. Quoting from MSDN: "The Open With
+        // dialog box can no longer be used to change the default program used
+        // to open a file extension. You can only use SHOpenWithDialog to open
+        // a single file."
+        succeeded = LaunchDefaultAppsSettingsModernDialog(L"http");
+        break;
     }
     is_default = (succeeded && GetChromeDefaultState() == IS_DEFAULT);
   }
@@ -1977,7 +2006,7 @@ bool ShellUtil::ShowMakeChromeDefaultProtocolClientSystemUI(
     BrowserDistribution* dist,
     const base::FilePath& chrome_exe,
     const base::string16& protocol) {
-  DCHECK_GE(base::win::GetVersion(), base::win::VERSION_WIN8);
+  DCHECK(!CanMakeChromeDefaultUnattended());
   if (dist->GetDefaultBrowserControlPolicy() !=
       BrowserDistribution::DEFAULT_BROWSER_FULL_CONTROL) {
     return false;
@@ -1991,13 +2020,24 @@ bool ShellUtil::ShowMakeChromeDefaultProtocolClientSystemUI(
   bool is_default = (
       GetChromeDefaultProtocolClientState(protocol) == IS_DEFAULT);
   if (!is_default) {
-    // On Windows 8, you can't set yourself as the default handler
-    // programatically. In other words IApplicationAssociationRegistration
-    // has been rendered useless. What you can do is to launch
-    // "Set Program Associations" section of the "Default Programs"
-    // control panel, which is a mess, or pop the concise "How you want to open
-    // links of this type (protocol)?" dialog.  We choose the latter.
-    succeeded = LaunchSelectDefaultProtocolHandlerDialog(protocol.c_str());
+    switch (GetInteractiveSetDefaultMode()) {
+      case INTENT_PICKER: {
+        // On Windows 8, you can't set yourself as the default handler
+        // programatically. In other words IApplicationAssociationRegistration
+        // has been rendered useless. What you can do is to launch
+        // "Set Program Associations" section of the "Default Programs"
+        // control panel, which is a mess, or pop the concise "How you want to
+        // open
+        // links of this type (protocol)?" dialog.  We choose the latter.
+        ScopedUserProtocolEntry user_protocol_entry(protocol.c_str());
+        succeeded = LaunchSelectDefaultProtocolHandlerDialog(protocol.c_str());
+      } break;
+      case SYSTEM_SETTINGS:
+        // On Windows 10, you can't even launch the associations dialog.
+        // So we launch the settings dialog.
+        succeeded = LaunchDefaultAppsSettingsModernDialog(protocol.c_str());
+        break;
+    }
     is_default = (succeeded &&
                   GetChromeDefaultProtocolClientState(protocol) == IS_DEFAULT);
   }
@@ -2334,7 +2374,7 @@ bool ShellUtil::DeleteFileAssociations(const base::string16& prog_id) {
 // static
 bool ShellUtil::AddRegistryEntries(HKEY root,
                                    const ScopedVector<RegistryEntry>& entries) {
-  scoped_ptr<WorkItemList> items(WorkItem::CreateWorkItemList());
+  std::unique_ptr<WorkItemList> items(WorkItem::CreateWorkItemList());
 
   for (ScopedVector<RegistryEntry>::const_iterator itr = entries.begin();
        itr != entries.end(); ++itr)

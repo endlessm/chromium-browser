@@ -6,27 +6,23 @@
 
 #include "base/bind.h"
 #include "extensions/common/features/feature.h"
-#include "extensions/renderer/dispatcher.h"
 #include "extensions/renderer/script_context.h"
+#include "extensions/renderer/script_context_set.h"
 #include "third_party/WebKit/public/web/WebLocalFrame.h"
 
 namespace extensions {
 
-V8ContextNativeHandler::V8ContextNativeHandler(ScriptContext* context,
-                                               Dispatcher* dispatcher)
-    : ObjectBackedNativeHandler(context),
-      context_(context),
-      dispatcher_(dispatcher) {
+V8ContextNativeHandler::V8ContextNativeHandler(ScriptContext* context)
+    : ObjectBackedNativeHandler(context), context_(context) {
   RouteFunction("GetAvailability",
                 base::Bind(&V8ContextNativeHandler::GetAvailability,
                            base::Unretained(this)));
   RouteFunction("GetModuleSystem",
                 base::Bind(&V8ContextNativeHandler::GetModuleSystem,
                            base::Unretained(this)));
-  RouteFunction(
-      "RunWithNativesEnabled",
-      base::Bind(&V8ContextNativeHandler::RunWithNativesEnabled,
-                 base::Unretained(this)));
+  RouteFunction("RunWithNativesEnabled", "test",
+                base::Bind(&V8ContextNativeHandler::RunWithNativesEnabled,
+                           base::Unretained(this)));
 }
 
 void V8ContextNativeHandler::GetAvailability(
@@ -37,6 +33,9 @@ void V8ContextNativeHandler::GetAvailability(
   Feature::Availability availability = context_->GetAvailability(api_name);
 
   v8::Local<v8::Object> ret = v8::Object::New(isolate);
+  v8::Maybe<bool> maybe =
+      ret->SetPrototype(context_->v8_context(), v8::Null(isolate));
+  CHECK(maybe.IsJust() && maybe.FromJust());
   ret->Set(v8::String::NewFromUtf8(isolate, "is_available"),
            v8::Boolean::New(isolate, availability.is_available()));
   ret->Set(v8::String::NewFromUtf8(isolate, "message"),
@@ -50,10 +49,8 @@ void V8ContextNativeHandler::GetModuleSystem(
     const v8::FunctionCallbackInfo<v8::Value>& args) {
   CHECK_EQ(args.Length(), 1);
   CHECK(args[0]->IsObject());
-  v8::Local<v8::Context> v8_context =
-      v8::Local<v8::Object>::Cast(args[0])->CreationContext();
-  ScriptContext* context =
-      dispatcher_->script_context_set().GetByV8Context(v8_context);
+  ScriptContext* context = ScriptContextSet::GetContextByObject(
+      v8::Local<v8::Object>::Cast(args[0]));
   if (blink::WebFrame::scriptCanAccess(context->web_frame()))
     args.GetReturnValue().Set(context->module_system()->NewInstance());
 }

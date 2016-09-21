@@ -69,8 +69,8 @@ static void create_layers(skiatest::Reporter* reporter,
         REPORTER_ASSERT(reporter, picture.uniqueID() == layer->pictureID());
         REPORTER_ASSERT(reporter, layer->start() == idOffset + i + 1);
         REPORTER_ASSERT(reporter, layer->stop() == idOffset + i + 2);
-        REPORTER_ASSERT(reporter, nullptr == layer->texture());
-        REPORTER_ASSERT(reporter, nullptr == layer->paint());
+        REPORTER_ASSERT(reporter, !layer->texture());
+        REPORTER_ASSERT(reporter, !layer->paint());
         REPORTER_ASSERT(reporter, !layer->isAtlased());
     }
 }
@@ -107,7 +107,7 @@ static void lock_layer(skiatest::Reporter* reporter,
 // In particular it checks its interaction with the resource cache (w.r.t.
 // locking & unlocking textures).
 // TODO: need to add checks on VRAM usage!
-DEF_GPUTEST_FOR_GL_RENDERING_CONTEXTS(GpuLayerCache, reporter, ctxInfo) {
+DEF_GPUTEST_FOR_RENDERING_CONTEXTS(GpuLayerCache, reporter, ctxInfo) {
     // Add one more layer than can fit in the atlas
     static const int kInitialNumLayers = TestingAccess::NumPlots() + 1;
 
@@ -126,9 +126,9 @@ DEF_GPUTEST_FOR_GL_RENDERING_CONTEXTS(GpuLayerCache, reporter, ctxInfo) {
         picture = recorder.finishRecordingAsPicture();
     }
 
-    GrResourceCache* resourceCache = ctxInfo.fGrContext->getResourceCache();
+    GrResourceCache* resourceCache = ctxInfo.grContext()->getResourceCache();
 
-    GrLayerCache cache(ctxInfo.fGrContext);
+    GrLayerCache cache(ctxInfo.grContext());
 
     create_layers(reporter, &cache, *picture, kInitialNumLayers, 0);
 
@@ -197,7 +197,7 @@ DEF_GPUTEST_FOR_GL_RENDERING_CONTEXTS(GpuLayerCache, reporter, ctxInfo) {
         } else {
 #endif
             // The final layer should not be atlased.
-            REPORTER_ASSERT(reporter, nullptr == layer->texture());
+            REPORTER_ASSERT(reporter, !layer->texture());
             REPORTER_ASSERT(reporter, !layer->isAtlased());
 #if GR_CACHE_HOISTED_LAYERS
         }
@@ -258,7 +258,7 @@ DEF_GPUTEST_FOR_GL_RENDERING_CONTEXTS(GpuLayerCache, reporter, ctxInfo) {
             // The one that was never atlased should still be around
             REPORTER_ASSERT(reporter, layer);
 
-            REPORTER_ASSERT(reporter, nullptr == layer->texture());
+            REPORTER_ASSERT(reporter, !layer->texture());
             REPORTER_ASSERT(reporter, !layer->isAtlased());
 #if GR_CACHE_HOISTED_LAYERS
         } else {

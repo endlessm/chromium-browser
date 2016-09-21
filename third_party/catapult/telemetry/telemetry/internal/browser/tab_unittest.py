@@ -10,7 +10,6 @@ from telemetry.core import exceptions
 from telemetry.core import util
 from telemetry import decorators
 from telemetry.internal.image_processing import video
-from telemetry.page import action_runner
 from telemetry.testing import tab_test_case
 from telemetry.timeline import model
 from telemetry.timeline import tracing_config
@@ -204,6 +203,7 @@ class GpuTabTest(tab_test_case.TabTestCase):
 
   # Test flaky on mac: crbug.com/358664, chromeos: crbug.com/483212.
   @decorators.Disabled('android', 'mac', 'chromeos')
+  @decorators.Disabled('win')  # catapult/issues/2282
   def testScreenshot(self):
     if not self._tab.screenshot_supported:
       logging.warning('Browser does not support screenshots, skipping test.')
@@ -233,11 +233,11 @@ class MediaRouterDialogTabTest(tab_test_case.TabTestCase):
   # There is no media router dialog on android/chromeos, it is a desktop-only
   # feature.
   @decorators.Disabled('android', 'chromeos')
+  @decorators.Disabled('win')  # catapult/issues/2282
   def testMediaRouterDialog(self):
     self._tab.Navigate(self.UrlOfUnittestFile('cast.html'))
     self._tab.WaitForDocumentReadyStateToBeComplete()
-    runner = action_runner.ActionRunner(self._tab)
-    runner.TapElement(selector='#start_session_button')
+    self._tab.action_runner.TapElement(selector='#start_session_button')
     # Wait for media router dialog
     start_time = time.time()
     while (time.time() - start_time < 5 and

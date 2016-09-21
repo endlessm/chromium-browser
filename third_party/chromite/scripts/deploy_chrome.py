@@ -99,7 +99,10 @@ class DeployChrome(object):
                                         ping=options.ping)
     self._target_dir_is_still_readonly = multiprocessing.Event()
 
-    self.copy_paths = chrome_util.GetCopyPaths('chrome')
+    if self.options.mash:
+      self.copy_paths = chrome_util.GetCopyPaths('mash')
+    else:
+      self.copy_paths = chrome_util.GetCopyPaths('chrome')
     self.chrome_dir = _CHROME_DIR
 
   def _GetRemoteMountFree(self, remote_dir):
@@ -412,6 +415,9 @@ def _CreateParser():
                           "Overrides the default arguments.")
   group.add_argument('--ping', action='store_true', default=False,
                      help='Ping the device before connection attempt.')
+  group.add_argument('--mash', action='store_true', default=False,
+                     help='Copy additional files for mus+ash. Will not fit in '
+                          'the default target-dir.')
 
   group = parser.add_argument_group(
       'Metadata Overrides (Advanced)',
@@ -493,7 +499,7 @@ def _PostParseCheck(options):
     cros_build_lib.Die('%s is not a file.', options.local_pkg_path)
 
   if not options.gyp_defines:
-    gyp_env = os.getenv('GYP_DEFINES', None)
+    gyp_env = os.getenv('GYP_DEFINES')
     if gyp_env is not None:
       options.gyp_defines = chrome_util.ProcessGypDefines(gyp_env)
       logging.debug('GYP_DEFINES taken from environment: %s',
@@ -502,6 +508,14 @@ def _PostParseCheck(options):
   if options.strict and not options.gyp_defines:
     cros_build_lib.Die('When --strict is set, the GYP_DEFINES environment '
                        'variable must be set.')
+
+  if not options.staging_flags:
+    use_env = os.getenv('USE')
+    if use_env is not None:
+      options.staging_flags = ' '.join(set(use_env.split()).intersection(
+          chrome_util.STAGING_FLAGS))
+      logging.info('Staging flags taken from USE in environment: %s',
+                   options.staging_flags)
 
 
 def _FetchChromePackage(cache_dir, tempdir, gs_path):

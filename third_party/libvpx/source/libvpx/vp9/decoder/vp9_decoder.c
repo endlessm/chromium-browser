@@ -131,11 +131,12 @@ void vp9_decoder_remove(VP9Decoder *pbi) {
 
   vpx_get_worker_interface()->end(&pbi->lf_worker);
   vpx_free(pbi->lf_worker.data1);
-  vpx_free(pbi->tile_data);
+
   for (i = 0; i < pbi->num_tile_workers; ++i) {
     VPxWorker *const worker = &pbi->tile_workers[i];
     vpx_get_worker_interface()->end(worker);
   }
+
   vpx_free(pbi->tile_worker_data);
   vpx_free(pbi->tile_workers);
 
@@ -507,7 +508,7 @@ vpx_codec_err_t vp9_parse_superframe_index(const uint8_t *data,
         uint32_t this_sz = 0;
 
         for (j = 0; j < mag; ++j)
-          this_sz |= (*x++) << (j * 8);
+          this_sz |= ((uint32_t)(*x++)) << (j * 8);
         sizes[i] = this_sz;
       }
       *count = frames;

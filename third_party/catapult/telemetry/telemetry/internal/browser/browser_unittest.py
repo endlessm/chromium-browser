@@ -170,7 +170,7 @@ def _GenerateBrowserProfile(number_of_tabs):
   """
   profile_dir = tempfile.mkdtemp()
   options = options_for_unittests.GetCopy()
-  options.output_profile_path = profile_dir
+  options.browser_options.output_profile_path = profile_dir
   browser_to_create = browser_finder.FindBrowser(options)
   with browser_to_create.Create(options) as browser:
     browser.platform.SetHTTPServerDirectories(path.GetUnittestDataDir())
@@ -241,20 +241,6 @@ class BrowserRestoreSessionTest(unittest.TestCase):
   @classmethod
   def tearDownClass(cls):
     shutil.rmtree(cls._profile_dir)
-
-
-class ReferenceBrowserTest(unittest.TestCase):
-
-  @decorators.Enabled('win', 'mac', 'linux')
-  def testBasicBrowserActions(self):
-    options = options_for_unittests.GetCopy()
-    options.browser_type = 'reference'
-    browser_to_create = browser_finder.FindBrowser(options)
-    self.assertIsNotNone(browser_to_create)
-    with browser_to_create.Create(options) as ref_browser:
-      tab = ref_browser.tabs.New()
-      tab.Navigate('about:blank')
-      self.assertEquals(2, tab.EvaluateJavaScript('1 + 1'))
 
 
 class TestBrowserOperationDoNotLeakTempFiles(unittest.TestCase):

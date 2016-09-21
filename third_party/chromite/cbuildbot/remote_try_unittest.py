@@ -7,18 +7,22 @@
 from __future__ import print_function
 
 import json
+import mock
 import os
 import shutil
 import time
 
+from chromite.cbuildbot import config_lib
 from chromite.cbuildbot import config_lib_unittest
-from chromite.cbuildbot import constants
 from chromite.lib import cros_build_lib
 from chromite.lib import cros_test_lib
 from chromite.lib import git
 from chromite.cbuildbot import remote_try
 from chromite.cbuildbot import repository
 from chromite.scripts import cbuildbot
+
+
+site_config = config_lib.GetConfig()
 
 
 class RemoteTryJobMock(remote_try.RemoteTryJob):
@@ -43,6 +47,8 @@ class RemoteTryTests(cros_test_lib.MockTempDirTestCase):
     self.options.cache_dir = self.tempdir
     self.checkout_dir = os.path.join(self.tempdir, 'test_checkout')
     self.int_mirror, self.ext_mirror = None, None
+
+    self.PatchObject(remote_try.RemoteTryJob, '_BuildBucketAuth', mock.Mock())
 
   def _RunGitSingleOutput(self, cwd, cmd):
     result = git.RunGit(cwd, cmd)
@@ -74,7 +80,7 @@ class RemoteTryTests(cros_test_lib.MockTempDirTestCase):
   def _SetupMirrors(self):
     mirror = os.path.join(self.tempdir, 'tryjobs_mirror')
     os.mkdir(mirror)
-    url = '%s/%s' % (constants.EXTERNAL_GOB_URL, 'chromiumos/tryjobs')
+    url = '%s/%s' % (site_config.params.EXTERNAL_GOB_URL, 'chromiumos/tryjobs')
     repository.CloneGitRepo(mirror, url,
                             bare=True)
     self.ext_mirror = mirror

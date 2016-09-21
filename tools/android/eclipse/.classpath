@@ -24,8 +24,8 @@ to the classpath for downstream development. See "additional_entries" below.
     <classpathentry kind="src" path="base/android/java/src"/>
     <classpathentry kind="src" path="base/android/javatests/src"/>
     <classpathentry kind="src" path="base/test/android/javatests/src"/>
-    <classpathentry kind="src" path="blimp/client/android/java/src"/>
-    <classpathentry kind="src" path="blimp/client/android/javatests/src"/>
+    <classpathentry kind="src" path="blimp/client/app/android/java/src"/>
+    <classpathentry kind="src" path="blimp/client/app/android/javatests/src"/>
     <classpathentry kind="src" path="chrome/android/java/src"/>
     <classpathentry kind="src" path="chrome/android/javatests/src"/>
     <classpathentry kind="src" path="chrome/android/sync_shell/javatests/src"/>
@@ -216,6 +216,7 @@ to the classpath for downstream development. See "additional_entries" below.
     <classpathentry kind="lib" path="out/Debug/lib.java/components/dom_distiller/android/dom_distiller_core_java.jar"/>
     <classpathentry kind="lib" path="out/Debug/lib.java/components/external_video_surface/java.jar"/>
     <classpathentry kind="lib" path="out/Debug/lib.java/components/gcm_driver/android/gcm_driver_java.jar"/>
+    <classpathentry kind="lib" path="out/Debug/lib.java/components/gcm_driver/instance_id/android/instance_id_driver_java.jar"/>
     <classpathentry kind="lib" path="out/Debug/lib.java/components/invalidation/impl/java.jar"/>
     <classpathentry kind="lib" path="out/Debug/lib.java/components/invalidation/impl/proto_java.jar"/>
     <classpathentry kind="lib" path="out/Debug/lib.java/components/navigation_interception/android/navigation_interception_java.jar"/>

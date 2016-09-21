@@ -104,7 +104,6 @@ struct NaClChromeMainArgs *NaClChromeMainArgsCreate(void) {
   args->create_memory_object_func = NULL;
   args->validation_cache = NULL;
 #if NACL_WINDOWS
-  args->broker_duplicate_handle_func = NULL;
   args->attach_debug_exception_handler_func = NULL;
 #endif
   args->load_status_handler_func = NULL;
@@ -206,11 +205,6 @@ static int LoadApp(struct NaClApp *nap, struct NaClChromeMainArgs *args) {
   /* Inject the validation caching interface, if it exists. */
   nap->validation_cache = args->validation_cache;
 
-#if NACL_WINDOWS
-  if (args->broker_duplicate_handle_func != NULL)
-    NaClSetBrokerDuplicateHandleFunc(args->broker_duplicate_handle_func);
-#endif
-
   NaClAppInitialDescriptorHookup(nap);
 
   /*
@@ -311,13 +305,10 @@ static int LoadApp(struct NaClApp *nap, struct NaClChromeMainArgs *args) {
   }
 
   if (args->enable_debug_stub) {
+#if NACL_LINUX || NACL_OSX
     if (args->debug_stub_pipe_fd != NACL_INVALID_HANDLE) {
       NaClDebugStubSetPipe(args->debug_stub_pipe_fd);
-    }
-
-#if NACL_LINUX || NACL_OSX
-    if (args->debug_stub_pipe_fd == NACL_INVALID_HANDLE &&
-        args->debug_stub_server_bound_socket_fd != NACL_INVALID_SOCKET) {
+    } else if (args->debug_stub_server_bound_socket_fd != NACL_INVALID_SOCKET) {
       NaClDebugSetBoundSocket(args->debug_stub_server_bound_socket_fd);
     }
 #endif
@@ -325,8 +316,7 @@ static int LoadApp(struct NaClApp *nap, struct NaClChromeMainArgs *args) {
       goto error;
     }
 #if NACL_WINDOWS
-    if (args->debug_stub_pipe_fd == NACL_INVALID_HANDLE &&
-        NULL != args->debug_stub_server_port_selected_handler_func) {
+    if (NULL != args->debug_stub_server_port_selected_handler_func) {
       args->debug_stub_server_port_selected_handler_func(
           NaClDebugGetBoundPort());
     }

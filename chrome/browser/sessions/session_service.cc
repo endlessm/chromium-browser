@@ -169,6 +169,15 @@ void SessionService::SetWindowBounds(const SessionID& window_id,
       sessions::CreateSetWindowBoundsCommand(window_id, bounds, show_state));
 }
 
+void SessionService::SetWindowWorkspace(const SessionID& window_id,
+                                        const std::string& workspace) {
+  if (!ShouldTrackChangesToWindow(window_id))
+    return;
+
+  ScheduleCommand(
+      sessions::CreateSetWindowWorkspaceCommand(window_id, workspace));
+}
+
 void SessionService::SetTabIndexInWindow(const SessionID& window_id,
                                          const SessionID& tab_id,
                                          int new_index) {
@@ -815,6 +824,9 @@ void SessionService::BuildCommandsForBrowser(
             browser->app_name()));
   }
 
+  sessions::CreateSetWindowWorkspaceCommand(
+      browser->session_id(), browser->window()->GetWorkspace());
+
   windows_to_track->insert(browser->session_id().id());
   TabStripModel* tab_strip = browser->tab_strip_model();
   for (int i = 0; i < tab_strip->count(); ++i) {
@@ -869,7 +881,7 @@ void SessionService::ScheduleResetCommands() {
 }
 
 void SessionService::ScheduleCommand(
-    scoped_ptr<sessions::SessionCommand> command) {
+    std::unique_ptr<sessions::SessionCommand> command) {
   DCHECK(command);
   if (ReplacePendingCommand(base_session_service_.get(), &command))
     return;
@@ -971,19 +983,15 @@ void SessionService::RecordSessionUpdateHistogramData(int type,
     switch (type) {
       case chrome::NOTIFICATION_SESSION_SERVICE_SAVED :
         RecordUpdatedSaveTime(delta, use_long_period);
-        RecordUpdatedSessionNavigationOrTab(delta, use_long_period);
         break;
       case content::NOTIFICATION_WEB_CONTENTS_DESTROYED:
         RecordUpdatedTabClosed(delta, use_long_period);
-        RecordUpdatedSessionNavigationOrTab(delta, use_long_period);
         break;
       case content::NOTIFICATION_NAV_LIST_PRUNED:
         RecordUpdatedNavListPruned(delta, use_long_period);
-        RecordUpdatedSessionNavigationOrTab(delta, use_long_period);
         break;
       case content::NOTIFICATION_NAV_ENTRY_COMMITTED:
         RecordUpdatedNavEntryCommit(delta, use_long_period);
-        RecordUpdatedSessionNavigationOrTab(delta, use_long_period);
         break;
       default:
         NOTREACHED() << "Bad type sent to RecordSessionUpdateHistogramData";
@@ -1061,25 +1069,6 @@ void SessionService::RecordUpdatedSaveTime(base::TimeDelta delta,
       50);
   if (use_long_period) {
     std::string long_name_("SessionRestore.SaveLongPeriod");
-    UMA_HISTOGRAM_CUSTOM_TIMES(long_name_,
-        delta,
-        save_delay_in_mins_,
-        save_delay_in_hrs_,
-        50);
-  }
-}
-
-void SessionService::RecordUpdatedSessionNavigationOrTab(base::TimeDelta delta,
-                                                         bool use_long_period) {
-  std::string name("SessionRestore.NavOrTabUpdatePeriod");
-  UMA_HISTOGRAM_CUSTOM_TIMES(name,
-      delta,
-      // 2500ms is the default save delay.
-      save_delay_in_millis_,
-      save_delay_in_mins_,
-      50);
-  if (use_long_period) {
-    std::string long_name_("SessionRestore.NavOrTabUpdateLongPeriod");
     UMA_HISTOGRAM_CUSTOM_TIMES(long_name_,
         delta,
         save_delay_in_mins_,

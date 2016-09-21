@@ -22,6 +22,7 @@ class X64OperandGenerator final : public OperandGenerator {
   bool CanBeImmediate(Node* node) {
     switch (node->opcode()) {
       case IrOpcode::kInt32Constant:
+      case IrOpcode::kRelocatableInt32Constant:
         return true;
       case IrOpcode::kInt64Constant: {
         const int64_t value = OpParameter<int64_t>(node);
@@ -36,9 +37,13 @@ class X64OperandGenerator final : public OperandGenerator {
     }
   }
 
-  bool CanBeMemoryOperand(InstructionCode opcode, Node* node, Node* input) {
+  bool CanBeMemoryOperand(InstructionCode opcode, Node* node, Node* input,
+                          int effect_level) {
     if (input->opcode() != IrOpcode::kLoad ||
         !selector()->CanCover(node, input)) {
+      return false;
+    }
+    if (effect_level != selector()->GetEffectLevel(input)) {
       return false;
     }
     MachineRepresentation rep =
@@ -1140,15 +1145,8 @@ void InstructionSelector::VisitTruncateFloat64ToFloat32(Node* node) {
   VisitRO(this, node, kSSEFloat64ToFloat32);
 }
 
-
-void InstructionSelector::VisitTruncateFloat64ToInt32(Node* node) {
-  switch (TruncationModeOf(node->op())) {
-    case TruncationMode::kJavaScript:
-      return VisitRR(this, node, kArchTruncateDoubleToI);
-    case TruncationMode::kRoundToZero:
-      return VisitRO(this, node, kSSEFloat64ToInt32);
-  }
-  UNREACHABLE();
+void InstructionSelector::VisitTruncateFloat64ToWord32(Node* node) {
+  VisitRR(this, node, kArchTruncateDoubleToI);
 }
 
 
@@ -1174,6 +1172,9 @@ void InstructionSelector::VisitTruncateInt64ToInt32(Node* node) {
   Emit(kX64Movl, g.DefineAsRegister(node), g.Use(value));
 }
 
+void InstructionSelector::VisitRoundFloat64ToInt32(Node* node) {
+  VisitRO(this, node, kSSEFloat64ToInt32);
+}
 
 void InstructionSelector::VisitRoundInt32ToFloat32(Node* node) {
   X64OperandGenerator g(this);
@@ -1255,6 +1256,9 @@ void InstructionSelector::VisitFloat32Sub(Node* node) {
   VisitFloatBinop(this, node, kAVXFloat32Sub, kSSEFloat32Sub);
 }
 
+void InstructionSelector::VisitFloat32SubPreserveNan(Node* node) {
+  VisitFloatBinop(this, node, kAVXFloat32Sub, kSSEFloat32Sub);
+}
 
 void InstructionSelector::VisitFloat32Mul(Node* node) {
   VisitFloatBinop(this, node, kAVXFloat32Mul, kSSEFloat32Mul);
@@ -1314,6 +1318,9 @@ void InstructionSelector::VisitFloat64Sub(Node* node) {
   VisitFloatBinop(this, node, kAVXFloat64Sub, kSSEFloat64Sub);
 }
 
+void InstructionSelector::VisitFloat64SubPreserveNan(Node* node) {
+  VisitFloatBinop(this, node, kAVXFloat64Sub, kSSEFloat64Sub);
+}
 
 void InstructionSelector::VisitFloat64Mul(Node* node) {
   VisitFloatBinop(this, node, kAVXFloat64Mul, kSSEFloat64Mul);
@@ -1545,16 +1552,22 @@ void VisitWordCompare(InstructionSelector* selector, Node* node,
 
   // If one of the two inputs is an immediate, make sure it's on the right, or
   // if one of the two inputs is a memory operand, make sure it's on the left.
+  int effect_level = selector->GetEffectLevel(node);
+  if (cont->IsBranch()) {
+    effect_level = selector->GetEffectLevel(
+        cont->true_block()->PredecessorAt(0)->control_input());
+  }
+
   if ((!g.CanBeImmediate(right) && g.CanBeImmediate(left)) ||
-      (g.CanBeMemoryOperand(opcode, node, right) &&
-       !g.CanBeMemoryOperand(opcode, node, left))) {
+      (g.CanBeMemoryOperand(opcode, node, right, effect_level) &&
+       !g.CanBeMemoryOperand(opcode, node, left, effect_level))) {
     if (!node->op()->HasProperty(Operator::kCommutative)) cont->Commute();
     std::swap(left, right);
   }
 
   // Match immediates on right side of comparison.
   if (g.CanBeImmediate(right)) {
-    if (g.CanBeMemoryOperand(opcode, node, left)) {
+    if (g.CanBeMemoryOperand(opcode, node, left, effect_level)) {
       return VisitCompareWithMemoryOperand(selector, opcode, left,
                                            g.UseImmediate(right), cont);
     }
@@ -1563,7 +1576,7 @@ void VisitWordCompare(InstructionSelector* selector, Node* node,
   }
 
   // Match memory operands on left side of comparison.
-  if (g.CanBeMemoryOperand(opcode, node, left)) {
+  if (g.CanBeMemoryOperand(opcode, node, left, effect_level)) {
     return VisitCompareWithMemoryOperand(selector, opcode, left,
                                          g.UseRegister(right), cont);
   }
@@ -2023,6 +2036,52 @@ void InstructionSelector::VisitFloat64InsertHighWord32(Node* node) {
        g.UseRegister(left), g.Use(right));
 }
 
+void InstructionSelector::VisitAtomicLoad(Node* node) {
+  LoadRepresentation load_rep = LoadRepresentationOf(node->op());
+  DCHECK(load_rep.representation() == MachineRepresentation::kWord8 ||
+         load_rep.representation() == MachineRepresentation::kWord16 ||
+         load_rep.representation() == MachineRepresentation::kWord32);
+  USE(load_rep);
+  VisitLoad(node);
+}
+
+void InstructionSelector::VisitAtomicStore(Node* node) {
+  X64OperandGenerator g(this);
+  Node* base = node->InputAt(0);
+  Node* index = node->InputAt(1);
+  Node* value = node->InputAt(2);
+
+  MachineRepresentation rep = AtomicStoreRepresentationOf(node->op());
+  ArchOpcode opcode = kArchNop;
+  switch (rep) {
+    case MachineRepresentation::kWord8:
+      opcode = kX64Xchgb;
+      break;
+    case MachineRepresentation::kWord16:
+      opcode = kX64Xchgw;
+      break;
+    case MachineRepresentation::kWord32:
+      opcode = kX64Xchgl;
+      break;
+    default:
+      UNREACHABLE();
+      return;
+  }
+  AddressingMode addressing_mode;
+  InstructionOperand inputs[4];
+  size_t input_count = 0;
+  inputs[input_count++] = g.UseUniqueRegister(base);
+  if (g.CanBeImmediate(index)) {
+    inputs[input_count++] = g.UseImmediate(index);
+    addressing_mode = kMode_MRI;
+  } else {
+    inputs[input_count++] = g.UseUniqueRegister(index);
+    addressing_mode = kMode_MR1;
+  }
+  inputs[input_count++] = g.UseUniqueRegister(value);
+  InstructionCode code = opcode | AddressingModeField::encode(addressing_mode);
+  Emit(code, 0, static_cast<InstructionOperand*>(nullptr), input_count, inputs);
+}
 
 // static
 MachineOperatorBuilder::Flags

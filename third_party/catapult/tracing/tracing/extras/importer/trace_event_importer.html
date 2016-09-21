@@ -12,8 +12,8 @@ found in the LICENSE file.
 <link rel="import" href="/tracing/extras/importer/trace_code_entry.html">
 <link rel="import" href="/tracing/extras/importer/trace_code_map.html">
 <link rel="import" href="/tracing/extras/importer/v8/codemap.html">
+<link rel="import" href="/tracing/importer/context_processor.html">
 <link rel="import" href="/tracing/importer/importer.html">
-<link rel="import" href="/tracing/model/clock_sync_record.html">
 <link rel="import" href="/tracing/model/comment_box_annotation.html">
 <link rel="import" href="/tracing/model/constants.html">
 <link rel="import" href="/tracing/model/container_memory_dump.html">
@@ -108,14 +108,15 @@ tr.exportTo('tr.e.importer', function() {
     this.events_ = undefined;
     this.sampleEvents_ = undefined;
     this.stackFrameEvents_ = undefined;
-    this.systemTraceEvents_ = undefined;
-    this.battorData_ = undefined;
+    this.subtraces_ = [];
     this.eventsWereFromString_ = false;
     this.softwareMeasuredCpuCount_ = undefined;
 
     this.allAsyncEvents_ = [];
     this.allFlowEvents_ = [];
     this.allObjectEvents_ = [];
+
+    this.contextProcessorPerThread = {};
 
     this.traceEventSampleStackFramesByName_ = {};
 
@@ -161,15 +162,11 @@ tr.exportTo('tr.e.importer', function() {
       var container = this.events_;
       this.events_ = this.events_.traceEvents;
 
-      // Some trace_event implementations put ftrace_importer traces as a
-      // huge string inside container.systemTraceEvents. If we see that, pull it
-      // out. It will be picked up by extractSubtraces later on.
-      this.systemTraceEvents_ = container.systemTraceEvents;
-
-      // Some trace_event implementations put battor power traces as a
-      // huge string inside container.powerTraceAsString. If we see that, pull
-      // it out. It will be picked up by extractSubtraces later on.
-      this.battorData_ = container.powerTraceAsString;
+      // Some trace authors store subtraces as specific properties of the trace.
+      if (container.powerTraceAsString)
+        this.subtraces_.push(container.powerTraceAsString);
+      if (container.systemTraceEvents)
+        this.subtraces_.push(container.systemTraceEvents);
 
       // Sampling data.
       this.sampleEvents_ = container.samples;
@@ -250,14 +247,11 @@ tr.exportTo('tr.e.importer', function() {
     },
 
     extractSubtraces: function() {
-      var systemEventsTmp = this.systemTraceEvents_;
-      var battorDataTmp = this.battorData_;
-      this.systemTraceEvents_ = undefined;
-      this.battorData_ = undefined;
-      var subTraces = systemEventsTmp ? [systemEventsTmp] : [];
-      if (battorDataTmp)
-        subTraces.push(battorDataTmp);
-       return subTraces;
+      // Because subtraces can be quite large, we need to make sure that we
+      // don't hold a reference to the memory.
+      var subtraces = this.subtraces_;
+      this.subtraces_ = [];
+      return subtraces;
     },
 
     /**
@@ -300,7 +294,7 @@ tr.exportTo('tr.e.importer', function() {
       var thread = this.model_.getOrCreateProcess(event.pid).
           getOrCreateThread(event.tid);
       this.allFlowEvents_.push({
-        refGuid: tr.b.GUID.getLastGuid(),
+        refGuid: tr.b.GUID.getLastSimpleGuid(),
         sequenceNumber: this.allFlowEvents_.length,
         event: event,
         slice: opt_slice,  // slice for events that have flow info
@@ -351,6 +345,11 @@ tr.exportTo('tr.e.importer', function() {
       });
     },
 
+    scopedIdForEvent_: function(event) {
+      return new tr.model.ScopedId(
+          event.scope || tr.model.OBJECT_DEFAULT_SCOPE, event.id);
+    },
+
     processObjectEvent: function(event) {
       var thread = this.model_.getOrCreateProcess(event.pid).
           getOrCreateThread(event.tid);
@@ -358,6 +357,45 @@ tr.exportTo('tr.e.importer', function() {
         sequenceNumber: this.allObjectEvents_.length,
         event: event,
         thread: thread});
+      // The context processor maintains a cache of unique context objects and
+      // active context sets to reduce memory usage. If an object is modified,
+      // we should invalidate this cache, because otherwise context sets from
+      // before and after the modification may erroneously point to the same
+      // context snapshot (as both are the same set/object instances).
+      if (thread.guid in this.contextProcessorPerThread) {
+        var scopedId = this.scopedIdForEvent_(event);
+        this.contextProcessorPerThread[thread.guid].
+            invalidateContextCacheForSnapshot(scopedId);
+      }
+    },
+
+    processContextEvent: function(event) {
+      var thread = this.model_.getOrCreateProcess(event.pid).
+          getOrCreateThread(event.tid);
+      if (!(thread.guid in this.contextProcessorPerThread)) {
+        this.contextProcessorPerThread[thread.guid] =
+            new tr.importer.ContextProcessor(this.model_);
+      }
+      var scopedId = this.scopedIdForEvent_(event);
+      var contextType = event.name;
+      var processor = this.contextProcessorPerThread[thread.guid];
+      if (event.ph === '(') {
+        processor.enterContext(contextType, scopedId);
+      } else if (event.ph === ')') {
+        processor.leaveContext(contextType, scopedId);
+      } else {
+        this.model_.importWarning({
+          type: 'unknown_context_phase',
+          message: 'Unknown context event phase: ' + event.ph + '.'
+        });
+      }
+    },
+
+    setContextsFromThread_: function(thread, slice) {
+      if (thread.guid in this.contextProcessorPerThread) {
+        slice.contexts =
+            this.contextProcessorPerThread[thread.guid].activeContexts;
+      }
     },
 
     processDurationEvent: function(event) {
@@ -379,6 +417,7 @@ tr.exportTo('tr.e.importer', function() {
             timestampFromUs(event.tts), event.argsStripped,
             getEventColor(event));
         slice.startStackFrame = this.getStackFrameForEvent_(event);
+        this.setContextsFromThread_(thread, slice);
       } else if (event.ph === 'I' || event.ph === 'i' || event.ph === 'R') {
         if (event.s !== undefined && event.s !== 't')
           throw new Error('This should never happen');
@@ -464,6 +503,7 @@ tr.exportTo('tr.e.importer', function() {
           event.bind_id);
       slice.startStackFrame = this.getStackFrameForEvent_(event);
       slice.endStackFrame = this.getStackFrameForEvent_(event, true);
+      this.setContextsFromThread_(thread, slice);
 
       return slice;
     },
@@ -629,7 +669,7 @@ tr.exportTo('tr.e.importer', function() {
           return childFrame;
 
         var frame = new tr.model.StackFrame(
-            lastStackFrame, tr.b.GUID.allocate(), entry.name,
+            lastStackFrame, tr.b.GUID.allocateSimple(), entry.name,
             ColorScheme.getColorIdForGeneralPurposeString(entry.name),
             entry.sourceInfo);
 
@@ -696,7 +736,7 @@ tr.exportTo('tr.e.importer', function() {
             event.name];
       }
       if (stackFrame === undefined) {
-        var id = 'te-' + tr.b.GUID.allocate();
+        var id = 'te-' + tr.b.GUID.allocateSimple();
         stackFrame = new tr.model.StackFrame(
             undefined, id, event.name,
             ColorScheme.getColorIdForGeneralPurposeString(event.name));
@@ -711,6 +751,7 @@ tr.exportTo('tr.e.importer', function() {
           undefined, thread, 'Trace Event Sample',
           timestampFromUs(event.ts), stackFrame, 1,
           this.deepCopyIfNeeded_(event.args));
+      this.setContextsFromThread_(thread, sample);
       this.model_.samples.push(sample);
     },
 
@@ -759,35 +800,43 @@ tr.exportTo('tr.e.importer', function() {
         throw new Error('Invalid clock sync event phase "' + event.ph + '".');
 
       var syncId = event.args.sync_id;
-      var issueStartTs = event.args.issue_ts;
-      var issueEndTs = event.ts;
-
       if (syncId === undefined) {
         this.model_.importWarning({
           type: 'clock_sync_parse_error',
-          message: 'Clock sync at time ' + issueEndTs + ' without an ID.'
+          message: 'Clock sync at time ' + event.ts + ' without an ID.'
         });
         return;
       }
 
-      if (issueStartTs === undefined) {
-        this.model_.importWarning({
-          type: 'clock_sync_parse_error',
-          message: 'Clock sync at time ' + issueEndTs + ' with ID ' + syncId +
-              ' without a start timestamp.'
-        });
-        return;
+      if (event.args && event.args.issue_ts !== undefined) {
+        // When Chrome is the tracing controller and is the requester of the
+        // clock sync, the clock sync event looks like:
+        //
+        //   {
+        //     "args": {
+        //       "sync_id": "abc123",
+        //       "issue_ts": 12340
+        //     }
+        //     "ph": "c"
+        //     "ts": 12345
+        //     ...
+        //   }
+        this.model_.clockSyncManager.addClockSyncMarker(
+            this.clockDomainId_, syncId, timestampFromUs(event.args.issue_ts),
+            timestampFromUs(event.ts));
+      } else {
+        // When Chrome is a tracing agent and is the recipient of the clock
+        // sync request, the clock sync event looks like:
+        //
+        //   {
+        //     "args": { "sync_id": "abc123" }
+        //     "ph": "c"
+        //     "ts": 12345
+        //     ...
+        //   }
+        this.model_.clockSyncManager.addClockSyncMarker(
+            this.clockDomainId_, syncId, timestampFromUs(event.ts));
       }
-
-      this.model_.clockSyncManager.addClockSyncMarker(
-          this.clockDomainId_, syncId, timestampFromUs(issueStartTs),
-          timestampFromUs(issueEndTs - issueStartTs));
-
-      // TODO(charliea): Remove this once the new clock sync system is fully
-      // implemented.
-      this.model_.clockSyncRecords.push(new tr.model.PingPongClockSyncRecord(
-          syncId, timestampFromUs(issueStartTs),
-          timestampFromUs(issueEndTs - issueStartTs)));
     },
 
     // Because the order of Jit code events and V8 samples are not guaranteed,
@@ -814,21 +863,6 @@ tr.exportTo('tr.e.importer', function() {
     },
 
     importClockSyncMarkers: function() {
-      // TODO(charliea): Remove this once we're fully moved over to using the
-      // ClockSyncManager.
-      //
-      // Note that we don't insert a "new style" ftrace_importer marker here.
-      // The reason for this is that ftrace uses this marker as a means to
-      // implement the following logic:
-      //
-      //   If there are multiple clock domains, throw an error if they don't
-      //   have clock sync markers connecting them.
-      //
-      // The new ClockSyncManager takes care of this already, so we don't
-      // need such a marker.
-      this.model_.clockSyncRecords.push(
-          new tr.model.InstantClockSyncRecord('ftrace_importer', 0, {}));
-
       for (var i = 0; i < this.events_.length; i++) {
         var event = this.events_[i];
 
@@ -936,6 +970,8 @@ tr.exportTo('tr.e.importer', function() {
               eventSizeInBytes);
           this.processMemoryDumpEvent(event);
 
+        } else if (event.ph === '(' || event.ph === ')') {
+          this.processContextEvent(event);
         } else if (event.ph === 'c') {
           // No-op. Clock sync events have already been processed in
           // importClockSyncMarkers().
@@ -1860,8 +1896,7 @@ tr.exportTo('tr.e.importer', function() {
 
       function processEvent(objectEventState) {
         var event = objectEventState.event;
-        var scopedId = new tr.model.ScopedId(
-            event.scope || tr.model.OBJECT_DEFAULT_SCOPE, event.id);
+        var scopedId = this.scopedIdForEvent_(event);
         var thread = objectEventState.thread;
         if (event.name === undefined) {
           this.model_.importWarning({
@@ -2515,7 +2550,9 @@ tr.exportTo('tr.e.importer', function() {
           }
 
           var size = parseInt(entry.size, 16);
-          heapDump.addEntry(leafStackFrame, objectTypeName, size);
+          var count = entry.count === undefined ? undefined :
+              parseInt(entry.count, 16);
+          heapDump.addEntry(leafStackFrame, objectTypeName, size, count);
         }
 
         // Throw away heap dumps with no entries. This can happen if all raw

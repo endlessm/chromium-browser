@@ -34,6 +34,10 @@ class TracingUnexpectedResponseException(Exception):
   pass
 
 
+class ClockSyncResponseException(Exception):
+  pass
+
+
 class _DevToolsStreamReader(object):
   def __init__(self, inspector_socket, stream_handle):
     self._inspector_websocket = inspector_socket
@@ -94,7 +98,7 @@ class TracingBackend(object):
   def is_tracing_running(self):
     return self._is_tracing_running
 
-  def StartTracing(self, trace_options, custom_categories=None, timeout=10):
+  def StartTracing(self, trace_options, timeout=10):
     """When first called, starts tracing, and returns True.
 
     If called during tracing, tracing is unchanged, and it returns False.
@@ -111,12 +115,11 @@ class TracingBackend(object):
     req = {
       'method': 'Tracing.start',
       'params': {
+        'categories': trace_options.tracing_category_filter.filter_string,
         'options': trace_options.GetTraceOptionsStringForChromeDevtool(),
         'transferMode': 'ReturnAsStream'
       }
     }
-    if custom_categories:
-      req['params']['categories'] = custom_categories
     logging.info('Start Tracing Request: %s', repr(req))
     response = self._inspector_websocket.SyncRequest(req, timeout)
 
@@ -127,6 +130,18 @@ class TracingBackend(object):
 
     self._is_tracing_running = True
     return True
+
+  def RecordClockSyncMarker(self, sync_id):
+    assert self.is_tracing_running, 'Tracing must be running to clock sync.'
+    req = {
+      'method': 'Tracing.recordClockSyncMarker',
+      'params': {
+        'syncId': sync_id
+      }
+    }
+    rc = self._inspector_websocket.SyncRequest(req, timeout=2)
+    if 'error' in rc:
+      raise ClockSyncResponseException(rc['error']['message'])
 
   def StopTracing(self, trace_data_builder, timeout=30):
     """Stops tracing and pushes results to the supplied TraceDataBuilder.
@@ -249,5 +264,5 @@ class TracingBackend(object):
   @decorators.Cache
   def IsTracingSupported(self):
     req = {'method': 'Tracing.hasCompleted'}
-    res = self._inspector_websocket.SyncRequest(req)
+    res = self._inspector_websocket.SyncRequest(req, timeout=10)
     return not res.get('response')

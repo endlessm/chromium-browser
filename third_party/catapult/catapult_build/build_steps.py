@@ -24,6 +24,14 @@ import sys
 # github.com/luci/recipes-py/blob/master/recipe_modules/generator_script/api.py
 _CATAPULT_TESTS = [
     {
+        'name': 'BattOr Smoke Tests',
+        'path': 'common/battor/battor/battor_wrapper_devicetest.py',
+    },
+    {
+        'name': 'BattOr Unit Tests',
+        'path': 'common/battor/bin/run_py_tests',
+    },
+    {
         'name': 'Build Python Tests',
         'path': 'catapult_build/bin/run_py_tests',
     },
@@ -39,8 +47,6 @@ _CATAPULT_TESTS = [
             '--no-use-local-chrome',
             '--channel=canary'
         ],
-        # https://github.com/catapult-project/catapult/issues/2138
-        'disabled': ['linux', 'mac', 'win'],
         'outputs_presentation_json': True,
     },
     {
@@ -76,8 +82,6 @@ _CATAPULT_TESTS = [
             '--no-use-local-chrome',
             '--channel=canary'
         ],
-        # https://github.com/catapult-project/catapult/issues/2138
-        'disabled': ['linux', 'mac', 'win'],
         'outputs_presentation_json': True,
     },
     {
@@ -119,6 +123,16 @@ _CATAPULT_TESTS = [
         'uses_sandbox_env': True,
     },
     {
+        'name': 'Telemetry Integration Tests with Stable Browser',
+        'path': 'telemetry/bin/run_browser_tests',
+        'additional_args': [
+            'SimpleBrowserTest',
+            '--browser=reference',
+        ],
+        'uses_sandbox_env': True,
+        'disabled': ['linux'],  # TODO(nedn): enable this on linux
+    },
+    {
         'name': 'Tracing Dev Server Tests Canary',
         'path': 'tracing/bin/run_dev_server_tests',
         'additional_args': [
@@ -126,11 +140,6 @@ _CATAPULT_TESTS = [
             '--no-use-local-chrome',
             '--channel=canary'
         ],
-        # Test failing on Windows:
-        # https://github.com/catapult-project/catapult/issues/1816
-        # Tests failing on all platform:
-        # https://github.com/catapult-project/catapult/issues/2138
-        'disabled': ['win', 'linux', 'mac'],
         'outputs_presentation_json': True,
     },
     {

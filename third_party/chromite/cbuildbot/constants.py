@@ -73,6 +73,14 @@ WATERFALL_BRANCH = 'chromeos.branch'
 # These waterfalls are not yet using cidb.
 WATERFALL_CHROMIUM = 'chromiumos.chromium'
 WATERFALL_CHROME = 'chromeos.chrome'
+WATERFALL_BRILLO = 'internal.client.brillo'
+
+# These waterfalls should send email reports regardless of cidb connection.
+EMAIL_WATERFALLS = (WATERFALL_INTERNAL,
+                    WATERFALL_EXTERNAL,
+                    WATERFALL_RELEASE,
+                    WATERFALL_BRANCH,
+                    WATERFALL_BRILLO,)
 
 CIDB_KNOWN_WATERFALLS = (WATERFALL_INTERNAL,
                          WATERFALL_EXTERNAL,
@@ -113,6 +121,7 @@ BUILDER_STATUS_MISSING = 'missing'
 BUILDER_STATUS_ABORTED = 'aborted'
 # The following statuses are currently only used for build stages.
 BUILDER_STATUS_PLANNED = 'planned'
+BUILDER_STATUS_WAITING = 'waiting'
 BUILDER_STATUS_SKIPPED = 'skipped'
 BUILDER_STATUS_FORGIVEN = 'forgiven'
 BUILDER_COMPLETED_STATUSES = (BUILDER_STATUS_PASSED,
@@ -125,6 +134,7 @@ BUILDER_ALL_STATUSES = (BUILDER_STATUS_FAILED,
                         BUILDER_STATUS_INFLIGHT,
                         BUILDER_STATUS_MISSING,
                         BUILDER_STATUS_ABORTED,
+                        BUILDER_STATUS_WAITING,
                         BUILDER_STATUS_PLANNED,
                         BUILDER_STATUS_SKIPPED,
                         BUILDER_STATUS_FORGIVEN)
@@ -245,12 +255,19 @@ INTERNAL_GERRIT_HOST = GOB_HOST % INTERNAL_GERRIT_INSTANCE
 INTERNAL_GOB_URL = 'https://%s' % INTERNAL_GOB_HOST
 INTERNAL_GERRIT_URL = 'https://%s' % INTERNAL_GERRIT_HOST
 
-AOSP_GOB_INSTANCE = 'android'
-AOSP_GERRIT_INSTANCE = 'android-review'
-AOSP_GOB_HOST = GOB_HOST % AOSP_GOB_INSTANCE
-AOSP_GERRIT_HOST = GOB_HOST % AOSP_GERRIT_INSTANCE
-AOSP_GOB_URL = 'https://%s' % AOSP_GOB_HOST
-AOSP_GERRIT_URL = 'https://%s' % AOSP_GERRIT_HOST
+ANDROID_BUCKET_URL = 'gs://android-build-chromeos/builds'
+ANDROID_BUILD_BRANCH = 'git_mnc-dr-arc-dev'
+ANDROID_BUILD_TARGETS = {
+    'ARM': 'linux-cheets_arm-userdebug',
+    'X86': 'linux-cheets_x86-userdebug',
+    'CTS': 'linux-cts',
+}
+ARC_BUCKET_URL = 'gs://chromeos-arc-images/builds'
+ARC_BUCKET_ACLS = {
+    'ARM': 'googlestorage_acl_arm.txt',
+    'X86': 'googlestorage_acl_x86.txt',
+    'CTS': 'googlestorage_acl_cts.txt',
+}
 
 GOB_COOKIE_PATH = os.path.expanduser('~/.git-credential-cache/cookie')
 GITCOOKIES_PATH = os.path.expanduser('~/.gitcookies')
@@ -258,9 +275,6 @@ GITCOOKIES_PATH = os.path.expanduser('~/.gitcookies')
 # Timestamps in the JSON from GoB's web interface is of the form 'Tue
 # Dec 02 17:48:06 2014' and is assumed to be in UTC.
 GOB_COMMIT_TIME_FORMAT = '%a %b %d %H:%M:%S %Y'
-
-REPO_PROJECT = 'external/repo'
-REPO_URL = '%s/%s' % (EXTERNAL_GOB_URL, REPO_PROJECT)
 
 CHROMITE_PROJECT = 'chromiumos/chromite'
 CHROMITE_URL = '%s/%s' % (EXTERNAL_GOB_URL, CHROMITE_PROJECT)
@@ -270,78 +284,15 @@ CHROME_INTERNAL_PROJECT = 'chrome/src-internal'
 CHROME_INTERNAL_GOB_URL = '%s/%s.git' % (
     INTERNAL_GOB_URL, CHROME_INTERNAL_PROJECT)
 
-MANIFEST_PROJECT = 'chromiumos/manifest'
-MANIFEST_INT_PROJECT = 'chromeos/manifest-internal'
-MANIFEST_PROJECTS = (MANIFEST_PROJECT, MANIFEST_INT_PROJECT)
-
-MANIFEST_URL = '%s/%s' % (EXTERNAL_GOB_URL, MANIFEST_PROJECT)
-MANIFEST_INT_URL = '%s/%s' % (INTERNAL_GERRIT_URL, MANIFEST_INT_PROJECT)
-
 DEFAULT_MANIFEST = 'default.xml'
 OFFICIAL_MANIFEST = 'official.xml'
 LKGM_MANIFEST = 'LKGM/lkgm.xml'
 
 SHARED_CACHE_ENVVAR = 'CROS_CACHEDIR'
+PARALLEL_EMERGE_STATUS_FILE_ENVVAR = 'PARALLEL_EMERGE_STATUS_FILE'
 
 # These projects can be responsible for infra failures.
 INFRA_PROJECTS = (CHROMITE_PROJECT,)
-
-# CrOS remotes specified in the manifests.
-EXTERNAL_REMOTE = 'cros'
-INTERNAL_REMOTE = 'cros-internal'
-# TODO(dgarrett): Reconsider when crbug.com/428215 is fixed.
-KAYLE_INTERNAL_REMOTE = 'kayle-cros-internal'
-CHROMIUM_REMOTE = 'chromium'
-CHROME_REMOTE = 'chrome'
-AOSP_REMOTE = 'aosp'
-
-GERRIT_HOSTS = {
-    EXTERNAL_REMOTE: EXTERNAL_GERRIT_HOST,
-    INTERNAL_REMOTE: INTERNAL_GERRIT_HOST,
-    AOSP_REMOTE: AOSP_GERRIT_HOST,
-}
-
-# Only remotes listed in CROS_REMOTES are considered branchable.
-# CROS_REMOTES and BRANCHABLE_PROJECTS must be kept in sync.
-CROS_REMOTES = {
-    EXTERNAL_REMOTE: EXTERNAL_GOB_URL,
-    INTERNAL_REMOTE: INTERNAL_GOB_URL,
-    KAYLE_INTERNAL_REMOTE: INTERNAL_GOB_URL,
-    AOSP_REMOTE: AOSP_GOB_URL,
-}
-
-GIT_REMOTES = {
-    CHROMIUM_REMOTE: EXTERNAL_GOB_URL,
-    CHROME_REMOTE: INTERNAL_GOB_URL,
-}
-GIT_REMOTES.update(CROS_REMOTES)
-
-# Prefix to distinguish internal and external changes. This is used
-# when user specifies a patch with "-g", when generating a key for
-# a patch to used in our PatchCache, and when display a custom string
-# for the patch.
-INTERNAL_CHANGE_PREFIX = '*'
-EXTERNAL_CHANGE_PREFIX = ''
-
-CHANGE_PREFIX = {
-    INTERNAL_REMOTE: INTERNAL_CHANGE_PREFIX,
-    EXTERNAL_REMOTE: EXTERNAL_CHANGE_PREFIX,
-}
-
-# List of remotes that are ok to include in the external manifest.
-EXTERNAL_REMOTES = (EXTERNAL_REMOTE, CHROMIUM_REMOTE)
-
-# Mapping 'remote name' -> regexp that matches names of repositories on that
-# remote that can be branched when creating CrOS branch. Branching script will
-# actually create a new git ref when branching these projects. It won't attempt
-# to create a git ref for other projects that may be mentioned in a manifest.
-# If a remote is missing from this dictionary, all projects on that remote are
-# considered to not be branchable.
-BRANCHABLE_PROJECTS = {
-    EXTERNAL_REMOTE: r'chromiumos/(.+)',
-    INTERNAL_REMOTE: r'chromeos/(.+)',
-    KAYLE_INTERNAL_REMOTE: r'chromeos/(.+)',
-}
 
 # The manifest contains extra attributes in the 'project' nodes to determine our
 # branching strategy for the project.
@@ -358,19 +309,6 @@ MANIFEST_ATTR_BRANCHING_ALL = (
     MANIFEST_ATTR_BRANCHING_PIN,
     MANIFEST_ATTR_BRANCHING_TOT,
 )
-
-# TODO(sosa): Move to manifest-versions-external once its created
-MANIFEST_VERSIONS_GOB_URL = EXTERNAL_GOB_URL + '/chromiumos/manifest-versions'
-MANIFEST_VERSIONS_GOB_URL_TEST = MANIFEST_VERSIONS_GOB_URL + '-test'
-
-MANIFEST_VERSIONS_INT_GOB_URL = INTERNAL_GOB_URL + '/chromeos/manifest-versions'
-MANIFEST_VERSIONS_INT_GOB_URL_TEST = MANIFEST_VERSIONS_INT_GOB_URL + '-test'
-
-MANIFEST_VERSIONS_GS_URL = 'gs://chromeos-manifest-versions'
-
-# Standard directories under buildroot for cloning these repos.
-EXTERNAL_MANIFEST_VERSIONS_PATH = 'manifest-versions'
-INTERNAL_MANIFEST_VERSIONS_PATH = 'manifest-versions-internal'
 
 STREAK_COUNTERS = 'streak_counters'
 
@@ -422,6 +360,33 @@ VALID_CHROME_REVISIONS = [CHROME_REV_TOT, CHROME_REV_LATEST,
                           CHROME_REV_STICKY, CHROME_REV_LOCAL, CHROME_REV_SPEC]
 
 
+# Constants for uprevving Android.
+
+# Portage category and package name for Chrome.
+ANDROID_PN = 'android-container'
+ANDROID_CP = 'chromeos-base/%s' % ANDROID_PN
+
+# Builds and validates the latest Android release.
+ANDROID_REV_LATEST = 'latest_release'
+VALID_ANDROID_REVISIONS = [ANDROID_REV_LATEST]
+
+
+# Builder types supported
+BAREMETAL_BUILD_SLAVE_TYPE = 'baremetal'
+VM_BUILD_SLAVE_TYPE = 'vm'
+GCE_BEEFY_BUILD_SLAVE_TYPE = 'gce_beefy'
+GCE_BUILD_SLAVE_TYPE = 'gce'
+# A wimpy GCE instance well suited to run cbuildbot's master build-types.
+GCE_WIMPY_BUILD_SLAVE_TYPE = 'gce_wimpy'
+
+VALID_BUILD_SLAVE_TYPES = (
+    BAREMETAL_BUILD_SLAVE_TYPE,
+    VM_BUILD_SLAVE_TYPE,
+    GCE_BEEFY_BUILD_SLAVE_TYPE,
+    GCE_BUILD_SLAVE_TYPE,
+    GCE_WIMPY_BUILD_SLAVE_TYPE,
+)
+
 # Build types supported.
 
 # TODO(sosa): Deprecate PFQ type.
@@ -444,6 +409,9 @@ PRE_CQ_LAUNCHER_TYPE = 'priest'
 # VALID_CHROME_REVISIONS for more information.
 CHROME_PFQ_TYPE = 'chrome'
 
+# Android PFQ type.  Builds and validates new versions of Android.
+ANDROID_PFQ_TYPE = 'android'
+
 # Builds from source and non-incremental.  This builds fully wipe their
 # chroot before the start of every build and no not use a BINHOST.
 BUILD_FROM_SOURCE_TYPE = 'full'
@@ -453,6 +421,9 @@ CANARY_TYPE = 'canary'
 
 # Generate payloads for an already built build/version.
 PAYLOADS_TYPE = 'payloads'
+
+# Similar behavior to canary, but used to validate toolchain changes.
+TOOLCHAIN_TYPE = 'toolchain'
 
 BRANCH_UTIL_CONFIG = 'branch-util'
 
@@ -469,9 +440,11 @@ VALID_BUILD_TYPES = (
     CHROOT_BUILDER_TYPE,
     CHROOT_BUILDER_BOARD,
     CHROME_PFQ_TYPE,
+    ANDROID_PFQ_TYPE,
     PFQ_TYPE,
     PRE_CQ_LAUNCHER_TYPE,
     PAYLOADS_TYPE,
+    TOOLCHAIN_TYPE,
 )
 
 # The default list of pre-cq configs to use.
@@ -482,7 +455,8 @@ PRE_CQ_DEFAULT_CONFIGS = ['rambi-pre-cq', 'mixed-a-pre-cq', 'mixed-b-pre-cq',
 PRE_CQ_LAUNCHER_CONFIG = 'pre-cq-launcher'
 
 # The name of the Pre-CQ launcher on the waterfall.
-PRE_CQ_LAUNCHER_NAME = 'Pre-CQ Launcher'
+# As of crbug.com/591117 this is the same as the config name.
+PRE_CQ_LAUNCHER_NAME = PRE_CQ_LAUNCHER_CONFIG
 
 # The COMMIT-QUEUE.ini and commit message option that overrides pre-cq configs
 # to test with.
@@ -500,16 +474,7 @@ HWTEST_SUITES_POOL = 'suites'
 HWTEST_CHROME_PERF_POOL = 'chromeperf'
 HWTEST_TRYBOT_POOL = HWTEST_SUITES_POOL
 HWTEST_WIFICELL_PRE_CQ_POOL = 'wificell-pre-cq'
-
-
-# Master build timeouts in seconds. This is the overall timeout set by the
-# master for the lock-step master-slave builds.
-MASTER_BUILD_TIMEOUT_SECONDS = {
-    PFQ_TYPE: 20 * 60,
-    # Canaries are scheduled to run every 8 hours. Leave some gap.
-    CANARY_TYPE: (7 * 60 + 50) * 60,
-}
-MASTER_BUILD_TIMEOUT_DEFAULT_SECONDS = 4 * 60 * 60
+HWTEST_CONTINUOUS_POOL = 'continuous'
 
 
 # Defines for the various hardware test suites:
@@ -523,11 +488,14 @@ MASTER_BUILD_TIMEOUT_DEFAULT_SECONDS = 4 * 60 * 60
 #   CANARY:  Non-blocking suite run only against the canaries.
 #   AFDO:  Non-blocking suite run only AFDO builders.
 #   MOBLAB: Blocking Suite run only on *_moblab builders.
+HWTEST_ARC_COMMIT_SUITE = 'arc-bvt-cq'
+HWTEST_ARC_CANARY_SUITE = 'arc-bvt-perbuild'
 HWTEST_AU_SUITE = 'au'
 HWTEST_BVT_SUITE = 'bvt-inline'
 HWTEST_COMMIT_SUITE = 'bvt-cq'
 HWTEST_CANARY_SUITE = 'bvt-perbuild'
 HWTEST_AFDO_SUITE = 'AFDO_record'
+HWTEST_JETSTREAM_COMMIT_SUITE = 'jetstream_cq'
 HWTEST_MOBLAB_SUITE = 'moblab'
 HWTEST_MOBLAB_QUICK_SUITE = 'moblab_quick'
 HWTEST_SANITY_SUITE = 'sanity'
@@ -558,6 +526,12 @@ HWTEST_VALID_PRIORITIES = ['Weekly',
 HWTEST_PRIORITIES_MAP = dict(
     (p, i) for i, p in enumerate(HWTEST_VALID_PRIORITIES))
 
+# Define HWTEST subsystem logic constants.
+SUBSYSTEMS = 'subsystems'
+SUBSYSTEM_PASS = 'subsystem_pass'
+SUBSYSTEM_FAIL = 'subsystem_fail'
+SUBSYSTEM_UNUSED = 'subsystem_unused'
+
 # Defines VM Test types.
 FULL_AU_TEST_TYPE = 'full_suite'
 SIMPLE_AU_TEST_TYPE = 'pfq_suite'
@@ -565,9 +539,12 @@ SMOKE_SUITE_TEST_TYPE = 'smoke_suite'
 TELEMETRY_SUITE_TEST_TYPE = 'telemetry_suite'
 CROS_VM_TEST_TYPE = 'cros_vm_test'
 DEV_MODE_TEST_TYPE = 'dev_mode_test'
+# Special test type for the GCE test lab. It runs all tests in the smoke suite,
+# but runs them on GCE.
+GCE_VM_TEST_TYPE = 'gce_vm_test'
 VALID_VM_TEST_TYPES = [FULL_AU_TEST_TYPE, SIMPLE_AU_TEST_TYPE,
                        SMOKE_SUITE_TEST_TYPE, TELEMETRY_SUITE_TEST_TYPE,
-                       CROS_VM_TEST_TYPE, DEV_MODE_TEST_TYPE]
+                       CROS_VM_TEST_TYPE, DEV_MODE_TEST_TYPE, GCE_VM_TEST_TYPE]
 
 CHROMIUMOS_OVERLAY_DIR = 'src/third_party/chromiumos-overlay'
 VERSION_FILE = os.path.join(CHROMIUMOS_OVERLAY_DIR,
@@ -748,6 +725,7 @@ CL_PRECQ_CONFIG_STATUSES = (CL_PRECQ_CONFIG_STATUS_PENDING,
 # CL submission, rejection, or forgiven reasons (i.e. strategies).
 STRATEGY_CQ_SUCCESS = 'strategy:cq-success'
 STRATEGY_CQ_PARTIAL = 'strategy:cq-submit-partial-pool'
+STRATEGY_CQ_PARTIAL_SUBSYSTEM = 'strategy:cq-submit-partial-pool-pass-subsystem'
 STRATEGY_PRECQ_SUBMIT = 'strategy:pre-cq-submit'
 STRATEGY_NONMANIFEST = 'strategy:non-manifest-submit'
 
@@ -757,7 +735,8 @@ PRE_CQ = 'pre-cq'
 
 # Environment variables that should be exposed to all children processes
 # invoked via cros_build_lib.RunCommand.
-ENV_PASSTHRU = ('CROS_SUDO_KEEP_ALIVE', SHARED_CACHE_ENVVAR)
+ENV_PASSTHRU = ('CROS_SUDO_KEEP_ALIVE', SHARED_CACHE_ENVVAR,
+                PARALLEL_EMERGE_STATUS_FILE_ENVVAR)
 
 # List of variables to proxy into the chroot from the host, and to
 # have sudo export if existent. Anytime this list is modified, a new
@@ -797,7 +776,12 @@ COMMON_CACHE = 'common'
 def _SlashToUnderscore(string):
   return string.replace('/', '_')
 
-DEFAULT_ARCHIVE_BUCKET = 'gs://chromeos-image-archive'
+# GCE tar ball constants.
+def ImageBinToGceTar(image_bin):
+  assert image_bin.endswith('.bin'), ('Filename %s does not end with ".bin"' %
+                                      image_bin)
+  return '%s_gce.tar.gz' % os.path.splitext(image_bin)[0]
+
 RELEASE_BUCKET = 'gs://chromeos-releases'
 TRASH_BUCKET = 'gs://chromeos-throw-away-bucket'
 CHROME_SYSROOT_TAR = 'sysroot_%s.tar.xz' % _SlashToUnderscore(CHROME_CP)
@@ -806,6 +790,7 @@ CHROME_ENV_FILE = 'environment'
 BASE_IMAGE_NAME = 'chromiumos_base_image'
 BASE_IMAGE_TAR = '%s.tar.xz' % BASE_IMAGE_NAME
 BASE_IMAGE_BIN = '%s.bin' % BASE_IMAGE_NAME
+BASE_IMAGE_GCE_TAR = ImageBinToGceTar(BASE_IMAGE_BIN)
 IMAGE_SCRIPTS_NAME = 'image_scripts'
 IMAGE_SCRIPTS_TAR = '%s.tar.xz' % IMAGE_SCRIPTS_NAME
 VM_IMAGE_NAME = 'chromiumos_qemu_image'
@@ -813,22 +798,41 @@ VM_IMAGE_BIN = '%s.bin' % VM_IMAGE_NAME
 VM_DISK_PREFIX = 'chromiumos_qemu_disk.bin'
 VM_MEM_PREFIX = 'chromiumos_qemu_mem.bin'
 VM_TEST_RESULTS = 'vm_test_results_%(attempt)s'
+GCE_TEST_RESULTS = 'gce_test_results_%(attempt)s'
 
 TEST_IMAGE_NAME = 'chromiumos_test_image'
 TEST_IMAGE_TAR = '%s.tar.xz' % TEST_IMAGE_NAME
 TEST_IMAGE_BIN = '%s.bin' % TEST_IMAGE_NAME
+TEST_IMAGE_GCE_TAR = ImageBinToGceTar(TEST_IMAGE_BIN)
+TEST_KEY_PRIVATE = 'id_rsa'
+TEST_KEY_PUBLIC = 'id_rsa.pub'
 
 DEV_IMAGE_NAME = 'chromiumos_image'
 DEV_IMAGE_BIN = '%s.bin' % DEV_IMAGE_NAME
 
 RECOVERY_IMAGE_NAME = 'recovery_image'
 RECOVERY_IMAGE_BIN = '%s.bin' % RECOVERY_IMAGE_NAME
+RECOVERY_IMAGE_TAR = '%s.tar.xz' % RECOVERY_IMAGE_NAME
+
+# Image type constants.
+IMAGE_TYPE_BASE = 'base'
+IMAGE_TYPE_DEV = 'dev'
+IMAGE_TYPE_TEST = 'test'
+IMAGE_TYPE_RECOVERY = 'recovery'
+IMAGE_TYPE_FACTORY = 'factory'
+IMAGE_TYPE_FIRMWARE = 'firmware'
+# NVidia Tegra SoC resume firmware blob.
+IMAGE_TYPE_NV_LP0_FIRMWARE = 'nv_lp0_firmware'
+# USB PD accessory microcontroller firmware (e.g. power brick, display dongle).
+IMAGE_TYPE_ACCESSORY_USBPD = 'accessory_usbpd'
+# Standalone accessory microcontroller firmware (e.g. wireless keyboard).
+IMAGE_TYPE_ACCESSORY_RWSIG = 'accessory_rwsig'
 
 IMAGE_TYPE_TO_NAME = {
-    'base': BASE_IMAGE_BIN,
-    'dev': DEV_IMAGE_BIN,
-    'recovery': RECOVERY_IMAGE_BIN,
-    'test': TEST_IMAGE_BIN,
+    IMAGE_TYPE_BASE: BASE_IMAGE_BIN,
+    IMAGE_TYPE_DEV: DEV_IMAGE_BIN,
+    IMAGE_TYPE_RECOVERY: RECOVERY_IMAGE_BIN,
+    IMAGE_TYPE_TEST: TEST_IMAGE_BIN,
 }
 IMAGE_NAME_TO_TYPE = dict((v, k) for k, v in IMAGE_TYPE_TO_NAME.iteritems())
 
@@ -888,7 +892,7 @@ EXTRA_BUCKETS_FILES_BLACKLIST = [
 
 # AFDO common constants.
 # How long does the AFDO_record autotest have to generate the AFDO perf data.
-AFDO_GENERATE_TIMEOUT = 90 * 60
+AFDO_GENERATE_TIMEOUT = 80 * 60
 
 # Stats dashboard elastic search and statsd constants.
 # Host and port information specified in topology.py.
@@ -898,11 +902,11 @@ ELASTIC_SEARCH_USE_HTTP = False
 STATSD_PROD_PREFIX = 'chromite'
 STATSD_DEBUG_PREFIX = 'chromite_debug'
 
-# Publication of Project SDK artifacts.
-BRILLO_RELEASE_MANIFESTS_URL = 'gs://brillo-releases/sdk-releases'
-BRILLO_LATEST_RELEASE_URL = os.path.join(BRILLO_RELEASE_MANIFESTS_URL,
-                                         'LATEST')
-
 # Gmail Credentials.
 GMAIL_TOKEN_CACHE_FILE = os.path.expanduser('~/.gmail_credentials')
 GMAIL_TOKEN_JSON_FILE = '/creds/refresh_tokens/chromeos_gmail_alerts'
+
+# Maximum number of boards per release group builder. This should be
+# chosen/adjusted based on expected release build times such that successive
+# builds don't overlap and create a backlog.
+MAX_RELEASE_GROUP_BOARDS = 4

@@ -19,10 +19,9 @@ from __future__ import print_function
 import base64
 import distutils.version
 import filecmp
-import optparse
+import optparse  # pylint: disable=deprecated-module
 import os
 import re
-import sys
 import urlparse
 
 from chromite.cbuildbot import constants
@@ -291,17 +290,6 @@ def FindChromeUprevCandidate(stable_ebuilds, chrome_rev, sticky_branch):
     return None
 
 
-def _AnnotateAndPrint(text, url):
-  """Add buildbot trappings to print <a href='url'>text</a> in the waterfall.
-
-  Args:
-    text: Anchor text for the link
-    url: the URL to which to link
-  """
-  print('\n@@@STEP_LINK@%(text)s@%(url)s@@@' % {'text': text, 'url': url},
-        file=sys.stderr)
-
-
 def GetChromeRevisionLinkFromVersions(old_chrome_version, chrome_version):
   """Return appropriately formatted link to revision info, given versions
 
@@ -414,10 +402,9 @@ def MarkChromeEBuildAsStable(stable_candidate, unstable_ebuild, chrome_pn,
     return None
 
   if stable_candidate and chrome_rev in _REV_TYPES_FOR_LINKS:
-    _AnnotateAndPrint('Chromium revisions',
-                      GetChromeRevisionListLink(stable_candidate,
-                                                new_ebuild,
-                                                chrome_rev))
+    logging.PrintBuildbotLink('Chromium revisions',
+                              GetChromeRevisionListLink(stable_candidate,
+                                                        new_ebuild, chrome_rev))
 
   git.RunGit(package_dir, ['add', new_ebuild_path])
   if stable_candidate and not stable_candidate.IsSticky():
@@ -527,7 +514,8 @@ def main(_argv):
       version_to_uprev, commit_to_use, chrome_package_dir)
   if chrome_version_atom:
     if options.boards:
-      cros_mark_as_stable.CleanStalePackages(options.boards.split(':'),
+      cros_mark_as_stable.CleanStalePackages(options.srcroot,
+                                             options.boards.split(':'),
                                              [chrome_version_atom])
 
     # If we did rev Chrome, now is a good time to uprev other packages.
@@ -545,7 +533,8 @@ def main(_argv):
                                              chrome_rev, version_to_uprev,
                                              commit_to_use, other_package_dir)
       if revved_atom and options.boards:
-        cros_mark_as_stable.CleanStalePackages(options.boards.split(':'),
+        cros_mark_as_stable.CleanStalePackages(options.srcroot,
+                                               options.boards.split(':'),
                                                [revved_atom])
 
   # Explicit print to communicate to caller.

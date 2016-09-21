@@ -70,6 +70,14 @@ _NON_TELEMETRY_TEST_COMMANDS = {
         '--test-launcher-print-test-stdio=always',
         '--enable-gpu',
     ],
+    'resource_sizes': [
+        'src/build/android/resource_sizes.py',
+        'src/out/Release/apks/Chrome.apk',
+        '--so-path src/out/Release/libchrome.so',
+        '--so-with-symbols-path src/out/Release/lib.unstripped/libchrome.so',
+        '--chartjson',
+        '--build_type Release',
+    ],
 }
 
 
@@ -442,8 +450,6 @@ def _GuessCommandTelemetry(
   # TODO(qyearsley): Use metric to add a --story-filter flag for Telemetry.
   # See: http://crbug.com/448628
   command = []
-  if bisect_bot.startswith('win'):
-    command.append('python')
 
   if use_buildbucket:
     test_cmd = 'src/tools/perf/run_benchmark'
@@ -455,6 +461,7 @@ def _GuessCommandTelemetry(
       '-v',
       '--browser=%s' % _GuessBrowserName(bisect_bot),
       '--output-format=%s' % ('chartjson' if use_buildbucket else 'buildbot'),
+      '--upload-results',
       '--also-run-disabled-tests',
   ])
 

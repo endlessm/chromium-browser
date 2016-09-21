@@ -12,7 +12,6 @@ from __future__ import print_function
 
 import ConfigParser
 import cStringIO
-import errno
 import getpass
 import os
 import re
@@ -36,8 +35,24 @@ VERSION_REGEX = r'^R([0-9]+)-([^-]+)'
 # Keep it in sync with the signer config files [gs_test_buckets].
 TEST_SIGN_BUCKET_BASE = 'gs://chromeos-throw-away-bucket/signer-tests'
 
-# Ketsets that are only valid in the above test bucket.
-TEST_KEYSETS = set(('test-keys-mp', 'test-keys-premp'))
+# Keysets that are only valid in the above test bucket.
+TEST_KEYSET_PREFIX = 'test-keys'
+TEST_KEYSETS = set((
+    'mp',
+    'premp',
+    'nvidia-premp',
+))
+
+# Supported image types for signing.
+_SUPPORTED_IMAGE_TYPES = (
+    constants.IMAGE_TYPE_RECOVERY,
+    constants.IMAGE_TYPE_FACTORY,
+    constants.IMAGE_TYPE_FIRMWARE,
+    constants.IMAGE_TYPE_NV_LP0_FIRMWARE,
+    constants.IMAGE_TYPE_ACCESSORY_USBPD,
+    constants.IMAGE_TYPE_ACCESSORY_RWSIG,
+    constants.IMAGE_TYPE_BASE,
+)
 
 
 class PushError(Exception):
@@ -47,6 +62,10 @@ class PushError(Exception):
 class MissingBoardInstructions(Exception):
   """Raised when a board lacks any signer instructions."""
 
+  def __init__(self, board, image_type, input_insns):
+    Exception.__init__(self, 'Board %s lacks insns for %s image: %s not found' %
+                       (board, image_type, input_insns))
+
 
 class InputInsns(object):
   """Object to hold settings for a signable board.
@@ -55,20 +74,38 @@ class InputInsns(object):
   reads) is not exactly the same as the instruction file pushimage reads.
   """
 
-  def __init__(self, board):
+  def __init__(self, board, image_type=None):
+    """Initialization.
+
+    Args:
+      board: The board to look up details.
+      image_type: The type of image we will be signing (see --sign-types).
+    """
     self.board = board
 
     config = ConfigParser.ConfigParser()
     config.readfp(open(self.GetInsnFile('DEFAULT')))
-    try:
-      input_insn = self.GetInsnFile('recovery')
-      config.readfp(open(input_insn))
-    except IOError as e:
-      if e.errno == errno.ENOENT:
-        # This board doesn't have any signing instructions.
-        # This is normal for new or experimental boards.
-        raise MissingBoardInstructions(input_insn)
-      raise
+
+    # What pushimage internally refers to as 'recovery', are the basic signing
+    # instructions in practice, and other types are stacked on top.
+    if image_type is None:
+      image_type = constants.IMAGE_TYPE_RECOVERY
+    self.image_type = image_type
+    input_insns = self.GetInsnFile(constants.IMAGE_TYPE_RECOVERY)
+    if not os.path.exists(input_insns):
+      # This board doesn't have any signing instructions.
+      raise MissingBoardInstructions(self.board, image_type, input_insns)
+    config.readfp(open(input_insns))
+
+    if image_type is not None:
+      input_insns = self.GetInsnFile(image_type)
+      if not os.path.exists(input_insns):
+        # This type doesn't have any signing instructions.
+        raise MissingBoardInstructions(self.board, image_type, input_insns)
+
+      self.image_type = image_type
+      config.readfp(open(input_insns))
+
     self.cfg = config
 
   def GetInsnFile(self, image_type):
@@ -83,7 +120,8 @@ class InputInsns(object):
     """
     if image_type == image_type.upper():
       name = image_type
-    elif image_type == 'recovery':
+    elif image_type in (constants.IMAGE_TYPE_RECOVERY,
+                        constants.IMAGE_TYPE_BASE):
       name = self.board
     else:
       name = '%s.%s' % (self.board, image_type)
@@ -113,24 +151,82 @@ class InputInsns(object):
     """
     return self.SplitCfgField(self.cfg.get('insns', 'channel'))
 
-  def GetKeysets(self):
-    """Return the list of keysets to sign for this board."""
-    return self.SplitCfgField(self.cfg.get('insns', 'keyset'))
+  def GetKeysets(self, insns_merge=None):
+    """Return the list of keysets to sign for this board.
 
-  def OutputInsns(self, image_type, output_file, sect_insns, sect_general):
+    Args:
+      insns_merge: The additional section to look at over [insns].
+    """
+    # First load the default value from [insns.keyset] if available.
+    sections = ['insns']
+    # Then overlay the [insns.xxx.keyset] if requested.
+    if insns_merge is not None:
+      sections += [insns_merge]
+
+    keyset = ''
+    for section in sections:
+      try:
+        keyset = self.cfg.get(section, 'keyset')
+      except (ConfigParser.NoSectionError, ConfigParser.NoOptionError):
+        pass
+
+    # We do not perturb the order (e.g. using sorted() or making a set())
+    # because we want the behavior stable, and we want the input insns to
+    # explicitly control the order (since it has an impact on naming).
+    return self.SplitCfgField(keyset)
+
+  def GetAltInsnSets(self):
+    """Return the list of alternative insn sections."""
+    # We do not perturb the order (e.g. using sorted() or making a set())
+    # because we want the behavior stable, and we want the input insns to
+    # explicitly control the order (since it has an impact on naming).
+    ret = [x for x in self.cfg.sections() if x.startswith('insns.')]
+    return ret if ret else [None]
+
+  @staticmethod
+  def CopyConfigParser(config):
+    """Return a copy of a ConfigParser object.
+
+    The python guys broke the ability to use something like deepcopy:
+    https://bugs.python.org/issue16058
+    """
+    # Write the current config to a string io object.
+    data = cStringIO.StringIO()
+    config.write(data)
+    data.seek(0)
+
+    # Create a new ConfigParser from the serialized data.
+    ret = ConfigParser.ConfigParser()
+    ret.readfp(data)
+
+    return ret
+
+  def OutputInsns(self, output_file, sect_insns, sect_general,
+                  insns_merge=None):
     """Generate the output instruction file for sending to the signer.
+
+    The override order is (later has precedence):
+      [insns]
+      [insns_merge]  (should be named "insns.xxx")
+      sect_insns
 
     Note: The format of the instruction file pushimage outputs (and the signer
     reads) is not exactly the same as the instruction file pushimage reads.
 
     Args:
-      image_type: The type of image we will be signing (see --sign-types).
       output_file: The file to write the new instruction file to.
       sect_insns: Items to set/override in the [insns] section.
       sect_general: Items to set/override in the [general] section.
+      insns_merge: The alternative insns.xxx section to merge.
     """
-    config = ConfigParser.ConfigParser()
-    config.readfp(open(self.GetInsnFile(image_type)))
+    # Create a copy so we can clobber certain fields.
+    config = self.CopyConfigParser(self.cfg)
+    sect_insns = sect_insns.copy()
+
+    # Merge in the alternative insns section if need be.
+    if insns_merge is not None:
+      for k, v in config.items(insns_merge):
+        sect_insns.setdefault(k, v)
 
     # Clear channel entry in instructions file, ensuring we only get
     # one channel for the signer to look at.  Then provide all the
@@ -142,11 +238,15 @@ class InputInsns(object):
       for k, v in fields.iteritems():
         config.set(sect, k, v)
 
+    # Now prune the alternative sections.
+    for alt in self.GetAltInsnSets():
+      config.remove_section(alt)
+
     output = cStringIO.StringIO()
     config.write(output)
     data = output.getvalue()
     osutils.WriteFile(output_file, data)
-    logging.debug('generated insns file for %s:\n%s', image_type, data)
+    logging.debug('generated insns file for %s:\n%s', self.image_type, data)
 
 
 def MarkImageToBeSigned(ctx, tbs_base, insns_path, priority):
@@ -203,7 +303,9 @@ def PushImage(src_path, board, versionrev=None, profile=None, priority=50,
   """
   # Whether we hit an unknown error.  If so, we'll throw an error, but only
   # at the end (so that we still upload as many files as possible).
-  unknown_error = False
+  # It's implemented using a list to deal with variable scopes in nested
+  # functions below.
+  unknown_error = [False]
 
   if versionrev is None:
     # Extract milestone/version from the directory name.
@@ -230,20 +332,20 @@ def PushImage(src_path, board, versionrev=None, profile=None, priority=50,
   try:
     input_insns = InputInsns(board)
   except MissingBoardInstructions as e:
-    logging.warning('board "%s" is missing base instruction file: %s', board, e)
+    logging.warning('Missing base instruction file: %s', e)
     logging.warning('not uploading anything for signing')
     return
   channels = input_insns.GetChannels()
 
-  # We want force_keysets as a set, and keysets as a list.
+  # We want force_keysets as a set.
   force_keysets = set(force_keysets)
-  keysets = list(force_keysets) if force_keysets else input_insns.GetKeysets()
 
   if mock:
     logging.info('Upload mode: mock; signers will not process anything')
     tbs_base = gs_base = os.path.join(constants.TRASH_BUCKET, 'pushimage-tests',
                                       getpass.getuser())
-  elif TEST_KEYSETS & force_keysets:
+  elif set(['%s-%s' % (TEST_KEYSET_PREFIX, x)
+            for x in TEST_KEYSETS]) & force_keysets:
     logging.info('Upload mode: test; signers will process test keys')
     # We need the tbs_base to be in the place the signer will actually scan.
     tbs_base = TEST_SIGN_BUCKET_BASE
@@ -264,7 +366,6 @@ def PushImage(src_path, board, versionrev=None, profile=None, priority=50,
   if dry_run:
     logging.info('DRY RUN MODE ACTIVE: NOTHING WILL BE UPLOADED')
   logging.info('Signing for channels: %s', ' '.join(channels))
-  logging.info('Signing for keysets : %s', ' '.join(keysets))
 
   instruction_urls = {}
 
@@ -272,6 +373,10 @@ def PushImage(src_path, board, versionrev=None, profile=None, priority=50,
     lmid = ('%s-' % image_type) if image_type else ''
     return 'ChromeOS-%s%s-%s' % (lmid, versionrev, boardpath)
 
+  # These variables are defined outside the loop so that the nested functions
+  # below can access them without 'cell-var-from-loop' linter warning.
+  dst_path = ""
+  files_to_sign = []
   for channel in channels:
     logging.debug('\n\n#### CHANNEL: %s ####\n', channel)
     sect_insns['channel'] = channel
@@ -279,120 +384,179 @@ def PushImage(src_path, board, versionrev=None, profile=None, priority=50,
     dst_path = '%s/%s' % (gs_base, sub_path)
     logging.info('Copying images to %s', dst_path)
 
-    recovery_base = _ImageNameBase('recovery')
-    factory_base = _ImageNameBase('factory')
-    firmware_base = _ImageNameBase('firmware')
-    test_base = _ImageNameBase('test')
+    recovery_basename = _ImageNameBase(constants.IMAGE_TYPE_RECOVERY)
+    factory_basename = _ImageNameBase(constants.IMAGE_TYPE_FACTORY)
+    firmware_basename = _ImageNameBase(constants.IMAGE_TYPE_FIRMWARE)
+    nv_lp0_firmware_basename = _ImageNameBase(
+        constants.IMAGE_TYPE_NV_LP0_FIRMWARE)
+    acc_usbpd_basename = _ImageNameBase(constants.IMAGE_TYPE_ACCESSORY_USBPD)
+    acc_rwsig_basename = _ImageNameBase(constants.IMAGE_TYPE_ACCESSORY_RWSIG)
+    test_basename = _ImageNameBase(constants.IMAGE_TYPE_TEST)
+    base_basename = _ImageNameBase(constants.IMAGE_TYPE_BASE)
     hwqual_tarball = 'chromeos-hwqual-%s-%s.tar.bz2' % (board, versionrev)
 
-    # Upload all the files first before flagging them for signing.
-    files_to_copy = (
-        # pylint: disable=bad-whitespace
-        # <src>                          <dst>
-        # <signing type>                 <sfx>
-        ('recovery_image.tar.xz',        recovery_base,          'tar.xz',
-         'recovery'),
-
-        ('factory_image.zip',            factory_base,           'zip',
-         'factory'),
-
-        ('firmware_from_source.tar.bz2', firmware_base,          'tar.bz2',
-         'firmware'),
-
-        ('image.zip',                    _ImageNameBase(),       'zip', ''),
-        ('chromiumos_test_image.tar.xz', test_base,              'tar.xz', ''),
-        ('debug.tgz',                    'debug-%s' % boardpath, 'tgz', ''),
-        (hwqual_tarball,                 '', '', ''),
-        ('au-generator.zip',             '', '', ''),
+    # The following build artifacts, if present, are always copied regardless of
+    # requested signing types.
+    files_to_copy_only = (
+        # (<src>, <dst>, <suffix>),
+        ('image.zip', _ImageNameBase(), 'zip'),
+        (constants.TEST_IMAGE_TAR, test_basename, 'tar.xz'),
+        ('debug.tgz', 'debug-%s' % boardpath, 'tgz'),
+        (hwqual_tarball, '', ''),
+        ('au-generator.zip', '', ''),
+        ('stateful.tgz', '', ''),
     )
-    files_to_sign = []
-    for src, dst, sfx, image_type in files_to_copy:
+
+    # The following build artifacts, if present, are always copied.
+    # If |sign_types| is None, all of them are marked for signing, otherwise
+    # only the image types specified in |sign_types| are marked for signing.
+    files_to_copy_and_maybe_sign = (
+        # (<src>, <dst>, <suffix>, <signing type>),
+        (constants.RECOVERY_IMAGE_TAR, recovery_basename, 'tar.xz',
+         constants.IMAGE_TYPE_RECOVERY),
+
+        ('factory_image.zip', factory_basename, 'zip',
+         constants.IMAGE_TYPE_FACTORY),
+
+        ('firmware_from_source.tar.bz2', firmware_basename, 'tar.bz2',
+         constants.IMAGE_TYPE_FIRMWARE),
+
+        ('firmware_from_source.tar.bz2', nv_lp0_firmware_basename, 'tar.bz2',
+         constants.IMAGE_TYPE_NV_LP0_FIRMWARE),
+
+        ('firmware_from_source.tar.bz2', acc_usbpd_basename, 'tar.bz2',
+         constants.IMAGE_TYPE_ACCESSORY_USBPD),
+
+        ('firmware_from_source.tar.bz2', acc_rwsig_basename, 'tar.bz2',
+         constants.IMAGE_TYPE_ACCESSORY_RWSIG),
+    )
+
+    # The following build artifacts are copied and marked for signing, if
+    # they are present *and* if the image type is specified via |sign_types|.
+    files_to_maybe_copy_and_sign = (
+        # (<src>, <dst>, <suffix>, <signing type>),
+        (constants.BASE_IMAGE_TAR, base_basename, 'tar.xz',
+         constants.IMAGE_TYPE_BASE),
+    )
+
+    def _CopyFileToGS(src, dst, suffix):
+      """Returns |dst| file name if the copying was successful."""
       if not dst:
         dst = src
-      elif sfx:
-        dst += '.%s' % sfx
+      elif suffix:
+        dst = '%s.%s' % (dst, suffix)
+      success = False
       try:
         ctx.Copy(os.path.join(src_path, src), os.path.join(dst_path, dst))
+        success = True
       except gs.GSNoSuchKey:
         logging.warning('Skipping %s as it does not exist', src)
-        continue
       except gs.GSContextException:
-        unknown_error = True
+        unknown_error[0] = True
         logging.error('Skipping %s due to unknown GS error', src, exc_info=True)
+      return dst if success else None
+
+    for src, dst, suffix in files_to_copy_only:
+      _CopyFileToGS(src, dst, suffix)
+
+    # Clear the list of files to sign before adding new artifacts.
+    files_to_sign = []
+
+    def _AddToFilesToSign(image_type, dst, suffix):
+      assert dst.endswith('.' + suffix), (
+          'dst: %s, suffix: %s' % (dst, suffix))
+      dst_base = dst[:-(len(suffix) + 1)]
+      files_to_sign.append([image_type, dst_base, suffix])
+
+    for src, dst, suffix, image_type in files_to_copy_and_maybe_sign:
+      dst = _CopyFileToGS(src, dst, suffix)
+      if dst and (not sign_types or image_type in sign_types):
+        _AddToFilesToSign(image_type, dst, suffix)
+
+    for src, dst, suffix, image_type in files_to_maybe_copy_and_sign:
+      if sign_types and image_type in sign_types:
+        dst = _CopyFileToGS(src, dst, suffix)
+        if dst:
+          _AddToFilesToSign(image_type, dst, suffix)
+
+    logging.debug('Files to sign: %s', files_to_sign)
+    # Now go through the subset for signing.
+    for image_type, dst_name, suffix in files_to_sign:
+      try:
+        input_insns = InputInsns(board, image_type=image_type)
+      except MissingBoardInstructions as e:
+        logging.info('Nothing to sign: %s', e)
         continue
 
-      if image_type:
-        dst_base = dst[:-(len(sfx) + 1)]
-        assert dst == '%s.%s' % (dst_base, sfx)
-        files_to_sign += [[image_type, dst_base, '.%s' % sfx]]
+      dst_archive = '%s.%s' % (dst_name, suffix)
+      sect_general['archive'] = dst_archive
+      sect_general['type'] = image_type
 
-    # Now go through the subset for signing.
-    for keyset in keysets:
-      logging.debug('\n\n#### KEYSET: %s ####\n', keyset)
-      sect_insns['keyset'] = keyset
-      for image_type, dst_name, suffix in files_to_sign:
-        dst_archive = '%s%s' % (dst_name, suffix)
-        sect_general['archive'] = dst_archive
-        sect_general['type'] = image_type
+      # In the default/automatic mode, only flag files for signing if the
+      # archives were actually uploaded in a previous stage. This additional
+      # check can be removed in future once |sign_types| becomes a required
+      # argument.
+      # TODO: Make |sign_types| a required argument.
+      gs_artifact_path = os.path.join(dst_path, dst_archive)
+      exists = False
+      try:
+        exists = ctx.Exists(gs_artifact_path)
+      except gs.GSContextException:
+        unknown_error[0] = True
+        logging.error('Unknown error while checking %s', gs_artifact_path,
+                      exc_info=True)
+      if not exists:
+        logging.info('%s does not exist.  Nothing to sign.',
+                     gs_artifact_path)
+        continue
 
-        # See if the caller has requested we only sign certain types.
-        if sign_types:
-          if not image_type in sign_types:
-            logging.info('Skipping %s signing as it was not requested',
-                         image_type)
-            continue
-        else:
-          # In the default/automatic mode, only flag files for signing if the
-          # archives were actually uploaded in a previous stage.
-          gs_artifact_path = os.path.join(dst_path, dst_archive)
-          try:
-            exists = ctx.Exists(gs_artifact_path)
-          except gs.GSContextException:
-            unknown_error = True
-            exists = False
-            logging.error('Unknown error while checking %s', gs_artifact_path,
-                          exc_info=True)
-          if not exists:
-            logging.info('%s does not exist.  Nothing to sign.',
-                         gs_artifact_path)
-            continue
+      first_image = True
+      for alt_insn_set in input_insns.GetAltInsnSets():
+        # Figure out which keysets have been requested for this type.
+        # We sort the forced set so tests/runtime behavior is stable.
+        keysets = sorted(force_keysets)
+        if not keysets:
+          keysets = input_insns.GetKeysets(insns_merge=alt_insn_set)
+          if not keysets:
+            logging.warning('Skipping %s image signing due to no keysets',
+                            image_type)
 
-        input_insn_path = input_insns.GetInsnFile(image_type)
-        if not os.path.exists(input_insn_path):
-          logging.info('%s does not exist.  Nothing to sign.', input_insn_path)
-          continue
+        for keyset in keysets:
+          sect_insns['keyset'] = keyset
 
-        # Generate the insn file for this artifact that the signer will use,
-        # and flag it for signing.
-        with tempfile.NamedTemporaryFile(
-            bufsize=0, prefix='pushimage.insns.') as insns_path:
-          input_insns.OutputInsns(image_type, insns_path.name, sect_insns,
-                                  sect_general)
+          # Generate the insn file for this artifact that the signer will use,
+          # and flag it for signing.
+          with tempfile.NamedTemporaryFile(
+              bufsize=0, prefix='pushimage.insns.') as insns_path:
+            input_insns.OutputInsns(insns_path.name, sect_insns, sect_general,
+                                    insns_merge=alt_insn_set)
 
-          gs_insns_path = '%s/%s' % (dst_path, dst_name)
-          if keyset != keysets[0]:
-            gs_insns_path += '-%s' % keyset
-          gs_insns_path += '.instructions'
+            gs_insns_path = '%s/%s' % (dst_path, dst_name)
+            if not first_image:
+              gs_insns_path += '-%s' % keyset
+            first_image = False
+            gs_insns_path += '.instructions'
 
-          try:
-            ctx.Copy(insns_path.name, gs_insns_path)
-          except gs.GSContextException:
-            unknown_error = True
-            logging.error('Unknown error while uploading insns %s',
-                          gs_insns_path, exc_info=True)
-            continue
+            try:
+              ctx.Copy(insns_path.name, gs_insns_path)
+            except gs.GSContextException:
+              unknown_error[0] = True
+              logging.error('Unknown error while uploading insns %s',
+                            gs_insns_path, exc_info=True)
+              continue
 
-          try:
-            MarkImageToBeSigned(ctx, tbs_base, gs_insns_path, priority)
-          except gs.GSContextException:
-            unknown_error = True
-            logging.error('Unknown error while marking for signing %s',
-                          gs_insns_path, exc_info=True)
-            continue
-          logging.info('Signing %s image %s', image_type, gs_insns_path)
-          instruction_urls.setdefault(channel, []).append(gs_insns_path)
+            try:
+              MarkImageToBeSigned(ctx, tbs_base, gs_insns_path, priority)
+            except gs.GSContextException:
+              unknown_error[0] = True
+              logging.error('Unknown error while marking for signing %s',
+                            gs_insns_path, exc_info=True)
+              continue
+            logging.info('Signing %s image with keyset %s at %s', image_type,
+                         keyset, gs_insns_path)
+            instruction_urls.setdefault(channel, []).append(gs_insns_path)
 
-  if unknown_error:
+  if unknown_error[0]:
     raise PushError('hit some unknown error(s)', instruction_urls)
 
   return instruction_urls
@@ -415,14 +579,13 @@ def main(argv):
                       help='show what would be done, but do not upload')
   parser.add_argument('-M', '--mock', default=False, action='store_true',
                       help='upload things to a testing bucket (dev testing)')
-  parser.add_argument('--test-sign-mp', default=False, action='store_true',
-                      help='mung signing behavior to sign w/test mp keys')
-  parser.add_argument('--test-sign-premp', default=False, action='store_true',
-                      help='mung signing behavior to sign w/test premp keys')
+  parser.add_argument('--test-sign', default=[], action='append',
+                      choices=TEST_KEYSETS,
+                      help='mung signing behavior to sign w/ test keys')
   parser.add_argument('--priority', type=int, default=50,
                       help='set signing priority (lower == higher prio)')
   parser.add_argument('--sign-types', default=None, nargs='+',
-                      choices=('recovery', 'factory', 'firmware'),
+                      choices=_SUPPORTED_IMAGE_TYPES,
                       help='only sign specified image types')
   parser.add_argument('--yes', action='store_true', default=False,
                       help='answer yes to all prompts')
@@ -430,11 +593,8 @@ def main(argv):
   opts = parser.parse_args(argv)
   opts.Freeze()
 
-  force_keysets = set()
-  if opts.test_sign_mp:
-    force_keysets.add('test-keys-mp')
-  if opts.test_sign_premp:
-    force_keysets.add('test-keys-premp')
+  force_keysets = set(['%s-%s' % (TEST_KEYSET_PREFIX, x)
+                       for x in opts.test_sign])
 
   # If we aren't using mock or test or dry run mode, then let's prompt the user
   # to make sure they actually want to do this.  It's rare that people want to

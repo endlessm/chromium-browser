@@ -11,11 +11,9 @@ import os
 import tempfile
 
 from chromite.cbuildbot import constants
-from chromite.lib import bootstrap_lib
 from chromite.lib import cros_build_lib
 from chromite.lib import git
 from chromite.lib import osutils
-from chromite.lib import workspace_lib
 
 
 GENERAL_CACHE_DIR = '.cache'
@@ -24,7 +22,6 @@ CHROME_CACHE_DIR = '.cros_cache'
 CHECKOUT_TYPE_UNKNOWN = 'unknown'
 CHECKOUT_TYPE_GCLIENT = 'gclient'
 CHECKOUT_TYPE_REPO = 'repo'
-CHECKOUT_TYPE_SDK_BOOTSTRAP = 'bootstrap'
 
 CheckoutInfo = collections.namedtuple(
     'CheckoutInfo', ['type', 'root', 'chrome_src_dir'])
@@ -34,7 +31,6 @@ class ChrootPathResolver(object):
   """Perform path resolution to/from the chroot.
 
   Args:
-    workspace_path: Host path to the workspace, if any.
     source_path: Value to override default source root inference.
     source_from_path_repo: Whether to infer the source root from the converted
       path's repo parent during inbound translation; overrides |source_path|.
@@ -53,9 +49,7 @@ class ChrootPathResolver(object):
   # code's source root in the normal case. When that happens, we'll be
   # switching source_from_path_repo to False by default. See chromium:485746.
 
-  def __init__(self, workspace_path=None, source_path=None,
-               source_from_path_repo=True):
-    self._workspace_path = workspace_path
+  def __init__(self, source_path=None, source_from_path_repo=True):
     self._inside_chroot = cros_build_lib.IsInsideChroot()
     self._source_path = (constants.SOURCE_ROOT if source_path is None
                          else source_path)
@@ -66,16 +60,11 @@ class ChrootPathResolver(object):
       self._chroot_path = None
       self._chroot_to_host_roots = None
     else:
-      if self._workspace_path is None:
-        self._chroot_path = self._GetSourcePathChroot(self._source_path)
-      else:
-        self._chroot_path = os.path.realpath(
-            workspace_lib.ChrootPath(self._workspace_path))
+      self._chroot_path = self._GetSourcePathChroot(self._source_path)
 
       # Initialize mapping of known root bind mounts.
       self._chroot_to_host_roots = (
           (constants.CHROOT_SOURCE_ROOT, self._source_path),
-          (constants.CHROOT_WORKSPACE_ROOT, self._workspace_path),
           (constants.CHROOT_CACHE_ROOT, self._GetCachePath),
       )
 
@@ -118,8 +107,8 @@ class ChrootPathResolver(object):
     """Translates a fully-expanded host |path| into a chroot equivalent.
 
     This checks path prefixes in order from the most to least "contained": the
-    chroot itself, then the workspace, the cache directory, and finally the
-    source tree. The idea is to return the shortest possible chroot equivalent.
+    chroot itself, then the cache directory, and finally the source tree. The
+    idea is to return the shortest possible chroot equivalent.
 
     Args:
       path: A host path to translate.
@@ -134,27 +123,20 @@ class ChrootPathResolver(object):
 
     # Preliminary: compute the actual source and chroot paths to use. These are
     # generally the precomputed values, unless we're inferring the source root
-    # from the path itself and not using a workspace (chroot location).
+    # from the path itself.
     source_path = self._source_path
     chroot_path = self._chroot_path
     if self._source_from_path_repo:
       path_repo_dir = git.FindRepoDir(path)
       if path_repo_dir is not None:
         source_path = os.path.abspath(os.path.join(path_repo_dir, '..'))
-      if self._workspace_path is None:
-        chroot_path = self._GetSourcePathChroot(source_path)
+      chroot_path = self._GetSourcePathChroot(source_path)
 
     # First, check if the path happens to be in the chroot already.
     if chroot_path is not None:
       new_path = self._TranslatePath(path, chroot_path, '/')
 
-    # Second, check the workspace, if given.
-    if new_path is None and self._workspace_path is not None:
-      new_path = self._TranslatePath(
-          path, os.path.realpath(self._workspace_path),
-          constants.CHROOT_WORKSPACE_ROOT)
-
-    # Third, check the cache directory.
+    # Second, check the cache directory.
     if new_path is None:
       new_path = self._TranslatePath(path, self._GetCachePath(),
                                      constants.CHROOT_CACHE_ROOT)
@@ -172,10 +154,10 @@ class ChrootPathResolver(object):
   def _GetHostPath(self, path):
     """Translates a fully-expanded chroot |path| into a host equivalent.
 
-    We first attempt translation of known roots (source, workspace). If any is
-    successful, we check whether the result happens to point back to the
-    chroot, in which case we trim the chroot path prefix and recurse. If
-    neither was successful, just prepend the chroot path.
+    We first attempt translation of known roots (source). If any is successful,
+    we check whether the result happens to point back to the chroot, in which
+    case we trim the chroot path prefix and recurse. If neither was successful,
+    just prepend the chroot path.
 
     Args:
       path: A chroot path to translate.
@@ -250,39 +232,12 @@ class ChrootPathResolver(object):
     return self._ConvertPath(path, self._GetHostPath)
 
 
-def _IsSdkBootstrapCheckout(path):
-  """Return True if |path| is an SDK bootstrap.
-
-  A bootstrap is a lone git checkout of chromite. It cannot be managed by repo.
-  Underneath this bootstrap chromite, there are several SDK checkouts, each
-  managed by repo.
-  """
-  submodule_git = os.path.join(path, '.git')
-  if not git.IsSubmoduleCheckoutRoot(submodule_git, 'origin',
-                                     constants.CHROMITE_URL):
-    # Not a git checkout of chromite.
-    return False
-
-  # This could be an SDK under sdk_checkouts or the parent bootstrap.
-  # It'll be an SDK checkout if it has a parent ".repo".
-  if git.FindRepoDir(path):
-    # It is managed by repo, therefore it is a child SDK checkout.
-    return False
-
-  return True
-
-
 def DetermineCheckout(cwd):
   """Gather information on the checkout we are in.
 
   There are several checkout types, as defined by CHECKOUT_TYPE_XXX variables.
   This function determines what checkout type |cwd| is in, for example, if |cwd|
   belongs to a `repo` checkout.
-
-  There is a special case when |cwd| is a child SDK checkout of a bootstrap
-  chromite (e.g. something under chromite/sdk_checkouts/xxx.yyy.zzz/). This
-  case should report that |cwd| belongs to a bootstrap checkout instead of the
-  `repo` checkout of the "xxx.yyy.zzz" child SDK.
 
   Returns:
     A CheckoutInfo object with these attributes:
@@ -294,24 +249,15 @@ def DetermineCheckout(cwd):
   checkout_type = CHECKOUT_TYPE_UNKNOWN
   root, path = None, None
 
-  # Check for SDK bootstrap first because it goes top to bottom.
-  # If we do it bottom to top, we'll hit chromite/sdk_checkouts/*/.repo first
-  # and will wrongly conclude that this is a repo checkout. So we go top down
-  # to visit chromite/ first.
-  for path in osutils.IteratePaths(cwd):
-    if _IsSdkBootstrapCheckout(path):
-      checkout_type = CHECKOUT_TYPE_SDK_BOOTSTRAP
+  for path in osutils.IteratePathParents(cwd):
+    gclient_file = os.path.join(path, '.gclient')
+    if os.path.exists(gclient_file):
+      checkout_type = CHECKOUT_TYPE_GCLIENT
       break
-  else:
-    for path in osutils.IteratePathParents(cwd):
-      gclient_file = os.path.join(path, '.gclient')
-      if os.path.exists(gclient_file):
-        checkout_type = CHECKOUT_TYPE_GCLIENT
-        break
-      repo_dir = os.path.join(path, '.repo')
-      if os.path.isdir(repo_dir):
-        checkout_type = CHECKOUT_TYPE_REPO
-        break
+    repo_dir = os.path.join(path, '.repo')
+    if os.path.isdir(repo_dir):
+      checkout_type = CHECKOUT_TYPE_REPO
+      break
 
   if checkout_type != CHECKOUT_TYPE_UNKNOWN:
     root = path
@@ -331,20 +277,10 @@ def FindCacheDir():
   path = None
   if checkout.type == CHECKOUT_TYPE_REPO:
     path = os.path.join(checkout.root, GENERAL_CACHE_DIR)
-  elif checkout.type == CHECKOUT_TYPE_SDK_BOOTSTRAP:
-    path = os.path.join(checkout.root, bootstrap_lib.SDK_CHECKOUTS,
-                        GENERAL_CACHE_DIR)
   elif checkout.type == CHECKOUT_TYPE_GCLIENT:
     path = os.path.join(checkout.root, CHROME_CACHE_DIR)
   elif checkout.type == CHECKOUT_TYPE_UNKNOWN:
-    # We could be in a workspace.
-    if workspace_lib.WorkspacePath(cwd):
-      bootstrap_root = bootstrap_lib.FindBootstrapPath()
-      if bootstrap_root:
-        path = os.path.join(bootstrap_root, bootstrap_lib.SDK_CHECKOUTS,
-                            GENERAL_CACHE_DIR)
-    if not path:
-      path = os.path.join(tempfile.gettempdir(), 'chromeos-cache')
+    path = os.path.join(tempfile.gettempdir(), 'chromeos-cache')
   else:
     raise AssertionError('Unexpected type %s' % checkout.type)
 
@@ -356,11 +292,11 @@ def GetCacheDir():
   return os.environ.get(constants.SHARED_CACHE_ENVVAR, FindCacheDir())
 
 
-def ToChrootPath(path, workspace_path=None):
+def ToChrootPath(path):
   """Resolves current environment |path| for use in the chroot."""
-  return ChrootPathResolver(workspace_path=workspace_path).ToChroot(path)
+  return ChrootPathResolver().ToChroot(path)
 
 
-def FromChrootPath(path, workspace_path=None):
+def FromChrootPath(path):
   """Resolves chroot |path| for use in the current environment."""
-  return ChrootPathResolver(workspace_path=workspace_path).FromChroot(path)
+  return ChrootPathResolver().FromChroot(path)

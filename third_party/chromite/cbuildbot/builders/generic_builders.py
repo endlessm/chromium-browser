@@ -14,6 +14,7 @@ import traceback
 
 from chromite.cbuildbot import constants
 from chromite.cbuildbot import failures_lib
+from chromite.cbuildbot import manifest_version
 from chromite.cbuildbot import results_lib
 from chromite.cbuildbot import trybot_patch_pool
 from chromite.cbuildbot.stages import build_stages
@@ -152,9 +153,11 @@ class Builder(object):
   def GetVersionInfo(self):
     """Returns a manifest_version.VersionInfo object for this build.
 
-    Subclasses must override this method.
+    Chrome OS Subclasses must override this method. Site specific builds which
+    don't use Chrome OS versioning should leave this alone.
     """
-    raise NotImplementedError()
+    # Placeholder version for non-Chrome OS builds.
+    return manifest_version.VersionInfo('1.0.0')
 
   def GetSyncInstance(self):
     """Returns an instance of a SyncStage that should be run.
@@ -256,17 +259,16 @@ class Builder(object):
     --test-bootstrap wasn't passed in.
     """
     stage = None
-    chromite_pool = self.patch_pool.Filter(project=constants.CHROMITE_PROJECT)
-    if self._run.config.internal:
-      manifest_pool = self.patch_pool.FilterIntManifest()
-    else:
-      manifest_pool = self.patch_pool.FilterExtManifest()
+
+    patches_needed = sync_stages.BootstrapStage.BootstrapPatchesNeeded(
+        self._run, self.patch_pool)
+
     chromite_branch = git.GetChromiteTrackingBranch()
-    if (chromite_pool or manifest_pool or
+
+    if (patches_needed or
         self._run.options.test_bootstrap or
         chromite_branch != self._run.options.branch):
-      stage = sync_stages.BootstrapStage(self._run, chromite_pool,
-                                         manifest_pool)
+      stage = sync_stages.BootstrapStage(self._run, self.patch_pool)
     return stage
 
   def Run(self):
@@ -308,6 +310,7 @@ class Builder(object):
         success = self._ReExecuteInBuildroot(sync_instance)
       else:
         self._RunStage(report_stages.BuildReexecutionFinishedStage)
+        self._RunStage(report_stages.ConfigDumpStage)
         self.RunStages()
 
     except Exception as ex:
@@ -330,12 +333,11 @@ class Builder(object):
       if print_report:
         results_lib.WriteCheckpoint(self._run.options.buildroot)
         completion_instance = self.GetCompletionInstance()
-        self._RunStage(report_stages.ReportStage, sync_instance,
-                       completion_instance)
+        self._RunStage(report_stages.ReportStage, completion_instance)
         success = results_lib.Results.BuildSucceededSoFar()
         if exception_thrown and success:
           success = False
-          cros_build_lib.PrintBuildbotStepWarnings()
+          logging.PrintBuildbotStepWarnings()
           print("""\
 Exception thrown, but all stages marked successful. This is an internal error,
 because the stage that threw the exception should be marked as failing.""")

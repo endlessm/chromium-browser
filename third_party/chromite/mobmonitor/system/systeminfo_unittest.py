@@ -12,7 +12,10 @@ import mock
 import os
 import time
 
+from chromite.lib import cros_build_lib_unittest
 from chromite.lib import cros_test_lib
+from chromite.lib import osutils
+from chromite.lib import partial_mock
 from chromite.mobmonitor.system import systeminfo
 
 # Strings that are used to mock particular system files for testing.
@@ -342,6 +345,47 @@ class DiskTest(cros_test_lib.MockTestCase):
 
     self.assertEquals(disk.DiskUsage(partition), mock_diskusage)
 
+  def testBlockDevicesExisting(self):
+    """Test block device information collection when a record exists."""
+    disk = self._CreateDisk(1)
+
+    device = '/dev/sda1'
+    dataname = '%s:%s' % (systeminfo.RESOURCENAME_BLOCKDEVICE, device)
+    data = 'testvalue'
+
+    disk.Update(dataname, data)
+
+    self.assertEquals(disk.BlockDevices(device), data)
+
+  def testBlockDevice(self):
+    """Test block device info when there is no record or a record is stale."""
+    disk = self._CreateDisk(1)
+
+    mock_device = '/dev/sda1'
+    mock_size = 12345678987654321
+    mock_ids = ['ata-ST1000DM003-1ER162_Z4Y3WQDB-part1']
+    mock_labels = ['BOOT-PARTITION']
+    mock_lsblk = 'NAME="sda1" RM="0" TYPE="part" SIZE="%s"' % mock_size
+
+    self.StartPatcher(mock.patch('chromite.lib.osutils.ResolveSymlink'))
+    osutils.ResolveSymlink.return_value = '/dev/sda1'
+
+    with cros_build_lib_unittest.RunCommandMock() as rc_mock:
+      rc_mock.AddCmdResult(
+          partial_mock.In(systeminfo.SYSTEMFILE_DEV_DISKBY['ids']),
+          output='\n'.join(mock_ids))
+      rc_mock.AddCmdResult(
+          partial_mock.In(systeminfo.SYSTEMFILE_DEV_DISKBY['labels']),
+          output='\n'.join(mock_labels))
+      rc_mock.AddCmdResult(partial_mock.In('lsblk'), output=mock_lsblk)
+
+      mock_blockdevice = [systeminfo.RESOURCE_BLOCKDEVICE(mock_device,
+                                                          mock_size,
+                                                          mock_ids,
+                                                          mock_labels)]
+
+      self.assertEquals(disk.BlockDevices(mock_device), mock_blockdevice)
+
 
 class Cpu(cros_test_lib.MockTestCase):
   """Unittests for Cpu."""
@@ -420,3 +464,46 @@ class Cpu(cros_test_lib.MockTestCase):
 
     self.assertEquals(cpu.resources.get(systeminfo.RESOURCENAME_CPULOADS),
                       mock_cpuloads)
+
+
+class InfoClassCacheTest(cros_test_lib.MockTestCase):
+  """Unittests for checking that information class caching."""
+
+  def testGetCpu(self):
+    """Test caching explicitly for Cpu information objects."""
+    cpus1 = [systeminfo.GetCpu(), systeminfo.GetCpu(),
+             systeminfo.GetCpu(systeminfo.UPDATE_CPU_SEC),
+             systeminfo.GetCpu(update_sec=systeminfo.UPDATE_CPU_SEC)]
+
+    cpus2 = [systeminfo.GetCpu(10), systeminfo.GetCpu(10),
+             systeminfo.GetCpu(update_sec=10)]
+
+    self.assertTrue(all(id(x) == id(cpus1[0]) for x in cpus1))
+    self.assertTrue(all(id(x) == id(cpus2[0]) for x in cpus2))
+    self.assertTrue(id(cpus1[0]) != id(cpus2[0]))
+
+  def testGetMemory(self):
+    """Test caching explicitly for Memory information objects."""
+    mems1 = [systeminfo.GetMemory(), systeminfo.GetMemory(),
+             systeminfo.GetMemory(systeminfo.UPDATE_MEMORY_SEC),
+             systeminfo.GetMemory(update_sec=systeminfo.UPDATE_MEMORY_SEC)]
+
+    mems2 = [systeminfo.GetMemory(10), systeminfo.GetMemory(10),
+             systeminfo.GetMemory(update_sec=10)]
+
+    self.assertTrue(all(id(x) == id(mems1[0]) for x in mems1))
+    self.assertTrue(all(id(x) == id(mems2[0]) for x in mems2))
+    self.assertTrue(id(mems1[0]) != id(mems2[0]))
+
+  def testGetDisk(self):
+    """Test caching explicitly for Disk information objects."""
+    disks1 = [systeminfo.GetDisk(), systeminfo.GetDisk(),
+              systeminfo.GetDisk(systeminfo.UPDATE_MEMORY_SEC),
+              systeminfo.GetDisk(update_sec=systeminfo.UPDATE_MEMORY_SEC)]
+
+    disks2 = [systeminfo.GetDisk(10), systeminfo.GetDisk(10),
+              systeminfo.GetDisk(update_sec=10)]
+
+    self.assertTrue(all(id(x) == id(disks1[0]) for x in disks1))
+    self.assertTrue(all(id(x) == id(disks2[0]) for x in disks2))
+    self.assertTrue(id(disks1[0]) != id(disks2[0]))

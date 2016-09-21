@@ -101,6 +101,11 @@ class BuilderStage(object):
     if self._run.ShouldUploadPrebuilts():
       self._prebuilt_type = self._run.config.build_type
 
+    # Determine correct android_rev.
+    self._android_rev = self._run.config.android_rev
+    if self._run.options.android_rev:
+      self._android_rev = self._run.options.android_rev
+
     # Determine correct chrome_rev.
     self._chrome_rev = self._run.config.chrome_rev
     if self._run.options.chrome_rev:
@@ -197,6 +202,18 @@ class BuilderStage(object):
     if self._build_stage_id is not None and db is not None:
       db.FinishBuildStage(self._build_stage_id, status)
 
+  def _StartBuildStageInCIDB(self):
+    """Mark the stage as inflight in cidb."""
+    _, db = self._run.GetCIDBHandle()
+    if self._build_stage_id is not None and db is not None:
+      db.StartBuildStage(self._build_stage_id)
+
+  def _WaitBuildStageInCIDB(self):
+    """Mark the stage as waiting in cidb."""
+    _, db = self._run.GetCIDBHandle()
+    if self._build_stage_id is not None and db is not None:
+      db.WaitBuildStage(self._build_stage_id)
+
   def _TranslateResultToCIDBStatus(self, result):
     """Translates the different result_lib.Result results to builder statuses.
 
@@ -236,9 +253,18 @@ class BuilderStage(object):
     if manifest_url is None:
       manifest_url = self._run.config.manifest_repo_url
 
+    manifest_branch = self._run.config.manifest_branch
+    if manifest_branch is None:
+      manifest_branch = self._run.manifest_branch
+
     kwargs.setdefault('referenced_repo', self._run.options.reference_repo)
-    kwargs.setdefault('branch', self._run.manifest_branch)
+    kwargs.setdefault('branch', manifest_branch)
     kwargs.setdefault('manifest', self._run.config.manifest)
+
+    # pass in preserve_paths so that repository.RepoRepository
+    # knows what paths to preserve when executing clean_up_repo
+    if hasattr(self._run.options, 'preserve_paths'):
+      kwargs.setdefault('preserve_paths', self._run.options.preserve_paths)
 
     return repository.RepoRepository(manifest_url, self._build_root, **kwargs)
 
@@ -309,7 +335,7 @@ class BuilderStage(object):
     """Can be overridden.  Called before a stage is performed."""
 
     # Tell the buildbot we are starting a new step for the waterfall
-    cros_build_lib.PrintBuildbotStepName(self.name)
+    logging.PrintBuildbotStepName(self.name)
 
     self._PrintLoudly('Start Stage %s - %s\n\n%s' % (
         self.name, cros_build_lib.UserDateTimeFormat(), self.__doc__))
@@ -319,6 +345,18 @@ class BuilderStage(object):
     self._PrintLoudly('Finished Stage %s - %s' %
                       (self.name, cros_build_lib.UserDateTimeFormat()))
 
+  def WaitUntilReady(self):
+    """Wait until all the preconditions for the stage are satisfied.
+
+    Can be overridden by stages.
+
+    Returns:
+      By default it just returns True. Subclass can override it
+        to return the boolean indicating if Wait succeeds and
+        if PerformStage should be run
+    """
+    return True
+
   def PerformStage(self):
     """Run the actual commands needed for this stage.
 
@@ -327,7 +365,7 @@ class BuilderStage(object):
 
   def _HandleExceptionAsSuccess(self, _exc_info):
     """Use instead of HandleStageException to ignore an exception."""
-    return results_lib.Results.SUCCESS, None
+    return (results_lib.Results.SUCCESS, None, False)
 
   @staticmethod
   def _StringifyException(exc_info):
@@ -353,7 +391,7 @@ class BuilderStage(object):
     warnings instead of stage failures.
     """
     description = cls._StringifyException(exc_info)
-    cros_build_lib.PrintBuildbotStepWarnings()
+    logging.PrintBuildbotStepWarnings()
     logging.warning(description)
     return (results_lib.Results.FORGIVEN, description, retrying)
 
@@ -372,7 +410,7 @@ class BuilderStage(object):
     # Tell the user about the exception, and record it.
     retrying = False
     description = cls._StringifyException(exc_info)
-    cros_build_lib.PrintBuildbotStepFailure()
+    logging.PrintBuildbotStepFailure()
     logging.error(description)
     return (exc_info[1], description, retrying)
 
@@ -417,13 +455,11 @@ class BuilderStage(object):
 
   def Run(self):
     """Have the builder execute the stage."""
-    _, db = self._run.GetCIDBHandle()
-    if self._build_stage_id is not None and db is not None:
-      db.StartBuildStage(self._build_stage_id)
 
     # See if this stage should be skipped.
     if (self.option_name and not getattr(self._run.options, self.option_name) or
         self.config_name and not getattr(self._run.config, self.config_name)):
+      self._StartBuildStageInCIDB()
       self._PrintLoudly('Not running Stage %s' % self.name)
       self.HandleSkip()
       self._RecordResult(self.name, results_lib.Results.SKIPPED,
@@ -433,6 +469,7 @@ class BuilderStage(object):
 
     record = results_lib.Results.PreviouslyCompletedRecord(self.name)
     if record:
+      self._StartBuildStageInCIDB()
       # Success is stored in the results log for a stage that completed
       # successfully in a previous run.
       self._PrintLoudly('Stage %s processed previously' % self.name)
@@ -442,6 +479,22 @@ class BuilderStage(object):
                          time=float(record.time))
       self._FinishBuildStageInCIDB(constants.BUILDER_STATUS_SKIPPED)
       return
+
+    self._WaitBuildStageInCIDB()
+    ready = self.WaitUntilReady()
+
+    if not ready:
+      # If WaitUntilReady returns false, mark stage as failed in CIDB
+      self._PrintLoudly('Stage %s precondition failed while waiting to start.'
+                        % self.name)
+      # TODO(nxia):we might want to record a failure. The catch block
+      # for PerformStage can use a refactor actually
+      # (see crbug.com/425249 also, which would be a similar concern)
+      self._FinishBuildStageInCIDB(constants.BUILDER_STATUS_FAILED)
+      return
+
+    #  Ready to start, mark buildStage as inflight in CIDB
+    self._StartBuildStageInCIDB()
 
     start_time = time.time()
 
@@ -763,7 +816,7 @@ class ArchivingStageMixin(object):
     url = '%s/%s' % (self.download_url.rstrip('/'), filename)
     if not text_to_display:
       text_to_display = '%s%s' % (prefix, filename)
-    cros_build_lib.PrintBuildbotLink(text_to_display, url)
+    logging.PrintBuildbotLink(text_to_display, url)
 
   def _IsInUploadBlacklist(self, filename):
     """Check if this file is blacklisted to go into a board's extra buckets.
@@ -832,7 +885,7 @@ class ArchivingStageMixin(object):
           self.archive_path, upload_urls, filename, self._run.debug,
           update_list=True, acl=self.acl)
     except failures_lib.GSUploadFailure as e:
-      cros_build_lib.PrintBuildbotStepText('Upload failed')
+      logging.PrintBuildbotStepText('Upload failed')
       if e.HasFatalFailure(
           whitelist=[gs.GSContextException, timeout_util.TimeoutError]):
         raise

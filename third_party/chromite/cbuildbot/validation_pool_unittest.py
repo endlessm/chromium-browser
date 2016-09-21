@@ -16,10 +16,10 @@ import mock
 import mox
 import os
 import pickle
-import random
 import tempfile
 import time
 
+from chromite.cbuildbot import config_lib
 from chromite.cbuildbot import constants
 from chromite.cbuildbot import metadata_lib
 from chromite.cbuildbot import repository
@@ -31,6 +31,7 @@ from chromite.lib import cros_build_lib
 from chromite.lib import cros_test_lib
 from chromite.lib import fake_cidb
 from chromite.lib import gerrit
+from chromite.lib import git
 from chromite.lib import gob_util
 from chromite.lib import gs_unittest
 from chromite.lib import parallel
@@ -38,6 +39,9 @@ from chromite.lib import parallel_unittest
 from chromite.lib import partial_mock
 from chromite.lib import patch as cros_patch
 from chromite.lib import patch_unittest
+
+
+site_config = config_lib.GetConfig()
 
 
 _GetNumber = iter(itertools.count()).next
@@ -83,6 +87,7 @@ class FakeBuilderRun(object):
         metadata_dict=metadata_dict))
     FakeConfig = collections.namedtuple('FakeConfig', ['name'])
     self.config = FakeConfig(name='master-paladin')
+    self.GetBuildbotUrl = lambda: constants.WATERFALL_INTERNAL
 
   def GetCIDBHandle(self):
     """Get the build_id and cidb handle, if available.
@@ -111,6 +116,7 @@ class MoxBase(patch_unittest.MockPatchBase, cros_test_lib.MoxTestCase):
     self.manager = parallel.Manager()
     self.PatchObject(gob_util, 'CreateHttpConn',
                      side_effect=AssertionError('Test should not contact GoB'))
+    self.PatchObject(gob_util, 'CheckChange')
     self.PatchObject(tree_status, 'IsTreeOpen', return_value=True)
     self.PatchObject(tree_status, 'WaitForTreeStatus',
                      return_value=constants.TREE_OPEN)
@@ -129,10 +135,10 @@ class MoxBase(patch_unittest.MockPatchBase, cros_test_lib.MoxTestCase):
     if cros_internal:
       cros_internal = self.mox.CreateMock(gerrit.GerritHelper)
       cros_internal.version = '2.2'
-      cros_internal.remote = constants.INTERNAL_REMOTE
+      cros_internal.remote = site_config.params.INTERNAL_REMOTE
     if cros:
       cros = self.mox.CreateMock(gerrit.GerritHelper)
-      cros.remote = constants.EXTERNAL_REMOTE
+      cros.remote = site_config.params.EXTERNAL_REMOTE
       cros.version = '2.2'
     return validation_pool.HelperPool(cros_internal=cros_internal,
                                       cros=cros)
@@ -188,7 +194,8 @@ class FakeGerritPatch(FakePatch):
   ATTRS = ('GerritDependencies',)
 
 
-class PatchSeriesTestCase(MoxBase):
+# pylint:disable=too-many-ancestors
+class PatchSeriesTestCase(MoxBase, patch_unittest.UploadedLocalPatchTestCase):
   """Base class for tests that need to test PatchSeries."""
 
   @contextlib.contextmanager
@@ -243,9 +250,7 @@ class PatchSeriesTestCase(MoxBase):
     return result
 
 
-# pylint:disable=too-many-ancestors
-class TestUploadedLocalPatch(patch_unittest.UploadedLocalPatchTestCase,
-                             PatchSeriesTestCase):
+class TestUploadedLocalPatch(PatchSeriesTestCase):
   """Test the interaction between uploaded local git patches and PatchSeries."""
 
   def testFetchChanges(self):
@@ -328,7 +333,7 @@ class TestPatchSeries(PatchSeriesTestCase):
     series = self.GetPatchSeries()
 
     patch1, patch2, patch3 = patches = self.GetPatches(3)
-    patch3.remote = constants.INTERNAL_REMOTE
+    patch3.remote = site_config.params.INTERNAL_REMOTE
 
     self.SetPatchDeps(patch1, [patch2.sha1])
     self.SetPatchDeps(patch2, ['*%s' % patch3.sha1])
@@ -399,9 +404,9 @@ class TestPatchSeries(PatchSeriesTestCase):
     helper_pool = self.MakeHelper(cros_internal=cros_internal, cros=True)
     series = self.GetPatchSeries(helper_pool=helper_pool)
 
-    patch1 = self.MockPatch(remote=constants.EXTERNAL_REMOTE)
-    patch2 = self.MockPatch(remote=constants.INTERNAL_REMOTE)
-    patch3 = self.MockPatch(remote=constants.EXTERNAL_REMOTE)
+    patch1 = self.MockPatch(remote=site_config.params.EXTERNAL_REMOTE)
+    patch2 = self.MockPatch(remote=site_config.params.INTERNAL_REMOTE)
+    patch3 = self.MockPatch(remote=site_config.params.EXTERNAL_REMOTE)
     patches = [patch1, patch2, patch3]
     if cros_internal:
       applied_patches = [patch3, patch2, patch1]
@@ -612,12 +617,42 @@ class TestPatchSeries(PatchSeriesTestCase):
     self.assertResults(series, patches, patches)
     self.mox.VerifyAll()
 
+  def testResetCheckouts(self):
+    """Tests resetting git repositories to origin."""
+    series = self.GetPatchSeries()
+
+    repo_path, _, _ = self._CommonGitSetup()
+    self.CommitFile(repo_path, 'aoeu', 'asdf')
+
+    def _GetHeadAndRemote():
+      head = git.RunGit(repo_path, ['log', 'HEAD', '-n1']).output
+      remote = git.RunGit(repo_path, ['log', 'cros', '-n1']).output
+      return head, remote
+
+    head, remote = _GetHeadAndRemote()
+    self.assertNotEqual(head, remote)
+
+    series.manifest = mock.Mock()
+    series.manifest.ListCheckouts.return_value = [mock.Mock(
+        GetPath=mock.Mock(return_value=repo_path),
+        __getitem__=lambda _self, k: {'tracking_branch': 'cros/master'}[k]
+    )]
+
+    def _MapStar(f, argss):
+      return [f(*args) for args in argss]
+
+    with mock.patch.object(parallel, 'RunTasksInProcessPool', new=_MapStar):
+      series.ResetCheckouts('master')
+
+    # verify that the checkout is reset.
+    head, remote = _GetHeadAndRemote()
+    self.assertEqual(head, remote)
 
 def MakePool(overlays=constants.PUBLIC_OVERLAYS, build_number=1,
              builder_name='foon', is_master=True, dryrun=True,
              fake_db=None, **kwargs):
   """Helper for creating ValidationPool objects for tests."""
-  kwargs.setdefault('changes', [])
+  kwargs.setdefault('candidates', [])
   build_root = kwargs.pop('build_root', '/fake_root')
 
   builder_run = FakeBuilderRun(fake_db)
@@ -661,11 +696,21 @@ class MockPatchSeries(partial_mock.PartialMock):
   _LookupHelper = mock.MagicMock()
 
 
+class FakeValidationPool(partial_mock.PartialMock):
+  """Mocks out ValidationPool's interaction with cidb."""
+  TARGET = 'chromite.cbuildbot.validation_pool.ValidationPool'
+  ATTRS = ['_InsertCLActionToDatabase']
+
+  def _InsertCLActionToDatabase(self, *args, **kwargs):
+    pass
+
+
 class TestSubmitChange(MoxBase):
   """Test suite related to submitting changes."""
 
   def setUp(self):
     self.orig_timeout = validation_pool.SUBMITTED_WAIT_TIMEOUT
+    self.pool_mock = self.StartPatcher(FakeValidationPool())
     validation_pool.SUBMITTED_WAIT_TIMEOUT = 4
 
   def tearDown(self):
@@ -675,22 +720,29 @@ class TestSubmitChange(MoxBase):
     """Test submitting a change with the given results."""
     results = [cros_test_lib.EasyAttr(status=r) for r in results]
     change = self.MockPatch(change_id=12345, patch_number=1)
-    pool = self.mox.CreateMock(validation_pool.ValidationPool)
-    pool.dryrun = False
+    pool = validation_pool.ValidationPool(
+        constants.VALID_OVERLAYS[0],
+        build_root=None,
+        build_number=0,
+        builder_name='',
+        is_master=False,
+        dryrun=False)
     pool._run = FakeBuilderRun(self.fake_db)
     pool._run.attrs.metadata.UpdateWithDict({'build_id': build_id})
     pool._helper_pool = self.mox.CreateMock(validation_pool.HelperPool)
     helper = self.mox.CreateMock(validation_pool.gerrit.GerritHelper)
-
-    self.mox.StubOutWithMock(validation_pool.ValidationPool,
-                             '_InsertCLActionToDatabase')
+    pool._helper_pool.host = ''
+    helper.host = ''
 
     # Prepare replay script.
+    pool._helper_pool.ForChange(change).AndReturn(helper)
     pool._helper_pool.ForChange(change).AndReturn(helper)
     helper.SubmitChange(change, dryrun=False)
     pool._InsertCLActionToDatabase(change, mox.IgnoreArg(), mox.IgnoreArg())
     for result in results:
       helper.QuerySingleRecord(change.gerrit_number).AndReturn(result)
+    if results[-1]['status'] == 'SUBMITTED':
+      helper.SetReview(change, msg=mox.IgnoreArg())
     self.mox.ReplayAll()
 
     # Verify results.
@@ -733,7 +785,7 @@ class ValidationFailureOrTimeout(MoxBase):
 
   def setUp(self):
     self._patches = self.GetPatches(3)
-    self._pool = MakePool(changes=self._patches, fake_db=self.fake_db)
+    self._pool = MakePool(applied=self._patches, fake_db=self.fake_db)
 
     self.PatchObject(
         triage_lib.CalculateSuspects, 'FindSuspects',
@@ -802,7 +854,7 @@ class TestCoreLogic(MoxBase):
     self.mox.StubOutWithMock(validation_pool.PatchSeries, 'Apply')
     self.mox.StubOutWithMock(validation_pool.PatchSeries, 'ApplyChange')
     self.patch_mock = self.StartPatcher(MockPatchSeries())
-    funcs = ['SendNotification', '_SubmitChangeUsingGerrit', '_SubmitChange']
+    funcs = ['SendNotification', '_SubmitChangeUsingGerrit']
     for func in funcs:
       self.mox.StubOutWithMock(validation_pool.ValidationPool, func)
     self.PatchObject(gerrit, 'GetGerritPatchInfoWithPatchQueries',
@@ -825,19 +877,15 @@ class TestCoreLogic(MoxBase):
   def MakeFailure(self, patch, inflight=True):
     return cros_patch.ApplyPatchException(patch, inflight=inflight)
 
-  def GetPool(self, changes, applied=(), tot=(), inflight=(),
-              max_change_count=None, **kwargs):
-    if not max_change_count:
-      max_change_count = len(changes)
-
-    pool = self.MakePool(changes=changes, fake_db=self.fake_db, **kwargs)
+  def GetPool(self, changes, applied=(), tot=(), inflight=(), **kwargs):
+    pool = self.MakePool(
+        candidates=changes, applied=[], fake_db=self.fake_db, **kwargs)
     applied = list(applied)
     tot = [self.MakeFailure(x, inflight=False) for x in tot]
     inflight = [self.MakeFailure(x, inflight=True) for x in inflight]
     # pylint: disable=E1120,E1123
     validation_pool.PatchSeries.Apply(
-        changes, manifest=mox.IgnoreArg(), max_change_count=max_change_count
-        ).AndReturn((applied, tot, inflight))
+        changes, manifest=mox.IgnoreArg()).AndReturn((applied, tot, inflight))
 
     for patch in applied:
       pool.HandleApplySuccess(patch, mox.IgnoreArg()).AndReturn(None)
@@ -861,7 +909,7 @@ class TestCoreLogic(MoxBase):
     """Verifies that slave calls ApplyChange() directly for each patch."""
     slave_pool = self.MakePool(is_master=False)
     patches = self.GetPatches(3)
-    slave_pool.changes = patches
+    slave_pool.candidates = patches
     for patch in patches:
       # pylint: disable=E1120, E1123
       validation_pool.PatchSeries.ApplyChange(patch, manifest=mox.IgnoreArg())
@@ -872,15 +920,13 @@ class TestCoreLogic(MoxBase):
 
   def runApply(self, pool, result):
     self.assertEqual(result, pool.ApplyPoolIntoRepo())
-    self.assertEqual(pool.changes, pool._test_data[1])
+    self.assertEqual(pool.applied, pool._test_data[1])
     failed_inflight = pool.changes_that_failed_to_apply_earlier
     expected_inflight = set(pool._test_data[3])
     # Intersect the results, since it's possible there were results failed
     # results that weren't related to the ApplyPoolIntoRepo call.
     self.assertEqual(set(failed_inflight).intersection(expected_inflight),
                      expected_inflight)
-
-    self.assertEqual(pool.changes, pool._test_data[1])
 
   def testPatchSeriesInteraction(self):
     """Verify the interaction between PatchSeries and ValidationPool.
@@ -943,7 +989,7 @@ class TestCoreLogic(MoxBase):
     pool = self.MakePool(dryrun=False, handlers=True)
     patches = self.GetPatches(3)
     failed = self.GetPatches(3)
-    pool.changes = patches[:]
+    pool.applied = patches[:]
     # While we don't do anything w/ these patches, that's
     # intentional; we're verifying that it isn't submitted
     # if there is a failure.
@@ -956,15 +1002,20 @@ class TestCoreLogic(MoxBase):
     pool, patches, _failed = self._setUpSubmit()
     patch1, patch2, patch3 = patches
 
-    pool._SubmitChange(patch1, None, reason=None).AndReturn(True)
-    pool._SubmitChange(patch2, None, reason=None).AndReturn(False)
+    pool._SubmitChangeUsingGerrit(patch1, reason=None).AndReturn(True)
+    pool._SubmitChangeUsingGerrit(patch2, reason=None).AndReturn(False)
 
     pool._HandleCouldNotSubmit(patch2, mox.IgnoreArg()).InAnyOrder()
     pool._HandleCouldNotSubmit(patch3, mox.IgnoreArg()).InAnyOrder()
 
+    # pylint: disable=E1120,E1123
+    validation_pool.PatchSeries.Apply(set()).AndReturn(([], [], []))
     self.mox.ReplayAll()
-    self.assertRaises(validation_pool.FailedToSubmitAllChangesException,
-                      pool.SubmitPool)
+
+    mock_manifest = mock.MagicMock()
+    with mock.patch.object(git.ManifestCheckout, 'Cached', new=mock_manifest):
+      self.assertRaises(validation_pool.FailedToSubmitAllChangesException,
+                        pool.SubmitPool)
     self.mox.VerifyAll()
 
   def testSubmitPool(self):
@@ -973,12 +1024,16 @@ class TestCoreLogic(MoxBase):
     reason = 'fake reason'
 
     for patch in patches:
-      pool._SubmitChange(patch, mox.IgnoreArg(), reason=reason).AndReturn(True)
+      pool._SubmitChangeUsingGerrit(patch, reason=reason).AndReturn(True)
 
     pool._HandleApplyFailure(failed)
 
+    # pylint: disable=E1120,E1123
+    validation_pool.PatchSeries.Apply(set()).AndReturn(([], [], []))
     self.mox.ReplayAll()
-    pool.SubmitPool(reason=reason)
+    mock_manifest = mock.MagicMock()
+    with mock.patch.object(git.ManifestCheckout, 'Cached', new=mock_manifest):
+      pool.SubmitPool(reason=reason)
     self.mox.VerifyAll()
 
   def testSubmitNonManifestChanges(self):
@@ -988,15 +1043,88 @@ class TestCoreLogic(MoxBase):
     reason = 'fake reason'
 
     for patch in patches:
-      pool._SubmitChange(patch, None, reason=reason).AndReturn(True)
+      pool._SubmitChangeUsingGerrit(patch, reason=reason).AndReturn(True)
 
+    # pylint: disable=E1120,E1123
+    validation_pool.PatchSeries.Apply(set()).AndReturn(([], [], []))
+
+    mock_manifest = mock.MagicMock()
     self.mox.ReplayAll()
-    pool.SubmitNonManifestChanges(reason=reason)
+    with mock.patch.object(git.ManifestCheckout, 'Cached', new=mock_manifest):
+      pool.SubmitNonManifestChanges(reason=reason)
     self.mox.VerifyAll()
+
+  def testSubmitAccumulation(self):
+    """Tests ValidationPool.SubmitChanges.
+
+    Tests that it accumulates a mix of local and remote changes that were
+    submitted and rejected.
+    """
+    pool, patches, _failed = self._setUpSubmit()
+    pool.non_manifest_changes = patches[:1]
+    reason = 'fake reason'
+
+    # pylint: disable=E1120,E1123
+    error = mock.Mock(patch=patches[1])
+    validation_pool.PatchSeries.Apply(
+        set(patches[1:])).AndReturn(
+            ([patches[2]],
+             [error],
+             []))
+
+    self.mox.StubOutWithMock(validation_pool.PatchSeries, 'GetGitRepoForChange')
+    for i, patch in enumerate(patches):
+      # pylint: disable=E1120,E1123
+      validation_pool.PatchSeries.GetGitRepoForChange(
+          mox.IgnoreArg(), strict=False
+          ).AndReturn('foo_repo' if i > 0 else None)
+
+    self.mox.StubOutWithMock(validation_pool.ValidationPool,
+                             'SubmitLocalChanges')
+    pool.SubmitLocalChanges(
+        {'foo_repo': {patches[2]:reason}}
+        ).AndReturn((set((patches[2],)), {}))
+
+    for patch in pool.non_manifest_changes:
+      pool._SubmitChangeUsingGerrit(patch, reason=reason).AndReturn(True)
+
+    pool._HandleCouldNotSubmit(patches[1], error)
+
+    mock_manifest = mock.MagicMock()
+    self.mox.ReplayAll()
+    verified_cls = {c:reason for c in patches}
+    with mock.patch.object(git.ManifestCheckout, 'Cached', new=mock_manifest):
+      submitted, errors = pool.SubmitChanges(verified_cls)
+
+    self.assertEqual(submitted, set((patches[0], patches[2])))
+    self.assertEqual(errors, {patches[1]: error})
+    self.mox.VerifyAll()
+
+  def testPushRepoBranchPushesOnce(self):
+    """Tests that PushRepoBranch pushes once if there is no error."""
+    pool, patches, _failed = self._setUpSubmit()
+
+    repo = '/fake/path/aoeuidhtns'
+    tracking_branch = git.RemoteRef('cros', 'to_branch')
+
+    context = contextlib.nested(
+        mock.patch.object(git, 'SyncPushBranch'),
+        mock.patch.object(git, 'GitPush'),
+        mock.patch.object(git, 'GetTrackingBranch',
+                          new=lambda _: tracking_branch))
+
+    with context as (sync_func, push_func, _):
+      errors = pool.PushRepoBranch(repo, set(patches), 'from_branch')
+      self.assertEqual({}, errors)
+      self.assertEqual(1, sync_func.call_count)
+      self.assertEqual(1, push_func.call_count)
 
   def testUnhandledExceptions(self):
     """Test that CQ doesn't loop due to unhandled Exceptions."""
     pool, patches, _failed = self._setUpSubmit()
+
+    pool.candidates = pool.applied
+    pool.applied = []
 
     class MyException(Exception):
       """"Unique Exception used for testing."""
@@ -1007,8 +1135,7 @@ class TestCoreLogic(MoxBase):
 
     # pylint: disable=E1120,E1123
     validation_pool.PatchSeries.Apply(
-        patches, manifest=mox.IgnoreArg(),
-        max_change_count=len(patches)).AndRaise(MyException)
+        patches, manifest=mox.IgnoreArg()).AndRaise(MyException)
     errors = [mox.Func(functools.partial(VerifyCQError, x)) for x in patches]
     pool._HandleApplyFailure(errors).AndReturn(None)
 
@@ -1235,48 +1362,73 @@ class TestCoreLogic(MoxBase):
 
     self.assertEqual(slave_pool._GetFailStreak(), 0)
 
-  def testApplyWithTreeNotOpen(self):
+  def testFilterChangesForThrottledTree(self):
     """Tests that we can correctly apply exponential fallback."""
     patches = self.GetPatches(4)
-
-    # We mock out the shuffle so that we can deterministically test.
-    self.mox.StubOutWithMock(random, 'shuffle')
     self.mox.StubOutWithMock(validation_pool.ValidationPool, '_GetFailStreak')
 
-    slave_pool = self.GetPool(changes=patches, applied=patches[:2],
-                              max_change_count=2,
-                              tree_was_open=False, handlers=True)
-    random.shuffle(patches) # Mock.
+    #
+    # Test when tree is open.
+    #
+    self.mox.ReplayAll()
+
+    # Perform test.
+    slave_pool = self.MakePool(candidates=patches, tree_was_open=True)
+    slave_pool.FilterChangesForThrottledTree()
+
+    # Validate results.
+    self.assertEqual(len(slave_pool.candidates), 4)
+    self.mox.VerifyAll()
+    self.mox.ResetAll()
+
+    #
+    # Test when tree is closed with a streak of 1.
+    #
+
     # pylint: disable=no-value-for-parameter
     validation_pool.ValidationPool._GetFailStreak().AndReturn(1)
-
     self.mox.ReplayAll()
-    self.runApply(slave_pool, True)
-    self.assertEqual(len(slave_pool.changes), 2)
+
+    # Perform test.
+    slave_pool = self.MakePool(candidates=patches, tree_was_open=False)
+    slave_pool.FilterChangesForThrottledTree()
+
+    # Validate results.
+    self.assertEqual(len(slave_pool.candidates), 2)
     self.mox.VerifyAll()
     self.mox.ResetAll()
 
-    slave_pool = self.GetPool(changes=patches, applied=patches[:1],
-                              max_change_count=1,
-                              tree_was_open=False, handlers=True)
-    random.shuffle(patches) # Mock.
+    #
+    # Test when tree is closed with a streak of 2.
+    #
+
+    # pylint: disable=no-value-for-parameter
     validation_pool.ValidationPool._GetFailStreak().AndReturn(2)
-
     self.mox.ReplayAll()
-    self.runApply(slave_pool, True)
-    self.assertEqual(len(slave_pool.changes), 1)
+
+    # Perform test.
+    slave_pool = self.MakePool(candidates=patches, tree_was_open=False)
+    slave_pool.FilterChangesForThrottledTree()
+
+    # Validate results.
+    self.assertEqual(len(slave_pool.candidates), 1)
     self.mox.VerifyAll()
     self.mox.ResetAll()
 
-    slave_pool = self.GetPool(changes=patches, applied=patches[:1],
-                              max_change_count=1,
-                              tree_was_open=False, handlers=True)
-    random.shuffle(patches) # Mock.
-    validation_pool.ValidationPool._GetFailStreak().AndReturn(10)
+    #
+    # Test when tree is closed with a streak of many.
+    #
 
+    # pylint: disable=no-value-for-parameter
+    validation_pool.ValidationPool._GetFailStreak().AndReturn(200)
     self.mox.ReplayAll()
-    self.runApply(slave_pool, True)
-    self.assertEqual(len(slave_pool.changes), 1)
+
+    # Perform test.
+    slave_pool = self.MakePool(candidates=patches, tree_was_open=False)
+    slave_pool.FilterChangesForThrottledTree()
+
+    # Validate results.
+    self.assertEqual(len(slave_pool.candidates), 1)
     self.mox.VerifyAll()
 
 
@@ -1296,7 +1448,7 @@ class TestPickling(cros_test_lib.TempDirTestCase):
 
     repository.CloneGitRepo(
         repo,
-        '%s/chromiumos/chromite' % constants.EXTERNAL_GOB_URL,
+        '%s/chromiumos/chromite' % site_config.params.EXTERNAL_GOB_URL,
         reference=reference)
 
     code = """
@@ -1324,15 +1476,15 @@ sys.stdout.write(validation_pool_unittest.TestPickling.%s)
   def _GetCrosInternalPatch(patch_info):
     return cros_patch.GerritPatch(
         patch_info,
-        constants.INTERNAL_REMOTE,
-        constants.INTERNAL_GERRIT_URL)
+        site_config.params.INTERNAL_REMOTE,
+        site_config.params.INTERNAL_GERRIT_URL)
 
   @staticmethod
   def _GetCrosPatch(patch_info):
     return cros_patch.GerritPatch(
         patch_info,
-        constants.EXTERNAL_REMOTE,
-        constants.EXTERNAL_GERRIT_URL)
+        site_config.params.EXTERNAL_REMOTE,
+        site_config.params.EXTERNAL_GERRIT_URL)
 
   @classmethod
   def _GetTestData(cls):
@@ -1345,7 +1497,7 @@ sys.stdout.write(validation_pool_unittest.TestPickling.%s)
         constants.PUBLIC_OVERLAYS,
         '/fake/pathway', 1,
         'testing', True, True,
-        changes=changes, non_os_changes=non_os,
+        candidates=changes, non_os_changes=non_os,
         conflicting_changes=conflicting)
     return pickle.dumps([pool, changes, non_os, conflicting])
 
@@ -1360,7 +1512,7 @@ sys.stdout.write(validation_pool_unittest.TestPickling.%s)
       for s_item, v_item in zip(source, value):
         assert getter(s_item).id == getter(v_item).id
         assert getter(s_item).remote == getter(v_item).remote
-    _f(pool.changes, changes)
+    _f(pool.candidates, changes)
     _f(pool.non_manifest_changes, non_os)
     _f(pool.changes_that_failed_to_apply_earlier, conflicting,
        getter=lambda s: getattr(s, 'patch', s))
@@ -1490,8 +1642,8 @@ class TestCreateDisjointTransactions(MoxBase):
       # the specified length, ignoring any remaining patches.
       expected_plans = [txn[:max_txn_length] for txn in txns]
 
-    pool = MakePool(changes=patches)
-    plans = pool.CreateDisjointTransactions(None, pool.changes,
+    pool = MakePool(candidates=patches)
+    plans = pool.CreateDisjointTransactions(None, pool.candidates,
                                             max_txn_length=max_txn_length)
 
     # If the dependencies are circular, the order of the patches is not
@@ -1515,7 +1667,7 @@ class TestCreateDisjointTransactions(MoxBase):
     notify = self.PatchObject(validation_pool.ValidationPool,
                               'SendNotification')
     remove = self.PatchObject(gerrit.GerritHelper, 'RemoveReady')
-    pool = MakePool(changes=changes)
+    pool = MakePool(candidates=changes)
     plans = pool.CreateDisjointTransactions(None, changes,
                                             max_txn_length=max_txn_length)
     self.assertEqual(plans, [])
@@ -1608,10 +1760,13 @@ class BaseSubmitPoolTestCase(MoxBase):
     self.pool_mock = self.StartPatcher(MockValidationPool(self.manager))
     self.patch_mock = self.StartPatcher(MockPatchSeries())
     self.PatchObject(gerrit.GerritHelper, 'QuerySingleRecord')
+    # This is patched out for performance, not correctness.
+    self.PatchObject(validation_pool.PatchSeries, 'ReapplyChanges',
+                     lambda self, by_repo: (by_repo, {}))
     self.patches = self.GetPatches(2)
 
   def SetUpPatchPool(self, failed_to_apply=False):
-    pool = MakePool(changes=self.patches, dryrun=False)
+    pool = MakePool(candidates=self.patches, dryrun=False)
     if failed_to_apply:
       # Create some phony errors and add them to the pool.
       errors = []
@@ -1631,11 +1786,14 @@ class BaseSubmitPoolTestCase(MoxBase):
     """
     # Set up our pool and submit the patches.
     pool = self.SetUpPatchPool(**kwargs)
-    if not self.ALL_BUILDS_PASSED:
-      actually_rejected = sorted(pool.SubmitPartialPool(
-          pool.changes, mock.ANY, dict(), [], [], [], reason=reason))
-    else:
-      _, actually_rejected = pool.SubmitChanges(self.patches, reason=reason)
+    mock_manifest = mock.MagicMock()
+    with mock.patch.object(git.ManifestCheckout, 'Cached', new=mock_manifest):
+      if not self.ALL_BUILDS_PASSED:
+        actually_rejected = sorted(pool.SubmitPartialPool(
+            pool.candidates, mock.ANY, dict(), dict(), [], [], []))
+      else:
+        verified_cls = {c:reason for c in self.patches}
+        _, actually_rejected = pool.SubmitChanges(verified_cls)
 
     # Check that the right patches were submitted and rejected.
     self.assertItemsEqual(map(str, rejected), map(str, actually_rejected))
@@ -1816,11 +1974,12 @@ class SubmitPartialPoolTest(BaseSubmitPoolTestCase):
 
     self.verified_mock = self.PatchObject(
         triage_lib.CalculateSuspects, 'GetFullyVerifiedChanges',
-        return_value=[])
+        return_value={})
 
   def _MarkPatchesVerified(self, patches):
     """Set up to mark |patches| as verified."""
-    self.verified_mock.return_value = patches
+    verified_patches = {c:None for c in patches}
+    self.verified_mock.return_value = verified_patches
 
   def testSubmitNone(self):
     """Submit no changes."""
@@ -1872,17 +2031,17 @@ class LoadManifestTest(cros_test_lib.TempDirTestCase):
       f.flush()
       self.pool.AddPendingCommitsIntoPool(f.name)
 
-    self.assertEqual(self.pool.changes[0].owner_email, 'foo@chromium.org')
-    self.assertEqual(self.pool.changes[0].tracking_branch, 'master')
-    self.assertEqual(self.pool.changes[0].remote, 'cros')
-    self.assertEqual(self.pool.changes[0].gerrit_number, '17000')
-    self.assertEqual(self.pool.changes[0].project, 'chromiumos/taco/bar')
-    self.assertEqual(self.pool.changes[0].project_url,
+    self.assertEqual(self.pool.candidates[0].owner_email, 'foo@chromium.org')
+    self.assertEqual(self.pool.candidates[0].tracking_branch, 'master')
+    self.assertEqual(self.pool.candidates[0].remote, 'cros')
+    self.assertEqual(self.pool.candidates[0].gerrit_number, '17000')
+    self.assertEqual(self.pool.candidates[0].project, 'chromiumos/taco/bar')
+    self.assertEqual(self.pool.candidates[0].project_url,
                      'https://base_url/chromiumos/taco/bar')
-    self.assertEqual(self.pool.changes[0].change_id,
+    self.assertEqual(self.pool.candidates[0].change_id,
                      'Ieeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee1')
-    self.assertEqual(self.pool.changes[0].commit,
+    self.assertEqual(self.pool.candidates[0].commit,
                      '1ddddddddddddddddddddddddddddddddddddddd')
-    self.assertEqual(self.pool.changes[0].fail_count, 2)
-    self.assertEqual(self.pool.changes[0].pass_count, 0)
-    self.assertEqual(self.pool.changes[0].total_fail_count, 3)
+    self.assertEqual(self.pool.candidates[0].fail_count, 2)
+    self.assertEqual(self.pool.candidates[0].pass_count, 0)
+    self.assertEqual(self.pool.candidates[0].total_fail_count, 3)

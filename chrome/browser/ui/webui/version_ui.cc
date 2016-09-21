@@ -58,6 +58,7 @@ WebUIDataSource* CreateVersionUIDataSource() {
   html_source->AddString(version_ui::kVersionModifier,
                          chrome::GetChannelString());
   html_source->AddLocalizedString(version_ui::kOSName, IDS_VERSION_UI_OS);
+  html_source->AddLocalizedString(version_ui::kARC, IDS_ARC_LABEL);
   html_source->AddLocalizedString(version_ui::kPlatform, IDS_PLATFORM_LABEL);
   html_source->AddString(version_ui::kOSType, version_info::GetOSType());
   html_source->AddString(version_ui::kBlinkVersion,
@@ -68,9 +69,6 @@ WebUIDataSource* CreateVersionUIDataSource() {
 #if defined(OS_ANDROID)
   html_source->AddString(version_ui::kOSVersion,
                          AndroidAboutAppInfo::GetOsInfo());
-  html_source->AddLocalizedString(version_ui::kBuildIDName,
-                                  IDS_VERSION_UI_BUILD_ID);
-  html_source->AddString(version_ui::kBuildID, CHROME_BUILD_ID);
 #else
   html_source->AddString(version_ui::kOSVersion, std::string());
   html_source->AddString(version_ui::kFlashPlugin, "Flash");

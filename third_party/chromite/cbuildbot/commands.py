@@ -15,11 +15,14 @@ import multiprocessing
 import os
 import re
 import shutil
+import sys
 import tempfile
 
-from chromite.cbuildbot import autotest_rpc_errors
-from chromite.cbuildbot import failures_lib
+from chromite.cbuildbot import config_lib
 from chromite.cbuildbot import constants
+from chromite.cbuildbot import failures_lib
+from chromite.cbuildbot import swarming_lib
+from chromite.cbuildbot import topology
 from chromite.cli.cros.tests import cros_vm_test
 from chromite.lib import cros_build_lib
 from chromite.lib import cros_logging as logging
@@ -34,6 +37,8 @@ from chromite.lib import portage_util
 from chromite.lib import retry_util
 from chromite.lib import timeout_util
 from chromite.scripts import pushimage
+
+site_config = config_lib.GetConfig()
 
 
 _PACKAGE_FILE = '%(buildroot)s/src/scripts/cbuildbot_package.list'
@@ -51,6 +56,17 @@ STATEFUL_FILE = 'stateful.tgz'
 _TEST_REPORT_FILENAME = 'test_report.log'
 _TEST_PASSED = 'PASSED'
 _TEST_FAILED = 'FAILED'
+# For swarming proxy
+_SWARMING_ADDITIONAL_TIMEOUT = 60 * 60
+_DEFAULT_HWTEST_TIMEOUT_MINS = 1440
+_SWARMING_EXPIRATION = 20 * 60
+_RUN_SUITE_PATH = '/usr/local/autotest/site_utils/run_suite.py'
+_ABORT_SUITE_PATH = '/usr/local/autotest/site_utils/abort_suite.py'
+_MAX_HWTEST_CMD_RETRY = 10
+# For json_dump json dictionary marker
+JSON_DICT_START = '#JSON_START#'
+JSON_DICT_END = '#JSON_END#'
+
 
 # =========================== Command Helpers =================================
 
@@ -95,7 +111,7 @@ def RunBuildScript(buildroot, cmd, chromite_cmd=False, **kwargs):
     if enter_chroot and os.path.exists(chroot_tmp):
       kwargs['extra_env'] = (kwargs.get('extra_env') or {}).copy()
       status_file = stack.Add(tempfile.NamedTemporaryFile, dir=chroot_tmp)
-      kwargs['extra_env']['PARALLEL_EMERGE_STATUS_FILE'] = \
+      kwargs['extra_env'][constants.PARALLEL_EMERGE_STATUS_FILE_ENVVAR] = \
           path_util.ToChrootPath(status_file.name)
     runcmd = cros_build_lib.RunCommand
     if sudo:
@@ -164,17 +180,19 @@ def BuildRootGitCleanup(buildroot):
       try:
         if os.path.isdir(cwd):
           git.CleanAndDetachHead(cwd)
-          git.GarbageCollection(cwd)
+
+        if os.path.isdir(repo_git_store):
+          git.GarbageCollection(repo_git_store)
       except cros_build_lib.RunCommandError as e:
         result = e.result
-        cros_build_lib.PrintBuildbotStepWarnings()
+        logging.PrintBuildbotStepWarnings()
         logging.warning('\n%s', result.error)
 
         # If there's no repository corruption, just delete the index.
-        corrupted = git.IsGitRepositoryCorrupted(cwd)
+        corrupted = git.IsGitRepositoryCorrupted(repo_git_store)
         lock.write_lock()
         logging.warning('Deleting %s because %s failed', cwd, result.cmd)
-        osutils.RmDir(cwd, ignore_missing=True)
+        osutils.RmDir(cwd, ignore_missing=True, sudo=True)
         if corrupted:
           # Looks like the object dir is corrupted. Delete the whole repository.
           deleted_objdirs.set()
@@ -186,6 +204,13 @@ def BuildRootGitCleanup(buildroot):
       if os.path.isdir(repo_git_store):
         cmd = ['branch', '-D'] + list(constants.CREATED_BRANCHES)
         git.RunGit(repo_git_store, cmd, error_code_ok=True)
+
+      if os.path.isdir(cwd):
+        # Above we deleted refs/heads/<branch> for each created branch, now we
+        # need to delete the bare ref <branch> if it was created somehow.
+        for ref in constants.CREATED_BRANCHES:
+          git.RunGit(cwd, ['update-ref', '-d', ref])
+
 
   # Cleanup all of the directories.
   dirs = [[attrs['name'], os.path.join(buildroot, attrs['path'])] for attrs in
@@ -255,46 +280,6 @@ def RunChrootUpgradeHooks(buildroot, chrome_root=None, extra_env=None):
 
   RunBuildScript(buildroot, ['./run_chroot_version_hooks'], enter_chroot=True,
                  chroot_args=chroot_args, extra_env=extra_env)
-
-
-def RefreshPackageStatus(buildroot, boards, debug):
-  """Wrapper around refresh_package_status"""
-  # First run check_gdata_token to validate or refresh auth token.
-  cmd = ['check_gdata_token']
-  RunBuildScript(buildroot, cmd, chromite_cmd=True)
-
-  # Prepare refresh_package_status command to update the package spreadsheet.
-  cmd = ['refresh_package_status']
-
-  # Skip the host board if present.
-  board = ':'.join([b for b in boards if b != 'amd64-host'])
-  cmd.append('--board=%s' % board)
-
-  # Upload to the test spreadsheet only when in debug mode.
-  if debug:
-    cmd.append('--test-spreadsheet')
-
-  # Actually run prepared refresh_package_status command.
-  RunBuildScript(buildroot, cmd, chromite_cmd=True, enter_chroot=True)
-
-  # Disabling the auto-filing of Tracker issues for now - crbug.com/334260.
-  #SyncPackageStatus(buildroot, debug)
-
-
-def SyncPackageStatus(buildroot, debug):
-  """Wrapper around sync_package_status."""
-  # Run sync_package_status to create Tracker issues for outdated
-  # packages.  At the moment, this runs only for groups that have opted in.
-  basecmd = ['sync_package_status']
-  if debug:
-    basecmd.extend(['--pretend', '--test-spreadsheet'])
-
-  cmdargslist = [['--team=build'],
-                 ['--team=kernel', '--default-owner=arscott']]
-
-  for cmdargs in cmdargslist:
-    cmd = basecmd + cmdargs
-    RunBuildScript(buildroot, cmd, chromite_cmd=True, enter_chroot=True)
 
 
 def SetSharedUserPassword(buildroot, password):
@@ -367,7 +352,7 @@ def SetupBoard(buildroot, board, usepkg, chrome_binhost_only=False,
   RunBuildScript(buildroot, cmd, extra_env=extra_env, enter_chroot=True)
 
 
-class MissingBinpkg(failures_lib.InfrastructureFailure):
+class MissingBinpkg(failures_lib.StepFailure):
   """Error class for when we are missing an essential binpkg."""
 
 
@@ -415,6 +400,22 @@ def RunBinhostTest(buildroot, incremental=True):
   RunBuildScript(buildroot, cmd, chromite_cmd=True, enter_chroot=True)
 
 
+def RunBranchUtilTest(buildroot, version):
+  """Tests that branch-util works at the given manifest version."""
+  with osutils.TempDir() as tempdir:
+    cmd = [
+        'cbuildbot',
+        'branch-util',
+        '--local',
+        '--skip-remote-push',
+        '--branch-name', 'test_branch',
+        '--version', version,
+        '--buildroot', tempdir,
+        '--no-buildbot-tags',
+    ]
+    RunBuildScript(buildroot, cmd, chromite_cmd=True)
+
+
 def UpdateBinhostJson(buildroot):
   """Test prebuilts for all boards, making sure everybody gets Chrome prebuilts.
 
@@ -427,7 +428,7 @@ def UpdateBinhostJson(buildroot):
 
 def Build(buildroot, board, build_autotest, usepkg, chrome_binhost_only,
           packages=(), skip_chroot_upgrade=True, noworkon=False,
-          extra_env=None, chrome_root=None):
+          extra_env=None, chrome_root=None, noretry=False):
   """Wrapper around build_packages.
 
   Args:
@@ -444,6 +445,7 @@ def Build(buildroot, board, build_autotest, usepkg, chrome_binhost_only,
     noworkon: If set, don't force-build workon packages.
     extra_env: A dictionary of environmental variables to set during generation.
     chrome_root: The directory where chrome is stored.
+    noretry: Do not retry package failures.
   """
   cmd = ['./build_packages', '--board=%s' % board,
          '--accept_licenses=@CHROMEOS', '--withdebugsymbols']
@@ -462,6 +464,9 @@ def Build(buildroot, board, build_autotest, usepkg, chrome_binhost_only,
 
   if noworkon:
     cmd.append('--noworkon')
+
+  if noretry:
+    cmd.append('--nobuildretry')
 
   chroot_args = []
   if chrome_root:
@@ -607,19 +612,19 @@ def RunUnitTests(buildroot, board, blacklist=None, extra_env=None):
                  extra_env=extra_env or {})
 
 
-def RunTestSuite(buildroot, board, image_dir, results_dir, test_type,
-                 whitelist_chrome_crashes, archive_dir):
+def RunTestSuite(buildroot, board, image_path, results_dir, test_type,
+                 whitelist_chrome_crashes, archive_dir, ssh_private_key=None):
   """Runs the test harness suite."""
   results_dir_in_chroot = os.path.join(buildroot, 'chroot',
                                        results_dir.lstrip('/'))
   osutils.RmDir(results_dir_in_chroot, ignore_missing=True)
 
   cwd = os.path.join(buildroot, 'src', 'scripts')
-  image_path = os.path.join(image_dir, constants.TEST_IMAGE_BIN)
+  dut_type = 'gce' if test_type == constants.GCE_VM_TEST_TYPE else 'vm'
 
   cmd = ['bin/ctest',
          '--board=%s' % board,
-         '--type=vm',
+         '--type=%s' % dut_type,
          '--no_graphics',
          '--target_image=%s' % image_path,
          '--test_results_root=%s' % results_dir_in_chroot
@@ -634,6 +639,9 @@ def RunTestSuite(buildroot, board, image_dir, results_dir, test_type,
     if test_type == constants.SMOKE_SUITE_TEST_TYPE:
       cmd.append('--only_verify')
       cmd.append('--suite=smoke')
+    elif test_type == constants.GCE_VM_TEST_TYPE:
+      cmd.append('--only_verify')
+      cmd.append('--suite=gce-smoke')
     elif test_type == constants.TELEMETRY_SUITE_TEST_TYPE:
       cmd.append('--only_verify')
       cmd.append('--suite=telemetry_unit')
@@ -643,7 +651,12 @@ def RunTestSuite(buildroot, board, image_dir, results_dir, test_type,
   if whitelist_chrome_crashes:
     cmd.append('--whitelist_chrome_crashes')
 
-  result = cros_build_lib.RunCommand(cmd, cwd=cwd, error_code_ok=True)
+  if ssh_private_key is not None:
+    cmd.append('--ssh_private_key=%s' % ssh_private_key)
+
+  # Give tests 10 minutes to clean up before shutting down.
+  result = cros_build_lib.RunCommand(cmd, cwd=cwd, error_code_ok=True,
+                                     kill_timeout=10 * 60)
   if result.returncode:
     if os.path.exists(results_dir_in_chroot):
       error = '%s exited with code %d' % (' '.join(cmd), result.returncode)
@@ -826,13 +839,17 @@ def ArchiveVMFiles(buildroot, test_results_dir, archive_path):
   return tar_files
 
 
+HWTestSuiteResult = collections.namedtuple('HWTestSuiteResult',
+                                           ['to_raise', 'json_dump_result'])
+
 @failures_lib.SetFailureType(failures_lib.SuiteTimedOut,
                              timeout_util.TimeoutError)
 def RunHWTestSuite(build, suite, board, pool=None, num=None, file_bugs=None,
                    wait_for_results=None, priority=None, timeout_mins=None,
                    retry=None, max_retries=None,
                    minimum_duts=0, suite_min_duts=0,
-                   offload_failures_only=None, debug=True):
+                   offload_failures_only=None, debug=True, subsystems=None,
+                   skip_duts_check=False):
   """Run the test suite in the Autotest lab.
 
   Args:
@@ -859,173 +876,296 @@ def RunHWTestSuite(build, suite, board, pool=None, num=None, file_bugs=None,
                     a suite that has higher priority.
     offload_failures_only: Only offload failed tests to Google Storage.
     debug: Whether we are in debug mode.
+    subsystems: A set of subsystems that the relevant changes affect, for
+                testing purposes.
+    skip_duts_check: If True, skip minimum available DUTs check.
+
+  Returns:
+    An instance of named tuple HWTestSuiteResult, the first element is the
+    exception to be raised; the second element is the json dump cmd result,
+    if json_dump cmd is not called, None will be returned.
   """
-  cmd = _CreateRunSuiteCommand(build, suite, board, pool, num, file_bugs,
-                               wait_for_results, priority, timeout_mins, retry,
-                               max_retries, minimum_duts, suite_min_duts,
-                               offload_failures_only)
   try:
-    HWTestCreateAndWait(cmd, debug)
+    cmd = [_RUN_SUITE_PATH]
+    cmd += _GetRunSuiteArgs(build, suite, board, pool, num, file_bugs,
+                            priority, timeout_mins, retry, max_retries,
+                            minimum_duts, suite_min_duts, offload_failures_only,
+                            subsystems, skip_duts_check)
+    swarming_args = _CreateSwarmingArgs(build, suite, timeout_mins)
+    running_json_dump_flag = False
+    json_dump_result = None
+    job_id = _HWTestCreate(cmd, debug, **swarming_args)
+    if wait_for_results and job_id:
+      _HWTestWait(cmd, job_id, **swarming_args)
+      running_json_dump_flag = True
+      json_dump_result = _HWTestDumpJson(cmd, job_id, **swarming_args)
+    return HWTestSuiteResult(None, json_dump_result)
   except cros_build_lib.RunCommandError as e:
     result = e.result
-    # run_suite error codes:
-    #   0 - OK: Tests ran and passed.
-    #   1 - ERROR: Tests ran and failed (or timed out).
-    #   2 - WARNING: Tests ran and passed with warning(s). Note that 2
-    #         may also be CLIENT_HTTP_CODE error returned by
-    #         autotest_rpc_client.py. We ignore that case for now.
-    #   3 - INFRA_FAILURE: Tests did not complete due to lab issues.
-    #   4 - SUITE_TIMEOUT: Suite timed out. This could be caused by
-    #         infrastructure failures or by test failures.
-    # 11, 12, 13 for cases when rpc is down, see autotest_rpc_errors.py.
-    lab_warning_codes = (2,)
-    infra_error_codes = (3,
-                         autotest_rpc_errors.PROXY_CANNOT_SEND_REQUEST,
-                         autotest_rpc_errors.PROXY_CONNECTION_LOST,
-                         autotest_rpc_errors.PROXY_TIMED_OUT,)
-    timeout_codes = (4,)
-    board_not_available_codes = (5,)
+    if not result.HasValidSummary():
+      # swarming client has failed.
+      logging.error('No valid task summary json generated, output:%s',
+                    result.output)
+      if result.task_summary_json:
+        logging.error('Invalid task summary json:\n%s',
+                      json.dumps(result.task_summary_json, indent=2))
+      to_raise = failures_lib.SwarmingProxyFailure(
+          '** Failed to fullfill request with proxy server, code(%d) **'
+          % result.returncode)
+    elif result.GetValue('internal_failure'):
+      logging.error('Encountered swarming internal error:\n'
+                    'stdout: \n%s\n'
+                    'summary json content:\n%s',
+                    result.output, str(result.task_summary_json))
+      to_raise = failures_lib.SwarmingProxyFailure(
+          '** Failed to fullfill request with proxy server, code(%d) **'
+          % result.returncode)
+    else:
+      logging.debug('swarming info: name: %s, bot_id: %s, created_ts: %s',
+                    result.GetValue('name'),
+                    result.GetValue('bot_id'),
+                    result.GetValue('created_ts'))
+      # If running json_dump cmd, write the pass/fail subsys dict into console,
+      # otherwise, write the cmd output to the console.
+      outputs = result.GetValue('outputs', '')
+      if running_json_dump_flag:
+        s = ''.join(outputs)
+        sys.stdout.write(s)
+        sys.stdout.write('\n')
+        i = s.find(JSON_DICT_START) + len(JSON_DICT_START)
+        j = s.find(JSON_DICT_END)
+        json_dump_result = json.loads(s[i:j])
+      else:
+        for output in outputs:
+          sys.stdout.write(output)
+        sys.stdout.flush()
+      # swarming client has submitted task and returned task information.
+      lab_warning_codes = (2,)
+      infra_error_codes = (3,)
+      timeout_codes = (4,)
+      board_not_available_codes = (5,)
+      proxy_failure_codes = (241,)
 
-    if result.returncode in lab_warning_codes:
-      raise failures_lib.TestWarning('** Suite passed with a warning code **')
-    elif result.returncode in infra_error_codes:
-      raise failures_lib.TestLabFailure(
-          '** HWTest did not complete due to infrastructure issues '
-          '(code %d) **' % result.returncode)
-    elif result.returncode in timeout_codes:
-      raise failures_lib.SuiteTimedOut(
-          '** Suite timed out before completion **')
-    elif result.returncode in board_not_available_codes:
-      raise failures_lib.BoardNotAvailable(
-          '** Board was not availble in the lab **')
-    elif result.returncode != 0:
-      raise failures_lib.TestFailure(
-          '** HWTest failed (code %d) **' % result.returncode)
+      if result.returncode in lab_warning_codes:
+        to_raise = failures_lib.TestWarning(
+            '** Suite passed with a warning code **')
+      elif (result.returncode in infra_error_codes or
+            result.returncode in proxy_failure_codes):
+        to_raise = failures_lib.TestLabFailure(
+            '** HWTest did not complete due to infrastructure issues '
+            '(code %d) **' % result.returncode)
+      elif result.returncode in timeout_codes:
+        to_raise = failures_lib.SuiteTimedOut(
+            '** Suite timed out before completion **')
+      elif result.returncode in board_not_available_codes:
+        to_raise = failures_lib.BoardNotAvailable(
+            '** Board was not availble in the lab **')
+      elif result.returncode != 0:
+        to_raise = failures_lib.TestFailure(
+            '** HWTest failed (code %d) **' % result.returncode)
+    return HWTestSuiteResult(to_raise, json_dump_result)
 
 
 # pylint: disable=docstring-missing-args
-def _CreateRunSuiteCommand(build, suite, board, pool=None, num=None,
-                           file_bugs=None, wait_for_results=None,
-                           priority=None, timeout_mins=None,
-                           retry=None, max_retries=None, minimum_duts=0,
-                           suite_min_duts=0, offload_failures_only=None):
-  """Create a proxied run_suite command for the given arguments.
+def _GetRunSuiteArgs(build, suite, board, pool=None, num=None,
+                     file_bugs=None, priority=None, timeout_mins=None,
+                     retry=None, max_retries=None, minimum_duts=0,
+                     suite_min_duts=0, offload_failures_only=None,
+                     subsystems=None, skip_duts_check=False):
+  """Get a list of args for run_suite.
 
   Args:
     See RunHWTestSuite.
 
   Returns:
-    Proxied run_suite command.
+    A list of args for run_suite
   """
-  cmd = [_AUTOTEST_RPC_CLIENT,
-         _AUTOTEST_RPC_HOSTNAME,
-         'RunSuite',
-         '--build', build,
-         '--suite_name', suite,
-         '--board', board]
+  args = ['--build', build, '--board', board]
+
+  if subsystems:
+    args += ['--suite_name', 'suite_attr_wrapper']
+  else:
+    args += ['--suite_name', suite]
 
   # Add optional arguments to command, if present.
   if pool is not None:
-    cmd += ['--pool', pool]
+    args += ['--pool', pool]
 
   if num is not None:
-    cmd += ['--num', str(num)]
+    args += ['--num', str(num)]
 
   if file_bugs is not None:
-    cmd += ['--file_bugs', str(file_bugs)]
-
-  if wait_for_results is not None:
-    cmd += ['--no_wait', str(not wait_for_results)]
+    args += ['--file_bugs', str(file_bugs)]
 
   if priority is not None:
-    cmd += ['--priority', priority]
+    args += ['--priority', priority]
 
   if timeout_mins is not None:
-    cmd += ['--timeout_mins', str(timeout_mins)]
+    args += ['--timeout_mins', str(timeout_mins)]
 
   if retry is not None:
-    cmd += ['--retry', str(retry)]
+    args += ['--retry', str(retry)]
 
   if max_retries is not None:
-    cmd += ['--max_retries', str(max_retries)]
+    args += ['--max_retries', str(max_retries)]
 
   if minimum_duts != 0:
-    cmd += ['--minimum_duts', str(minimum_duts)]
+    args += ['--minimum_duts', str(minimum_duts)]
 
   if suite_min_duts != 0:
-    cmd += ['--suite_min_duts', str(suite_min_duts)]
+    args += ['--suite_min_duts', str(suite_min_duts)]
 
   if offload_failures_only is not None:
-    cmd += ['--offload_failures_only', str(offload_failures_only)]
+    args += ['--offload_failures_only', str(offload_failures_only)]
 
-  return cmd
-# pylint: enable=docstring-missing-args
+  if subsystems:
+    subsystem_attr = ['subsystem:%s' % x for x in subsystems]
+    subsystems_attr_str = ' or '.join(subsystem_attr)
+
+    if suite != 'suite_attr_wrapper':
+      if type(suite) is str:
+        suite_attr_str = 'suite:%s' % suite
+      else:
+        suite_attr_str = ' or '.join(['suite:%s' % x for x in suite])
+
+      attr_value = '(%s) and (%s)' % (suite_attr_str, subsystems_attr_str)
+    else:
+      attr_value = subsystems_attr_str
+
+    suite_args_dict = repr({'attr_filter' : attr_value})
+    args += ['--suite_args', suite_args_dict]
+
+    if skip_duts_check:
+      args += ['--skip_duts_check']
+  return args
 
 
-# TODO(akeshet): This function exists solely to support a caller in
-# paygen_build_lib. That caller should be refactored to use RunHWTestSuite, at
-# which point this can be folded into RunHWTestSuite.
-def HWTestCreateAndWait(cmd, debug=False):
-  """Start and wait on HWTest suite in the lab, retrying on proxy failures.
+# pylint: disable=docstring-missing-args
+def _CreateSwarmingArgs(build, suite, timeout_mins=None):
+  """Create args for swarming client.
 
   Args:
-    cmd: Proxied run_suite command as returned by _CreateRunSuiteCommand.
-    debug: If True, log command rather than running it.
+    build: Name of the build, will be part of the swarming task name.
+    suite: Name of the suite, will be part of the swarming task name.
+    timeout_mins: run_suite timeout mins, will be used to figure out
+                  timeouts for swarming task.
+
+  Returns:
+    A dictionary of args for swarming client.
   """
-  job_id = _HWTestStart(cmd, debug)
-  if job_id is not None:
-    _HWTestWait(cmd, job_id)
+
+  swarming_timeout = timeout_mins or _DEFAULT_HWTEST_TIMEOUT_MINS
+  swarming_timeout = swarming_timeout * 60 + _SWARMING_ADDITIONAL_TIMEOUT
+
+  swarming_args = {
+      'swarming_server': topology.topology.get(
+          topology.SWARMING_PROXY_HOST_KEY),
+      'task_name': '-'.join([build, suite]),
+      'dimensions': [('os', 'Ubuntu-14.04'),
+                     ('pool', 'default')],
+      'print_status_updates': True,
+      'timeout_secs': swarming_timeout,
+      'io_timeout_secs': swarming_timeout,
+      'hard_timeout_secs': swarming_timeout,
+      'expiration_secs': _SWARMING_EXPIRATION}
+  return swarming_args
 
 
-def _HWTestStart(cmd, debug=True):
+def _HWTestCreate(cmd, debug=False, **kwargs):
   """Start a suite in the HWTest lab, and return its id.
 
+  This method runs a command to create the suite. Since we are using
+  swarming client, which contiuously send request to swarming server
+  to poll task result, there is no need to retry on any network
+  related failures.
+
   Args:
-    cmd: The base run_suite command, as created by _CreateRunSuiteCommand.
-    debug: If True, log command that would have run rather than starting suite.
+    cmd: Proxied run_suite command.
+    debug: If True, log command rather than running it.
+    kwargs: args to be passed to RunSwarmingCommand.
 
   Returns:
     Job id of created suite. Returned id will be None if no job id was created.
   """
-  cmd = list(cmd)
-  cmd += ['-c']
+  # Start the suite.
+  start_cmd = list(cmd) + ['-c']
 
   if debug:
-    logging.info('RunHWTestSuite would run: %s', cros_build_lib.CmdToStr(cmd))
+    logging.info('RunHWTestSuite would run: %s',
+                 cros_build_lib.CmdToStr(start_cmd))
   else:
-    max_retry = 10
-    retry_on = (autotest_rpc_errors.PROXY_CANNOT_SEND_REQUEST,)
-    try:
-      result = retry_util.RunCommandWithRetries(max_retry, cmd,
-                                                retry_on=retry_on,
-                                                capture_output=True,
-                                                combine_stdout_stderr=True)
-    except cros_build_lib.RunCommandError as e:
-      logging.error('%s', e.result.output)
-      raise
-
-    logging.info('%s', result.output)
+    result = swarming_lib.RunSwarmingCommand(
+        start_cmd, capture_output=True, combine_stdout_stderr=True,
+        **kwargs)
+    # If the command succeeds, result.task_summary_json
+    # should have the right content.
+    for output in result.GetValue('outputs', ''):
+      sys.stdout.write(output)
+    sys.stdout.flush()
     m = re.search(r'Created suite job:.*object_id=(?P<job_id>\d*)',
                   result.output)
     if m:
       return m.group('job_id')
+  return None
 
-
-def _HWTestWait(cmd, job_id):
-  """Wait for HWTest suite to complete, retrying rpc failures.
+def _HWTestWait(cmd, job_id, **kwargs):
+  """Wait for HWTest suite to complete.
 
   Args:
-    cmd: The base run_suite command that was used to launcht the suite, as
-         created by _CreateRunSuiteCommand.
+    cmd: Proxied run_suite command.
     job_id: The job id of the suite that was created.
+    kwargs: args to be passed to RunSwarmingCommand.
   """
-  cmd = list(cmd)
-  cmd += ['-m', str(job_id)]
+  # Wait on the suite
+  wait_cmd = list(cmd) + ['-m', str(job_id)]
+  try:
+    result = swarming_lib.RunSwarmingCommandWithRetries(
+        max_retry=_MAX_HWTEST_CMD_RETRY,
+        error_check=swarming_lib.SwarmingRetriableErrorCheck,
+        cmd=wait_cmd, capture_output=True, combine_stdout_stderr=True,
+        **kwargs)
+  except cros_build_lib.RunCommandError as e:
+    result = e.result
+    # Delay the lab-related exceptions, since those will be raised in the next
+    # json_dump cmd run.
+    if (not result.task_summary_json or not result.GetValue('outputs') or
+        result.GetValue('internal_failure')):
+      raise
+    else:
+      logging.error('wait_cmd has lab failures: %s.\nException will be raised '
+                    'in the next json_dump run.', e.msg)
+  for output in result.GetValue('outputs', ''):
+    sys.stdout.write(output)
+  sys.stdout.flush()
 
-  retry_on = (autotest_rpc_errors.PROXY_CANNOT_SEND_REQUEST,
-              autotest_rpc_errors.PROXY_CONNECTION_LOST,)
-  max_retry = 10
-  retry_util.RunCommandWithRetries(max_retry, cmd, retry_on=retry_on)
+
+def _HWTestDumpJson(cmd, job_id, **kwargs):
+  """Consume HWTest suite json output and return passed/failed subsystems dict.
+
+  Args:
+    cmd: Proxied run_suite command.
+    job_id: The job id of the suite that was created.
+    kwargs: args to be passed to RunSwarmingCommand.
+
+  Returns:
+    The parsed json_dump dictionary.
+  """
+  dump_json_cmd = list(cmd) + ['--json_dump', '-m', str(job_id)]
+  result = swarming_lib.RunSwarmingCommandWithRetries(
+      max_retry=_MAX_HWTEST_CMD_RETRY,
+      error_check=swarming_lib.SwarmingRetriableErrorCheck,
+      cmd=dump_json_cmd, capture_output=True, combine_stdout_stderr=True,
+      **kwargs)
+  for output in result.GetValue('outputs', ''):
+    sys.stdout.write(output)
+  sys.stdout.write('\n')
+  sys.stdout.flush()
+  dump_output = ''.join(result.GetValue('outputs', ''))
+  i = dump_output.find(JSON_DICT_START) + len(JSON_DICT_START)
+  j = dump_output.find(JSON_DICT_END)
+  if i == -1 or j == -1 or i > j:
+    raise ValueError('Invalid swarming output: %s' % dump_output)
+  return json.loads(dump_output[i:j])
 
 
 def AbortHWTests(config_type_or_name, version, debug, suite=''):
@@ -1043,20 +1183,25 @@ def AbortHWTests(config_type_or_name, version, debug, suite=''):
   # Example for a specific config: link-paladin/R35-5542.0.0-rc1
   # Example for a config type: paladin/R35-5542.0.0-rc1
   substr = '%s/%s' % (config_type_or_name, version)
-
-  # Actually abort the build.
-  cmd = [_AUTOTEST_RPC_CLIENT,
-         _AUTOTEST_RPC_HOSTNAME,
-         'AbortSuiteByName',
-         '-i', substr,
-         '-s', suite]
-  if debug:
-    logging.info('AbortHWTests would run: %s', cros_build_lib.CmdToStr(cmd))
-  else:
-    try:
-      cros_build_lib.RunCommand(cmd)
-    except cros_build_lib.RunCommandError:
-      logging.warning('AbortHWTests failed', exc_info=True)
+  abort_args = ['-i', substr, '-s', suite]
+  try:
+    cmd = [_ABORT_SUITE_PATH] + abort_args
+    swarming_args = {
+        'swarming_server': topology.topology.get(
+            topology.SWARMING_PROXY_HOST_KEY),
+        'task_name': '-'.join(['abort', substr, suite]),
+        'dimensions': [('os', 'Ubuntu-14.04'),
+                       ('pool', 'default')],
+        'print_status_updates': True,
+        'expiration_secs': _SWARMING_EXPIRATION}
+    if debug:
+      logging.info('AbortHWTests would run the cmd via '
+                   'swarming, cmd: %s, swarming_args: %s',
+                   cros_build_lib.CmdToStr(cmd), str(swarming_args))
+    else:
+      swarming_lib.RunSwarmingCommand(cmd, **swarming_args)
+  except cros_build_lib.RunCommandError:
+    logging.warning('AbortHWTests failed', exc_info=True)
 
 
 def GenerateStackTraces(buildroot, board, test_results_dir,
@@ -1124,7 +1269,7 @@ def GenerateStackTraces(buildroot, board, test_results_dir,
         if not asan_log_signaled:
           asan_log_signaled = True
           logging.error('Asan crash occurred. See asan_logs in Artifacts.')
-          cros_build_lib.PrintBuildbotStepFailure()
+          logging.PrintBuildbotStepFailure()
 
       # Append the processed file to archive.
       filename = ArchiveFile(processed_file_path, archive_dir)
@@ -1151,6 +1296,74 @@ def ArchiveFile(file_to_archive, archive_dir):
     os.chmod(archived_file, 0o644)
 
   return filename
+
+
+class AndroidIsPinnedUprevError(failures_lib.InfrastructureFailure):
+  """Raised when we try to uprev while Android is pinned."""
+
+  def __init__(self, new_android_atom):
+    """Initialize a AndroidIsPinnedUprevError.
+
+    Args:
+      new_android_atom: The Android atom that we failed to
+                        uprev to, due to Android being pinned.
+    """
+    msg = ('Failed up uprev to Android version %s as Android was pinned.' %
+           new_android_atom)
+    super(AndroidIsPinnedUprevError, self).__init__(msg)
+    self.new_android_atom = new_android_atom
+
+
+class ChromeIsPinnedUprevError(failures_lib.InfrastructureFailure):
+  """Raised when we try to uprev while chrome is pinned."""
+
+  def __init__(self, new_chrome_atom):
+    """Initialize a ChromeIsPinnedUprevError.
+
+    Args:
+      new_chrome_atom: The chrome atom that we failed to
+                       uprev to, due to chrome being pinned.
+    """
+    msg = ('Failed up uprev to chrome version %s as chrome was pinned.' %
+           new_chrome_atom)
+    super(ChromeIsPinnedUprevError, self).__init__(msg)
+    self.new_chrome_atom = new_chrome_atom
+
+
+def MarkAndroidAsStable(buildroot, tracking_branch, boards,
+                        android_version=None):
+  """Returns the portage atom for the revved Android ebuild - see man emerge."""
+  # TODO: Consider merging this with MarkChromeAsStable.
+  command = ['cros_mark_android_as_stable',
+             '--tracking_branch=%s' % tracking_branch]
+  if boards:
+    command.append('--boards=%s' % ':'.join(boards))
+  if android_version:
+    command.append('--force_version=%s' % android_version)
+
+  portage_atom_string = RunBuildScript(buildroot, command, chromite_cmd=True,
+                                       enter_chroot=True,
+                                       redirect_stdout=True).output.rstrip()
+  android_atom = None
+  if portage_atom_string:
+    android_atom = portage_atom_string.splitlines()[-1].partition('=')[-1]
+  if not android_atom:
+    logging.info('Found nothing to rev.')
+    return None
+
+  for board in boards:
+    # Sanity check: We should always be able to merge the version of
+    # Android we just unmasked.
+    try:
+      command = ['emerge-%s' % board, '-p', '--quiet', '=%s' % android_atom]
+      RunBuildScript(buildroot, command, enter_chroot=True,
+                     combine_stdout_stderr=True, capture_output=True)
+    except failures_lib.BuildScriptFailure:
+      logging.error('Cannot emerge-%s =%s\nIs Android pinned to an older '
+                    'version?' % (board, android_atom))
+      raise AndroidIsPinnedUprevError(android_atom)
+
+  return android_atom
 
 
 def MarkChromeAsStable(buildroot,
@@ -1207,7 +1420,7 @@ def MarkChromeAsStable(buildroot,
     except cros_build_lib.RunCommandError:
       logging.error('Cannot emerge-%s =%s\nIs Chrome pinned to an older '
                     'version?' % (board, chrome_atom))
-      raise
+      raise ChromeIsPinnedUprevError(chrome_atom)
 
   return chrome_atom
 
@@ -1221,18 +1434,15 @@ def CleanupChromeKeywordsFile(boards, buildroot):
       cros_build_lib.SudoRunCommand(['rm', '-f', keywords_file])
 
 
-def UprevPackages(buildroot, boards, overlays, enter_chroot=True):
+def UprevPackages(buildroot, boards, overlays):
   """Uprevs non-browser chromium os packages that have changed."""
   drop_file = _PACKAGE_FILE % {'buildroot': buildroot}
-  if enter_chroot:
-    overlays = [path_util.ToChrootPath(x) for x in overlays]
-    drop_file = path_util.ToChrootPath(drop_file)
   cmd = ['cros_mark_as_stable', '--all',
          '--boards=%s' % ':'.join(boards),
          '--overlays=%s' % ':'.join(overlays),
          '--drop_file=%s' % drop_file,
          'commit']
-  RunBuildScript(buildroot, cmd, chromite_cmd=True, enter_chroot=enter_chroot)
+  RunBuildScript(buildroot, cmd, chromite_cmd=True)
 
 
 def UprevPush(buildroot, overlays, dryrun):
@@ -1466,25 +1676,37 @@ def UploadArchivedFile(archive_dir, upload_urls, filename, debug,
     _UploadPathToGS(uploaded_file_path, upload_urls, debug, timeout)
 
 
-def UploadSymbols(buildroot, board, official, cnt, failed_list):
+def UploadSymbols(buildroot, board=None, official=False, cnt=None,
+                  failed_list=None, breakpad_root=None, product_name=None,
+                  error_code_ok=True):
   """Upload debug symbols for this build."""
-  cmd = ['upload_symbols', '--yes', '--board', board,
-         '--root', os.path.join(buildroot, constants.DEFAULT_CHROOT_DIR)]
-  if failed_list is not None:
-    cmd += ['--failed-list', str(failed_list)]
+  cmd = ['upload_symbols', '--yes']
+
+  if board is not None:
+    # Board requires both root and board to be set to be useful.
+    cmd += [
+        '--root', os.path.join(buildroot, constants.DEFAULT_CHROOT_DIR),
+        '--board', board]
   if official:
     cmd.append('--official_build')
   if cnt is not None:
     cmd += ['--upload-limit', str(cnt)]
+  if failed_list is not None:
+    cmd += ['--failed-list', str(failed_list)]
+  if breakpad_root is not None:
+    cmd += ['--breakpad_root', breakpad_root]
+  if product_name is not None:
+    cmd += ['--product_name', product_name]
 
   # We don't want to import upload_symbols directly because it uses the
   # swarming module which itself imports a _lot_ of stuff.  It has also
   # been known to hang.  We want to keep cbuildbot isolated & robust.
-  ret = RunBuildScript(buildroot, cmd, chromite_cmd=True, error_code_ok=True)
+  ret = RunBuildScript(buildroot, cmd, chromite_cmd=True,
+                       error_code_ok=error_code_ok)
   if ret.returncode:
     # TODO(davidjames): Convert this to a fatal error.
     # See http://crbug.com/212437
-    cros_build_lib.PrintBuildbotStepWarnings()
+    logging.PrintBuildbotStepWarnings()
 
 
 def PushImages(board, archive_url, dryrun, profile, sign_types=()):
@@ -1508,7 +1730,7 @@ def PushImages(board, archive_url, dryrun, profile, sign_types=()):
     return pushimage.PushImage(archive_url, board, profile=profile,
                                sign_types=sign_types, dry_run=dryrun)
   except pushimage.PushError as e:
-    cros_build_lib.PrintBuildbotStepFailure()
+    logging.PrintBuildbotStepFailure()
     return e.args[1]
 
 
@@ -1578,12 +1800,23 @@ def BuildRecoveryImage(buildroot, board, image_dir, extra_env):
     image_dir: Directory containing base image.
     extra_env: Flags to be added to the environment for the new process.
   """
-  image = os.path.join(image_dir, constants.BASE_IMAGE_BIN)
-  cmd = ['./mod_image_for_recovery.sh',
-         '--board=%s' % board,
-         '--image=%s' % path_util.ToChrootPath(image)]
-  RunBuildScript(buildroot, cmd, extra_env=extra_env, capture_output=True,
-                 enter_chroot=True)
+  base_image = os.path.join(image_dir, constants.BASE_IMAGE_BIN)
+  # mod_image_for_recovery leaves behind some artifacts in the source directory
+  # that we don't care about. So, use a tempdir as the working directory.
+  # This tempdir needs to be at a chroot accessible path.
+  with osutils.TempDir(base_dir=image_dir) as tempdir:
+    tempdir_base_image = os.path.join(tempdir, constants.BASE_IMAGE_BIN)
+    tempdir_recovery_image = os.path.join(tempdir, constants.RECOVERY_IMAGE_BIN)
+
+    # Copy the base image. Symlinking isn't enough because image building
+    # scripts follow symlinks by design.
+    shutil.copyfile(base_image, tempdir_base_image)
+    cmd = ['./mod_image_for_recovery.sh',
+           '--board=%s' % board,
+           '--image=%s' % path_util.ToChrootPath(tempdir_base_image)]
+    RunBuildScript(buildroot, cmd, extra_env=extra_env, capture_output=True,
+                   enter_chroot=True)
+    shutil.move(tempdir_recovery_image, image_dir)
 
 
 def BuildTarball(buildroot, input_list, tarball_output, cwd=None,
@@ -1852,7 +2085,15 @@ def BuildStandaloneArchive(archive_dir, image_dir, artifact_info):
     A KeyError is a required field is missing from artifact_info.
   """
   if 'archive' not in artifact_info:
-    # Nothing to do, just return the list as-is.
+    # Copy the file in 'paths' as is to the archive directory.
+    if len(artifact_info['paths']) > 1:
+      raise ValueError('default archive type does not support multiple inputs')
+    src_image = os.path.join(image_dir, artifact_info['paths'][0])
+    tgt_image = os.path.join(archive_dir, artifact_info['paths'][0])
+    if not os.path.exists(tgt_image):
+      # The image may have already been copied into place. If so, overwriting it
+      # can affect parallel processes.
+      shutil.copy(src_image, tgt_image)
     return artifact_info['paths']
 
   inputs = artifact_info['paths']
@@ -1884,6 +2125,53 @@ def BuildStandaloneArchive(archive_dir, image_dir, artifact_info):
   return [filename]
 
 
+def BuildStrippedPackagesTarball(buildroot, board, package_globs, archive_dir):
+  """Builds a tarball containing stripped packages.
+
+  Args:
+    buildroot: Root directory where build occurs.
+    board: The board for which packages should be tarred up.
+    package_globs: List of package search patterns. Each pattern is used to
+        search for packages via `equery list`.
+    archive_dir: The directory to drop the tarball in.
+
+  Returns:
+    The file name of the output tarball, None if no package found.
+  """
+  chroot_path = os.path.join(buildroot, constants.DEFAULT_CHROOT_DIR)
+  board_path = os.path.join(chroot_path, 'build', board)
+  stripped_pkg_dir = os.path.join(board_path, 'stripped-packages')
+  tarball_paths = []
+  for pattern in package_globs:
+    packages = portage_util.FindPackageNameMatches(pattern, board,
+                                                   buildroot=buildroot)
+    for cpv in packages:
+      pkg = '%s/%s' % (cpv.category, cpv.pv)
+      cmd = ['strip_package', '--board', board, pkg]
+      cros_build_lib.RunCommand(cmd, cwd=buildroot, enter_chroot=True)
+      # Find the stripped package.
+      files = glob.glob(os.path.join(stripped_pkg_dir, pkg) + '.*')
+      if not files:
+        raise AssertionError('Silent failure to strip binary %s? '
+                             'Failed to find stripped files at %s.' %
+                             (pkg, os.path.join(stripped_pkg_dir, pkg)))
+      if len(files) > 1:
+        logging.PrintBuildbotStepWarnings()
+        logging.warning('Expected one stripped package for %s, found %d',
+                        pkg, len(files))
+
+      tarball = sorted(files)[-1]
+      tarball_paths.append(os.path.abspath(tarball))
+
+  if not tarball_paths:
+    # tar barfs on an empty list of files, so skip tarring completely.
+    return None
+
+  tarball_output = os.path.join(archive_dir, 'stripped-packages.tar')
+  BuildTarball(buildroot, tarball_paths, tarball_output, compressed=False)
+  return os.path.basename(tarball_output)
+
+
 def BuildGceTarball(archive_dir, image_dir, image):
   """Builds a tarball that can be converted into a GCE image.
 
@@ -1901,7 +2189,7 @@ def BuildGceTarball(archive_dir, image_dir, image):
   """
   with osutils.TempDir() as tempdir:
     temp_disk_raw = os.path.join(tempdir, 'disk.raw')
-    output = '%s_gce.tar.gz' % os.path.splitext(image)[0]
+    output = constants.ImageBinToGceTar(image)
     output_file = os.path.join(archive_dir, output)
     os.symlink(os.path.join(image_dir, image), temp_disk_raw)
 
@@ -2009,9 +2297,11 @@ def ArchiveHWQual(buildroot, hwqual_name, archive_dir, image_dir):
     image_dir: Directory containing test image.
   """
   scripts_dir = os.path.join(buildroot, 'src', 'scripts')
+  ssh_private_key = os.path.join(image_dir, constants.TEST_KEY_PRIVATE)
   cmd = [os.path.join(scripts_dir, 'archive_hwqual'),
          '--from', archive_dir,
          '--image_dir', image_dir,
+         '--ssh_private_key', ssh_private_key,
          '--output_tag', hwqual_name]
   cros_build_lib.RunCommand(cmd, capture_output=True)
   return '%s.tar.bz2' % hwqual_name
@@ -2101,7 +2391,8 @@ def GetChromeLKGM(revision):
   revision = revision or 'refs/heads/master'
   lkgm_url_path = '%s/+/%s/%s?format=text' % (
       constants.CHROMIUM_SRC_PROJECT, revision, constants.PATH_TO_CHROME_LKGM)
-  contents_b64 = gob_util.FetchUrl(constants.EXTERNAL_GOB_HOST, lkgm_url_path)
+  contents_b64 = gob_util.FetchUrl(site_config.params.EXTERNAL_GOB_HOST,
+                                   lkgm_url_path)
   return base64.b64decode(contents_b64.read()).strip()
 
 

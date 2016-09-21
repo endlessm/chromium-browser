@@ -1133,13 +1133,14 @@ class DeviceUtils(object):
       all_changed_files += changed_files
       all_stale_files += stale_files
       cache_commit_funcs.append(cache_commit_func)
-      if (os.path.isdir(h) and changed_files and not up_to_date_files
-          and not stale_files):
-        missing_dirs.append(d)
+      if changed_files and not up_to_date_files and not stale_files:
+        if os.path.isdir(h):
+          missing_dirs.append(d)
+        else:
+          missing_dirs.append(posixpath.dirname(d))
 
     if delete_device_stale and all_stale_files:
-      self.RunShellCommand(['rm', '-f'] + all_stale_files,
-                             check_return=True)
+      self.RunShellCommand(['rm', '-f'] + all_stale_files, check_return=True)
 
     if all_changed_files:
       if missing_dirs:
@@ -1157,11 +1158,12 @@ class DeviceUtils(object):
       track_stale: whether to bother looking for stale files (slower)
 
     Returns:
-      a three-element tuple
+      a four-element tuple
       1st element: a list of (host_files_path, device_files_path) tuples to push
       2nd element: a list of host_files_path that are up-to-date
       3rd element: a list of stale files under device_path, or [] when
         track_stale == False
+      4th element: a cache commit function.
     """
     try:
       # Length calculations below assume no trailing /.
@@ -2132,13 +2134,7 @@ class DeviceUtils(object):
 
     Returns:
       A Parallelizer operating over |devices|.
-
-    Raises:
-      device_errors.NoDevicesError: If no devices are passed.
     """
-    if not devices:
-      raise device_errors.NoDevicesError()
-
     devices = [d if isinstance(d, cls) else cls(d) for d in devices]
     if async:
       return parallelizer.Parallelizer(devices)
@@ -2146,20 +2142,76 @@ class DeviceUtils(object):
       return parallelizer.SyncParallelizer(devices)
 
   @classmethod
-  def HealthyDevices(cls, blacklist=None, **kwargs):
+  def HealthyDevices(cls, blacklist=None, device_arg='default', **kwargs):
+    """Returns a list of DeviceUtils instances.
+
+    Returns a list of DeviceUtils instances that are attached, not blacklisted,
+    and optionally filtered by --device flags or ANDROID_SERIAL environment
+    variable.
+
+    Args:
+      blacklist: A DeviceBlacklist instance (optional). Device serials in this
+          blacklist will never be returned, but a warning will be logged if they
+          otherwise would have been.
+      device_arg: The value of the --device flag. This can be:
+          'default' -> Same as [], but returns an empty list rather than raise a
+              NoDevicesError.
+          [] -> Returns all devices, unless $ANDROID_SERIAL is set.
+          None -> Use $ANDROID_SERIAL if set, otherwise looks for a single
+              attached device. Raises an exception if multiple devices are
+              attached.
+          'serial' -> Returns an instance for the given serial, if not
+              blacklisted.
+          ['A', 'B', ...] -> Returns instances for the subset that is not
+              blacklisted.
+      A device serial, or a list of device serials (optional).
+
+    Returns:
+      A list of one or more DeviceUtils instances.
+
+    Raises:
+      NoDevicesError: Raised when no non-blacklisted devices exist and
+          device_arg is passed.
+      MultipleDevicesError: Raise when multiple devices exist, but |device_arg|
+          is None.
+    """
+    allow_no_devices = False
+    if device_arg == 'default':
+      allow_no_devices = True
+      device_arg = ()
+
+    select_multiple = True
+    if not (isinstance(device_arg, tuple) or isinstance(device_arg, list)):
+      select_multiple = False
+      if device_arg:
+        device_arg = (device_arg,)
+
     blacklisted_devices = blacklist.Read() if blacklist else []
 
-    def blacklisted(adb):
-      if adb.GetDeviceSerial() in blacklisted_devices:
-        logging.warning('Device %s is blacklisted.', adb.GetDeviceSerial())
+    # adb looks for ANDROID_SERIAL, so support it as well.
+    android_serial = os.environ.get('ANDROID_SERIAL')
+    if not device_arg and android_serial:
+      device_arg = (android_serial,)
+
+    def blacklisted(serial):
+      if serial in blacklisted_devices:
+        logging.warning('Device %s is blacklisted.', serial)
         return True
       return False
 
-    devices = []
-    for adb in adb_wrapper.AdbWrapper.Devices():
-      if not blacklisted(adb):
-        devices.append(cls(_CreateAdbWrapper(adb), **kwargs))
-    return devices
+    if device_arg:
+      devices = [cls(x, **kwargs) for x in device_arg if not blacklisted(x)]
+    else:
+      devices = []
+      for adb in adb_wrapper.AdbWrapper.Devices():
+        if not blacklisted(adb.GetDeviceSerial()):
+          devices.append(cls(_CreateAdbWrapper(adb), **kwargs))
+
+    if len(devices) == 0 and not allow_no_devices:
+      raise device_errors.NoDevicesError()
+    if len(devices) > 1 and not select_multiple:
+      raise device_errors.MultipleDevicesError(devices)
+    return sorted(devices)
 
   @decorators.WithTimeoutAndRetriesFromInstance()
   def RestartAdbd(self, timeout=None, retries=None):

@@ -6,25 +6,21 @@
 
 from __future__ import print_function
 
-import httplib
 import os
 import re
 import shutil
-import urllib2
 
-from chromite.cbuildbot import commands, constants
+from chromite.cbuildbot import commands
 from chromite.cli import command
+from chromite.cli import flash
 from chromite.lib import cros_build_lib
 from chromite.lib import cros_logging as logging
 from chromite.lib import dev_server_wrapper
 from chromite.lib import gs
 from chromite.lib import osutils
-from chromite.lib import path_util
 from chromite.lib import remote_access
 
 
-DEVSERVER_STATIC_DIR = path_util.FromChrootPath(
-    os.path.join(constants.CHROOT_SOURCE_ROOT, 'devserver', 'static'))
 MOBLAB_STATIC_DIR = '/mnt/moblab/static'
 MOBLAB_TMP_DIR = os.path.join(MOBLAB_STATIC_DIR, 'tmp')
 BOARD_BUILD_DIR = 'usr/local/build'
@@ -103,6 +99,12 @@ NOTES:
         'the chroot already. Or Google Storage Bucket in the form of '
         'gs://<bucket-name>/')
     parser.add_argument(
+        '--board', dest='board', default=None,
+        help='The board name, defaults to value extracted from image path.')
+    parser.add_argument(
+        '--staged_image_name', dest='staged_image_name', default=None,
+        help='Name for the staged image. Default: <board>-custom/<build>')
+    parser.add_argument(
         '--boto_file', dest='boto_file', default=None,
         help='Path to boto file to use when uploading to Google Storage. If '
         'none the default chroot boto file is used.')
@@ -110,16 +112,21 @@ NOTES:
   def __init__(self, options):
     """Initializes cros stage."""
     super(StageCommand, self).__init__(options)
-    self.board = None
+    self.board = self.options.board
+    self.staged_image_name = self.options.staged_image_name
     # Determine if we are staging a local custom image or an official image.
     if self.options.image.startswith('gs://'):
       self._remote_image = True
-      self.staged_image_name = self._GenerateImageNameFromGSUrl(
-          self.options.image)
+      if not self.staged_image_name:
+        self.staged_image_name = self._GenerateImageNameFromGSUrl(
+            self.options.image)
     else:
       self._remote_image = False
-      self.staged_image_name = self._GenerateImageNameFromLocalPath(
-          self.options.image)
+      if not self.staged_image_name:
+        self.staged_image_name = self._GenerateImageNameFromLocalPath(
+            self.options.image)
+    if not self.board:
+      raise CustomImageStagingException('Please specify the "board" argument')
     self.stage_directory = os.path.join(MOBLAB_TMP_DIR, self.staged_image_name)
 
     # Determine if the staging destination is a Moblab or Google Storage.
@@ -130,6 +137,9 @@ NOTES:
 
   def _GenerateImageNameFromLocalPath(self, image):
     """Generate the name as which |image| will be staged onto Moblab.
+
+    If the board name has not been specified, set the board name based on
+    the image path.
 
     Args:
       image: Path to image we want to stage. It should be in the format of
@@ -152,11 +162,15 @@ NOTES:
     if build_name.endswith('-a1'):
       build_name = build_name[:-len('-a1')]
 
-    self.board = os.path.basename(os.path.dirname(os.path.dirname(realpath)))
+    if not self.board:
+      self.board = os.path.basename(os.path.dirname(os.path.dirname(realpath)))
     return CUSTOM_BUILD_NAME % dict(board=self.board, build=build_name)
 
   def _GenerateImageNameFromGSUrl(self, image):
     """Generate the name as which |image| will be staged onto Moblab.
+
+    If the board name has not been specified, set the board name based on
+    the image path.
 
     Args:
       image: GS Url to the image we want to stage. It should be in the format
@@ -172,7 +186,8 @@ NOTES:
     if not match:
       raise CustomImageStagingException(
           'Image URL: %s is improperly defined!' % image)
-    self.board = match.group('board')
+    if not self.board:
+      self.board = match.group('board')
     return CUSTOM_BUILD_NAME % dict(board=self.board,
                                     build=match.group('build_name'))
 
@@ -193,7 +208,7 @@ NOTES:
       tempdir: Temporary Directory to store the generated payloads.
     """
     dev_server_wrapper.GetUpdatePayloadsFromLocalPath(
-        self.options.image, tempdir, static_dir=DEVSERVER_STATIC_DIR)
+        self.options.image, tempdir, static_dir=flash.DEVSERVER_STATIC_DIR)
     rootfs_payload = os.path.join(tempdir, dev_server_wrapper.ROOTFS_FILENAME)
     # Devservers will look for a file named *_full_*.
     shutil.move(rootfs_payload, os.path.join(tempdir, 'update_full_dev.bin'))
@@ -229,21 +244,21 @@ NOTES:
       # Delete this image from the Devserver in case it was previously staged.
       device.RunCommand(['rm', '-rf', os.path.join(MOBLAB_STATIC_DIR,
                                                    self.staged_image_name)])
-      try:
-        stage_url = DEVSERVER_STAGE_URL % dict(moblab=self.options.remote,
-                                               staged_dir=self.stage_directory)
-        res = urllib2.urlopen(stage_url).read()
-      except (urllib2.HTTPError, httplib.HTTPException, urllib2.URLError) as e:
-        logging.error('Unable to stage artifacts on moblab. Error: %s', e)
+      stage_url = DEVSERVER_STAGE_URL % dict(moblab=self.options.remote,
+                                             staged_dir=self.stage_directory)
+      # Stage the image from the moblab, as port 8080 might not be reachable
+      # from the developer's system.
+      res = device.RunCommand(['curl', '--fail',
+                               cros_build_lib.ShellQuote(stage_url)],
+                              error_code_ok=True)
+      if res.returncode == 0:
+        logging.info('\n\nStaging Completed!')
+        logging.info('Image is staged on Moblab as %s',
+                     self.staged_image_name)
       else:
-        if res == 'Success':
-          logging.info('\n\nStaging Completed!')
-          logging.info('Image is staged on Moblab as %s',
-                       self.staged_image_name)
-        else:
-          logging.info('Staging failed. Error Message: %s', res)
-      finally:
-        device.RunCommand(['rm', '-rf', self.stage_directory])
+        logging.info('Staging failed. Error Message: %s', res.error)
+
+      device.RunCommand(['rm', '-rf', self.stage_directory])
 
   def _StageOnGS(self, tempdir):
     """Stage the generated payloads and test bits into a Google Storage bucket.
@@ -265,7 +280,7 @@ NOTES:
     logging.info('Attempting to stage: %s as Image: %s at Location: %s',
                  self.options.image, self.staged_image_name,
                  self.options.remote)
-    osutils.SafeMakedirsNonRoot(DEVSERVER_STATIC_DIR)
+    osutils.SafeMakedirsNonRoot(flash.DEVSERVER_STATIC_DIR)
 
     with osutils.TempDir() as tempdir:
       if self._remote_image:

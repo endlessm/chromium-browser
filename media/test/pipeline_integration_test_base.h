@@ -6,6 +6,7 @@
 #define MEDIA_TEST_PIPELINE_INTEGRATION_TEST_BASE_H_
 
 #include <stdint.h>
+#include <memory>
 
 #include "base/md5.h"
 #include "base/message_loop/message_loop.h"
@@ -58,7 +59,7 @@ class DummyTickClock : public base::TickClock {
 // display or audio device. Both of these devices are simulated since they have
 // little effect on verifying pipeline behavior and allow tests to run faster
 // than real-time.
-class PipelineIntegrationTestBase {
+class PipelineIntegrationTestBase : public Pipeline::Client {
  public:
   PipelineIntegrationTestBase();
   virtual ~PipelineIntegrationTestBase();
@@ -120,12 +121,12 @@ class PipelineIntegrationTestBase {
   base::MD5Context md5_context_;
   bool hashing_enabled_;
   bool clockless_playback_;
-  scoped_ptr<Demuxer> demuxer_;
-  scoped_ptr<DataSource> data_source_;
-  scoped_ptr<PipelineImpl> pipeline_;
+  std::unique_ptr<Demuxer> demuxer_;
+  std::unique_ptr<DataSource> data_source_;
+  std::unique_ptr<PipelineImpl> pipeline_;
   scoped_refptr<NullAudioSink> audio_sink_;
   scoped_refptr<ClocklessAudioSink> clockless_audio_sink_;
-  scoped_ptr<NullVideoSink> video_sink_;
+  std::unique_ptr<NullVideoSink> video_sink_;
   bool ended_;
   PipelineStatus pipeline_status_;
   Demuxer::EncryptedMediaInitDataCB encrypted_media_init_data_cb_;
@@ -134,8 +135,9 @@ class PipelineIntegrationTestBase {
   DummyTickClock dummy_clock_;
   AudioHardwareConfig hardware_config_;
   PipelineMetadata metadata_;
+  scoped_refptr<VideoFrame> last_frame_;
 
-  PipelineStatus StartInternal(scoped_ptr<DataSource> data_source,
+  PipelineStatus StartInternal(std::unique_ptr<DataSource> data_source,
                                CdmContext* cdm_context,
                                uint8_t test_type);
 
@@ -148,27 +150,31 @@ class PipelineIntegrationTestBase {
   void DemuxerEncryptedMediaInitDataCB(EmeInitDataType type,
                                        const std::vector<uint8_t>& init_data);
 
-  void DemuxerMediaTracksUpdatedCB(scoped_ptr<MediaTracks> tracks);
+  void DemuxerMediaTracksUpdatedCB(std::unique_ptr<MediaTracks> tracks);
 
-  void OnEnded();
-  void OnError(PipelineStatus status);
   void QuitAfterCurrentTimeTask(const base::TimeDelta& quit_time);
 
   // Creates Demuxer and sets |demuxer_|.
-  void CreateDemuxer(scoped_ptr<DataSource> data_source);
+  void CreateDemuxer(std::unique_ptr<DataSource> data_source);
 
   // Creates and returns a Renderer.
-  virtual scoped_ptr<Renderer> CreateRenderer();
+  virtual std::unique_ptr<Renderer> CreateRenderer();
 
   void OnVideoFramePaint(const scoped_refptr<VideoFrame>& frame);
 
-  MOCK_METHOD1(OnMetadata, void(PipelineMetadata));
-  MOCK_METHOD1(OnBufferingStateChanged, void(BufferingState));
   MOCK_METHOD1(DecryptorAttached, void(bool));
+  // Pipeline::Client overrides.
+  void OnError(PipelineStatus status) override;
+  void OnEnded() override;
+  MOCK_METHOD1(OnMetadata, void(PipelineMetadata));
+  MOCK_METHOD1(OnBufferingStateChange, void(BufferingState));
+  MOCK_METHOD0(OnDurationChange, void());
   MOCK_METHOD2(OnAddTextTrack,
                void(const TextTrackConfig& config,
                     const AddTextTrackDoneCB& done_cb));
   MOCK_METHOD0(OnWaitingForDecryptionKey, void(void));
+  MOCK_METHOD1(OnVideoNaturalSizeChange, void(const gfx::Size&));
+  MOCK_METHOD1(OnVideoOpacityChange, void(bool));
 };
 
 }  // namespace media

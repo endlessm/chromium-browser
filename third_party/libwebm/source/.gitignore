@@ -11,7 +11,7 @@ core
 *.user
 *.suo
 *.exe
-*.webm
+/*.webm
 Debug
 Release
 *.sdf
@@ -21,6 +21,12 @@ dumpvtt
 sample
 sample_muxer
 vttdemux
+muxer_tests
+parser_tests
+webm_info
+webm2pes
+webm2pes_tests
+webm2ts
 Makefile
 CMakeFiles
 CMakeCache.txt

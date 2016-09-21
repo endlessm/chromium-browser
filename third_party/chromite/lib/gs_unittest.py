@@ -177,7 +177,7 @@ class GetSizeTest(AbstractGSContextTest):
 
   def testBasic(self):
     """Simple test."""
-    self.gs_mock.AddCmdResult(['stat', self.GETSIZE_PATH],
+    self.gs_mock.AddCmdResult(['stat', '--', self.GETSIZE_PATH],
                               output=StatTest.STAT_OUTPUT)
     self.assertEqual(self.GetSize(), 74)
 
@@ -1009,11 +1009,11 @@ class GSContextTest(AbstractGSContextTest):
 
   def testGetGeneration(self):
     """Test ability to get the generation of a file."""
-    self.gs_mock.AddCmdResult(['stat', 'gs://abc/1'],
+    self.gs_mock.AddCmdResult(['stat', '--', 'gs://abc/1'],
                               output=StatTest.STAT_OUTPUT)
     ctx = gs.GSContext()
     ctx.GetGeneration('gs://abc/1')
-    self.gs_mock.assertCommandContains(['stat', 'gs://abc/1'])
+    self.gs_mock.assertCommandContains(['stat', '--', 'gs://abc/1'])
 
   def testCreateCached(self):
     """Test that the function runs through."""
@@ -1119,13 +1119,29 @@ class StatTest(AbstractGSContextTest):
         Metageneration:   1
       """
 
+  # Stat output with no MD5 (this is not guaranteed by GS, and
+  # can be omitted if files are uploaded as composite objects).
+  STAT_OUTPUT_NO_MD5 = """gs://abc/1:
+        Creation time:    Sat, 23 Aug 2014 06:53:20 GMT
+        Content-Language: en
+        Content-Length:   74
+        Content-Type:   application/octet-stream
+        Hash (crc32c):    BBPMPA==
+        ETag:     CNCgocbmqMACEAE=
+        Generation:   1408776800850000
+        Metageneration:   1
+      """
+
+  # When stat throws an error.  It's a special snow flake.
+  STAT_ERROR_OUTPUT = 'No URLs matched gs://abc/1'
+
   def testStat(self):
     """Test ability to get the generation of a file."""
-    self.gs_mock.AddCmdResult(['stat', 'gs://abc/1'],
+    self.gs_mock.AddCmdResult(['stat', '--', 'gs://abc/1'],
                               output=self.STAT_OUTPUT)
     ctx = gs.GSContext()
     result = ctx.Stat('gs://abc/1')
-    self.gs_mock.assertCommandContains(['stat', 'gs://abc/1'])
+    self.gs_mock.assertCommandContains(['stat', '--', 'gs://abc/1'])
 
     self.assertEqual(result.creation_time,
                      datetime.datetime(2014, 8, 23, 6, 53, 20))
@@ -1139,11 +1155,11 @@ class StatTest(AbstractGSContextTest):
 
   def testStatOlderOutput(self):
     """Test ability to get the generation of a file."""
-    self.gs_mock.AddCmdResult(['stat', 'gs://abc/1'],
+    self.gs_mock.AddCmdResult(['stat', '--', 'gs://abc/1'],
                               output=self.STAT_OUTPUT_OLDER)
     ctx = gs.GSContext()
     result = ctx.Stat('gs://abc/1')
-    self.gs_mock.assertCommandContains(['stat', 'gs://abc/1'])
+    self.gs_mock.assertCommandContains(['stat', '--', 'gs://abc/1'])
 
     self.assertEqual(result.creation_time,
                      datetime.datetime(2014, 8, 23, 6, 53, 20))
@@ -1155,14 +1171,32 @@ class StatTest(AbstractGSContextTest):
     self.assertEqual(result.generation, 1408776800850000)
     self.assertEqual(result.metageneration, 1)
 
+  def testStatNoMD5(self):
+    """Make sure GSContext works without an MD5."""
+    self.gs_mock.AddCmdResult(['stat', '--', 'gs://abc/1'],
+                              output=self.STAT_OUTPUT_NO_MD5)
+    ctx = gs.GSContext()
+    result = ctx.Stat('gs://abc/1')
+    self.gs_mock.assertCommandContains(['stat', '--', 'gs://abc/1'])
+
+    self.assertEqual(result.creation_time,
+                     datetime.datetime(2014, 8, 23, 6, 53, 20))
+    self.assertEqual(result.content_length, 74)
+    self.assertEqual(result.content_type, 'application/octet-stream')
+    self.assertEqual(result.hash_crc32c, 'BBPMPA==')
+    self.assertEqual(result.hash_md5, None)
+    self.assertEqual(result.etag, 'CNCgocbmqMACEAE=')
+    self.assertEqual(result.generation, 1408776800850000)
+    self.assertEqual(result.metageneration, 1)
+
   def testStatNoExist(self):
     """Test ability to get the generation of a file."""
-    self.gs_mock.AddCmdResult(['stat', 'gs://abc/1'],
-                              output='No URLs matched gs://abc/1',
+    self.gs_mock.AddCmdResult(['stat', '--', 'gs://abc/1'],
+                              error=self.STAT_ERROR_OUTPUT,
                               returncode=1)
     ctx = gs.GSContext()
     self.assertRaises(gs.GSNoSuchKey, ctx.Stat, 'gs://abc/1')
-    self.gs_mock.assertCommandContains(['stat', 'gs://abc/1'])
+    self.gs_mock.assertCommandContains(['stat', '--', 'gs://abc/1'])
 
 
 class UnmockedStatTest(cros_test_lib.TempDirTestCase):

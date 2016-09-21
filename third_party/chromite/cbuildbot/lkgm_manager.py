@@ -6,34 +6,32 @@
 
 from __future__ import print_function
 
+import codecs
 import os
 import re
+import tempfile
 from xml.dom import minidom
+from xml.parsers import expat
 
 from chromite.cbuildbot import config_lib
 from chromite.cbuildbot import constants
 from chromite.cbuildbot import manifest_version
+from chromite.cbuildbot import repository
+from chromite.cbuildbot import trybot_patch_pool
 from chromite.lib import cros_build_lib
 from chromite.lib import cros_logging as logging
 from chromite.lib import git
+from chromite.lib import osutils
+
+
+site_config = config_lib.GetConfig()
 
 
 # Paladin constants for manifest names.
 PALADIN_COMMIT_ELEMENT = 'pending_commit'
-PALADIN_REMOTE_ATTR = 'remote'
-PALADIN_GERRIT_NUMBER_ATTR = 'gerrit_number'
-PALADIN_PROJECT_ATTR = 'project'
-PALADIN_BRANCH_ATTR = 'branch'
-PALADIN_PROJECT_URL_ATTR = 'project_url'
-PALADIN_REF_ATTR = 'ref'
-PALADIN_CHANGE_ID_ATTR = 'change_id'
-PALADIN_COMMIT_ATTR = 'commit'
-PALADIN_PATCH_NUMBER_ATTR = 'patch_number'
-PALADIN_OWNER_EMAIL_ATTR = 'owner_email'
-PALADIN_FAIL_COUNT_ATTR = 'fail_count'
-PALADIN_PASS_COUNT_ATTR = 'pass_count'
-PALADIN_TOTAL_FAIL_COUNT_ATTR = 'total_fail_count'
 
+ANDROID_ELEMENT = 'android'
+ANDROID_VERSION_ATTR = 'version'
 CHROME_ELEMENT = 'chrome'
 CHROME_VERSION_ATTR = 'version'
 LKGM_ELEMENT = 'lkgm'
@@ -114,6 +112,7 @@ class LKGMManager(manifest_version.BuildSpecsManager):
   # Sub-directories for LKGM and Chrome LKGM's.
   LKGM_SUBDIR = 'LKGM-candidates'
   CHROME_PFQ_SUBDIR = 'chrome-LKGM-candidates'
+  ANDROID_PFQ_SUBDIR = 'android-LKGM-candidates'
   COMMIT_QUEUE_SUBDIR = 'paladin'
 
   def __init__(self, source_repo, manifest_repo, build_names, build_type,
@@ -149,6 +148,8 @@ class LKGMManager(manifest_version.BuildSpecsManager):
     # must have separate subdirs in the manifest-versions repository.
     if self.build_type == constants.CHROME_PFQ_TYPE:
       self.rel_working_dir = self.CHROME_PFQ_SUBDIR
+    elif self.build_type == constants.ANDROID_PFQ_TYPE:
+      self.rel_working_dir = self.ANDROID_PFQ_SUBDIR
     elif config_lib.IsCQType(self.build_type):
       self.rel_working_dir = self.COMMIT_QUEUE_SUBDIR
     else:
@@ -161,6 +162,16 @@ class LKGMManager(manifest_version.BuildSpecsManager):
     return _LKGMCandidateInfo(version_info.VersionString(),
                               chrome_branch=version_info.chrome_branch,
                               incr_type=self.incr_type)
+
+  def _WriteXml(self, dom_instance, file_path):
+    """Wrapper function to write xml encoded in a proper way.
+
+    Args:
+      dom_instance: A DOM document instance contains contents to be written.
+      file_path: Path to the file to write into.
+    """
+    with codecs.open(file_path, 'w+', 'utf-8') as f:
+      dom_instance.writexml(f)
 
   def _AddLKGMToManifest(self, manifest):
     """Write the last known good version string to the manifest.
@@ -176,12 +187,33 @@ class LKGMManager(manifest_version.BuildSpecsManager):
       return
 
     # Write the last known good version string to the manifest.
-    manifest_dom = minidom.parse(manifest)
+    try:
+      manifest_dom = minidom.parse(manifest)
+    except expat.ExpatError:
+      logging.error('Got parsing error for: %s', manifest)
+      logging.error('Bad XML:\n%s', osutils.ReadFile(manifest))
+      raise
+
     lkgm_element = manifest_dom.createElement(LKGM_ELEMENT)
     lkgm_element.setAttribute(LKGM_VERSION_ATTR, lkgm_version)
     manifest_dom.documentElement.appendChild(lkgm_element)
-    with open(manifest, 'w+') as manifest_file:
-      manifest_dom.writexml(manifest_file)
+    self._WriteXml(manifest_dom, manifest)
+
+  def _AddAndroidVersionToManifest(self, manifest, android_version):
+    """Adds the Android element with version |android_version| to |manifest|.
+
+    The manifest file should contain the Android version to build for
+    PFQ slaves.
+
+    Args:
+      manifest: Path to the manifest
+      android_version: A string representing the version of Android
+    """
+    manifest_dom = minidom.parse(manifest)
+    android = manifest_dom.createElement(ANDROID_ELEMENT)
+    android.setAttribute(ANDROID_VERSION_ATTR, android_version)
+    manifest_dom.documentElement.appendChild(android)
+    self._WriteXml(manifest_dom, manifest)
 
   def _AddChromeVersionToManifest(self, manifest, chrome_version):
     """Adds the chrome element with version |chrome_version| to |manifest|.
@@ -198,8 +230,7 @@ class LKGMManager(manifest_version.BuildSpecsManager):
     chrome = manifest_dom.createElement(CHROME_ELEMENT)
     chrome.setAttribute(CHROME_VERSION_ATTR, chrome_version)
     manifest_dom.documentElement.appendChild(chrome)
-    with open(manifest, 'w+') as manifest_file:
-      manifest_dom.writexml(manifest_file)
+    self._WriteXml(manifest_dom, manifest)
 
   def _AddPatchesToManifest(self, manifest, patches):
     """Adds list of |patches| to given |manifest|.
@@ -215,29 +246,43 @@ class LKGMManager(manifest_version.BuildSpecsManager):
     manifest_dom = minidom.parse(manifest)
     for patch in patches:
       pending_commit = manifest_dom.createElement(PALADIN_COMMIT_ELEMENT)
-      pending_commit.setAttribute(PALADIN_REMOTE_ATTR, patch.remote)
-      pending_commit.setAttribute(
-          PALADIN_GERRIT_NUMBER_ATTR, patch.gerrit_number)
-      pending_commit.setAttribute(PALADIN_PROJECT_ATTR, patch.project)
-      pending_commit.setAttribute(PALADIN_PROJECT_URL_ATTR, patch.project_url)
-      pending_commit.setAttribute(PALADIN_REF_ATTR, patch.ref)
-      pending_commit.setAttribute(PALADIN_BRANCH_ATTR, patch.tracking_branch)
-      pending_commit.setAttribute(PALADIN_CHANGE_ID_ATTR, patch.change_id)
-      pending_commit.setAttribute(PALADIN_COMMIT_ATTR, patch.commit)
-      pending_commit.setAttribute(PALADIN_PATCH_NUMBER_ATTR, patch.patch_number)
-      pending_commit.setAttribute(PALADIN_OWNER_EMAIL_ATTR, patch.owner_email)
-      pending_commit.setAttribute(PALADIN_FAIL_COUNT_ATTR,
-                                  str(patch.fail_count))
-      pending_commit.setAttribute(PALADIN_PASS_COUNT_ATTR,
-                                  str(patch.pass_count))
-      pending_commit.setAttribute(PALADIN_TOTAL_FAIL_COUNT_ATTR,
-                                  str(patch.total_fail_count))
+      attr_dict = patch.GetAttributeDict()
+      for k, v in attr_dict.iteritems():
+        pending_commit.setAttribute(k, v)
       manifest_dom.documentElement.appendChild(pending_commit)
 
-    with open(manifest, 'w+') as manifest_file:
-      manifest_dom.writexml(manifest_file)
+    self._WriteXml(manifest_dom, manifest)
+
+  def _AdjustRepoCheckoutToLocalManifest(self, manifest_path):
+    """Re-checkout repository based on patched internal manifest repository.
+
+    This method clones the current state of 'manifest-internal' into a temp
+    location, and then re-sync's the current repository to that manifest. This
+    is intended to allow sync'ing with test manifest CLs included.
+
+    It does NOT clean up afterwards.
+
+    Args:
+      manifest_path: Directory containing the already patched manifest.
+        Normally SOURCE_ROOT/manifest or SOURCE_ROOT/manifest-internal.
+    """
+    tmp_manifest_repo = tempfile.mkdtemp(prefix='patched_manifest')
+
+    logging.info('Cloning manifest repository from %s to %s.',
+                 manifest_path, tmp_manifest_repo)
+
+    repository.CloneGitRepo(tmp_manifest_repo, manifest_path)
+    git.CreateBranch(tmp_manifest_repo, self.cros_source.branch or 'master')
+
+    logging.info('Switching to local patched manifest repository:')
+    logging.info('TMPDIR: %s', tmp_manifest_repo)
+    logging.info('        %s', os.listdir(tmp_manifest_repo))
+
+    self.cros_source.Initialize(manifest_repo_url=tmp_manifest_repo)
+    self.cros_source.Sync(detach=True)
 
   def CreateNewCandidate(self, validation_pool=None,
+                         android_version=None,
                          chrome_version=None,
                          retries=manifest_version.NUM_RETRIES,
                          build_id=None):
@@ -246,6 +291,8 @@ class LKGMManager(manifest_version.BuildSpecsManager):
     Args:
       validation_pool: Validation pool to apply to the manifest before
         publishing.
+      android_version: The Android version to write in the manifest. Defaults
+        to None, in which case no version is written.
       chrome_version: The Chrome version to write in the manifest. Defaults
         to None, in which case no version is written.
       retries: Number of retries for updating the status. Defaults to
@@ -265,7 +312,32 @@ class LKGMManager(manifest_version.BuildSpecsManager):
     self.InitializeManifestVariables(version_info)
 
     self.GenerateBlameListSinceLKGM()
+
+    # Throw away CLs that might not be used this run.
+    if validation_pool:
+      validation_pool.FilterChangesForThrottledTree()
+
+      # Apply any manifest CLs (internal or exteral).
+      validation_pool.ApplyPoolIntoRepo(
+          filter_fn=trybot_patch_pool.ManifestFilter)
+
+      manifest_dir = os.path.join(
+          validation_pool.build_root, 'manifest-internal')
+
+      if not os.path.exists(manifest_dir):
+        # Fall back to external manifest directory.
+        manifest_dir = os.path.join(
+            validation_pool.build_root, 'manifest')
+
+      # This is only needed if there were internal manifest changes, but we
+      # always run it to make sure this logic works.
+      self._AdjustRepoCheckoutToLocalManifest(manifest_dir)
+
     new_manifest = self.CreateManifest()
+
+    # For Android PFQ, add the version of Android to use.
+    if android_version:
+      self._AddAndroidVersionToManifest(new_manifest, android_version)
 
     # For Chrome PFQ, add the version of Chrome to use.
     if chrome_version:
@@ -280,7 +352,7 @@ class LKGMManager(manifest_version.BuildSpecsManager):
           not config_lib.IsPFQType(self.build_type)):
         return None
 
-      self._AddPatchesToManifest(new_manifest, validation_pool.changes)
+      self._AddPatchesToManifest(new_manifest, validation_pool.applied)
 
       # Add info about the last known good version to the manifest. This will
       # be used by slaves to calculate what artifacts from old builds are safe
@@ -299,7 +371,7 @@ class LKGMManager(manifest_version.BuildSpecsManager):
 
         # If we don't have any valid changes to test, make sure the checkout
         # is at least different.
-        if ((not validation_pool or not validation_pool.changes) and
+        if ((not validation_pool or not validation_pool.applied) and
             not self.force and self.HasCheckoutBeenBuilt()):
           return None
 
@@ -342,13 +414,16 @@ class LKGMManager(manifest_version.BuildSpecsManager):
       build_id: Optional integer cidb build id of the build publishing the
                 manifest.
 
+    Returns:
+      Path to the manifest version file to use.
+
     Raises:
       GenerateBuildSpecException in case of failure to check-in the new
         manifest because of a git error or the manifest is already checked-in.
     """
     last_error = None
     new_manifest = manifest_version.FilterManifest(
-        manifest, whitelisted_remotes=constants.EXTERNAL_REMOTES)
+        manifest, whitelisted_remotes=site_config.params.EXTERNAL_REMOTES)
     version_info = self.GetCurrentVersionInfo()
     for _attempt in range(0, retries + 1):
       try:
@@ -404,7 +479,8 @@ class LKGMManager(manifest_version.BuildSpecsManager):
     # building on the master branch i.e. revving the build number.
     return (self.incr_type == 'build' and
             config_lib.IsPFQType(self.build_type) and
-            self.build_type != constants.CHROME_PFQ_TYPE)
+            self.build_type != constants.CHROME_PFQ_TYPE and
+            self.build_type != constants.ANDROID_PFQ_TYPE)
 
   def GenerateBlameListSinceLKGM(self):
     """Prints out links to all CL's that have been committed since LKGM.
@@ -457,7 +533,7 @@ def GenerateBlameList(source_repo, lkgm_path, only_print_chumps=False):
       if ex.result.returncode != 128:
         raise
       logging.warning('Detected branch removed from local checkout.')
-      cros_build_lib.PrintBuildbotStepWarnings()
+      logging.PrintBuildbotStepWarnings()
       return
     current_author = None
     current_committer = None
@@ -474,14 +550,19 @@ def GenerateBlameList(source_repo, lkgm_path, only_print_chumps=False):
       if review_match:
         review = review_match.group(1)
         _, _, change_number = review.rpartition('/')
+        if not current_author:
+          logging.notice('Failed to locate author before the line of review: '
+                         '%s. Author name is set to <Unknown>', line)
+          current_author = '<Unknown>'
         items = [
             os.path.basename(project),
             current_author,
             change_number,
         ]
+        # TODO(phobbs) verify the domain of the email address as well.
         if current_committer not in ('chrome-bot', 'chrome-internal-fetch',
-                                     'chromeos-commit-bot'):
+                                     'chromeos-commit-bot', '3su6n15k.default'):
           items.insert(0, 'CHUMP')
         elif only_print_chumps:
           continue
-        cros_build_lib.PrintBuildbotLink(' | '.join(items), review)
+        logging.PrintBuildbotLink(' | '.join(items), review)

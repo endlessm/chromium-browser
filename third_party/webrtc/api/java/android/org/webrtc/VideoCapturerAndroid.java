@@ -187,12 +187,6 @@ public class VideoCapturerAndroid implements
     return VideoCapturerAndroid.create(name, eventsHandler, false /* captureToTexture */);
   }
 
-  // Deprecated. Use create() function below instead.
-  public static VideoCapturerAndroid create(String name,
-      CameraEventsHandler eventsHandler, EglBase.Context sharedEglContext) {
-    return create(name, eventsHandler, (sharedEglContext != null) /* captureToTexture */);
-  }
-
   public static VideoCapturerAndroid create(String name,
       CameraEventsHandler eventsHandler, boolean captureToTexture) {
     final int cameraId = lookupDeviceName(name);
@@ -375,7 +369,11 @@ public class VideoCapturerAndroid implements
       final CapturerObserver frameObserver) {
     Logging.d(TAG, "startCapture requested: " + width + "x" + height + "@" + framerate);
     if (surfaceTextureHelper == null) {
-      throw new IllegalArgumentException("surfaceTextureHelper not set.");
+      frameObserver.onCapturerStarted(false /* success */);
+      if (eventsHandler != null) {
+        eventsHandler.onCameraError("No SurfaceTexture created.");
+      }
+      return;
     }
     if (applicationContext == null) {
       throw new IllegalArgumentException("applicationContext not set.");
@@ -412,7 +410,8 @@ public class VideoCapturerAndroid implements
     Throwable error = null;
     checkIsOnCameraThread();
     if (camera != null) {
-      throw new RuntimeException("Camera has already been started.");
+      Logging.e(TAG, "startCaptureOnCameraThread: Camera has already been started.");
+      return;
     }
     this.applicationContext = applicationContext;
     this.frameObserver = frameObserver;
@@ -558,6 +557,8 @@ public class VideoCapturerAndroid implements
     }
 
     camera.setParameters(parameters);
+    // Calculate orientation manually and send it as CVO instead.
+    camera.setDisplayOrientation(0 /* degrees */);
     if (!isCapturingToTexture) {
       queuedBuffers.clear();
       final int frameSize = captureFormat.frameSize();

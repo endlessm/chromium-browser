@@ -9,50 +9,13 @@ from __future__ import print_function
 import mock
 import os
 
-from chromite.cbuildbot import config_lib
 from chromite.cbuildbot import constants
 from chromite.lib import cros_test_lib
+from chromite.lib import git
 from chromite.scripts import cbuildbot
 
 
 # pylint: disable=protected-access
-
-
-class SiteConfigTests(cros_test_lib.MockTestCase):
-  """Test cbuildbot._SetupSiteConfig."""
-  def setUp(self):
-    self.options = mock.Mock()
-    self.options.config_repo = None
-
-    self.expected_result = mock.Mock()
-
-    self.exists_mock = self.PatchObject(os.path, 'exists')
-    self.load_mock = self.PatchObject(config_lib, 'LoadConfigFromFile',
-                                      return_value=self.expected_result)
-
-  def testDefaultChromeOsBehavior(self):
-    # Setup Fakes and Mocks.
-    self.exists_mock.return_value = False
-
-    # Run Tests
-    result = cbuildbot._SetupSiteConfig(self.options)
-
-    # Evaluate Results
-    self.assertIs(result, self.expected_result)
-    self.load_mock.assert_called_once_with(constants.CHROMEOS_CONFIG_FILE)
-
-  def testDefaultSiteBehavior(self):
-    # Setup Fakes and Mocks.
-    self.exists_mock.return_value = True
-
-    # Run Tests
-    result = cbuildbot._SetupSiteConfig(self.options)
-
-    # Evaluate Results
-    self.assertIs(result, self.expected_result)
-    self.load_mock.assert_called_once_with(constants.SITE_CONFIG_FILE)
-
-  # TODO(dgarrett): Test a specified site URL, when it's implemented.
 
 
 class IsDistributedBuilderTest(cros_test_lib.TestCase):
@@ -65,7 +28,6 @@ class IsDistributedBuilderTest(cros_test_lib.TestCase):
     argv = ['x86-generic-paladin']
     (options, _) = cbuildbot._ParseCommandLine(parser, argv)
     options.buildbot = False
-    options.pre_cq = False
 
     build_config = dict(pre_cq=False,
                         manifest_version=False)
@@ -81,11 +43,6 @@ class IsDistributedBuilderTest(cros_test_lib.TestCase):
     # Default options.
     _TestConfig(False)
 
-    # In Pre-CQ mode, we run as as a distributed builder.
-    options.pre_cq = True
-    _TestConfig(True)
-
-    options.pre_cq = False
     build_config['pre_cq'] = True
     _TestConfig(True)
 
@@ -100,3 +57,47 @@ class IsDistributedBuilderTest(cros_test_lib.TestCase):
                        constants.CHROME_REV_LOCAL,
                        constants.CHROME_REV_SPEC):
       _TestConfig(False)
+
+
+class FetchInitialBootstrapConfigRepoTest(cros_test_lib.MockTempDirTestCase):
+  """Test for cbuildbot._FetchInitialBootstrapConfig."""
+
+
+  def setUp(self):
+    self.config_dir = os.path.join(self.tempdir, 'config')
+
+    self.PatchObject(constants, "SOURCE_ROOT", self.tempdir)
+    self.PatchObject(constants, "SITE_CONFIG_DIR", self.config_dir)
+    self.mockGit = self.PatchObject(git, "RunGit")
+
+  def testDoesClone(self):
+    # Test
+    cbuildbot._FetchInitialBootstrapConfigRepo('repo_url', None)
+    # Verify
+    self.mockGit.assert_called_once_with(
+        self.config_dir, ['clone', 'repo_url', self.config_dir])
+
+  def testDoesCloneBranch(self):
+    # Test
+    cbuildbot._FetchInitialBootstrapConfigRepo('repo_url', 'test_branch')
+    # Verify
+    self.assertEqual(
+        self.mockGit.mock_calls,
+        [mock.call(self.config_dir, ['clone', 'repo_url', self.config_dir]),
+         mock.call(self.config_dir, ['checkout', 'test_branch'])])
+
+  def testNoCloneForRepo(self):
+    # Setup
+    os.mkdir(os.path.join(self.tempdir, '.repo'))
+    # Test
+    cbuildbot._FetchInitialBootstrapConfigRepo('repo_url', None)
+    # Verify
+    self.assertEqual(self.mockGit.call_count, 0)
+
+  def testNoCloneIfExists(self):
+    # Setup
+    os.mkdir(os.path.join(self.tempdir, 'config'))
+    # Test
+    cbuildbot._FetchInitialBootstrapConfigRepo('repo_url', None)
+    # Verify
+    self.assertEqual(self.mockGit.call_count, 0)

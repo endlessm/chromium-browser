@@ -7,6 +7,7 @@
 #include "compiler/translator/Cache.h"
 #include "compiler/translator/Compiler.h"
 #include "compiler/translator/CallDAG.h"
+#include "compiler/translator/DeferGlobalInitializers.h"
 #include "compiler/translator/ForLoopUnroll.h"
 #include "compiler/translator/Initialize.h"
 #include "compiler/translator/InitializeParseContext.h"
@@ -317,7 +318,10 @@ TIntermNode *TCompiler::compileTreeImpl(const char *const shaderStrings[],
         // Built-in function emulation needs to happen after validateLimitations pass.
         if (success)
         {
+            // TODO(jmadill): Remove global pool allocator.
+            GetGlobalPoolAllocator()->lock();
             initBuiltInFunctionEmulator(&builtInFunctionEmulator, compileOptions);
+            GetGlobalPoolAllocator()->unlock();
             builtInFunctionEmulator.MarkBuiltInFunctionsForEmulation(root);
         }
 
@@ -375,6 +379,11 @@ TIntermNode *TCompiler::compileTreeImpl(const char *const shaderStrings[],
         {
             RegenerateStructNames gen(symbolTable, shaderVersion);
             root->traverse(&gen);
+        }
+
+        if (success)
+        {
+            DeferGlobalInitializers(root);
         }
     }
 

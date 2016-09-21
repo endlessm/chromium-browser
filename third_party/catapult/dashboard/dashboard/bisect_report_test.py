@@ -59,9 +59,9 @@ _SAMPLE_BISECT_RESULTS_JSON = {
             'revision_string': 'chromium@306477',
             'depot_name': 'chromium',
             'commit_hash': '306477abcdabcdfabcdfabcdfabcdfabcdfabcdf',
-            'mean_value': 80,
-            'std_dev': 0,
-            'values': [80, 80, 80],
+            'mean_value': 80.0,
+            'std_dev': 0.0,
+            'values': [80.0, 80.0, 80.0],
             'result': 'bad'
         }
     ]
@@ -105,10 +105,10 @@ Date    : 1/2/2015
 
 
 ===== TESTED REVISIONS =====
-Revision                Mean Value  Std. Dev.   Num Values  Good?
-chromium@306475         70          0           3           good
-chromium@306476         80          0           3           bad         <-
-chromium@306477         80          0           3           bad
+Revision         Mean  Std Dev  N  Good?
+chromium@306475  70    0        3  good
+chromium@306476  80    0        3  bad    <--
+chromium@306477  80.0  0.0      3  bad
 
 Bisect job ran on: linux
 Bug ID: 12345
@@ -138,10 +138,10 @@ Status: completed
 
 
 ===== TESTED REVISIONS =====
-Revision                Mean Value  Std. Dev.   Num Values  Good?
-chromium@306475         70          0           3           good
-chromium@306476         80          0           3           bad
-chromium@306477         80          0           3           bad
+Revision         Mean  Std Dev  N  Good?
+chromium@306475  70    0        3  good
+chromium@306476  80    0        3  bad
+chromium@306477  80.0  0.0      3  bad
 
 Bisect job ran on: linux
 Bug ID: 12345
@@ -266,6 +266,7 @@ Job details: https://test-rietveld.appspot.com/200039
     results_data = self._BisectResults(6789, 12345, 'completed',
                                        culprit_data=None, score=0)
     job = self._AddTryJob(results_data, bug_id=6789)
+    job_id = job.key.id()
 
     log_without_culprit = r"""
 ===== BISECT JOB RESULTS =====
@@ -273,10 +274,10 @@ Status: completed
 
 
 ===== TESTED REVISIONS =====
-Revision                Mean Value  Std. Dev.   Num Values  Good?
-chromium@306475         70          0           3           good
-chromium@306476         80          0           3           bad
-chromium@306477         80          0           3           bad
+Revision         Mean  Std Dev  N  Good?
+chromium@306475  70    0        3  good
+chromium@306476  80    0        3  bad
+chromium@306477  80.0  0.0      3  bad
 
 Bisect job ran on: linux
 Bug ID: 12345
@@ -291,11 +292,11 @@ Job details: https://test-rietveld.appspot.com/200039
 
 
 Not what you expected? We'll investigate and get back to you!
-  https://chromeperf.appspot.com/bad_bisect?try_job_id=6789
+  https://chromeperf.appspot.com/bad_bisect?try_job_id=%s
 
 | O O | Visit http://www.chromium.org/developers/speed-infra/perf-bug-faq
 |  X  | for more information addressing perf regression bugs. For feedback,
-| / \ | file a bug with component Tests>AutoBisect.  Thank you!"""
+| / \ | file a bug with component Tests>AutoBisect.  Thank you!""" % job_id
     self.assertEqual(log_without_culprit, bisect_report.GetReport(job))
 
 if __name__ == '__main__':

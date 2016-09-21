@@ -13,7 +13,7 @@ class InspectorPage(object):
   inspector_websocket. It does not perform any exception handling. All
   inspector_websocket exceptions must be handled by the caller.
   """
-  def __init__(self, inspector_websocket, timeout=60):
+  def __init__(self, inspector_websocket, timeout):
     self._inspector_websocket = inspector_websocket
     self._inspector_websocket.RegisterDomain('Page', self._OnNotification)
 
@@ -46,7 +46,7 @@ class InspectorPage(object):
         # WaitForNavigate call.
         self._navigation_pending = False
 
-  def _SetScriptToEvaluateOnCommit(self, source):
+  def _SetScriptToEvaluateOnCommit(self, source, timeout):
     existing_source = (self._script_to_evaluate_on_commit and
                        self._script_to_evaluate_on_commit['source'])
     if source == existing_source:
@@ -58,7 +58,7 @@ class InspectorPage(object):
               'identifier': self._script_to_evaluate_on_commit['id'],
               }
           }
-      self._inspector_websocket.SyncRequest(request)
+      self._inspector_websocket.SyncRequest(request, timeout)
       self._script_to_evaluate_on_commit = None
     if source:
       request = {
@@ -67,7 +67,7 @@ class InspectorPage(object):
               'scriptSource': source,
               }
           }
-      res = self._inspector_websocket.SyncRequest(request)
+      res = self._inspector_websocket.SyncRequest(request, timeout)
       self._script_to_evaluate_on_commit = {
           'id': res['result']['identifier'],
           'source': source
@@ -101,7 +101,7 @@ class InspectorPage(object):
     the page exists, but before any script on the page itself has executed.
     """
 
-    self._SetScriptToEvaluateOnCommit(script_to_evaluate_on_commit)
+    self._SetScriptToEvaluateOnCommit(script_to_evaluate_on_commit, timeout)
     request = {
         'method': 'Page.navigate',
         'params': {

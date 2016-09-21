@@ -15,7 +15,6 @@ import threading
 
 from cherrypy.process import plugins
 from chromite.lib import cros_test_lib
-from chromite.lib import osutils
 from chromite.mobmonitor.checkfile import manager
 
 # Test health check and related attributes
@@ -34,7 +33,7 @@ class TestHealthCheck(object):
 class TestHealthCheckHasAttributes(object):
   """Test health check with attributes."""
 
-  CHECK_INTERVAL = 10
+  CHECK_INTERVAL_SEC = 10
 
   def Check(self):
     """Stub Check."""
@@ -48,18 +47,57 @@ class TestHealthCheckHasAttributes(object):
 class TestHealthCheckUnhealthy(object):
   """Unhealthy test health check."""
 
+  def __init__(self):
+    self.x = -1
+
   def Check(self):
     """Stub Check."""
-    return -1
+    return self.x
 
   def Diagnose(self, errcode):
     """Stub Diagnose."""
-    if errcode == 1:
-      return ('Stub Error.', ['RepairStub'])
+    if errcode == -1:
+      return ('Stub Error.', [self.Repair])
     return ('Unknown Error.', [])
 
-  def ActionRepairStub(self):
-    """Stub repair action."""
+  def Repair(self):
+    self.x = 0
+
+
+class TestHealthCheckMultipleActions(object):
+  """Unhealthy check with many actions that have different parameters."""
+
+  def __init__(self):
+    self.x = -1
+
+  def Check(self):
+    """Stub Check."""
+    return self.x
+
+  def Diagnose(self, errcode):
+    """Stub Diagnose."""
+    if errcode == -1:
+      return ('Stub Error.', [self.NoParams, self.PositionalParams,
+                              self.DefaultParams, self.MixedParams])
+    return ('Unknown Error.', [])
+
+  def NoParams(self):
+    """NoParams Action."""
+    self.x = 0
+
+  # pylint: disable=unused-argument
+  def PositionalParams(self, x, y, z):
+    """PositionalParams Action."""
+    self.x = 0
+
+  def DefaultParams(self, x=1, y=2, z=3):
+    """DefaultParams Action."""
+    self.x = 0
+
+  def MixedParams(self, x, y, z=1):
+    """MixedParams Action."""
+    self.x = 0
+  # pylint: enable=unused-argument
 
 
 class TestHealthCheckQuasihealthy(object):
@@ -72,10 +110,10 @@ class TestHealthCheckQuasihealthy(object):
   def Diagnose(self, errcode):
     """Stub Diagnose."""
     if errcode == 1:
-      return ('Stub Error.', ['RepairStub'])
+      return ('Stub Error.', [self.RepairStub])
     return ('Unknown Error.', [])
 
-  def ActionRepairStub(self):
+  def RepairStub(self):
     """Stub repair action."""
 
 
@@ -203,6 +241,82 @@ class RunCommand(threading.Thread):
 class CheckFileManagerHelperTest(cros_test_lib.MockTestCase):
   """Unittests for CheckFileManager helper functions."""
 
+  def testMapHealthcheckStatusToDict(self):
+    """Test mapping a manager.HEALTHCHECK_STATUS to a dict."""
+    def _func():
+      pass
+
+    status = manager.HEALTHCHECK_STATUS('test', False, 'desc', [_func])
+    expect = {'name': 'test', 'health': False, 'description': 'desc',
+              'actions': ['_func']}
+    self.assertEquals(expect, manager.MapHealthcheckStatusToDict(status))
+
+  def testMapServiceStatusToDict(self):
+    """Test mapping a manager.SERVICE_STATUS to a dict."""
+    def _func():
+      pass
+
+    hcstatus = manager.HEALTHCHECK_STATUS('test', False, 'desc', [_func])
+    hcexpect = {'name': 'test', 'health': False, 'description': 'desc',
+                'actions': ['_func']}
+    status = manager.SERVICE_STATUS('test-service', False, [hcstatus])
+    expect = {'service': 'test-service', 'health': False,
+              'healthchecks': [hcexpect]}
+    self.assertEquals(expect, manager.MapServiceStatusToDict(status))
+
+  def testMapActionInfoToDict(self):
+    """Test mapping a manager.ACTION_INFO to a dict."""
+    actioninfo = manager.ACTION_INFO('test', 'test', [1], {'a': 1})
+    expect = {'action': 'test', 'info': 'test', 'args': [1],
+              'kwargs': {'a': 1}}
+    self.assertEquals(expect, manager.MapActionInfoToDict(actioninfo))
+
+  def testIsHealthcheckHealthy(self):
+    """Test checking whether health check statuses are healthy."""
+    # Test a healthy health check.
+    hch = manager.HEALTHCHECK_STATUS('healthy', True, manager.NULL_DESCRIPTION,
+                                     manager.EMPTY_ACTIONS)
+    self.assertTrue(manager.isHealthcheckHealthy(hch))
+
+    # Test a quasi-healthy health check.
+    hcq = manager.HEALTHCHECK_STATUS('quasi-healthy', True, 'Quasi-Healthy',
+                                     ['QuasiAction'])
+    self.assertFalse(manager.isHealthcheckHealthy(hcq))
+
+    # Test an unhealthy health check.
+    hcu = manager.HEALTHCHECK_STATUS('unhealthy', False, 'Unhealthy',
+                                     ['UnhealthyAction'])
+    self.assertFalse(manager.isHealthcheckHealthy(hcu))
+
+    # Test an object that is not a health check status.
+    s = manager.SERVICE_STATUS('service_status', True, [])
+    self.assertFalse(manager.isHealthcheckHealthy(s))
+
+  def testIsServiceHealthy(self):
+    """Test checking whether service statuses are healthy."""
+    # Define some health check statuses.
+    hch = manager.HEALTHCHECK_STATUS('healthy', True, manager.NULL_DESCRIPTION,
+                                     manager.EMPTY_ACTIONS)
+    hcq = manager.HEALTHCHECK_STATUS('quasi-healthy', True, 'Quasi-Healthy',
+                                     ['QuasiAction'])
+    hcu = manager.HEALTHCHECK_STATUS('unhealthy', False, 'Unhealthy',
+                                     ['UnhealthyAction'])
+
+    # Test a healthy service.
+    s = manager.SERVICE_STATUS('healthy', True, [])
+    self.assertTrue(manager.isServiceHealthy(s))
+
+    # Test a quasi-healthy service.
+    s = manager.SERVICE_STATUS('quasi-healthy', True, [hch, hcq])
+    self.assertFalse(manager.isServiceHealthy(s))
+
+    # Test an unhealthy service.
+    s = manager.SERVICE_STATUS('unhealthy', False, [hcu])
+    self.assertFalse(manager.isServiceHealthy(s))
+
+    # Test an object that is not a service status.
+    self.assertFalse(manager.isServiceHealthy(hch))
+
   def testDetermineHealthcheckStatusHealthy(self):
     """Test DetermineHealthCheckStatus on a healthy check."""
     hcname = TestHealthCheck.__name__
@@ -274,15 +388,15 @@ class CheckFileManagerHelperTest(cros_test_lib.MockTestCase):
     """Test that we can apply attributes to a health check."""
     testhc = TestHealthCheck()
     result = manager.ApplyHealthCheckAttributes(testhc)
-    self.assertEquals(result.CHECK_INTERVAL,
+    self.assertEquals(result.CHECK_INTERVAL_SEC,
                       manager.CHECK_INTERVAL_DEFAULT_SEC)
 
   def testApplyHealthCheckAttributesHasAttrs(self):
     """Test that we do not override an acceptable attribute."""
     testhc = TestHealthCheckHasAttributes()
-    check_interval = testhc.CHECK_INTERVAL
+    check_interval = testhc.CHECK_INTERVAL_SEC
     result = manager.ApplyHealthCheckAttributes(testhc)
-    self.assertEquals(result.CHECK_INTERVAL, check_interval)
+    self.assertEquals(result.CHECK_INTERVAL_SEC, check_interval)
 
   def testImportFileAllHealthChecks(self):
     """Test that health checks and service name are collected."""
@@ -403,7 +517,7 @@ class CheckFileManagerTest(cros_test_lib.MockTestCase):
   def testExecuteFresh(self):
     """Test executing a health check when the result is still fresh."""
     self.StartPatcher(mock.patch('time.time'))
-    exec_time_offset = TestHealthCheckHasAttributes.CHECK_INTERVAL / 2
+    exec_time_offset = TestHealthCheckHasAttributes.CHECK_INTERVAL_SEC / 2
     time.time.return_value = TEST_EXEC_TIME + exec_time_offset
 
     cfm = manager.CheckFileManager(checkdir=CHECKDIR)
@@ -425,7 +539,7 @@ class CheckFileManagerTest(cros_test_lib.MockTestCase):
   def testExecuteStale(self):
     """Test executing a health check when the result is stale."""
     self.StartPatcher(mock.patch('time.time'))
-    exec_time_offset = TestHealthCheckHasAttributes.CHECK_INTERVAL * 2
+    exec_time_offset = TestHealthCheckHasAttributes.CHECK_INTERVAL_SEC * 2
     time.time.return_value = TEST_EXEC_TIME + exec_time_offset
 
     cfm = manager.CheckFileManager(checkdir=CHECKDIR)
@@ -467,84 +581,329 @@ class CheckFileManagerTest(cros_test_lib.MockTestCase):
     self.assertEquals(exec_status, manager.HCEXECUTION_COMPLETED)
     self.assertEquals(exec_time, TEST_EXEC_TIME)
 
+  def testExecuteForce(self):
+    """Test executing a health check by ignoring the check interval."""
+    self.StartPatcher(mock.patch('time.time'))
+    exec_time_offset = TestHealthCheckHasAttributes.CHECK_INTERVAL_SEC / 2
+    time.time.return_value = TEST_EXEC_TIME + exec_time_offset
 
-class CheckFileModificationTest(cros_test_lib.MockTempDirTestCase):
-  """Unittests for checking when live changes are made to a checkfile."""
+    cfm = manager.CheckFileManager(checkdir=CHECKDIR)
+    cfm.service_checks = {TEST_SERVICE_NAME:
+                          {TestHealthCheckHasAttributes.__name__:
+                           (TEST_MTIME, TestHealthCheckHasAttributes())}}
+    cfm.service_check_results = {
+        TEST_SERVICE_NAME: {TestHealthCheckHasAttributes.__name__:
+                            (manager.HCEXECUTION_COMPLETED, TEST_EXEC_TIME,
+                             None)}}
 
-  MOBMONITOR_BASENAME = 'chromite'
-  MOBMONITOR_REL_CMD = 'bin/mobmonitor'
-  SERVICE_DIR = 'test_service'
-  CHECKFILE_REL_PATH = 'test_check.py'
-  NOTACHECK_REL_PATH = 'notacheck.py'
-  CHERRYPY_RESTART_STR = 'ENGINE Restarting because %(checkfile)s changed.'
-  CHECKFILE_MOD_ATTEMPTS = 3
-  TIMEOUT_SEC = 5
+    cfm.Execute(force=True)
 
-  def CreateFile(self, relpath, filestr):
-    """Create a file from a string in the temp dir."""
-    abspath = os.path.join(self.service_dir, relpath)
-    osutils.WriteFile(abspath, filestr, makedirs=True)
-    return abspath
+    _, exec_time, _ = cfm.service_check_results[TEST_SERVICE_NAME][
+        TestHealthCheckHasAttributes.__name__]
 
-  def RunCheckfileMod(self, expect_handler, modpath, modfilestr):
-    """Test Mob* Monitor restart behaviour with checkfile modification."""
-    # Retry the test several times, each time with more relaxed timeouts,
-    # to try to control for flakiness as these testcases are dependent
-    # on cherrypy startup time and module change detection time.
-    for attempt in range(1, self.CHECKFILE_MOD_ATTEMPTS + 1):
-      # This target should appear in the output if a checkfile is changed.
-      target = self.CHERRYPY_RESTART_STR % {'checkfile':
-                                            os.path.join(self.service_dir,
-                                                         modpath)}
+    self.assertEquals(exec_time, TEST_EXEC_TIME + exec_time_offset)
 
-      # Start the Mob* Monitor in a separate thread. The timeout
-      # is how long we will wait to join the thread/wait for output
-      # after we have modified the file.
-      mobmon = RunCommand(self.cmd, self.TIMEOUT_SEC * attempt)
-      mobmon.start()
+  def testConsolidateServiceStatesUnhealthy(self):
+    """Test consolidating state for a service with unhealthy checks."""
+    cfm = manager.CheckFileManager(checkdir=CHECKDIR)
 
-      # Wait for the monitor to start up fully, then update the file.
-      time.sleep(self.TIMEOUT_SEC * attempt)
-      self.checkfile = self.CreateFile(modpath, modfilestr)
+    # Setup some test check results
+    hcname = TestHealthCheck.__name__
+    statuses = [
+        manager.HEALTHCHECK_STATUS(hcname, False, 'Failed', ['Repair']),
+        manager.HEALTHCHECK_STATUS(hcname, True, 'Quasi', ['RepairQuasi']),
+        manager.HEALTHCHECK_STATUS(hcname, True, '', [])]
 
-      # Test whether the target is contained in output and if it
-      # matches the expectation.
-      if expect_handler(target in mobmon.Stop()):
-        return True
+    cfm.service_check_results.setdefault(TEST_SERVICE_NAME, {})
+    for i, status in enumerate(statuses):
+      name = '%s_%s' % (hcname, i)
+      cfm.service_check_results[TEST_SERVICE_NAME][name] = (
+          manager.HCEXECUTION_COMPLETED, TEST_EXEC_TIME,
+          status)
 
-    # The test failed.
-    return False
+    # Run and check the results.
+    cfm.ConsolidateServiceStates()
+    self.assertTrue(TEST_SERVICE_NAME in cfm.service_states)
 
-  def setUp(self):
-    """Setup the check directory and the Mob* Monitor process."""
-    # Create the test check directory and the test files.
-    self.checkdir = self.tempdir
-    self.service_dir = os.path.join(self.checkdir, self.SERVICE_DIR)
-    self.checkfile = self.CreateFile(self.CHECKFILE_REL_PATH,
-                                     CHECKFILE_MANY_SIMPLE)
-    self.notacheck = self.CreateFile(self.NOTACHECK_REL_PATH,
-                                     NOT_A_CHECKFILE)
-    self.CreateFile('__init__.py', '')
+    _, health, healthchecks = cfm.service_states[TEST_SERVICE_NAME]
+    self.assertFalse(health)
+    self.assertEquals(2, len(healthchecks))
+    self.assertTrue(all([x in healthchecks for x in statuses[:2]]))
 
-    # Setup the Mob* Monitor command.
-    path = os.path.abspath(__file__)
-    while os.path.basename(path) != self.MOBMONITOR_BASENAME:
-      path = os.path.dirname(path)
-    path = os.path.join(path, self.MOBMONITOR_REL_CMD)
-    self.cmd = [path, '-d', self.checkdir]
+  def testConsolidateServiceStatesQuasiHealthy(self):
+    """Test consolidating state for a service with quasi-healthy checks."""
+    cfm = manager.CheckFileManager(checkdir=CHECKDIR)
 
-  def testModifyCheckfile(self):
-    """Test restart behaviour when modifying an imported checkfile."""
-    expect_handler = lambda x: x == True
+    # Setup some test check results
+    hcname = TestHealthCheck.__name__
+    statuses = [
+        manager.HEALTHCHECK_STATUS(hcname, True, 'Quasi', ['RepairQuasi']),
+        manager.HEALTHCHECK_STATUS(hcname, True, '', [])]
 
-    self.assertTrue(self.RunCheckfileMod(expect_handler,
-                                         self.CHECKFILE_REL_PATH,
-                                         CHECKFILE_MANY_SIMPLE_ONE_BAD))
+    cfm.service_check_results.setdefault(TEST_SERVICE_NAME, {})
+    for i, status in enumerate(statuses):
+      name = '%s_%s' % (hcname, i)
+      cfm.service_check_results[TEST_SERVICE_NAME][name] = (
+          manager.HCEXECUTION_COMPLETED, TEST_EXEC_TIME,
+          status)
 
-  def testModifyNotACheckfile(self):
-    """Test that no restart occurs when a non-checkfile is modified."""
-    expect_handler = lambda x: x == False
+    # Run and check the results.
+    cfm.ConsolidateServiceStates()
+    self.assertTrue(TEST_SERVICE_NAME in cfm.service_states)
 
-    self.assertTrue(self.RunCheckfileMod(expect_handler,
-                                         self.NOTACHECK_REL_PATH,
-                                         ANOTHER_NOT_A_CHECKFILE))
+    _, health, healthchecks = cfm.service_states[TEST_SERVICE_NAME]
+    self.assertTrue(health)
+    self.assertEquals(1, len(healthchecks))
+    self.assertTrue(statuses[0] in healthchecks)
+
+  def testConsolidateServiceStatesHealthy(self):
+    """Test consolidating state for a healthy service."""
+    cfm = manager.CheckFileManager(checkdir=CHECKDIR)
+
+    # Setup some test check results
+    hcname = TestHealthCheck.__name__
+    hcname2 = '%s_2' % hcname
+    statuses = [
+        manager.HEALTHCHECK_STATUS(hcname, True, '', []),
+        manager.HEALTHCHECK_STATUS(hcname2, True, '', [])]
+
+    cfm.service_check_results.setdefault(TEST_SERVICE_NAME, {})
+    cfm.service_check_results[TEST_SERVICE_NAME][hcname] = (
+        manager.HCEXECUTION_COMPLETED, TEST_EXEC_TIME, statuses[0])
+    cfm.service_check_results[TEST_SERVICE_NAME][hcname2] = (
+        manager.HCEXECUTION_IN_PROGRESS, TEST_EXEC_TIME, statuses[1])
+
+    # Run and check.
+    cfm.ConsolidateServiceStates()
+
+    self.assertTrue(TEST_SERVICE_NAME in cfm.service_states)
+
+    _, health, healthchecks = cfm.service_states.get(TEST_SERVICE_NAME)
+    self.assertTrue(health)
+    self.assertEquals(0, len(healthchecks))
+
+  def testGetServiceList(self):
+    """Test the GetServiceList RPC response."""
+    cfm = manager.CheckFileManager(checkdir=CHECKDIR)
+
+    self.assertEquals([], cfm.GetServiceList())
+
+    status = manager.SERVICE_STATUS(TEST_SERVICE_NAME, True, [])
+    cfm.service_states[TEST_SERVICE_NAME] = status
+
+    self.assertEquals([TEST_SERVICE_NAME], cfm.GetServiceList())
+
+  def testGetStatusNonExistent(self):
+    """Test the GetStatus RPC response when the service does not exist."""
+    cfm = manager.CheckFileManager(checkdir=CHECKDIR)
+
+    self.assertFalse(TEST_SERVICE_NAME in cfm.service_states)
+
+    status = manager.SERVICE_STATUS(TEST_SERVICE_NAME, False, [])
+    self.assertEquals(status, cfm.GetStatus(TEST_SERVICE_NAME))
+
+  def testGetStatusSingleService(self):
+    """Test the GetStatus RPC response for a single service."""
+    cfm = manager.CheckFileManager(checkdir=CHECKDIR)
+
+    s1name = TEST_SERVICE_NAME
+    s2name = '%s_2' % s1name
+    status1 = manager.SERVICE_STATUS(s1name, True, [])
+    status2 = manager.SERVICE_STATUS(s2name, True, [])
+    cfm.service_states[s1name] = status1
+    cfm.service_states[s2name] = status2
+
+    self.assertEquals(status1, cfm.GetStatus(s1name))
+    self.assertEquals(status2, cfm.GetStatus(s2name))
+
+  def testGetStatusAllServices(self):
+    """Test the GetStatus RPC response when no service is specified."""
+    cfm = manager.CheckFileManager(checkdir=CHECKDIR)
+
+    s1name = TEST_SERVICE_NAME
+    s2name = '%s_2' % s1name
+    status1 = manager.SERVICE_STATUS(s1name, True, [])
+    status2 = manager.SERVICE_STATUS(s2name, True, [])
+    cfm.service_states[s1name] = status1
+    cfm.service_states[s2name] = status2
+
+    result = cfm.GetStatus('')
+    self.assertEquals(2, len(result))
+    self.assertTrue(all([x in result for x in [status1, status2]]))
+
+  def testRepairServiceHealthy(self):
+    """Test the RepairService RPC when the service is healthy."""
+    cfm = manager.CheckFileManager(checkdir=CHECKDIR)
+
+    healthy_status = manager.SERVICE_STATUS(TEST_SERVICE_NAME, True, [])
+    cfm.service_states[TEST_SERVICE_NAME] = healthy_status
+
+    self.assertEquals(healthy_status, cfm.RepairService(TEST_SERVICE_NAME,
+                                                        'HealthcheckName',
+                                                        'RepairFuncName',
+                                                        [], {}))
+
+  def testRepairServiceNonExistent(self):
+    """Test the RepairService RPC when the service does not exist."""
+    cfm = manager.CheckFileManager(checkdir=CHECKDIR)
+
+    self.assertFalse(TEST_SERVICE_NAME in cfm.service_states)
+
+    expected = manager.SERVICE_STATUS(TEST_SERVICE_NAME, False, [])
+    result = cfm.RepairService(TEST_SERVICE_NAME, 'DummyHealthcheck',
+                               'DummyAction', [], {})
+    self.assertEquals(expected, result)
+
+  def testRepairServiceInvalidAction(self):
+    """Test the RepairService RPC when the action is not recognized."""
+    cfm = manager.CheckFileManager(checkdir=CHECKDIR)
+
+    hcobj = TestHealthCheckUnhealthy()
+    cfm.service_checks[TEST_SERVICE_NAME] = {
+        hcobj.__class__.__name__: (TEST_MTIME, hcobj)}
+
+    unhealthy_status = manager.SERVICE_STATUS(
+        TEST_SERVICE_NAME, False,
+        [manager.HEALTHCHECK_STATUS(hcobj.__class__.__name__,
+                                    False, 'Always fails', [hcobj.Repair])])
+    cfm.service_states[TEST_SERVICE_NAME] = unhealthy_status
+
+    status = cfm.GetStatus(TEST_SERVICE_NAME)
+    self.assertFalse(status.health)
+    self.assertEquals(1, len(status.healthchecks))
+
+    status = cfm.RepairService(TEST_SERVICE_NAME, hcobj.__class__.__name__,
+                               'Blah', [], {})
+    self.assertFalse(status.health)
+    self.assertEquals(1, len(status.healthchecks))
+
+  def testRepairServiceInvalidActionArguments(self):
+    """Test the RepairService RPC when the action arguments are invalid."""
+    cfm = manager.CheckFileManager(checkdir=CHECKDIR)
+
+    hcobj = TestHealthCheckUnhealthy()
+    cfm.service_checks[TEST_SERVICE_NAME] = {
+        hcobj.__class__.__name__: (TEST_MTIME, hcobj)}
+
+    unhealthy_status = manager.SERVICE_STATUS(
+        TEST_SERVICE_NAME, False,
+        [manager.HEALTHCHECK_STATUS(hcobj.__class__.__name__,
+                                    False, 'Always fails', [hcobj.Repair])])
+    cfm.service_states[TEST_SERVICE_NAME] = unhealthy_status
+
+    status = cfm.GetStatus(TEST_SERVICE_NAME)
+    self.assertFalse(status.health)
+    self.assertEquals(1, len(status.healthchecks))
+
+    status = cfm.RepairService(TEST_SERVICE_NAME, hcobj.__class__.__name__,
+                               'Repair', [1, 2, 3], {})
+    self.assertFalse(status.health)
+    self.assertEquals(1, len(status.healthchecks))
+
+  def testRepairService(self):
+    """Test the RepairService RPC to repair an unhealthy service."""
+    cfm = manager.CheckFileManager(checkdir=CHECKDIR)
+
+    hcobj = TestHealthCheckUnhealthy()
+    cfm.service_checks[TEST_SERVICE_NAME] = {
+        hcobj.__class__.__name__: (TEST_MTIME, hcobj)}
+
+    unhealthy_status = manager.SERVICE_STATUS(
+        TEST_SERVICE_NAME, False,
+        [manager.HEALTHCHECK_STATUS(hcobj.__class__.__name__,
+                                    False, 'Always fails', [hcobj.Repair])])
+    cfm.service_states[TEST_SERVICE_NAME] = unhealthy_status
+
+    status = cfm.GetStatus(TEST_SERVICE_NAME)
+    self.assertFalse(status.health)
+    self.assertEquals(1, len(status.healthchecks))
+
+    status = cfm.RepairService(TEST_SERVICE_NAME,
+                               hcobj.__class__.__name__,
+                               hcobj.Repair.__name__,
+                               [], {})
+    self.assertTrue(status.health)
+    self.assertEquals(0, len(status.healthchecks))
+
+  def testActionInfoServiceNonExistent(self):
+    """Test the ActionInfo RPC when the service does not exist."""
+    cfm = manager.CheckFileManager(checkdir=CHECKDIR)
+
+    self.assertFalse(TEST_SERVICE_NAME in cfm.service_states)
+
+    expect = manager.ACTION_INFO('test', 'Service not recognized.',
+                                 [], {})
+    result = cfm.ActionInfo(TEST_SERVICE_NAME, 'test', 'test')
+    self.assertEquals(expect, result)
+
+  def testActionInfoServiceHealthy(self):
+    """Test the ActionInfo RPC when the service is healthy."""
+    cfm = manager.CheckFileManager(checkdir=CHECKDIR)
+
+    healthy_status = manager.SERVICE_STATUS(TEST_SERVICE_NAME, True, [])
+    cfm.service_states[TEST_SERVICE_NAME] = healthy_status
+
+    expect = manager.ACTION_INFO('test', 'Service is healthy.',
+                                 [], {})
+    result = cfm.ActionInfo(TEST_SERVICE_NAME, 'test', 'test')
+    self.assertEquals(expect, result)
+
+  def testActionInfoActionNonExistent(self):
+    """Test the ActionInfo RPC when the action does not exist."""
+    cfm = manager.CheckFileManager(checkdir=CHECKDIR)
+
+    hcobj = TestHealthCheckUnhealthy()
+    cfm.service_checks[TEST_SERVICE_NAME] = {
+        hcobj.__class__.__name__: (TEST_MTIME, hcobj)}
+
+    unhealthy_status = manager.SERVICE_STATUS(
+        TEST_SERVICE_NAME, False,
+        [manager.HEALTHCHECK_STATUS(hcobj.__class__.__name__,
+                                    False, 'Always fails', [hcobj.Repair])])
+    cfm.service_states[TEST_SERVICE_NAME] = unhealthy_status
+
+    expect = manager.ACTION_INFO('test', 'Action not recognized.', [], {})
+    result = cfm.ActionInfo(TEST_SERVICE_NAME, hcobj.__class__.__name__,
+                            'test')
+    self.assertEquals(expect, result)
+
+  def testActionInfo(self):
+    """Test the ActionInfo RPC to collect information on a repair action."""
+    cfm = manager.CheckFileManager(checkdir=CHECKDIR)
+
+    hcobj = TestHealthCheckMultipleActions()
+    hcname = hcobj.__class__.__name__
+    actions = [hcobj.NoParams, hcobj.PositionalParams, hcobj.DefaultParams,
+               hcobj.MixedParams]
+
+    cfm.service_checks[TEST_SERVICE_NAME] = {hcname: (TEST_MTIME, hcobj)}
+
+    unhealthy_status = manager.SERVICE_STATUS(
+        TEST_SERVICE_NAME, False,
+        [manager.HEALTHCHECK_STATUS(hcname, False, 'Always fails', actions)])
+    cfm.service_states[TEST_SERVICE_NAME] = unhealthy_status
+
+    # Test ActionInfo when the action has no parameters.
+    expect = manager.ACTION_INFO('NoParams', 'NoParams Action.', [], {})
+    self.assertEquals(expect,
+                      cfm.ActionInfo(TEST_SERVICE_NAME, hcname, 'NoParams'))
+
+    # Test ActionInfo when the action has only positional parameters.
+    expect = manager.ACTION_INFO('PositionalParams', 'PositionalParams Action.',
+                                 ['x', 'y', 'z'], {})
+    self.assertEquals(expect,
+                      cfm.ActionInfo(TEST_SERVICE_NAME,
+                                     hcname, 'PositionalParams'))
+
+    # Test ActionInfo when the action has only default parameters.
+    expect = manager.ACTION_INFO('DefaultParams', 'DefaultParams Action.',
+                                 [], {'x': 1, 'y': 2, 'z': 3})
+    self.assertEquals(expect,
+                      cfm.ActionInfo(TEST_SERVICE_NAME,
+                                     hcname, 'DefaultParams'))
+
+    # Test ActionInfo when the action has positional and default parameters.
+    expect = manager.ACTION_INFO('MixedParams', 'MixedParams Action.',
+                                 ['x', 'y'], {'z': 1})
+    self.assertEquals(expect, cfm.ActionInfo(TEST_SERVICE_NAME,
+                                             hcname, 'MixedParams'))

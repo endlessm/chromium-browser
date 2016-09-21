@@ -24,9 +24,9 @@
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/thread_task_runner_handle.h"
 #include "base/threading/thread.h"
 #include "base/threading/thread_restrictions.h"
+#include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
 #include "chrome/app/chrome_command_ids.h"
@@ -36,6 +36,7 @@
 #include "chrome/browser/background/background_contents_service.h"
 #include "chrome/browser/background/background_contents_service_factory.h"
 #include "chrome/browser/banners/app_banner_manager_desktop.h"
+#include "chrome/browser/banners/app_banner_manager_emulation.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/browser_shutdown.h"
 #include "chrome/browser/character_encoding.h"
@@ -127,7 +128,6 @@
 #include "chrome/browser/ui/search/search_delegate.h"
 #include "chrome/browser/ui/search/search_model.h"
 #include "chrome/browser/ui/search/search_tab_helper.h"
-#include "chrome/browser/ui/search_engines/search_engine_tab_helper.h"
 #include "chrome/browser/ui/settings_window_manager.h"
 #include "chrome/browser/ui/singleton_tabs.h"
 #include "chrome/browser/ui/status_bubble.h"
@@ -379,6 +379,7 @@ Browser::Browser(const CreateParams& params)
       cancel_download_confirmation_state_(NOT_PROMPTED),
       override_bounds_(params.initial_bounds),
       initial_show_state_(params.initial_show_state),
+      initial_workspace_(params.initial_workspace),
       is_session_restore_(params.is_session_restore),
       content_setting_bubble_model_delegate_(
           new BrowserContentSettingBubbleModelDelegate(this)),
@@ -686,6 +687,20 @@ bool Browser::IsAttemptingToCloseBrowser() const {
   if (IsFastTabUnloadEnabled())
     return fast_unload_controller_->is_attempting_to_close_browser();
   return unload_controller_->is_attempting_to_close_browser();
+}
+
+bool Browser::ShouldRunUnloadListenerBeforeClosing(
+    content::WebContents* web_contents) {
+  if (IsFastTabUnloadEnabled())
+    return fast_unload_controller_->ShouldRunUnloadEventsHelper(web_contents);
+  return unload_controller_->ShouldRunUnloadEventsHelper(web_contents);
+}
+
+bool Browser::RunUnloadListenerBeforeClosing(
+    content::WebContents* web_contents) {
+  if (IsFastTabUnloadEnabled())
+    return fast_unload_controller_->RunUnloadEventsHelper(web_contents);
+  return unload_controller_->RunUnloadEventsHelper(web_contents);
 }
 
 void Browser::OnWindowClosing() {
@@ -1111,7 +1126,6 @@ void Browser::ActiveTabChanged(WebContents* old_contents,
   if (instant_controller_)
     instant_controller_->ActiveTabChanged();
 
-  autofill::ChromeAutofillClient::FromWebContents(new_contents)->TabActivated();
   SearchTabHelper::FromWebContents(new_contents)->OnTabActivated();
 }
 
@@ -1276,7 +1290,8 @@ void Browser::ShowValidationMessage(content::WebContents* web_contents,
 }
 
 void Browser::HideValidationMessage(content::WebContents* web_contents) {
-  validation_message_bubble_.reset();
+  if (validation_message_bubble_)
+    validation_message_bubble_->CloseValidationMessage();
 }
 
 void Browser::MoveValidationMessage(content::WebContents* web_contents,
@@ -1446,24 +1461,11 @@ std::unique_ptr<content::BluetoothChooser> Browser::RunBluetoothChooser(
 }
 
 void Browser::RequestAppBannerFromDevTools(content::WebContents* web_contents) {
-  banners::AppBannerManagerDesktop::CreateForWebContents(web_contents);
-  RequestAppBanner(web_contents);
-}
-
-bool Browser::RequestAppBanner(content::WebContents* web_contents) {
-  banners::AppBannerManagerDesktop* manager =
-      banners::AppBannerManagerDesktop::FromWebContents(web_contents);
-  if (manager) {
-    manager->RequestAppBanner(web_contents->GetMainFrame(),
-                              web_contents->GetLastCommittedURL(), true);
-    return true;
-  }
-
-  web_contents->GetMainFrame()->AddMessageToConsole(
-      content::CONSOLE_MESSAGE_LEVEL_DEBUG,
-      "App banners are currently disabled. Please check chrome://flags/#" +
-          std::string(switches::kEnableAddToShelf));
-  return false;
+  banners::AppBannerManagerEmulation::CreateForWebContents(web_contents);
+  banners::AppBannerManagerEmulation* manager =
+      banners::AppBannerManagerEmulation::FromWebContents(web_contents);
+  manager->RequestAppBanner(web_contents->GetMainFrame(),
+                            web_contents->GetLastCommittedURL(), true);
 }
 
 bool Browser::IsMouseLocked() const {
@@ -2001,14 +2003,6 @@ bool Browser::CanSaveContents(content::WebContents* web_contents) const {
 }
 
 ///////////////////////////////////////////////////////////////////////////////
-// Browser, SearchEngineTabHelperDelegate implementation:
-
-void Browser::ConfirmAddSearchProvider(TemplateURL* template_url,
-                                       Profile* profile) {
-  window()->ConfirmAddSearchProvider(template_url, profile);
-}
-
-///////////////////////////////////////////////////////////////////////////////
 // Browser, SearchTabHelperDelegate implementation:
 
 void Browser::NavigateOnThumbnailClick(const GURL& url,
@@ -2488,7 +2482,6 @@ void Browser::SetAsDelegate(WebContents* web_contents, bool set_delegate) {
   WebContentsModalDialogManager::FromWebContents(web_contents)->
       SetDelegate(delegate);
   CoreTabHelper::FromWebContents(web_contents)->set_delegate(delegate);
-  SearchEngineTabHelper::FromWebContents(web_contents)->set_delegate(delegate);
   SearchTabHelper::FromWebContents(web_contents)->set_delegate(delegate);
   translate::ContentTranslateDriver& content_translate_driver =
       ChromeTranslateClient::FromWebContents(web_contents)->translate_driver();

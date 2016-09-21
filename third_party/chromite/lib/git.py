@@ -15,11 +15,15 @@ import string
 import time
 from xml import sax
 
+from chromite.cbuildbot import config_lib
 from chromite.cbuildbot import constants
 from chromite.lib import cros_build_lib
 from chromite.lib import cros_logging as logging
 from chromite.lib import osutils
 from chromite.lib import retry_util
+
+
+site_config = config_lib.GetConfig()
 
 
 # Retry a git operation if git returns a error response with any of these
@@ -63,6 +67,9 @@ GIT_TRANSIENT_ERRORS = (
 
     # crbug.com/451458, b/19202011
     r'repository cannot accept new pushes; contact support',
+
+    # crbug.com/535306
+    r'Service Temporarily Unavailable',
 )
 
 GIT_TRANSIENT_ERRORS_RE = re.compile('|'.join(GIT_TRANSIENT_ERRORS),
@@ -142,6 +149,7 @@ def IsGitRepositoryCorrupted(cwd):
   """
   cmd = ['fsck', '--no-progress', '--no-dangling']
   try:
+    GarbageCollection(cwd)
     RunGit(cwd, cmd)
     return False
   except cros_build_lib.RunCommandError as ex:
@@ -287,10 +295,11 @@ class ProjectCheckout(dict):
       return False
 
     # Old heuristic.
-    if (self['remote'] not in constants.CROS_REMOTES or
-        self['remote'] not in constants.BRANCHABLE_PROJECTS):
+    if (self['remote'] not in site_config.params.CROS_REMOTES or
+        self['remote'] not in site_config.params.BRANCHABLE_PROJECTS):
       return False
-    return re.match(constants.BRANCHABLE_PROJECTS[self['remote']], self['name'])
+    return re.match(site_config.params.BRANCHABLE_PROJECTS[self['remote']],
+                    self['name'])
 
   def IsPinnableProject(self):
     """Return whether we should pin to a revision on the CrOS branch."""
@@ -484,10 +493,10 @@ class Manifest(object):
         remote_name, StripRefs(upstream),
     )
 
-    attrs['pushable'] = remote in constants.GIT_REMOTES
+    attrs['pushable'] = remote in site_config.params.GIT_REMOTES
     if attrs['pushable']:
       attrs['push_remote'] = remote
-      attrs['push_remote_url'] = constants.GIT_REMOTES[remote]
+      attrs['push_remote_url'] = site_config.params.GIT_REMOTES[remote]
       attrs['push_url'] = '%s/%s' % (attrs['push_remote_url'], attrs['name'])
     groups = set(attrs.get('groups', 'default').replace(',', ' ').split())
     groups.add('default')
@@ -829,6 +838,18 @@ def Init(git_repo):
   """
   osutils.SafeMakedirs(git_repo)
   RunGit(git_repo, ['init'])
+
+
+def Clone(git_repo, git_url):
+  """Clone a git repository, into the given directory.
+
+  Args:
+    git_repo: Path for where to create a git repo. Directory will be created if
+              it doesnt exist.
+    git_url: Url to clone the git repository from.
+  """
+  osutils.SafeMakedirs(git_repo)
+  RunGit(git_repo, ['clone', git_url, git_repo])
 
 
 def GetProjectUserEmail(git_repo):
@@ -1202,28 +1223,29 @@ def UploadCL(git_repo, remote, branch, local_branch='HEAD', draft=False,
   GitPush(git_repo, local_branch, remote_ref, **kwargs)
 
 
-def GitPush(git_repo, refspec, push_to, dryrun=False, force=False, retry=True,
-            capture_output=True):
+def GitPush(git_repo, refspec, push_to, force=False, retry=True,
+            capture_output=True, skip=False):
   """Wrapper for pushing to a branch.
 
   Args:
     git_repo: Git repository to act on.
     refspec: The local ref to push to the remote.
     push_to: A RemoteRef object representing the remote ref to push to.
-    dryrun: Do not actually push anything.  Uses the --dry-run option
-      built into git.
     force: Whether to bypass non-fastforward checks.
     retry: Retry a push in case of transient errors.
     capture_output: Whether to capture output for this command.
+    skip: Do not actually push anything.
   """
   cmd = ['push', push_to.remote, '%s:%s' % (refspec, push_to.ref)]
-
-  if dryrun:
-    # The 'git push' command has --dry-run support built in, so leverage that.
-    cmd.append('--dry-run')
-
   if force:
     cmd.append('--force')
+
+  if skip:
+    # git-push has a --dry-run option but we can't use it because that still
+    # runs push-access checks, and we want the skip mode to be available to
+    # users who can't really push to remote.
+    logging.info('Would have run "%s"', cmd)
+    return
 
   RunGit(git_repo, cmd, retry=retry, capture_output=capture_output)
 

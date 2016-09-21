@@ -14,6 +14,7 @@ import os
 import shutil
 import time
 
+from chromite.cbuildbot import config_lib
 from chromite.cbuildbot import constants
 from chromite.lib import cros_build_lib
 from chromite.lib import cros_build_lib_unittest
@@ -22,6 +23,9 @@ from chromite.lib import gerrit
 from chromite.lib import git
 from chromite.lib import osutils
 from chromite.lib import patch as cros_patch
+
+
+site_config = config_lib.GetConfig()
 
 
 _GetNumber = iter(itertools.count()).next
@@ -80,7 +84,8 @@ I am the first commit.
   # ChangeId; only GerritPatches do.
   has_native_change_id = False
 
-  DEFAULT_TRACKING = 'refs/remotes/%s/master' % constants.EXTERNAL_REMOTE
+  DEFAULT_TRACKING = (
+      'refs/remotes/%s/master' % site_config.params.EXTERNAL_REMOTE)
 
   def _CreateSourceRepo(self, path):
     """Generate a new repo with a single commit."""
@@ -112,8 +117,9 @@ I am the first commit.
 
   def _MkPatch(self, source, sha1, ref='refs/heads/master', **kwargs):
     return self.patch_kls(source, 'chromiumos/chromite', ref,
-                          '%s/master' % constants.EXTERNAL_REMOTE,
-                          kwargs.pop('remote', constants.EXTERNAL_REMOTE),
+                          '%s/master' % site_config.params.EXTERNAL_REMOTE,
+                          kwargs.pop('remote',
+                                     site_config.params.EXTERNAL_REMOTE),
                           sha1=sha1, **kwargs)
 
   def _run(self, cmd, cwd=None):
@@ -134,7 +140,7 @@ I am the first commit.
     if alternates:
       cmd += ['--reference', clone]
     if remote is None:
-      remote = constants.EXTERNAL_REMOTE
+      remote = site_config.params.EXTERNAL_REMOTE
     cmd += ['--origin', remote]
     self._run(cmd)
     return path
@@ -355,10 +361,10 @@ class TestGitRepoPatch(GitRepoPatchTestCase):
     self.assertEqual(set(prefix + x for x in vals), set(patch.LookupAliases()))
 
   def testExternalLookupAliases(self):
-    self._assertLookupAliases(constants.EXTERNAL_REMOTE)
+    self._assertLookupAliases(site_config.params.EXTERNAL_REMOTE)
 
   def testInternalLookupAliases(self):
-    self._assertLookupAliases(constants.INTERNAL_REMOTE)
+    self._assertLookupAliases(site_config.params.INTERNAL_REMOTE)
 
   def _CheckPaladin(self, repo, master_id, ids, extra):
     patch = self.CommitChangeIdFile(
@@ -401,7 +407,7 @@ class TestGitRepoPatch(GitRepoPatchTestCase):
     # we're using shortened versions).
     self.assertRaises(cros_patch.BrokenCQDepends,
                       self._CheckPaladin, git1, cid1,
-                      ['1234567'], 'CQ-DEPEND=%s' % '1234567')
+                      ['123456789'], 'CQ-DEPEND=%s' % '123456789')
     # Single key, gerrit number, internal.
     self._CheckPaladin(git1, cid1, ['*123'],
                        'CQ-DEPEND=%s' % '*123')
@@ -453,6 +459,92 @@ class TestGitRepoPatch(GitRepoPatchTestCase):
     self.assertEqual(patch.change_id, changeid)
     self.assertIn('Change-Id: %s\n' % changeid, patch.commit_message)
 
+
+class TestGerritFetchOnlyPatch(cros_test_lib.MockTestCase):
+  """Test of GerritFetchOnlyPatch."""
+
+  def testFromAttrDict(self):
+    """Test whether FromAttrDict can handle with commit message."""
+    attr_dict_without_msg = {
+        cros_patch.ATTR_PROJECT_URL: 'https://host/chromite/tacos',
+        cros_patch.ATTR_PROJECT: 'chromite/tacos',
+        cros_patch.ATTR_REF: 'refs/changes/11/12345/4',
+        cros_patch.ATTR_BRANCH: 'master',
+        cros_patch.ATTR_REMOTE: 'cros-internal',
+        cros_patch.ATTR_COMMIT: '7181e4b5e182b6f7d68461b04253de095bad74f9',
+        cros_patch.ATTR_CHANGE_ID: 'I47ea30385af60ae4cc2acc5d1a283a46423bc6e1',
+        cros_patch.ATTR_GERRIT_NUMBER: '12345',
+        cros_patch.ATTR_PATCH_NUMBER: '4',
+        cros_patch.ATTR_OWNER_EMAIL: 'foo@chromium.org',
+        cros_patch.ATTR_FAIL_COUNT: 1,
+        cros_patch.ATTR_PASS_COUNT: 1,
+        cros_patch.ATTR_TOTAL_FAIL_COUNT: 3}
+
+    attr_dict_with_msg = {
+        cros_patch.ATTR_PROJECT_URL: 'https://host/chromite/tacos',
+        cros_patch.ATTR_PROJECT: 'chromite/tacos',
+        cros_patch.ATTR_REF: 'refs/changes/11/12345/4',
+        cros_patch.ATTR_BRANCH: 'master',
+        cros_patch.ATTR_REMOTE: 'cros-internal',
+        cros_patch.ATTR_COMMIT: '7181e4b5e182b6f7d68461b04253de095bad74f9',
+        cros_patch.ATTR_CHANGE_ID: 'I47ea30385af60ae4cc2acc5d1a283a46423bc6e1',
+        cros_patch.ATTR_GERRIT_NUMBER: '12345',
+        cros_patch.ATTR_PATCH_NUMBER: '4',
+        cros_patch.ATTR_OWNER_EMAIL: 'foo@chromium.org',
+        cros_patch.ATTR_FAIL_COUNT: 1,
+        cros_patch.ATTR_PASS_COUNT: 1,
+        cros_patch.ATTR_TOTAL_FAIL_COUNT: 3,
+        cros_patch.ATTR_COMMIT_MESSAGE: 'commit message'}
+
+    self.PatchObject(cros_patch.GitRepoPatch, '_AddFooters',
+                     return_value='commit message')
+
+    result_1 = (cros_patch.GerritFetchOnlyPatch.
+                FromAttrDict(attr_dict_without_msg).commit_message)
+    result_2 = (cros_patch.GerritFetchOnlyPatch.
+                FromAttrDict(attr_dict_with_msg).commit_message)
+    self.assertEqual(None, result_1)
+    self.assertEqual('commit message', result_2)
+
+  def testGetAttributeDict(self):
+    """Test Whether GetAttributeDict can get the commit message properly."""
+    change = cros_patch.GerritFetchOnlyPatch(
+        'https://host/chromite/tacos',
+        'chromite/tacos',
+        'refs/changes/11/12345/4',
+        'master',
+        'cros-internal',
+        '7181e4b5e182b6f7d68461b04253de095bad74f9',
+        'I47ea30385af60ae4cc2acc5d1a283a46423bc6e1',
+        '12345',
+        '4',
+        'foo@chromium.org',
+        1,
+        1,
+        3)
+
+    expected = {
+        cros_patch.ATTR_PROJECT_URL: 'https://host/chromite/tacos',
+        cros_patch.ATTR_PROJECT: 'chromite/tacos',
+        cros_patch.ATTR_REF: 'refs/changes/11/12345/4',
+        cros_patch.ATTR_BRANCH: 'master',
+        cros_patch.ATTR_REMOTE: 'cros-internal',
+        cros_patch.ATTR_COMMIT: '7181e4b5e182b6f7d68461b04253de095bad74f9',
+        cros_patch.ATTR_CHANGE_ID: 'I47ea30385af60ae4cc2acc5d1a283a46423bc6e1',
+        cros_patch.ATTR_GERRIT_NUMBER: '12345',
+        cros_patch.ATTR_PATCH_NUMBER: '4',
+        cros_patch.ATTR_OWNER_EMAIL: 'foo@chromium.org',
+        cros_patch.ATTR_FAIL_COUNT: '1',
+        cros_patch.ATTR_PASS_COUNT: '1',
+        cros_patch.ATTR_TOTAL_FAIL_COUNT: '3',
+        cros_patch.ATTR_COMMIT_MESSAGE: None}
+    self.assertEqual(change.GetAttributeDict(), expected)
+
+    self.PatchObject(cros_patch.GitRepoPatch, '_AddFooters',
+                     return_value='commit message')
+    change.commit_message = 'commit message'
+    expected[cros_patch.ATTR_COMMIT_MESSAGE] = 'commit message'
+    self.assertEqual(change.GetAttributeDict(), expected)
 
 
 class TestGetOptionLinesFromCommitMessage(cros_test_lib.TestCase):
@@ -582,7 +674,7 @@ class TestLocalPatchGit(GitRepoPatchTestCase):
     self.sourceroot = os.path.join(self.tempdir, 'sourceroot')
 
   def _MkPatch(self, source, sha1, ref='refs/heads/master', **kwargs):
-    remote = kwargs.pop('remote', constants.EXTERNAL_REMOTE)
+    remote = kwargs.pop('remote', site_config.params.EXTERNAL_REMOTE)
     return self.patch_kls(source, 'chromiumos/chromite', ref,
                           '%s/master' % remote, remote, sha1, **kwargs)
 
@@ -636,10 +728,11 @@ class UploadedLocalPatchTestCase(GitRepoPatchTestCase):
 
   def _MkPatch(self, source, sha1, ref='refs/heads/master', **kwargs):
     return self.patch_kls(source, self.PROJECT, ref,
-                          '%s/master' % constants.EXTERNAL_REMOTE,
+                          '%s/master' % site_config.params.EXTERNAL_REMOTE,
                           self.ORIGINAL_BRANCH,
                           kwargs.pop('original_sha1', self.ORIGINAL_SHA1),
-                          kwargs.pop('remote', constants.EXTERNAL_REMOTE),
+                          kwargs.pop('remote',
+                                     site_config.params.EXTERNAL_REMOTE),
                           carbon_copy_sha1=sha1, **kwargs)
 
 
@@ -675,8 +768,9 @@ class TestGerritPatch(TestGitRepoPatch):
 
   def _MkPatch(self, source, sha1, ref='refs/heads/master', **kwargs):
     json = self.test_json
-    remote = kwargs.pop('remote', constants.EXTERNAL_REMOTE)
-    url_prefix = kwargs.pop('url_prefix', constants.EXTERNAL_GERRIT_URL)
+    remote = kwargs.pop('remote', site_config.params.EXTERNAL_REMOTE)
+    url_prefix = kwargs.pop('url_prefix',
+                            site_config.params.EXTERNAL_GERRIT_URL)
     suppress_branch = kwargs.pop('suppress_branch', False)
     change_id = kwargs.pop('ChangeId', None)
     if change_id is None:
@@ -700,7 +794,7 @@ class TestGerritPatch(TestGitRepoPatch):
     self.assertEqual(obj.ref, refspec)
     self.assertEqual(obj.change_id, change_id)
     self.assertEqual(obj.id, '%s%s~%s~%s' % (
-        constants.CHANGE_PREFIX[remote], json['project'],
+        site_config.params.CHANGE_PREFIX[remote], json['project'],
         json['branch'], change_id))
 
     # Now make the fetching actually work, if desired.
@@ -724,9 +818,10 @@ class TestGerritPatch(TestGitRepoPatch):
           expected, patch.approval_timestamp, approvals)
       self.assertEqual(patch.approval_timestamp, expected, msg)
 
-  def _assertGerritDependencies(self, remote=constants.EXTERNAL_REMOTE):
+  def _assertGerritDependencies(self,
+                                remote=site_config.params.EXTERNAL_REMOTE):
     convert = str
-    if remote == constants.INTERNAL_REMOTE:
+    if remote == site_config.params.INTERNAL_REMOTE:
       convert = lambda val: '*%s' % (val,)
     git1 = self._MakeRepo('git1', self.source, remote=remote)
     patch = self._MkPatch(git1, self._GetSha1(git1, 'HEAD'), remote=remote)
@@ -749,13 +844,14 @@ class TestGerritPatch(TestGitRepoPatch):
     self._assertGerritDependencies()
 
   def testInternalGerritDependencies(self):
-    self._assertGerritDependencies(constants.INTERNAL_REMOTE)
+    self._assertGerritDependencies(site_config.params.INTERNAL_REMOTE)
 
   def testReviewedOnMetadata(self):
     """Verify Change-Id and Reviewed-On are set in git metadata."""
     git1, _, patch = self._CommonGitSetup()
     patch.Apply(git1, self.DEFAULT_TRACKING)
-    reviewed_on = '/'.join([constants.EXTERNAL_GERRIT_URL, patch.gerrit_number])
+    reviewed_on = '/'.join([site_config.params.EXTERNAL_GERRIT_URL,
+                            patch.gerrit_number])
     self.assertIn('Reviewed-on: %s\n' % reviewed_on, patch.commit_message)
 
   def _MakeFooters(self):
@@ -982,7 +1078,7 @@ class TestFormatting(cros_test_lib.TestCase):
       self.assertTrue(cros_patch.ParsePatchDep(val) is not None)
 
     self._assertBad(cros_patch.ParsePatchDep,
-                    ['1454623', 'I47ea3', 'i47ea3'.ljust(41, '0')])
+                    ['145462399', 'I47ea3', 'i47ea3'.ljust(41, '0')])
 
 
 class MockPatchBase(cros_test_lib.MockTestCase):
@@ -993,7 +1089,8 @@ class MockPatchBase(cros_test_lib.MockTestCase):
     self._patch_counter = (itertools.count(1)).next
 
   def MockPatch(self, change_id=None, patch_number=None, is_merged=False,
-                project='chromiumos/chromite', remote=constants.EXTERNAL_REMOTE,
+                project='chromiumos/chromite',
+                remote=site_config.params.EXTERNAL_REMOTE,
                 tracking_branch='refs/heads/master', is_draft=False,
                 approvals=()):
     """Helper function to create mock GerritPatch objects."""

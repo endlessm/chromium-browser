@@ -8,14 +8,13 @@ vars = {
   # directories contain commits at each revision, you will need to select
   # revisions at latest revision up to a high watermark from each slice.
   # Document the high watermark here:
-  # chrome_rev: 381328
-  "build_rev": "805c57fe6472a128c2cf511d5d35825dcdcdd467", # from cr commit position 381323
-  "build_overrides_rev": "7ae8b951d779566018520c1849537102cebb84ab", # from cr commit position 377770
+  # chrome_rev: 391106
+  "build_rev": "2d2c819fe089c3e31f3dd9d3c69c5ec24318dc78", # from cr commit position 391106
   "binutils_rev": "3a125b5a41761bc85d71aa4a478f88d667712267", # from cr commit position 378721
   "libcxx_static_rev": "fd8f9a82862aa40dab0c5bcdea6e498715284f5a", # from cr commit position 369150
   # NOTE: be sure to update clang_lib_version in SConstruct whenever
   # updating this clang_rev (e.g., if LLVM changes from version 3.7 to 3.8).
-  "clang_rev": "c642451e861b9c568967fb8e4d9d3fd081699162", # from cr commit position 380953
+  "clang_rev": "a14766ac344d97871f75e60c4dd39385a6cd2865", # from cr commit position 390875
 
   # NOTE!  These five should be kept up to date with their counterparts in
   # chromium/src/DEPS.
@@ -24,12 +23,12 @@ vars = {
   # in the build that goes into Chromium.  But we might as well update it too.)
   # You should now use the roll-dep script in depot_tools to do this update.
   "gtest_rev": "6f8a66431cb592dad629028a50b3dd418a408c87",
-  "gyp_rev": "61259d585ce99d9de8b35188cd0025bdbcb58411",
+  "gyp_rev": "e24c83726b7294179f479a683eeb351568fcc4ee",
   "breakpad_rev": "a4eb2e302cefff9908ec955e761fef5d813d1b00", # from svn revision 1416
   # Three lines of non-changing comments so that
   # the commit queue can handle CLs rolling build tools
   # and whatever else without interference from each other.
-  'buildtools_revision': '7274f1c726640bce4cd4c4198e1ee62a0b29bb89',
+  'buildtools_revision': 'b4232ffa4e00eb04cb76deffe9a0c19e9b2e0e65',
   # Three lines of non-changing comments so that
   # the commit queue can handle CLs rolling lss
   # and whatever else without interference from each other.
@@ -43,6 +42,9 @@ vars = {
   "nsis_rev": "21b6ad22daa7bfc04b9f1c1805a34622e2607a93", # from svn revision 7071
   "ragel_rev": "da42bb33f1b67c2d70b38ec1d2edf5263271b635", # from svn revision 9010
   "validator_snapshots_rev": "ef053694ef9b0d98d9bed0b9bb649963084bfc81",
+  # Rolls of build_overrides_rev should done at the same time as a roll of
+  # build_rev as build_overrides/ is tightly coupled with build/.
+  "build_overrides_rev": "2881125066dcf38dae595d92eac8a6b477529116",
 
   "chromium_git": "https://chromium.googlesource.com",
 }
@@ -58,7 +60,7 @@ deps = {
     Var("chromium_git") + "/chromium/src/build.git@" +
     Var("build_rev"),
   "build_overrides":
-    Var("chromium_git") + "/chromium/src/build_overrides.git@" +
+    Var("chromium_git") + "/native_client/src/build_overrides.git@" +
     Var("build_overrides_rev"),
   "testing/gtest":
     (Var("chromium_git") + "/external/github.com/google/googletest.git@" +
@@ -241,7 +243,7 @@ hooks = [
   ### End of clauses copied (almost verbatim) from chromium/src/DEPS.
   ###
 
-  # Pull NaCl Toolchain binaries. This needs to be before running GYP below.
+  # Pull NaCl Toolchain binaries.
   {
     "pattern": ".",
     "action": ["python",
@@ -256,12 +258,6 @@ hooks = [
                "native_client/build/package_version/package_version.py",
                "cleanup",
     ],
-  },
-
-  # Run GYP, do this last to make sure all the tools are present first.
-  {
-    "pattern": ".",
-    "action": ["python", "native_client/build/gyp_nacl"],
   },
 ]
 

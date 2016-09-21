@@ -5,7 +5,10 @@ Use of this source code is governed by a BSD-style license that can be
 found in the LICENSE file.
 -->
 
+<link rel="import" href="/tracing/base/iteration_helpers.html">
 <link rel="import" href="/tracing/base/range.html">
+<link rel="import" href="/tracing/base/running_statistics.html">
+<link rel="import" href="/tracing/base/sorted_array_utils.html">
 <link rel="import" href="/tracing/base/statistics.html">
 <link rel="import" href="/tracing/value/unit.html">
 
@@ -95,12 +98,11 @@ tr.exportTo('tr.v', function() {
     this.numNans = 0;
     this.nanSourceInfos = [];
 
-    this.runningSum = 0;
+    this.running = new tr.b.RunningStatistics();
     this.maxCount_ = 0;
 
     this.underflowBin = binInfo.underflowBin;
     this.centralBins = binInfo.centralBins;
-    this.centralBinWidth = binInfo.centralBinWidth;
     this.overflowBin = binInfo.overflowBin;
 
     this.allBins = [];
@@ -112,6 +114,8 @@ tr.exportTo('tr.v', function() {
       if (bin.count > this.maxCount_)
         this.maxCount_ = bin.count;
     }, this);
+
+    this.summaryOptions = this.defaultSummaryOptions();
   }
 
   Numeric.fromDict = function(d) {
@@ -121,41 +125,17 @@ tr.exportTo('tr.v', function() {
     binInfo.centralBins = d.centralBins.map(function(binAsDict) {
       return NumericBin.fromDict(undefined, binAsDict);
     });
-    binInfo.centralBinWidth = d.centralBinWidth;
     binInfo.overflowBin = NumericBin.fromDict(undefined, d.overflowBin);
     var n = new Numeric(tr.v.Unit.fromJSON(d.unit), range, binInfo);
     n.allBins.forEach(function(bin) {
       bin.parentNumeric = n;
     });
-    n.runningSum = d.runningSum;
+    if (d.running)
+      n.running = tr.b.RunningStatistics.fromDict(d.running);
+    if (d.summaryOptions)
+      n.customizeSummaryOptions(d.summaryOptions);
     n.numNans = d.numNans;
     n.nanSourceInfos = d.nanSourceInfos;
-    return n;
-  };
-
-  Numeric.createLinear = function(unit, range, numBins) {
-    if (range.isEmpty)
-      throw new Error('Nope');
-
-    var binInfo = {};
-    binInfo.underflowBin = new NumericBin(
-        this, Range.fromExplicitRange(-Number.MAX_VALUE, range.min));
-    binInfo.overflowBin = new NumericBin(
-        this, Range.fromExplicitRange(range.max, Number.MAX_VALUE));
-    binInfo.centralBins = [];
-    binInfo.centralBinWidth = range.range / numBins;
-
-    for (var i = 0; i < numBins; i++) {
-      var lo = range.min + (binInfo.centralBinWidth * i);
-      var hi = lo + binInfo.centralBinWidth;
-      binInfo.centralBins.push(
-          new NumericBin(undefined, Range.fromExplicitRange(lo, hi)));
-    }
-
-    var n = new Numeric(unit, range, binInfo);
-    n.allBins.forEach(function(bin) {
-      bin.parentNumeric = n;
-    });
     return n;
   };
 
@@ -169,11 +149,47 @@ tr.exportTo('tr.v', function() {
     },
 
     get average() {
-      return this.runningSum / this.numValues;
+      return this.running.mean;
+    },
+
+    get sum() {
+      return this.running.sum;
     },
 
     get maxCount() {
       return this.maxCount_;
+    },
+
+    /*
+     * Compute an approximation of percentile based on the counts in the bins.
+     * If the real percentile lies within |this.range| then the result of
+     * the function will deviate from the real percentile by at most
+     * the maximum width of the bin(s) within which the point(s)
+     * from which the real percentile would be calculated lie.
+     * If the real percentile is outside |this.range| then the function
+     * returns the closest range limit: |this.range.min| or |this.range.max|.
+     *
+     * @param {number} percent The percent must be between 0.0 and 1.0.
+     */
+    getApproximatePercentile: function(percent) {
+      if (!(percent >= 0 && percent <= 1))
+        throw new Error('percent must be [0,1]');
+      if (this.numValues == 0)
+        return 0;
+      var valuesToSkip = Math.floor((this.numValues - 1) * percent);
+      for (var i = 0; i < this.allBins.length; i++) {
+        var bin = this.allBins[i];
+        valuesToSkip -= bin.count;
+        if (valuesToSkip < 0) {
+          if (bin === this.underflowBin)
+            return bin.range.max;
+          else if (bin === this.overflowBin)
+            return bin.range.min;
+          else
+            return bin.range.center;
+        }
+      }
+      throw new Error('Unreachable');
     },
 
     getInterpolatedCountAt: function(value) {
@@ -230,12 +246,10 @@ tr.exportTo('tr.v', function() {
     },
 
     getBinForValue: function(value) {
-      if (value < this.range.min)
-        return this.underflowBin;
-      if (value >= this.range.max)
-        return this.overflowBin;
-      var binIdx = Math.floor((value - this.range.min) / this.centralBinWidth);
-      return this.centralBins[binIdx];
+      // Don't use subtraction to avoid arithmetic overflow.
+      var binIndex = tr.b.findHighIndexInSortedArray(
+          this.allBins, b => value < b.range.max ? -1 : 1);
+      return this.allBins[binIndex] || this.overflowBin;
     },
 
     add: function(value, sourceInfo) {
@@ -248,7 +262,7 @@ tr.exportTo('tr.v', function() {
 
       var bin = this.getBinForValue(value);
       bin.add(value, sourceInfo);
-      this.runningSum += value;
+      this.running.add(value);
       if (bin.count > this.maxCount_)
         this.maxCount_ = bin.count;
     },
@@ -262,10 +276,106 @@ tr.exportTo('tr.v', function() {
       tr.b.Statistics.mergeSampledStreams(this.nanSourceInfos, this.numNans,
           other.nanSourceInfos, other.numNans, MAX_SOURCE_INFOS);
       this.numNans += other.numNans;
-      this.runningSum += other.runningSum;
+      this.running = this.running.merge(other.running);
       for (var i = 0; i < this.allBins.length; ++i) {
         this.allBins[i].addBin(other.allBins[i]);
       }
+    },
+
+    /**
+     * Controls which statistics are exported to dashboard for this numeric.
+     * The |summaryOptions| parameter is a dictionary with optional boolean
+     * fields |count|, |sum|, |avg|, |std|, |min|, |max| and an optional
+     * array field |percentile|.
+     * Each percentile should be a number between 0.0 and 1.0.
+     * The options not included in the |summaryOptions| will not change.
+     */
+    customizeSummaryOptions: function(summaryOptions) {
+      tr.b.iterItems(summaryOptions, function(key, value) {
+        this.summaryOptions[key] = value;
+      }, this);
+    },
+
+    defaultSummaryOptions: function() {
+      return {
+        count: true,
+        sum: true,
+        avg: true,
+        std: true,
+        min: true,
+        max: true,
+        percentile: []
+      };
+    },
+
+    /**
+     * Returns an array of {name: string, scalar: ScalarNumeric} values.
+     * Each enabled summary option produces the corresponding value:
+     * min, max, count, sum, avg, or std.
+     * Each percentile 0.x produces pct_0x0.
+     * Each percentile 0.xx produces pct_0xx.
+     * Each percentile 0.xxy produces pct_0xx_y.
+     * Percentile 1.0 produces pct_100.
+     */
+    getSummarizedScalarNumericsWithNames: function() {
+      function statNameToKey(stat) {
+        switch (stat) {
+          case 'std':
+            return 'stddev';
+          case 'avg':
+            return 'mean';
+        }
+        return stat;
+      }
+      /**
+       * Converts the given percent to a string in the format specified above.
+       * @param {number} percent The percent must be between 0.0 and 1.0.
+       */
+      function percentToString(percent) {
+        if (percent < 0 || percent > 1)
+          throw new Error('Percent must be between 0.0 and 1.0');
+        switch (percent) {
+          case 0:
+            return '000';
+          case 1:
+            return '100';
+        }
+        var str = percent.toString();
+        if (str[1] !== '.')
+          throw new Error('Unexpected percent');
+        // Pad short strings with zeros.
+        str = str + '0'.repeat(Math.max(4 - str.length, 0));
+        if (str.length > 4)
+          str = str.slice(0, 4) + '_' + str.slice(4);
+        return '0' + str.slice(2);
+      }
+
+      var results = [];
+      tr.b.iterItems(this.summaryOptions, function(stat, option) {
+        if (!option)
+          return;
+        if (stat === 'percentile') {
+          option.forEach(function(percent) {
+            var percentile = this.getApproximatePercentile(percent);
+            results.push({
+                name: 'pct_' + percentToString(percent),
+                scalar: new tr.v.ScalarNumeric(this.unit, percentile)
+            });
+          }, this);
+        } else {
+          var statUnit = stat === 'count' ?
+              tr.v.Unit.byName.unitlessNumber_smallerIsBetter : this.unit;
+          var key = statNameToKey(stat);
+          var statValue = this.running[key];
+          if (statValue !== undefined) {
+            results.push({
+                name: stat,
+                scalar: new tr.v.ScalarNumeric(statUnit, statValue)
+            });
+          }
+        }
+      }, this);
+      return results;
     },
 
     clone: function() {
@@ -283,13 +393,13 @@ tr.exportTo('tr.v', function() {
         numNans: this.numNans,
         nanSourceInfos: this.nanSourceInfos,
 
-        runningSum: this.runningSum,
+        running: this.running.asDict(),
+        summaryOptions: this.summaryOptions,
 
         underflowBin: this.underflowBin.asDict(),
         centralBins: this.centralBins.map(function(bin) {
           return bin.asDict();
         }),
-        centralBinWidth: this.centralBinWidth,
         overflowBin: this.overflowBin.asDict()
       };
       return d;
@@ -298,6 +408,202 @@ tr.exportTo('tr.v', function() {
     asJSON: function() {
       return this.asDict();
     }
+  };
+
+  /**
+   * Reusable builder for tr.v.Numeric objects.
+   *
+   * The bins of the numeric are specified by adding the desired boundaries
+   * between bins. Initially, the builder has only a single boundary:
+   *
+   *       minBinBoundary=maxBinBoundary
+   *                     |
+   *                     |
+   *   -MAX_INT <--------|------------------------------------------> +MAX_INT
+   *       :  resulting  :                   resulting                    :
+   *       :  underflow  :                    overflow                    :
+   *       :     bin     :                      bin                       :
+   *
+   * More boundaries can be added (in increasing order) using addBinBoundary,
+   * addLinearBins and addExponentialBins:
+   *
+   *              minBinBoundary                      maxBinBoundary
+   *                     |         |         |     |         |
+   *                     |         |         |     |         |
+   *   -MAX_INT <--------|---------|---------|-----|---------|------> +MAX_INT
+   *       :  resulting  : result. : result. :     : result. : resulting  :
+   *       :  underflow  : central : central : ... : central :  overflow  :
+   *       :     bin     :  bin 0  :  bin 1  :     : bin N-1 :    bin     :
+   *
+   * An important feature of the builder is that it's reusable, i.e. it can be
+   * used to build multiple numerics with the same unit and bin structure.
+   *
+   * @constructor
+   * @param {!tr.v.Unit} unit Unit of the resulting Numeric(s).
+   * @param {number} minBinBoundary The minimum boundary between bins, namely
+   *     the underflow bin and the first central bin (or the overflow bin if
+   *     no other boundaries are added later).
+   */
+  function NumericBuilder(unit, minBinBoundary) {
+    this.unit_ = unit;
+    this.boundaries_ = [minBinBoundary];
+  }
+
+  NumericBuilder.prototype = {
+    get minBinBoundary() {
+      return this.boundaries_[0];
+    },
+
+    get maxBinBoundary() {
+      return this.boundaries_[this.boundaries_.length - 1];
+    },
+
+    /**
+     * Add a bin boundary |nextMaxBinBoundary| to the builder.
+     *
+     * This operation effectively corresponds to appending a new central bin
+     * with the range [this.maxBinBoundary*, nextMaxBinBoundary].
+     *
+     * @param {number} nextMaxBinBoundary The added bin boundary (must be
+     *     greater than |this.maxMinBoundary|).
+     */
+    addBinBoundary: function(nextMaxBinBoundary) {
+      if (nextMaxBinBoundary <= this.maxBinBoundary) {
+        throw new Error('The added max bin boundary must be larger than ' +
+            'the current max boundary');
+      }
+      this.boundaries_.push(nextMaxBinBoundary);
+
+      return this;
+    },
+
+    /**
+     * Add |binCount| linearly scaled bin boundaries up to |nextMaxBinBoundary|
+     * to the builder.
+     *
+     * This operation corresponds to appending |binCount| central bins of
+     * constant range width
+     * W = ((|nextMaxBinBoundary| - |this.maxBinBoundary|) / |binCount|)
+     * with the following ranges:
+     *
+     *   [|this.maxMinBoundary|, |this.maxMinBoundary| + W]
+     *   [|this.maxMinBoundary| + W, |this.maxMinBoundary| + 2W]
+     *   [|this.maxMinBoundary| + 2W, |this.maxMinBoundary| + 3W]
+     *   ...
+     *   [|this.maxMinBoundary| + (|binCount| - 2) * W,
+     *    |this.maxMinBoundary| + (|binCount| - 2) * W]
+     *   [|this.maxMinBoundary| + (|binCount| - 1) * W,
+     *    |nextMaxBinBoundary|]
+     *
+     * @param {number} nextBinBoundary The last added bin boundary (must be
+     *     greater than |this.maxMinBoundary|).
+     * @param {number} binCount Number of bins to be added (must be positive).
+     */
+    addLinearBins: function(nextMaxBinBoundary, binCount) {
+      if (binCount <= 0)
+        throw new Error('Bin count must be positive');
+
+      var curMaxBinBoundary = this.maxBinBoundary;
+      if (curMaxBinBoundary >= nextMaxBinBoundary) {
+        throw new Error('The last added max boundary must be greater than ' +
+            'the current max boundary boundary');
+      }
+
+      var binWidth = (nextMaxBinBoundary - curMaxBinBoundary) / binCount;
+      for (var i = 1; i < binCount; i++)
+        this.addBinBoundary(curMaxBinBoundary + i * binWidth);
+      this.addBinBoundary(nextMaxBinBoundary);
+
+      return this;
+    },
+
+    /**
+     * Add |binCount| exponentially scaled bin boundaries up to
+     * |nextMaxBinBoundary| to the builder.
+     *
+     * This operation corresponds to appending |binCount| central bins with
+     * a constant difference between the logarithms of their range min and max
+     * D = ((ln(|nextMaxBinBoundary|) - ln(|this.maxBinBoundary|)) / |binCount|)
+     * with the following ranges:
+     *
+     *   [|this.maxMinBoundary|, |this.maxMinBoundary| * exp(D)]
+     *   [|this.maxMinBoundary| * exp(D), |this.maxMinBoundary| * exp(2D)]
+     *   [|this.maxMinBoundary| * exp(2D), |this.maxMinBoundary| * exp(3D)]
+     *   ...
+     *   [|this.maxMinBoundary| * exp((|binCount| - 2) * D),
+     *    |this.maxMinBoundary| * exp((|binCount| - 2) * D)]
+     *   [|this.maxMinBoundary| * exp((|binCount| - 1) * D),
+     *    |nextMaxBinBoundary|]
+     *
+     * This method requires that the current max bin boundary is positive.
+     *
+     * @param {number} nextBinBoundary The last added bin boundary (must be
+     *     greater than |this.maxMinBoundary|).
+     * @param {number} binCount Number of bins to be added (must be positive).
+     */
+    addExponentialBins: function(nextMaxBinBoundary, binCount) {
+      if (binCount <= 0)
+        throw new Error('Bin count must be positive');
+
+      var curMaxBinBoundary = this.maxBinBoundary;
+      if (curMaxBinBoundary <= 0)
+        throw new Error('Current max bin boundary must be positive');
+      if (curMaxBinBoundary >= nextMaxBinBoundary) {
+        throw new Error('The last added max boundary must be greater than ' +
+            'the current max boundary boundary');
+      }
+
+      var binExponentWidth =
+          Math.log(nextMaxBinBoundary / curMaxBinBoundary) / binCount;
+      for (var i = 1; i < binCount; i++) {
+        this.addBinBoundary(
+            curMaxBinBoundary * Math.exp(i * binExponentWidth));
+      }
+      this.addBinBoundary(nextMaxBinBoundary);
+
+      return this;
+    },
+
+    /**
+     * Build a tr.v.Numeric from the list of bin boundaries.
+     *
+     * As explained earlier, this method can be called arbitrarily many times
+     * to produce arbitrarily many distinct numerics.
+     */
+    build: function() {
+      var binInfo = {
+        underflowBin: new NumericBin(undefined,
+            Range.fromExplicitRange(-Number.MAX_VALUE, this.minBinBoundary)),
+        overflowBin: new NumericBin(undefined,
+            Range.fromExplicitRange(this.maxBinBoundary, Number.MAX_VALUE)),
+        centralBins: new Array(this.boundaries_.length - 1)
+      };
+      for (var i = 0; i < this.boundaries_.length - 1; i++) {
+        binInfo.centralBins[i] = new NumericBin(undefined,
+            Range.fromExplicitRange(
+                this.boundaries_[i], this.boundaries_[i + 1]));
+      }
+
+      var numeric = new Numeric(
+          this.unit_,
+          Range.fromExplicitRange(this.minBinBoundary, this.maxBinBoundary),
+          binInfo);
+      numeric.allBins.forEach(function(bin) {
+        bin.parentNumeric = numeric;
+      });
+      return numeric;
+    }
+  };
+
+  /**
+   * Create a linearly scaled tr.v.NumericBuilder with |numBins| bins ranging
+   * from |range.min| to |range.max|.
+   */
+  NumericBuilder.createLinear = function(unit, range, numBins) {
+    if (range.isEmpty)
+      throw new Error('Range must be non-empty');
+    return new NumericBuilder(unit, range.min).addLinearBins(
+        range.max, numBins);
   };
 
   function ScalarNumeric(unit, value) {
@@ -329,6 +635,7 @@ tr.exportTo('tr.v', function() {
     NumericBase: NumericBase,
     NumericBin: NumericBin,
     Numeric: Numeric,
+    NumericBuilder: NumericBuilder,
     ScalarNumeric: ScalarNumeric
   };
 });

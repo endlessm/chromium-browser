@@ -17,6 +17,8 @@ from chromite.cli import command
 # Needed for the dev.host.lib import below.
 sys.path.insert(0, os.path.join(constants.SOURCE_ROOT, 'src', 'platform'))
 
+MAJOR_PAYLOAD_VERSION_CHROMEOS = 1
+MAJOR_PAYLOAD_VERSION_BRILLO = 2
 
 def DisplayValue(key, value):
   """Print out a key, value pair with values left-aligned."""
@@ -24,6 +26,17 @@ def DisplayValue(key, value):
     print('%-*s %s' % (24, key + ':', value))
   else:
     raise ValueError('Cannot display an empty value.')
+
+
+def DisplayHexData(data, indent=0):
+  """Print out binary data as a hex values."""
+  for off in range(0, len(data), 16):
+    chunk = data[off:off + 16]
+    print(' ' * indent +
+          ' '.join('%.2x' % ord(c) for c in chunk) +
+          '   ' * (16 - len(chunk)) +
+          ' | ' +
+          ''.join(c if 32 <= ord(c) and ord(c) < 127 else '.' for c in chunk))
 
 
 @command.CommandDecorator('payload')
@@ -61,6 +74,8 @@ Example:
                         help='List the install operations and their extents.')
     parser.add_argument('--stats', default=False, action='store_true',
                         help='Show information about overall input/output.')
+    parser.add_argument('--signatures', default=False, action='store_true',
+                        help='Show signatures stored in the payload.')
 
   def _DisplayHeader(self):
     """Show information from the payload header."""
@@ -71,11 +86,58 @@ Example:
   def _DisplayManifest(self):
     """Show information from the payload manifest."""
     manifest = self.payload.manifest
-    DisplayValue('Number of operations', len(manifest.install_operations))
-    DisplayValue('Number of kernel ops',
-                 len(manifest.kernel_install_operations))
+    if self.payload.header.version == MAJOR_PAYLOAD_VERSION_BRILLO:
+      DisplayValue('Number of partitions', len(manifest.partitions))
+      for partition in manifest.partitions:
+        DisplayValue('  Number of "%s" ops' % partition.partition_name,
+                     len(partition.operations))
+    else:
+      DisplayValue('Number of operations', len(manifest.install_operations))
+      DisplayValue('Number of kernel ops',
+                   len(manifest.kernel_install_operations))
     DisplayValue('Block size', manifest.block_size)
     DisplayValue('Minor version', manifest.minor_version)
+
+  def _DisplaySignatures(self):
+    """Show information about the signatures from the manifest."""
+    header = self.payload.header
+    if header.metadata_signature_len:
+      offset = header.size + header.manifest_len
+      DisplayValue('Metadata signatures blob',
+                   'file_offset=%d (%d bytes)' %
+                   (offset, header.metadata_signature_len))
+      signatures_blob = self.payload.ReadDataBlob(
+          -header.metadata_signature_len,
+          header.metadata_signature_len)
+      self._DisplaySignaturesBlob('Metadata', signatures_blob)
+    else:
+      print('No metadata signatures stored in the payload')
+
+    manifest = self.payload.manifest
+    if manifest.HasField('signatures_offset'):
+      signature_msg = 'blob_offset=%d' % manifest.signatures_offset
+      if manifest.signatures_size:
+        signature_msg += ' (%d bytes)' % manifest.signatures_size
+      DisplayValue('Payload signatures blob', signature_msg)
+      signatures_blob = self.payload.ReadDataBlob(manifest.signatures_offset,
+                                                  manifest.signatures_size)
+      self._DisplaySignaturesBlob('Payload', signatures_blob)
+    else:
+      print('No payload signatures stored in the payload')
+
+  @staticmethod
+  def _DisplaySignaturesBlob(signature_name, signatures_blob):
+    from dev.host.lib.update_payload import update_metadata_pb2
+    signatures = update_metadata_pb2.Signatures()
+    signatures.ParseFromString(signatures_blob)
+    print('%s signatures: (%d entries)' %
+          (signature_name, len(signatures.signatures)))
+    for signature in signatures.signatures:
+      print('  version=%s, hex_data: (%d bytes)' %
+            (signature.version if signature.HasField('version') else None,
+             len(signature.data)))
+      DisplayHexData(signature.data, indent=4)
+
 
   def _DisplayOps(self, name, operations):
     """Show information about the install operations from the manifest.
@@ -123,8 +185,12 @@ Example:
     read_blocks = 0
     written_blocks = 0
     num_write_seeks = 0
-    for operations in (manifest.install_operations,
-                       manifest.kernel_install_operations):
+    if self.payload.header.version == MAJOR_PAYLOAD_VERSION_BRILLO:
+      partitions_operations = [part.operations for part in manifest.partitions]
+    else:
+      partitions_operations = [manifest.install_operations,
+                               manifest.kernel_install_operations]
+    for operations in partitions_operations:
       last_ext = None
       for curr_op in operations:
         read_blocks += sum([ext.num_blocks for ext in curr_op.src_extents])
@@ -162,11 +228,18 @@ Example:
     self.payload.Init()
     self._DisplayHeader()
     self._DisplayManifest()
+    if self.options.signatures:
+      self._DisplaySignatures()
     if self.options.stats:
       self._DisplayStats(self.payload.manifest)
     if self.options.list_ops:
       print()
-      self._DisplayOps('Install operations',
-                       self.payload.manifest.install_operations)
-      self._DisplayOps('Kernel install operations',
-                       self.payload.manifest.kernel_install_operations)
+      if self.payload.header.version == MAJOR_PAYLOAD_VERSION_BRILLO:
+        for partition in self.payload.manifest.partitions:
+          self._DisplayOps('%s install operations' % partition.partition_name,
+                           partition.operations)
+      else:
+        self._DisplayOps('Install operations',
+                         self.payload.manifest.install_operations)
+        self._DisplayOps('Kernel install operations',
+                         self.payload.manifest.kernel_install_operations)

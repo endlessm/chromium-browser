@@ -11,7 +11,7 @@
 
 #include "GrContext.h"
 #include "GrPath.h"
-#include "GrStrokeInfo.h"
+#include "GrStyle.h"
 #include "SkBitmap.h"
 #include "SkCanvas.h"
 #include "SkColor.h"
@@ -81,8 +81,8 @@ DEF_GPUTEST_FOR_ALL_GL_CONTEXTS(GpuDrawPath, reporter, ctxInfo) {
         for (auto& sampleCount : {0, 4, 16}) {
             SkImageInfo info = SkImageInfo::MakeN32Premul(255, 255);
             auto surface(
-                SkSurface::MakeRenderTarget(ctxInfo.fGrContext, SkBudgeted::kNo, info, sampleCount,
-                                            nullptr));
+                SkSurface::MakeRenderTarget(ctxInfo.grContext(), SkBudgeted::kNo, info,
+                                            sampleCount, nullptr));
             if (!surface) {
                 continue;
             }
@@ -104,9 +104,8 @@ DEF_GPUTEST(GrPathKeys, reporter, /*factory*/) {
 
     bool isVolatile;
     GrUniqueKey key1, key2;
-    GrStrokeInfo stroke(SkStrokeRec::kFill_InitStyle);
-    GrPath::ComputeKey(path1, stroke, &key1, &isVolatile);
-    GrPath::ComputeKey(path2, stroke, &key2, &isVolatile);
+    GrPath::ComputeKey(path1, GrStyle::SimpleFill(), &key1, &isVolatile);
+    GrPath::ComputeKey(path2, GrStyle::SimpleFill(), &key2, &isVolatile);
     REPORTER_ASSERT(reporter, key1 != key2);
 }
 

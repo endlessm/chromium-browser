@@ -12,6 +12,7 @@ import functools
 import signal
 import time
 
+from chromite.lib import cros_logging as logging
 from chromite.lib import signals
 
 
@@ -34,7 +35,8 @@ def Timedelta(num, zero_ok=False):
 
 @contextlib.contextmanager
 def Timeout(max_run_time,
-            error_message="Timeout occurred- waited %(time)s seconds."):
+            error_message="Timeout occurred- waited %(time)s seconds.",
+            reason_message=None):
   """ContextManager that alarms if code is ran for too long.
 
   Timeout can run nested and raises a TimeoutException if the timeout
@@ -43,9 +45,16 @@ def Timeout(max_run_time,
   Args:
     max_run_time: How long to wait before sending SIGALRM.  May be a number
       (in seconds) or a datetime.timedelta object.
-    error_message: String to wrap in the TimeoutError exception on timeout.
+    error_message: Optional string to wrap in the TimeoutError exception on
+      timeout. If not provided, default template will be used.
+    reason_message: Optional string to be appended to the TimeoutError
+      error_message string. Provide a custom message here if you want to have
+      a purpose-specific message without overriding the default template in
+      |error_message|.
   """
   max_run_time = int(Timedelta(max_run_time).total_seconds())
+  if reason_message:
+    error_message += reason_message
 
   # pylint: disable=W0613
   def kill_us(sig_num, frame):
@@ -79,7 +88,7 @@ def Timeout(max_run_time,
 
 
 @contextlib.contextmanager
-def FatalTimeout(max_run_time):
+def FatalTimeout(max_run_time, display_message=None):
   """ContextManager that exits the program if code is run for too long.
 
   This implementation is fairly simple, thus multiple timeouts
@@ -94,6 +103,8 @@ def FatalTimeout(max_run_time):
   Args:
     max_run_time: How long to wait.  May be a number (in seconds) or a
       datetime.timedelta object.
+    display_message: Optional string message to be included in timeout
+      error message, if the timeout occurs.
   """
   max_run_time = int(Timedelta(max_run_time).total_seconds())
 
@@ -107,8 +118,16 @@ def FatalTimeout(max_run_time):
     # RunCommand's kill_timeout; thus we set the alarming interval
     # fairly high.
     signal.alarm(60)
-    raise SystemExit("Timeout occurred- waited %i seconds, failing."
-                     % max_run_time)
+
+    # The cbuildbot stage that gets aborted by this timeout should be treated as
+    # failed by buildbot.
+    error_message = ("Timeout occurred- waited %i seconds, failing." %
+                     max_run_time)
+    if display_message:
+      error_message += ' Timeout reason: %s' % display_message
+    logging.PrintBuildbotStepFailure()
+    logging.error(error_message)
+    raise SystemExit(error_message)
 
   original_handler = signal.signal(signal.SIGALRM, kill_us)
   remaining_timeout = signal.alarm(max_run_time)

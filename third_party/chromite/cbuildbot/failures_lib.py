@@ -251,6 +251,10 @@ class BoardNotAvailable(TestLabFailure):
   """Raised if the board is not available in the lab."""
 
 
+class SwarmingProxyFailure(TestLabFailure):
+  """Raised when error related to swarming proxy occurs."""
+
+
 # Gerrit-on-Borg failures.
 class GoBFailure(InfrastructureFailure):
   """Raised if a stage fails due to Gerrit-on-Borg (GoB) issues."""
@@ -323,6 +327,7 @@ class BuildFailureMessage(object):
     self.tracebacks = tuple(tracebacks)
     self.internal = bool(internal)
     self.reason = str(reason)
+    # builder should match build_config, e.g. self._run.config.name.
     self.builder = str(builder)
 
   def __str__(self):
@@ -402,6 +407,7 @@ class BuildFailureMessage(object):
       Set of changes that likely caused the failure.
     """
     # Import portage_util here to avoid circular imports.
+    # portage_util -> parallel -> failures_lib
     from chromite.lib import portage_util
     blame_everything = False
     suspects = set()

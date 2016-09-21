@@ -11,17 +11,16 @@ from chromite.cbuildbot import commands
 from chromite.cbuildbot import config_lib
 from chromite.cbuildbot import failures_lib
 from chromite.cbuildbot import results_lib
-from chromite.cbuildbot import triage_lib
 from chromite.cbuildbot import constants
 from chromite.cbuildbot import manifest_version
+from chromite.cbuildbot import prebuilts
 from chromite.cbuildbot import tree_status
 from chromite.cbuildbot.stages import generic_stages
 from chromite.cbuildbot.stages import sync_stages
 from chromite.lib import clactions
 from chromite.lib import cros_build_lib
 from chromite.lib import cros_logging as logging
-from chromite.lib import git
-from chromite.lib import portage_util
+from chromite.lib import patch as cros_patch
 
 
 def GetBuilderSuccessMap(builder_run, overall_success):
@@ -173,7 +172,7 @@ class MasterSlaveSyncCompletionStage(ManifestVersionedSyncCompletionStage):
       if timeout is None:
         # Catch-all: This could happen if cidb is not setup, or the deadline
         # query fails.
-        timeout = constants.MASTER_BUILD_TIMEOUT_DEFAULT_SECONDS
+        timeout = self._run.config.build_timeout
 
       if self._run.options.debug:
         # For debug runs, wait for three minutes to ensure most code
@@ -183,8 +182,8 @@ class MasterSlaveSyncCompletionStage(ManifestVersionedSyncCompletionStage):
         timeout = 3 * 60
 
       manager = self._run.attrs.manifest_manager
-      if sync_stages.MasterSlaveLKGMSyncStage.sub_manager:
-        manager = sync_stages.MasterSlaveLKGMSyncStage.sub_manager
+      if sync_stages.MasterSlaveLKGMSyncStage.external_manager:
+        manager = sync_stages.MasterSlaveLKGMSyncStage.external_manager
       slave_statuses.update(manager.GetBuildersStatus(
           self._run.attrs.metadata.GetValue('build_id'),
           builder_names,
@@ -224,8 +223,8 @@ class MasterSlaveSyncCompletionStage(ManifestVersionedSyncCompletionStage):
         self._run.manifest_branch == 'master' and
         self._run.config.build_type != constants.CHROME_PFQ_TYPE):
       self._run.attrs.manifest_manager.PromoteCandidate()
-      if sync_stages.MasterSlaveLKGMSyncStage.sub_manager:
-        sync_stages.MasterSlaveLKGMSyncStage.sub_manager.PromoteCandidate()
+      if sync_stages.MasterSlaveLKGMSyncStage.external_manager:
+        sync_stages.MasterSlaveLKGMSyncStage.external_manager.PromoteCandidate()
 
   def HandleFailure(self, failing, inflight, no_stat):
     """Handle a build failure.
@@ -240,7 +239,7 @@ class MasterSlaveSyncCompletionStage(ManifestVersionedSyncCompletionStage):
       no_stat: Set of builder names of slave builders that had status None.
     """
     if failing or inflight or no_stat:
-      cros_build_lib.PrintBuildbotStepWarnings()
+      logging.PrintBuildbotStepWarnings()
 
     if failing:
       logging.warning('\n'.join([
@@ -327,10 +326,10 @@ class MasterSlaveSyncCompletionStage(ManifestVersionedSyncCompletionStage):
         else:
           text = '%s: timed out' % builder
 
-        cros_build_lib.PrintBuildbotLink(text, statuses[builder].dashboard_url)
+        logging.PrintBuildbotLink(text, statuses[builder].dashboard_url)
 
     for builder in no_stat:
-      cros_build_lib.PrintBuildbotStepText('%s did not start.' % builder)
+      logging.PrintBuildbotStepText('%s did not start.' % builder)
 
   def GetSlaveStatuses(self):
     """Returns cached slave status results.
@@ -452,12 +451,8 @@ class CanaryCompletionStage(MasterSlaveSyncCompletionStage):
     """
     if self._run.manifest_branch == 'master':
       self.SendCanaryFailureAlert(failing, inflight, no_stat)
-      tree_status.ThrottleOrCloseTheTree(
-          '"Canary master"',
-          self._ComposeTreeStatusMessage(failing, inflight, no_stat),
-          internal=self._run.config.internal,
-          buildnumber=self._run.buildnumber,
-          dryrun=self._run.debug)
+      # Note: We used to throttle the tree here. As of
+      # https://chromium-review.googlesource.com/#/c/325821/ we no longer do.
 
   def _HandleStageException(self, exc_info):
     """Decide whether an exception should be treated as fatal."""
@@ -486,11 +481,6 @@ class CommitQueueCompletionStage(MasterSlaveSyncCompletionStage):
   def HandleSuccess(self):
     if self._run.config.master:
       self.sync_stage.pool.SubmitPool(reason=constants.STRATEGY_CQ_SUCCESS)
-      # After submitting the pool, update the commit hashes for uprevved
-      # ebuilds.
-      manifest = git.ManifestCheckout.Cached(self._build_root)
-      portage_util.EBuild.UpdateCommitHashesForChanges(
-          self.sync_stage.pool.changes, self._build_root, manifest)
       if config_lib.IsPFQType(self._run.config.build_type):
         super(CommitQueueCompletionStage, self).HandleSuccess()
 
@@ -592,6 +582,35 @@ class CommitQueueCompletionStage(MasterSlaveSyncCompletionStage):
 
     return changes_by_config
 
+  def GetSubsysResultForSlaves(self):
+    """Get the pass/fail HWTest subsystems results for each slave.
+
+    Returns:
+      A dictionary mapping a slave config name to a dictionary of the pass/fail
+      subsystems. E.g.
+      {'foo-paladin': {'pass_subsystems':{'A', 'B'},
+                       'fail_subsystems':{'C'}}}
+    """
+    # build_id is the master build id for the run
+    build_id, db = self._run.GetCIDBHandle()
+    assert db, 'No database connection to use.'
+    slave_msgs = db.GetSlaveBuildMessages(build_id)
+    slave_subsys_msgs = ([m for m in slave_msgs
+                          if m['message_type'] == constants.SUBSYSTEMS])
+    subsys_by_config = dict()
+    group_msg_by_config = cros_build_lib.GroupByKey(slave_subsys_msgs,
+                                                    'build_config')
+    for config, dict_list in group_msg_by_config.iteritems():
+      d = subsys_by_config.setdefault(config, {})
+      subsys_groups = cros_build_lib.GroupByKey(dict_list, 'message_subtype')
+      for k, v in subsys_groups.iteritems():
+        if k == constants.SUBSYSTEM_PASS:
+          d['pass_subsystems'] = set([x['message_value'] for x in v])
+        if k == constants.SUBSYSTEM_FAIL:
+          d['fail_subsystems'] = set([x['message_value'] for x in v])
+        # If message_subtype==subsystem_unused, keep d as an empty dict.
+    return subsys_by_config
+
   def _ShouldSubmitPartialPool(self):
     """Determine whether we should attempt or skip SubmitPartialPool.
 
@@ -648,18 +667,19 @@ class CommitQueueCompletionStage(MasterSlaveSyncCompletionStage):
     messages = self._GetFailedMessages(failing)
     self.SendInfraAlertIfNeeded(failing, inflight, no_stat)
 
-    changes = self.sync_stage.pool.changes
+    changes = self.sync_stage.pool.applied
 
     do_partial_submission = self._ShouldSubmitPartialPool()
 
     if do_partial_submission:
       changes_by_config = self.GetRelevantChangesForSlaves(changes, no_stat)
+      subsys_by_config = self.GetSubsysResultForSlaves()
 
       # Even if there was a failure, we can submit the changes that indicate
       # that they don't care about this failure.
       changes = self.sync_stage.pool.SubmitPartialPool(
-          changes, messages, changes_by_config, failing, inflight, no_stat,
-          reason=constants.STRATEGY_CQ_PARTIAL)
+          changes, messages, changes_by_config, subsys_by_config,
+          failing, inflight, no_stat)
     else:
       logging.warning('Not doing any partial submission, due to critical stage '
                       'failure(s).')
@@ -754,43 +774,39 @@ class CommitQueueCompletionStage(MasterSlaveSyncCompletionStage):
     return not any([x in slave_statuses and slave_statuses[x].Failed() for
                     x in sanity_check_slaves])
 
-  def _RecordIrrelevantChanges(self):
-    """Calculates irrelevant changes and record them into cidb."""
-    manifest = git.ManifestCheckout.Cached(self._build_root)
-    changes = set(self.sync_stage.pool.changes)
-    packages = self._GetPackagesUnderTest()
+  def GetIrrelevantChanges(self, board_metadata):
+    """Calculates irrelevant changes.
 
-    irrelevant_changes = triage_lib.CategorizeChanges.GetIrrelevantChanges(
-        changes, self._run.config, self._build_root, manifest, packages)
-    self.sync_stage.pool.RecordIrrelevantChanges(irrelevant_changes)
-
-  def _GetPackagesUnderTest(self):
-    """Get a list of packages used in this build.
+    Args:
+      board_metadata: A dictionary of board specific metadata.
 
     Returns:
-      A set of packages used in this build. E.g.,
-      set(['chromeos-base/chromite-0.0.1-r1258']); returns None if
-      the information is missing for any  board in the current config.
+      A set of irrelevant changes to the build.
     """
-    packages_under_test = set()
+    if not board_metadata:
+      return set()
+    # changes irrelevant to all the boards are irrelevant to the build
+    changeset_per_board_list = list()
+    for v in board_metadata.values():
+      changes_dict_list = v.get('irrelevant_changes', None)
+      if changes_dict_list:
+        changes_set = set(cros_patch.GerritFetchOnlyPatch.FromAttrDict(d) for d
+                          in changes_dict_list)
+        changeset_per_board_list.append(changes_set)
+      else:
+        # If any board has no irrelevant change, the whole build not have also.
+        return set()
 
-    for run in [self._run] + self._run.GetChildren():
-      for board in run.config.boards:
-        board_runattrs = run.GetBoardRunAttrs(board)
-        if not board_runattrs.HasParallel('packages_under_test'):
-          logging.warning('Packages under test were not recorded correctly')
-          return None
-        packages_under_test.update(
-            board_runattrs.GetParallel('packages_under_test'))
-
-    return packages_under_test
+    return set.intersection(*changeset_per_board_list)
 
   def PerformStage(self):
     """Run CommitQueueCompletionStage."""
     if (not self._run.config.master and
         not self._run.config.do_not_apply_cq_patches):
       # Slave needs to record what change are irrelevant to this build.
-      self._RecordIrrelevantChanges()
+      board_metadata = self._run.attrs.metadata.GetDict().get('board-metadata')
+      irrelevant_changes = self.GetIrrelevantChanges(board_metadata)
+      self.sync_stage.pool.RecordIrrelevantChanges(irrelevant_changes)
 
     super(CommitQueueCompletionStage, self).PerformStage()
 
@@ -821,24 +837,35 @@ class PreCQCompletionStage(generic_stages.BuilderStage):
 class PublishUprevChangesStage(generic_stages.BuilderStage):
   """Makes uprev changes from pfq live for developers."""
 
-  def __init__(self, builder_run, success, **kwargs):
+  def __init__(self, builder_run, success, temp_publish=False, **kwargs):
     """Constructor.
 
     Args:
       builder_run: BuilderRun object.
       success: Boolean indicating whether the build succeeded.
+      temp_publish: Indicating whether to push changes to a temp branch,
+                    default to False.
+                    This is not yet implemented, will include in CL:343573.
     """
     super(PublishUprevChangesStage, self).__init__(builder_run, **kwargs)
     self.success = success
+    self.temp_publish = temp_publish
 
   def PerformStage(self):
     overlays, push_overlays = self._ExtractOverlays()
     assert push_overlays, 'push_overlays must be set to run this stage'
 
-    # If the build failed, we don't want to push our local changes, because
-    # they might include some CLs that failed. Instead, clean up our local
-    # changes and do a fresh uprev.
-    if not self.success:
+    # If we're a commit queue, we should clean out our local changes, resync,
+    # and reapply our uprevs. This is necessary so that 1) we are sure to point
+    # at the remote SHA1s, not our local SHA1s; 2) we can avoid doing a
+    # rebase; 3) in the case of failure, we don't submit the changes that were
+    # committed locally.
+    #
+    # If we're not a commit queue and the build succeeded, we can skip the
+    # cleanup here. This is a cheap trick so that the Chrome PFQ pushes its
+    # earlier uprev from the SyncChrome stage (it would be a bit tricky to
+    # replicate the uprev here, so we'll leave it alone).
+    if config_lib.IsCQType(self._run.config.build_type) or not self.success:
       # Clean up our root and sync down the latest changes that were
       # submitted.
       commands.BuildRootGitCleanup(self._build_root)
@@ -853,5 +880,9 @@ class PublishUprevChangesStage(generic_stages.BuilderStage):
       if self._run.options.uprev and self._run.config.uprev:
         commands.UprevPackages(self._build_root, self._boards, overlays)
 
-    # Push the uprev commit.
+    if self.success and self._run.config.prebuilts:
+      confwriter = prebuilts.BinhostConfWriter(self._run)
+      confwriter.Perform()
+
+    # Push the uprev and binhost commits.
     commands.UprevPush(self._build_root, push_overlays, self._run.options.debug)

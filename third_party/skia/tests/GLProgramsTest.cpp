@@ -277,25 +277,29 @@ static void set_random_state(GrPipelineBuilder* pipelineBuilder, SkRandom* rando
 
 // right now, the only thing we seem to care about in drawState's stencil is 'doesWrite()'
 static void set_random_stencil(GrPipelineBuilder* pipelineBuilder, SkRandom* random) {
-    GR_STATIC_CONST_SAME_STENCIL(kDoesWriteStencil,
-                                 kReplace_StencilOp,
-                                 kReplace_StencilOp,
-                                 kAlways_StencilFunc,
-                                 0xffff,
-                                 0xffff,
-                                 0xffff);
-    GR_STATIC_CONST_SAME_STENCIL(kDoesNotWriteStencil,
-                                 kKeep_StencilOp,
-                                 kKeep_StencilOp,
-                                 kNever_StencilFunc,
-                                 0xffff,
-                                 0xffff,
-                                 0xffff);
+    static constexpr GrUserStencilSettings kDoesWriteStencil(
+        GrUserStencilSettings::StaticInit<
+            0xffff,
+            GrUserStencilTest::kAlways,
+            0xffff,
+            GrUserStencilOp::kReplace,
+            GrUserStencilOp::kReplace,
+            0xffff>()
+    );
+    static constexpr GrUserStencilSettings kDoesNotWriteStencil(
+        GrUserStencilSettings::StaticInit<
+            0xffff,
+            GrUserStencilTest::kNever,
+            0xffff,
+            GrUserStencilOp::kKeep,
+            GrUserStencilOp::kKeep,
+            0xffff>()
+    );
 
     if (random->nextBool()) {
-        pipelineBuilder->setStencil(kDoesWriteStencil);
+        pipelineBuilder->setUserStencil(&kDoesWriteStencil);
     } else {
-        pipelineBuilder->setStencil(kDoesNotWriteStencil);
+        pipelineBuilder->setUserStencil(&kDoesNotWriteStencil);
     }
 }
 
@@ -327,14 +331,11 @@ bool GrDrawingManager::ProgramUnitTest(GrContext* context, int maxStages) {
     // dummy scissor state
     GrScissorState scissor;
 
-    // wide open clip
-    GrClip clip;
-
     SkRandom random;
     static const int NUM_TESTS = 1024;
     for (int t = 0; t < NUM_TESTS; t++) {
         // setup random render target(can fail)
-        SkAutoTUnref<GrRenderTarget> rt(random_render_target(
+        sk_sp<GrRenderTarget> rt(random_render_target(
             context->textureProvider(), &random, context->caps()));
         if (!rt.get()) {
             SkDebugf("Could not allocate render target");
@@ -343,18 +344,17 @@ bool GrDrawingManager::ProgramUnitTest(GrContext* context, int maxStages) {
 
         GrPipelineBuilder pipelineBuilder;
         pipelineBuilder.setRenderTarget(rt.get());
-        pipelineBuilder.setClip(clip);
 
         SkAutoTUnref<GrDrawBatch> batch(GrRandomDrawBatch(&random, context));
         SkASSERT(batch);
 
-        GrProcessorTestData ptd(&random, context, context->caps(), rt, dummyTextures);
+        GrProcessorTestData ptd(&random, context, context->caps(), rt.get(), dummyTextures);
         set_random_color_coverage_stages(&pipelineBuilder, &ptd, maxStages);
         set_random_xpf(&pipelineBuilder, &ptd);
         set_random_state(&pipelineBuilder, &random);
         set_random_stencil(&pipelineBuilder, &random);
 
-        SkAutoTUnref<GrDrawContext> drawContext(context->drawContext(rt));
+        sk_sp<GrDrawContext> drawContext(context->drawContext(rt));
         if (!drawContext) {
             SkDebugf("Could not allocate drawContext");
             return false;
@@ -371,7 +371,7 @@ bool GrDrawingManager::ProgramUnitTest(GrContext* context, int maxStages) {
     rtDesc.fHeight = kRenderTargetHeight;
     rtDesc.fFlags = kRenderTarget_GrSurfaceFlag;
     rtDesc.fConfig = kRGBA_8888_GrPixelConfig;
-    SkAutoTUnref<GrRenderTarget> rt(
+    sk_sp<GrRenderTarget> rt(
         context->textureProvider()->createTexture(rtDesc, SkBudgeted::kNo)->asRenderTarget());
     int fpFactoryCnt = GrProcessorTestFactory<GrFragmentProcessor>::Count();
     for (int i = 0; i < fpFactoryCnt; ++i) {
@@ -379,11 +379,10 @@ bool GrDrawingManager::ProgramUnitTest(GrContext* context, int maxStages) {
         for (int j = 0; j < 10; ++j) {
             SkAutoTUnref<GrDrawBatch> batch(GrRandomDrawBatch(&random, context));
             SkASSERT(batch);
-            GrProcessorTestData ptd(&random, context, context->caps(), rt, dummyTextures);
+            GrProcessorTestData ptd(&random, context, context->caps(), rt.get(), dummyTextures);
             GrPipelineBuilder builder;
             builder.setXPFactory(GrPorterDuffXPFactory::Create(SkXfermode::kSrc_Mode))->unref();
-            builder.setRenderTarget(rt);
-            builder.setClip(clip);
+            builder.setRenderTarget(rt.get());
 
             SkAutoTUnref<const GrFragmentProcessor> fp(
                 GrProcessorTestFactory<GrFragmentProcessor>::CreateIdx(i, &ptd));
@@ -391,7 +390,7 @@ bool GrDrawingManager::ProgramUnitTest(GrContext* context, int maxStages) {
                 BlockInputFragmentProcessor::Create(fp));
             builder.addColorFragmentProcessor(blockFP);
 
-            SkAutoTUnref<GrDrawContext> drawContext(context->drawContext(rt));
+            sk_sp<GrDrawContext> drawContext(context->drawContext(rt));
             if (!drawContext) {
                 SkDebugf("Could not allocate a drawcontext");
                 return false;
@@ -424,17 +423,17 @@ static int get_glprograms_max_stages(GrContext* context) {
 
 static void test_glprograms_native(skiatest::Reporter* reporter,
                                    const sk_gpu_test::ContextInfo& ctxInfo) {
-    int maxStages = get_glprograms_max_stages(ctxInfo.fGrContext);
+    int maxStages = get_glprograms_max_stages(ctxInfo.grContext());
     if (maxStages == 0) {
         return;
     }
-    REPORTER_ASSERT(reporter, GrDrawingManager::ProgramUnitTest(ctxInfo.fGrContext, maxStages));
+    REPORTER_ASSERT(reporter, GrDrawingManager::ProgramUnitTest(ctxInfo.grContext(), maxStages));
 }
 
 static void test_glprograms_other_contexts(
             skiatest::Reporter* reporter,
             const sk_gpu_test::ContextInfo& ctxInfo) {
-    int maxStages = get_glprograms_max_stages(ctxInfo.fGrContext);
+    int maxStages = get_glprograms_max_stages(ctxInfo.grContext());
 #ifdef SK_BUILD_FOR_WIN
     // Some long shaders run out of temporary registers in the D3D compiler on ANGLE and
     // command buffer.
@@ -443,7 +442,7 @@ static void test_glprograms_other_contexts(
     if (maxStages == 0) {
         return;
     }
-    REPORTER_ASSERT(reporter, GrDrawingManager::ProgramUnitTest(ctxInfo.fGrContext, maxStages));
+    REPORTER_ASSERT(reporter, GrDrawingManager::ProgramUnitTest(ctxInfo.grContext(), maxStages));
 }
 
 static bool is_native_gl_context_type(sk_gpu_test::GrContextFactory::ContextType type) {

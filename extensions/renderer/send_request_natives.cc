@@ -39,7 +39,7 @@ void SendRequestNatives::StartRequest(
   int request_id = request_sender_->GetNextRequestId();
   args.GetReturnValue().Set(static_cast<int32_t>(request_id));
 
-  scoped_ptr<V8ValueConverter> converter(V8ValueConverter::create());
+  std::unique_ptr<V8ValueConverter> converter(V8ValueConverter::create());
 
   // See http://crbug.com/149880. The context menus APIs relies on this, but
   // we shouldn't really be doing it (e.g. for the sake of the storage API).
@@ -48,7 +48,7 @@ void SendRequestNatives::StartRequest(
   if (!preserve_null_in_objects)
     converter->SetStripNullFromObjects(true);
 
-  scoped_ptr<base::Value> value_args(
+  std::unique_ptr<base::Value> value_args(
       converter->FromV8Value(args[1], context()->v8_context()));
   if (!value_args.get() || !value_args->IsType(base::Value::TYPE_LIST)) {
     NOTREACHED() << "Unable to convert args passed to StartRequest";
@@ -68,8 +68,12 @@ void SendRequestNatives::GetGlobal(
     const v8::FunctionCallbackInfo<v8::Value>& args) {
   CHECK_EQ(1, args.Length());
   CHECK(args[0]->IsObject());
-  args.GetReturnValue().Set(
-      v8::Local<v8::Object>::Cast(args[0])->CreationContext()->Global());
+  v8::Local<v8::Context> v8_context =
+      v8::Local<v8::Object>::Cast(args[0])->CreationContext();
+  if (ContextCanAccessObject(context()->v8_context(), v8_context->Global(),
+                             false)) {
+    args.GetReturnValue().Set(v8_context->Global());
+  }
 }
 
 }  // namespace extensions

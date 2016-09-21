@@ -83,9 +83,6 @@ tr.exportTo('tr', function() {
     this.instantEvents = [];
     this.flowEvents = [];
     this.clockSyncManager = new tr.model.ClockSyncManager();
-    // TODO(charliea): Remove clockSyncRecords once we move over to using the
-    // clockSyncManager.
-    this.clockSyncRecords = [];
     this.intrinsicTimeUnit_ = undefined;
 
     this.stackFrames = {};
@@ -136,6 +133,10 @@ tr.exportTo('tr', function() {
             this);
       }
       return this.helpersByConstructorGUID_[constructor.guid];
+    },
+
+    findTopmostSlicesInThisContainer: function(eventPredicate, callback,
+                                               opt_this) {
     },
 
     iterateAllEventsInThisContainer: function(eventTypePredicate,
@@ -243,12 +244,6 @@ tr.exportTo('tr', function() {
       return stackFrame;
     },
 
-    getClockSyncRecordsWithSyncId: function(syncId) {
-      return this.clockSyncRecords.filter(function(x) {
-        return x.syncId === syncId;
-      });
-    },
-
     /**
      * Generates the set of categories from the slices and counters.
      */
@@ -281,12 +276,18 @@ tr.exportTo('tr', function() {
     },
 
     /**
-     * @return {Array} An array of all processes in the model.
+     * @param {(!function(!tr.model.Process): boolean)=} opt_predicate Optional
+     *     predicate for filtering the returned processes. If undefined, all
+     *     process in the model will be returned.
+     * @return {!Array<!tr.model.Process>} An array of processes in the model.
      */
-    getAllProcesses: function() {
+    getAllProcesses: function(opt_predicate) {
       var processes = [];
-      for (var pid in this.processes)
-        processes.push(this.processes[pid]);
+      for (var pid in this.processes) {
+        var process = this.processes[pid];
+        if (opt_predicate === undefined || opt_predicate(process))
+          processes.push(process);
+      }
       return processes;
     },
 
@@ -637,7 +638,7 @@ tr.exportTo('tr', function() {
     },
 
     searchItemForIDRefs_: function(pid, itemTimestampField, item) {
-      if (!item.args)
+      if (!item.args && !item.contexts)
         return;
       var patchupsToApply = this.patchupsToApply_;
 
@@ -685,6 +686,7 @@ tr.exportTo('tr', function() {
       }
 
       iterObjectFieldsRecursively(item.args);
+      iterObjectFieldsRecursively(item.contexts);
     }
   };
 

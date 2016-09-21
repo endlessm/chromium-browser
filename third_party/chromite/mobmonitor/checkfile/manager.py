@@ -17,11 +17,15 @@ from cherrypy.process import plugins
 from chromite.lib import cros_logging as logging
 
 
+LOGGER = logging.getLogger(__name__)
+
+
 HCEXECUTION_IN_PROGRESS = 0
 HCEXECUTION_COMPLETED = 1
 
 HCSTATUS_HEALTHY = 0
 
+IN_PROGRESS_DESCRIPTION = 'Health check is currently executing.'
 NULL_DESCRIPTION = ''
 EMPTY_ACTIONS = []
 HEALTHCHECK_STATUS = collections.namedtuple('healthcheck_status',
@@ -30,19 +34,84 @@ HEALTHCHECK_STATUS = collections.namedtuple('healthcheck_status',
 
 HEALTH_CHECK_METHODS = ['Check', 'Diagnose']
 
-CHECK_INTERVAL_DEFAULT_SEC = 30
-HEALTH_CHECK_DEFAULT_ATTRIBUTES = {'CHECK_INTERVAL': CHECK_INTERVAL_DEFAULT_SEC}
+CHECK_INTERVAL_DEFAULT_SEC = 10
+HEALTH_CHECK_DEFAULT_ATTRIBUTES = {
+    'CHECK_INTERVAL_SEC': CHECK_INTERVAL_DEFAULT_SEC}
 
 CHECKFILE_DIR = '/etc/mobmonitor/checkfiles/'
 CHECKFILE_ENDING = '_check.py'
 
-SERVICE_STATUS = collections.namedtuple('service_status', ['health_state',
-                                                           'description',
-                                                           'actions'])
+SERVICE_STATUS = collections.namedtuple('service_status',
+                                        ['service', 'health', 'healthchecks'])
+
+ACTION_INFO = collections.namedtuple('action_info',
+                                     ['action', 'info', 'args', 'kwargs'])
 
 
 class CollectionError(Exception):
   """Raise when an error occurs during checkfile collection."""
+
+
+def MapHealthcheckStatusToDict(hcstatus):
+  """Map a manager.HEALTHCHECK_STATUS named tuple to a dictionary.
+
+  Args:
+    hcstatus: A HEALTHCHECK_STATUS object.
+
+  Returns:
+    A dictionary version of the HEALTHCHECK_STATUS object.
+  """
+  return {'name': hcstatus.name, 'health': hcstatus.health,
+          'description': hcstatus.description,
+          'actions': [a.__name__ for a in hcstatus.actions]}
+
+
+def MapServiceStatusToDict(status):
+  """Map a manager.SERVICE_STATUS named tuple to a dictionary.
+
+  Args:
+    status: A SERVICE_STATUS object.
+
+  Returns:
+    A dictionary version of the SERVICE_STATUS object.
+  """
+  hcstatuses = [
+      MapHealthcheckStatusToDict(hcstatus) for hcstatus in status.healthchecks]
+  return {'service': status.service, 'health': status.health,
+          'healthchecks': hcstatuses}
+
+
+def MapActionInfoToDict(actioninfo):
+  return {'action': actioninfo.action, 'info': actioninfo.info,
+          'args': actioninfo.args, 'kwargs': actioninfo.kwargs}
+
+
+def isHealthcheckHealthy(hcstatus):
+  """Test if a health check is perfectly healthy.
+
+  Args:
+    hcstatus: A HEALTHCHECK_STATUS named tuple.
+
+  Returns:
+    True if the hcstatus is perfectly healthy, False otherwise.
+  """
+  if not isinstance(hcstatus, HEALTHCHECK_STATUS):
+    return False
+  return hcstatus.health and not (hcstatus.description or hcstatus.actions)
+
+
+def isServiceHealthy(status):
+  """Test if a service is perfectly healthy.
+
+  Args:
+    status: A SERVICE_STATUS named tuple.
+
+  Returns:
+    True if the status is perfectly healthy, False otherwise.
+  """
+  if not isinstance(status, SERVICE_STATUS):
+    return False
+  return status.health and not status.healthchecks
 
 
 def DetermineHealthcheckStatus(hcname, healthcheck):
@@ -72,7 +141,8 @@ def DetermineHealthcheckStatus(hcname, healthcheck):
   except Exception as e:
     # Checkfiles may contain all kinds of errors! We do not want the
     # Mob* Monitor to fail, so catch generic exceptions.
-    logging.error('Failed to execute health check %s: %s', hcname, e)
+    LOGGER.error('Failed to execute health check %s: %s', hcname, e,
+                 exc_info=True)
     return HEALTHCHECK_STATUS(hcname, False,
                               'Failed to execute the health check.'
                               ' Please review the health check file.',
@@ -144,7 +214,7 @@ def ImportFile(service, modulepath):
 class CheckFileManager(object):
   """Manage the health checks that are associated with each service."""
 
-  def __init__(self, interval_sec=3, checkdir=CHECKFILE_DIR):
+  def __init__(self, interval_sec=1, checkdir=CHECKFILE_DIR):
     if not os.path.exists(checkdir):
       raise CollectionError('Check directory does not exist: %s' % checkdir)
 
@@ -175,6 +245,12 @@ class CheckFileManager(object):
     # healthcheck_status: A HEALTHCHECK_STATUS named tuple.
     self.service_check_results = {}
 
+    # service_states is dict of the following form:
+    #
+    #   {service_name: service_status}
+    #
+    # service_name: As above.
+    # service_status: A SERVICE_STATUS named tuple.
     self.service_states = {}
 
   def Update(self, service, objects, mtime):
@@ -192,12 +268,17 @@ class CheckFileManager(object):
       stored_mtime, _ = self.service_checks[service].get(name, (None, None))
       if stored_mtime is None or mtime > stored_mtime:
         self.service_checks[service][name] = (mtime, obj)
-        logging.info('Updated healthcheck "%s" for service "%s" at time "%s"',
-                     name, service, mtime)
+        LOGGER.info('Updated healthcheck "%s" for service "%s" at time "%s"',
+                    name, service, mtime)
 
-  def Execute(self):
-    """Execute all health checks and collect healthcheck status information."""
+  def Execute(self, force=False):
+    """Execute all health checks and collect healthcheck status information.
+
+    Args:
+      force: Ignore the health check interval and execute the health checks.
+    """
     for service, healthchecks in self.service_checks.iteritems():
+      # Set default result dictionary if this is a new service.
       self.service_check_results.setdefault(service, {})
 
       for hcname, (_mtime, healthcheck) in healthchecks.iteritems():
@@ -206,8 +287,11 @@ class CheckFileManager(object):
         _, exec_time, status = self.service_check_results[service].get(
             hcname, (None, None, None))
 
-        if exec_time is None or etime > healthcheck.CHECK_INTERVAL + exec_time:
+        if exec_time is None or force or (
+            etime > healthcheck.CHECK_INTERVAL_SEC + exec_time):
           # Record the execution status.
+          status = HEALTHCHECK_STATUS(hcname, True, IN_PROGRESS_DESCRIPTION,
+                                      EMPTY_ACTIONS)
           self.service_check_results[service][hcname] = (
               HCEXECUTION_IN_PROGRESS, etime, status)
 
@@ -219,6 +303,21 @@ class CheckFileManager(object):
           # Update the execution and healthcheck status.
           self.service_check_results[service][hcname] = (
               HCEXECUTION_COMPLETED, etime, status)
+
+  def ConsolidateServiceStates(self):
+    """Consolidate health check results and determine service health states."""
+    for service, results in self.service_check_results.iteritems():
+      self.service_states.setdefault(service, {})
+
+      quasi_or_unhealthy_checks = []
+      for (_exec_status, _exec_stime, hcstatus) in results.itervalues():
+        if not isHealthcheckHealthy(hcstatus):
+          quasi_or_unhealthy_checks.append(hcstatus)
+
+      health = all([hc.health for hc in quasi_or_unhealthy_checks])
+
+      self.service_states[service] = SERVICE_STATUS(service, health,
+                                                    quasi_or_unhealthy_checks)
 
   def CollectionExecutionCallback(self):
     """Callback for cherrypy Monitor. Collect checkfiles from the checkdir."""
@@ -232,7 +331,8 @@ class CheckFileManager(object):
         file_, path, desc = imp.find_module(service_name, [self.checkdir])
         imp.load_module(service_name, file_, path, desc)
       except Exception as e:
-        logging.warning('Failed to import package %s: %s', service_name, e)
+        LOGGER.warning('Failed to import package %s: %s', service_name, e,
+                       exc_info=True)
         continue
 
       # Collect all of the service's health checks.
@@ -243,10 +343,12 @@ class CheckFileManager(object):
             healthchecks, mtime = ImportFile(service_name, filepath)
             self.Update(service_name, healthchecks, mtime)
           except Exception as e:
-            logging.warning('Failed to import module %s.%s: %s',
-                            service_name, file_[:-3], e)
+            LOGGER.warning('Failed to import module %s.%s: %s',
+                           service_name, file_[:-3], e,
+                           exc_info=True)
 
     self.Execute()
+    self.ConsolidateServiceStates()
 
   def StartCollectionExecution(self):
     # The Monitor frequency is mis-named. It's the time between
@@ -256,15 +358,14 @@ class CheckFileManager(object):
                                    frequency=self.interval_sec)
     self.monitor.subscribe()
 
-  # TODO (msartori): Implement crbug.com/493318.
   def GetServiceList(self):
     """Return a list of the monitored services.
 
     Returns:
       A list of the services for which we have checks defined.
     """
+    return self.service_states.keys()
 
-  # TODO (msartori): Implement crbug.com/493319.
   def GetStatus(self, service):
     """Query the current health state of the service.
 
@@ -272,22 +373,134 @@ class CheckFileManager(object):
       service: The name of service that we are querying the health state of.
 
     Returns:
-      A named tuple with the following fields:
-        health_state: A boolean, True if all checks passed, False if not.
-        description: A description of the error state. This is provided
-          by the 'diagnose' method of health check classes.
-        actions: A list of actions that can be taken as defined by the health
-          check class.
-    """
+      A SERVICE_STATUS named tuple which has the following fields:
+        service: A string. The service name.
+        health: A boolean. True if all checks passed, False if not.
+        healthchecks: A list of failed or quasi-healthy checks for the service.
+          Each member of the list is a HEALTHCHECK_STATUS and details the
+          appropriate repair actions for that particular health check.
 
-  # TODO (msartori): Implement crbug.com/493320 and crbug.com/505066.
-  def RepairService(self, service, action):
+      If service is not specified, a list of all service states is returned.
+    """
+    if not service:
+      return self.service_states.values()
+
+    return self.service_states.get(service, SERVICE_STATUS(service, False, []))
+
+  def ActionInfo(self, service, healthcheck, action):
+    """Describes a currently valid action for the given service and healthcheck.
+
+    An action is valid if the following hold:
+      The |service| is recognized and is in an unhealthy or quasi-healthy state.
+      The |healthcheck| is recognized and is in an unhealthy or quasi-healthy
+        state and it belongs to |service|.
+      The |action| is one specified as a suitable repair action by the
+        Diagnose method of some non-healthy healthcheck of |service|.
+
+    Args:
+      service: A string. The name of a service being monitored.
+      healthcheck: A string. The name of a healthcheck belonging to |service|.
+      action: A string. The name of an action returned by some healthcheck's
+        Diagnose method.
+
+    Returns:
+      An ACTION_INFO named tuple which has the following fields:
+        action: A string. The given |action| string.
+        info: A string. The docstring of |action|.
+        args: A list of strings. The positional arguments for |action|.
+        kwargs: A dictionary representing the default keyword arguments
+          for |action|. The keys will be the kwarg names and the values
+          will be the default arguments.
+    """
+    status = self.service_states.get(service, None)
+    if not status:
+      return ACTION_INFO(action, 'Service not recognized.', [], {})
+    elif isServiceHealthy(status):
+      return ACTION_INFO(action, 'Service is healthy.', [], {})
+
+    hc = [x for x in status.healthchecks if x.name == healthcheck]
+    if not hc:
+      return ACTION_INFO(action, 'Healthcheck not recognized.', [], {})
+    hc = hc[0]
+    if isHealthcheckHealthy(hc):
+      return ACTION_INFO(action, 'Healthcheck is healthy.', [], {})
+
+    func = None
+    for a in hc.actions:
+      if a.__name__ == action:
+        func = a
+        break
+
+    if func is None:
+      return ACTION_INFO(action, 'Action not recognized.', [], {})
+
+    # Collect information on the repair action.
+    argspec = inspect.getargspec(func)
+    func_args = argspec.args or []
+    func_args = [x for x in func_args if x not in ['self', 'cls']]
+    func_defaults = argspec.defaults or {}
+
+    num_args = len(func_args)
+    num_defaults = len(func_defaults)
+
+    args = func_args[:num_args-num_defaults]
+    kwargs = dict(zip(func_args[num_args-num_defaults:], func_defaults))
+
+    info = func.__doc__
+
+    return ACTION_INFO(action, info, args, kwargs)
+
+  def RepairService(self, service, healthcheck, action, args, kwargs):
     """Execute the repair action on the specified service.
 
     Args:
       service: The name of the service to be repaired.
+      healthcheck: The particular healthcheck we are repairing.
       action: The name of the action to execute.
+      args: A list of positional arguments for the given repair action.
+      kwargs: A dictionary of keyword arguments for the given repair action.
 
     Returns:
       The same return value of GetStatus(service).
     """
+    # No repair occurs if the service is not specified or is perfectly healthy.
+    status = self.service_states.get(service, None)
+    if status is None:
+      return SERVICE_STATUS(service, False, [])
+    elif isServiceHealthy(status):
+      return self.GetStatus(service)
+
+    # No repair occurs if the healthcheck is not specifed or perfectly healthy.
+    hc = [x for x in status.healthchecks if x.name == healthcheck]
+    if not hc or isHealthcheckHealthy(hc[0]):
+      return SERVICE_STATUS(healthcheck, False, [])
+    hc = hc[0]
+
+    # Get the repair action from the healthcheck.
+    repair_func = None
+    for a in hc.actions:
+      if a.__name__ == action:
+        repair_func = a
+        break
+
+    # TODO (msartori): Implement crbug.com/503373
+    if repair_func is not None:
+      try:
+        repair_func(*args, **kwargs)
+
+        # Update the service status and return.
+        # While actions are 'service-centric' from the perspective of the
+        # monitor, actions may have system-wide effect, so we must re-check
+        # all services.
+        self.Execute(force=True)
+        self.ConsolidateServiceStates()
+      except Exception, e:
+        LOGGER.error('Failed to execute the repair action "%s"'
+                     ' for service "%s": %s', action, service, e,
+                     exc_info=True)
+    else:
+      LOGGER.error('Failed to retrieve a suitable repair function for'
+                   ' service="%s" and action="%s".', service, action,
+                   exc_info=True)
+
+    return self.GetStatus(service)

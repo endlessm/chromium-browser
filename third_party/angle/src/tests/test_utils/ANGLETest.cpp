@@ -10,10 +10,17 @@
 #include "ANGLETest.h"
 #include "EGLWindow.h"
 #include "OSWindow.h"
-#include "system_utils.h"
+#include "platform/Platform.h"
 
 namespace angle
 {
+
+const GLColor GLColor::red   = GLColor(255u, 0u, 0u, 255u);
+const GLColor GLColor::green = GLColor(0u, 255u, 0u, 255u);
+const GLColor GLColor::blue  = GLColor(0u, 0u, 255u, 255u);
+const GLColor GLColor::cyan  = GLColor(0u, 255u, 255u, 255u);
+const GLColor GLColor::black = GLColor(0u, 0u, 0u, 255u);
+const GLColor GLColor::white = GLColor(255u, 255u, 255u, 255u);
 
 namespace
 {
@@ -21,6 +28,59 @@ float ColorNorm(GLubyte channelValue)
 {
     return static_cast<float>(channelValue) / 255.0f;
 }
+
+// Use a custom ANGLE platform class to capture and report internal errors.
+class TestPlatform : public angle::Platform
+{
+  public:
+    TestPlatform() : mIgnoreMessages(false) {}
+
+    void logError(const char *errorMessage) override;
+    void logWarning(const char *warningMessage) override;
+    void logInfo(const char *infoMessage) override;
+
+    void ignoreMessages();
+    void enableMessages();
+
+  private:
+    bool mIgnoreMessages;
+};
+
+void TestPlatform::logError(const char *errorMessage)
+{
+    if (mIgnoreMessages)
+        return;
+
+    FAIL() << errorMessage;
+}
+
+void TestPlatform::logWarning(const char *warningMessage)
+{
+    if (mIgnoreMessages)
+        return;
+
+    std::cerr << "Warning: " << warningMessage << std::endl;
+}
+
+void TestPlatform::logInfo(const char *infoMessage)
+{
+    if (mIgnoreMessages)
+        return;
+
+    angle::WriteDebugMessage("%s\n", infoMessage);
+}
+
+void TestPlatform::ignoreMessages()
+{
+    mIgnoreMessages = true;
+}
+
+void TestPlatform::enableMessages()
+{
+    mIgnoreMessages = false;
+}
+
+TestPlatform g_testPlatformInstance;
 }  // anonymous namespace
 
 GLColor::GLColor() : R(0), G(0), B(0), A(0)
@@ -86,6 +146,8 @@ ANGLETest::~ANGLETest()
 
 void ANGLETest::SetUp()
 {
+    angle::g_testPlatformInstance.enableMessages();
+
     // Resize the window before creating the context so that the first make current
     // sets the viewport and scissor box to the right size.
     bool needSwap = false;
@@ -167,6 +229,26 @@ std::array<Vector3, 6> ANGLETest::GetQuadVertices()
     return vertices;
 }
 
+void ANGLETest::setupQuadVertexBuffer(GLfloat positionAttribZ, GLfloat positionAttribXYScale)
+{
+    if (mQuadVertexBuffer == 0)
+    {
+        glGenBuffers(1, &mQuadVertexBuffer);
+    }
+
+    auto quadVertices = GetQuadVertices();
+    for (Vector3 &vertex : quadVertices)
+    {
+        vertex.x *= positionAttribXYScale;
+        vertex.y *= positionAttribXYScale;
+        vertex.z = positionAttribZ;
+    }
+
+    glBindBuffer(GL_ARRAY_BUFFER, mQuadVertexBuffer);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(GLfloat) * 3 * 6, quadVertices.data(), GL_STATIC_DRAW);
+}
+
+// static
 void ANGLETest::drawQuad(GLuint program,
                          const std::string &positionAttribName,
                          GLfloat positionAttribZ)
@@ -174,10 +256,20 @@ void ANGLETest::drawQuad(GLuint program,
     drawQuad(program, positionAttribName, positionAttribZ, 1.0f);
 }
 
+// static
 void ANGLETest::drawQuad(GLuint program,
                          const std::string &positionAttribName,
                          GLfloat positionAttribZ,
                          GLfloat positionAttribXYScale)
+{
+    drawQuad(program, positionAttribName, positionAttribZ, positionAttribXYScale, false);
+}
+
+void ANGLETest::drawQuad(GLuint program,
+                         const std::string &positionAttribName,
+                         GLfloat positionAttribZ,
+                         GLfloat positionAttribXYScale,
+                         bool useVertexBuffer)
 {
     GLint previousProgram = 0;
     glGetIntegerv(GL_CURRENT_PROGRAM, &previousProgram);
@@ -188,15 +280,24 @@ void ANGLETest::drawQuad(GLuint program,
 
     GLint positionLocation = glGetAttribLocation(program, positionAttribName.c_str());
 
-    auto quadVertices = GetQuadVertices();
-    for (Vector3 &vertex : quadVertices)
+    if (useVertexBuffer)
     {
-        vertex.x *= positionAttribXYScale;
-        vertex.y *= positionAttribXYScale;
-        vertex.z = positionAttribZ;
+        setupQuadVertexBuffer(positionAttribZ, positionAttribXYScale);
+        glVertexAttribPointer(positionLocation, 3, GL_FLOAT, GL_FALSE, 0, 0);
+        glBindBuffer(GL_ARRAY_BUFFER, 0);
     }
+    else
+    {
+        auto quadVertices = GetQuadVertices();
+        for (Vector3 &vertex : quadVertices)
+        {
+            vertex.x *= positionAttribXYScale;
+            vertex.y *= positionAttribXYScale;
+            vertex.z = positionAttribZ;
+        }
 
-    glVertexAttribPointer(positionLocation, 3, GL_FLOAT, GL_FALSE, 0, quadVertices.data());
+        glVertexAttribPointer(positionLocation, 3, GL_FLOAT, GL_FALSE, 0, quadVertices.data());
+    }
     glEnableVertexAttribArray(positionLocation);
 
     glDrawArrays(GL_TRIANGLES, 0, 6);
@@ -224,28 +325,17 @@ void ANGLETest::drawIndexedQuad(GLuint program,
 {
     GLint positionLocation = glGetAttribLocation(program, positionAttribName.c_str());
 
-    glUseProgram(program);
+    GLint activeProgram = 0;
+    glGetIntegerv(GL_CURRENT_PROGRAM, &activeProgram);
+    if (static_cast<GLuint>(activeProgram) != program)
+    {
+        glUseProgram(program);
+    }
 
     GLuint prevBinding = 0;
     glGetIntegerv(GL_ARRAY_BUFFER_BINDING, reinterpret_cast<GLint *>(&prevBinding));
 
-    if (mQuadVertexBuffer == 0)
-    {
-        glGenBuffers(1, &mQuadVertexBuffer);
-        auto quadVertices = GetQuadVertices();
-        for (Vector3 &vertex : quadVertices)
-        {
-            vertex.x *= positionAttribXYScale;
-            vertex.y *= positionAttribXYScale;
-            vertex.z = positionAttribZ;
-        }
-        glBindBuffer(GL_ARRAY_BUFFER, mQuadVertexBuffer);
-        glBufferData(GL_ARRAY_BUFFER, sizeof(GLfloat) * 3 * 4, quadVertices.data(), GL_STATIC_DRAW);
-    }
-    else
-    {
-        glBindBuffer(GL_ARRAY_BUFFER, mQuadVertexBuffer);
-    }
+    setupQuadVertexBuffer(positionAttribZ, positionAttribXYScale);
 
     glVertexAttribPointer(positionLocation, 3, GL_FLOAT, GL_FALSE, 0, nullptr);
     glEnableVertexAttribArray(positionLocation);
@@ -260,7 +350,10 @@ void ANGLETest::drawIndexedQuad(GLuint program,
     glDisableVertexAttribArray(positionLocation);
     glVertexAttribPointer(positionLocation, 4, GL_FLOAT, GL_FALSE, 0, NULL);
 
-    glUseProgram(0);
+    if (static_cast<GLuint>(activeProgram) != program)
+    {
+        glUseProgram(static_cast<GLuint>(activeProgram));
+    }
 }
 
 GLuint ANGLETest::compileShader(GLenum type, const std::string &source)
@@ -578,6 +671,11 @@ bool ANGLETest::isOpenGL() const
     return getPlatformRenderer() == EGL_PLATFORM_ANGLE_TYPE_OPENGL_ANGLE;
 }
 
+bool ANGLETest::isGLES() const
+{
+    return getPlatformRenderer() == EGL_PLATFORM_ANGLE_TYPE_OPENGLES_ANGLE;
+}
+
 EGLint ANGLETest::getPlatformRenderer() const
 {
     assert(mEGLWindow);
@@ -594,6 +692,17 @@ OSWindow *ANGLETest::mOSWindow = NULL;
 
 void ANGLETestEnvironment::SetUp()
 {
+    mGLESLibrary.reset(angle::loadLibrary("libGLESv2"));
+    if (mGLESLibrary)
+    {
+        auto initFunc = reinterpret_cast<ANGLEPlatformInitializeFunc>(
+            mGLESLibrary->getSymbol("ANGLEPlatformInitialize"));
+        if (initFunc)
+        {
+            initFunc(&angle::g_testPlatformInstance);
+        }
+    }
+
     if (!ANGLETest::InitTestWindow())
     {
         FAIL() << "Failed to create ANGLE test window.";
@@ -603,4 +712,20 @@ void ANGLETestEnvironment::SetUp()
 void ANGLETestEnvironment::TearDown()
 {
     ANGLETest::DestroyTestWindow();
+
+    if (mGLESLibrary)
+    {
+        auto shutdownFunc = reinterpret_cast<ANGLEPlatformShutdownFunc>(
+            mGLESLibrary->getSymbol("ANGLEPlatformShutdown"));
+        if (shutdownFunc)
+        {
+            shutdownFunc();
+        }
+    }
+}
+
+void IgnoreANGLEPlatformMessages()
+{
+    // Negative tests may trigger expected errors/warnings in the ANGLE Platform.
+    angle::g_testPlatformInstance.ignoreMessages();
 }

@@ -6,6 +6,7 @@ found in the LICENSE file.
 -->
 
 <link rel="import" href="/tracing/base/range.html">
+<link rel="import" href="/tracing/base/sorted_array_utils.html">
 <link rel="import" href="/tracing/model/event_container.html">
 <link rel="import" href="/tracing/model/power_sample.html">
 
@@ -69,20 +70,25 @@ tr.exportTo('tr.model', function() {
 
         var sampleRange = new tr.b.Range();
         sampleRange.addValue(sample.start);
-        sampleRange.addValue(nextSample ? nextSample.start : Infinity);
+        sampleRange.addValue(nextSample ? nextSample.start : sample.start);
 
         var timeIntersection = measurementRange.findIntersection(sampleRange);
-
-        // Divide by 1000 to convert milliwatts to watts.
-        var powerInWatts = sample.power / 1000.0;
 
         // Divide by 1000 to convert milliseconds to seconds.
         var durationInSeconds = timeIntersection.duration / 1000;
 
-        energyConsumed += durationInSeconds * powerInWatts;
+        energyConsumed += durationInSeconds * sample.power;
       }
 
       return energyConsumed;
+    },
+
+    getSamplesWithinRange: function(start, end) {
+      var startIndex = tr.b.findLowIndexInSortedArray(
+          this.samples, x => x.start, start);
+      var endIndex = tr.b.findLowIndexInSortedArray(
+          this.samples, x => x.start, end);
+      return this.samples.slice(startIndex, endIndex);
     },
 
     shiftTimestampsForward: function(amount) {
@@ -98,6 +104,10 @@ tr.exportTo('tr.model', function() {
 
       this.bounds.addValue(this.samples_[0].start);
       this.bounds.addValue(this.samples_[this.samples_.length - 1].start);
+    },
+
+    findTopmostSlicesInThisContainer: function(eventPredicate, callback,
+                                               opt_this) {
     },
 
     iterateAllEventsInThisContainer: function(eventTypePredicate, callback,

@@ -9,6 +9,7 @@ from __future__ import print_function
 import copy
 import itertools
 import json
+import os
 
 from chromite.cbuildbot import constants
 from chromite.lib import osutils
@@ -24,6 +25,7 @@ CONFIG_TYPE_FULL = 'full'
 CONFIG_TYPE_FIRMWARE = 'firmware'
 CONFIG_TYPE_FACTORY = 'factory'
 CONFIG_TYPE_RELEASE_AFDO = 'release-afdo'
+CONFIG_TYPE_TOOLCHAIN = 'toolchain'
 
 # This is only used for unitests... find a better solution?
 CONFIG_TYPE_DUMP_ORDER = (
@@ -42,15 +44,19 @@ CONFIG_TYPE_DUMP_ORDER = (
     'sdk',
     'chromium-pfq',
     'chromium-pfq-informational',
+    'chromium-pfq-informational-gn',
     'chrome-perf',
     'chrome-pfq',
     'chrome-pfq-informational',
+    'android-pfq',
     'pre-flight-branch',
     CONFIG_TYPE_FACTORY,
     CONFIG_TYPE_FIRMWARE,
-    'toolchain-major',
-    'toolchain-minor',
+    'master-toolchain',
+    'llvm-toolchain-group',
+    'gcc-toolchain-group',
     'llvm',
+    'gcc',
     'asan',
     'asan-informational',
     'refresh-packages',
@@ -59,18 +65,21 @@ CONFIG_TYPE_DUMP_ORDER = (
     constants.BRANCH_UTIL_CONFIG,
     constants.PAYLOADS_TYPE,
     'cbuildbot',
+    'smaug-kasan-kernel-3_18',
 )
-
 
 # In the Json, this special build config holds the default values for all
 # other configs.
 DEFAULT_BUILD_CONFIG = '_default'
 
+# We cache the config we load from disk to avoid reparsing.
+_CACHED_CONFIG = None
+
 
 def IsPFQType(b_type):
   """Returns True if this build type is a PFQ."""
   return b_type in (constants.PFQ_TYPE, constants.PALADIN_TYPE,
-                    constants.CHROME_PFQ_TYPE)
+                    constants.CHROME_PFQ_TYPE, constants.ANDROID_PFQ_TYPE)
 
 
 def IsCQType(b_type):
@@ -195,6 +204,14 @@ class BuildConfig(dict):
       new_config['child_configs'] = [
           x.deepcopy() for x in new_config['child_configs']]
 
+    if new_config.get('vm_tests'):
+      new_config['vm_tests'] = [copy.copy(x) for x in new_config['vm_tests']]
+
+    if new_config.get('vm_tests_override'):
+      new_config['vm_tests_override'] = [
+          copy.copy(x) for x in new_config['vm_tests_override']
+      ]
+
     if new_config.get('hw_tests'):
       new_config['hw_tests'] = [copy.copy(x) for x in new_config['hw_tests']]
 
@@ -238,6 +255,24 @@ class BuildConfig(dict):
     return new_config
 
 
+class VMTestConfig(object):
+  """Config object for virtual machine tests suites.
+
+  Members:
+    test_type: Test type to be run.
+    timeout: Number of seconds to wait before timing out waiting for
+             results.
+  """
+  DEFAULT_TEST_TIMEOUT = 60 * 60
+
+  def __init__(self, test_type, timeout=DEFAULT_TEST_TIMEOUT):
+    """Constructor -- see members above."""
+    self.test_type = test_type
+    self.timeout = timeout
+
+  def __eq__(self, other):
+    return self.__dict__ == other.__dict__
+
 class HWTestConfig(object):
   """Config object for hardware tests suites.
 
@@ -246,9 +281,16 @@ class HWTestConfig(object):
     timeout: Number of seconds to wait before timing out waiting for
              results.
     pool: Pool to use for hw testing.
-    blocking: Suites that set this true run sequentially; each must pass
-              before the next begins.  Tests that set this false run in
-              parallel after all blocking tests have passed.
+    blocking: Setting this to true requires that this suite must PASS for suites
+              scheduled after it to run. This also means any suites that are
+              scheduled before a blocking one are also blocking ones scheduled
+              after. This should be used when you want some suites to block
+              whether or not others should run e.g. only run longer-running
+              suites if some core ones pass first.
+
+              Note, if you want multiple suites to block other suites but run
+              in parallel, you should only mark the last one scheduled as
+              blocking (it effectively serves as a thread/process join).
     async: Fire-and-forget suite.
     warn_only: Failure on HW tests warns only (does not generate error).
     critical: Usually we consider structural failures here as OK.
@@ -266,22 +308,29 @@ class HWTestConfig(object):
 
   Some combinations of member settings are invalid:
     * A suite config may not specify both blocking and async.
-    * A suite config may not specify both retry and async.
     * A suite config may not specify both warn_only and critical.
   """
-  # This timeout is larger than it needs to be because of autotest overhead.
-  # TODO(davidjames): Reduce this timeout once http://crbug.com/366141 is fixed.
-  DEFAULT_HW_TEST_TIMEOUT = 60 * 220
-  BRANCHED_HW_TEST_TIMEOUT = 10 * 60 * 60
+  _MINUTE = 60
+  _HOUR = 60 * _MINUTE
+  SHARED_HW_TEST_TIMEOUT = int(1.5 * _HOUR)
+  PALADIN_HW_TEST_TIMEOUT = int(1.5 * _HOUR)
+  BRANCHED_HW_TEST_TIMEOUT = int(10.0 * _HOUR)
+
+  # TODO(jrbarnette) Async HW test phases complete within seconds.
+  # however, the tests they start can require hours to complete.
+  # Chromite code doesn't distinguish "timeout for Autotest" from
+  # timeout in the builder.  This is WRONG WRONG WRONG.  But, until
+  # there's a better fix, we'll allow these phases hours to fail.
+  ASYNC_HW_TEST_TIMEOUT = int(250.0 * _MINUTE)
 
   def __init__(self, suite, num=constants.HWTEST_DEFAULT_NUM,
-               pool=constants.HWTEST_MACH_POOL, timeout=DEFAULT_HW_TEST_TIMEOUT,
+               pool=constants.HWTEST_MACH_POOL, timeout=SHARED_HW_TEST_TIMEOUT,
                async=False, warn_only=False, critical=False, blocking=False,
                file_bugs=False, priority=constants.HWTEST_BUILD_PRIORITY,
                retry=True, max_retries=10, minimum_duts=0, suite_min_duts=0,
                offload_failures_only=False):
     """Constructor -- see members above."""
-    assert not async or (not blocking and not retry)
+    assert not async or not blocking
     assert not warn_only or not critical
     self.suite = suite
     self.num = num
@@ -331,6 +380,11 @@ def DefaultSettings():
       # The name of the config.
       name=None,
 
+      # What type of builder is used for this build? This is a hint sent to
+      # the waterfall code. It is ignored by the trybot waterfall.
+      #   constants.VALID_BUILD_SLAVE_TYPES
+      buildslave_type=constants.BAREMETAL_BUILD_SLAVE_TYPE,
+
       # A list of boards to build.
       boards=None,
 
@@ -345,6 +399,9 @@ def DefaultSettings():
       # new bot. Once the bot is on the waterfall and is consistently green,
       # mark the builder as important=True.
       important=False,
+
+      # Timeout for the build as a whole (in seconds).
+      build_timeout=(4 * 60 + 30) * 60,
 
       # An integer. If this builder fails this many times consecutively, send
       # an alert email to the recipients health_alert_recipients. This does
@@ -461,6 +518,9 @@ def DefaultSettings():
       # branch.
       push_overlays=None,
 
+      # Uprev Android, values of 'latest_release', or None.
+      android_rev=None,
+
       # Uprev Chrome, values of 'tot', 'stable_release', or None.
       chrome_rev=None,
 
@@ -481,9 +541,6 @@ def DefaultSettings():
       # A list of the packages to blacklist from unittests.
       unittest_blacklist=[],
 
-      # Builds autotest tests.  Must be True if vm_tests is set.
-      build_tests=True,
-
       # Generates AFDO data. Will capture a profile of chrome using a hwtest
       # to run a predetermined set of benchmarks.
       afdo_generate=False,
@@ -501,8 +558,8 @@ def DefaultSettings():
       afdo_use=False,
 
       # A list of the vm_tests to run by default.
-      vm_tests=[constants.SMOKE_SUITE_TEST_TYPE,
-                constants.SIMPLE_AU_TEST_TYPE],
+      vm_tests=[VMTestConfig(constants.SMOKE_SUITE_TEST_TYPE),
+                VMTestConfig(constants.SIMPLE_AU_TEST_TYPE)],
 
       # A list of all VM Tests to use if VM Tests are forced on (--vmtest
       # command line or trybot). None means no override.
@@ -528,9 +585,18 @@ def DefaultSettings():
       # If true, uploads individual image tarballs.
       upload_standalone_images=True,
 
-      # upload_gce_images -- If true, uploads tarballs that can be used as the
-      #                      basis for GCE images.
-      upload_gce_images=False,
+      # If true, runs tests as specified in overlay private gce_tests.json, or
+      # the default gce-smoke suite if none, on GCE VMs.
+      run_gce_tests=False,
+
+      # List of patterns for portage packages for which stripped binpackages
+      # should be uploaded to GS. The patterns are used to search for packages
+      # via `equery list`.
+      upload_stripped_packages=[
+          # Used by SimpleChrome workflow.
+          'chromeos-base/chromeos-chrome',
+          'sys-kernel/*kernel*',
+      ],
 
       # Google Storage path to offload files to.
       #   None - No upload
@@ -610,14 +676,17 @@ def DefaultSettings():
       # consumption.
       archive=True,
 
-      # git repository URL for our manifests.
+      # Git repository URL for our manifests.
       #  https://chromium.googlesource.com/chromiumos/manifest
       #  https://chrome-internal.googlesource.com/chromeos/manifest-internal
-      manifest_repo_url=constants.MANIFEST_URL,
+      manifest_repo_url=None,
 
       # Whether we are using the manifest_version repo that stores per-build
       # manifests.
       manifest_version=False,
+
+      # Use a different branch of the project manifest for the build.
+      manifest_branch=None,
 
       # Use the Last Known Good Manifest blessed by Paladin.
       use_lkgm=False,
@@ -680,6 +749,14 @@ def DefaultSettings():
       # boards.
       binhost_test=False,
 
+      # Run the BranchUtilTestStage. Useful for builders that publish new
+      # manifest versions that we may later want to branch off of.
+      branch_util_test=False,
+
+      # If specified, it is passed on to the PushImage script as '--sign-types'
+      # commandline argument.  Must be either None or a list of image types.
+      sign_types=None,
+
       # TODO(sosa): Collapse to one option.
       # ========== Dev installer prebuilts options =======================
 
@@ -730,7 +807,143 @@ def DefaultSettings():
       # If not None, the name (in constants.CIDB_KNOWN_WATERFALLS) of the
       # waterfall that this target should be active on.
       active_waterfall=None,
+
+      # If true, skip package retries in BuildPackages step.
+      nobuildretry=False,
+
+      # If false, turn off rebooting between builds
+      auto_reboot=True,
   )
+
+
+def GerritInstanceParameters(name, instance, defaults=False):
+  GOB_HOST = '%s.googlesource.com'
+  param_names = ['_GOB_INSTANCE', '_GERRIT_INSTANCE', '_GOB_HOST',
+                 '_GERRIT_HOST', '_GOB_URL', '_GERRIT_URL']
+  if defaults:
+    return dict([('%s%s' % (name, x), None) for x in param_names])
+
+  gob_instance = instance
+  gerrit_instance = '%s-review' % instance
+  gob_host = GOB_HOST % gob_instance
+  gerrit_host = GOB_HOST % gerrit_instance
+  gob_url = 'https://%s' % gob_host
+  gerrit_url = 'https://%s' % gerrit_host
+
+  params = [gob_instance, gerrit_instance, gob_host, gerrit_host,
+            gob_url, gerrit_url]
+
+  return dict([('%s%s' % (name, pn), p) for pn, p in zip(param_names, params)])
+
+
+def DefaultSiteParameters():
+  # Enumeration of valid site parameters; any/all site parameters must be here.
+  # All site parameters should be documented.
+  default_site_params = {}
+
+  # Helper variables for defining site parameters.
+  gob_host = '%s.googlesource.com'
+
+  external_remote = 'cros'
+  internal_remote = 'cros-internal'
+  chromium_remote = 'chromium'
+  chrome_remote = 'chrome'
+
+  internal_change_prefix = '*'
+  external_change_prefix = ''
+
+  # Gerrit instance site parameters.
+  default_site_params.update(GOB_HOST=gob_host)
+  default_site_params.update(
+      GerritInstanceParameters('EXTERNAL', 'chromium'))
+  default_site_params.update(
+      GerritInstanceParameters('INTERNAL', 'chrome-internal'))
+  default_site_params.update(
+      GerritInstanceParameters('AOSP', 'android', defaults=True))
+  default_site_params.update(
+      GerritInstanceParameters('WEAVE', 'weave', defaults=True))
+
+  default_site_params.update(
+      # Parameters to define which manifests to use.
+      MANIFEST_PROJECT=None,
+      MANIFEST_INT_PROJECT=None,
+      MANIFEST_PROJECTS=None,
+      MANIFEST_URL=None,
+      MANIFEST_INT_URL=None,
+
+      # CrOS remotes specified in the manifests.
+      EXTERNAL_REMOTE=external_remote,
+      INTERNAL_REMOTE=internal_remote,
+      GOB_REMOTES=None,
+      KAYLE_INTERNAL_REMOTE=None,
+      CHROMIUM_REMOTE=None,
+      CHROME_REMOTE=None,
+      AOSP_REMOTE=None,
+      WEAVE_REMOTE=None,
+
+      # Only remotes listed in CROS_REMOTES are considered branchable.
+      # CROS_REMOTES and BRANCHABLE_PROJECTS must be kept in sync.
+      GERRIT_HOSTS={
+          external_remote: default_site_params['EXTERNAL_GERRIT_HOST'],
+          internal_remote: default_site_params['INTERNAL_GERRIT_HOST']
+      },
+      CROS_REMOTES={
+          external_remote: default_site_params['EXTERNAL_GOB_URL'],
+          internal_remote: default_site_params['INTERNAL_GOB_URL']
+      },
+      GIT_REMOTES={
+          chromium_remote: default_site_params['EXTERNAL_GOB_URL'],
+          chrome_remote: default_site_params['INTERNAL_GOB_URL'],
+          external_remote: default_site_params['EXTERNAL_GOB_URL'],
+          internal_remote: default_site_params['INTERNAL_GOB_URL'],
+      },
+
+      # Prefix to distinguish internal and external changes. This is used
+      # when a user specifies a patch with "-g", when generating a key for
+      # a patch to use in our PatchCache, and when displaying a custom
+      # string for the patch.
+      INTERNAL_CHANGE_PREFIX=internal_change_prefix,
+      EXTERNAL_CHANGE_PREFIX=external_change_prefix,
+      CHANGE_PREFIX={
+          external_remote: internal_change_prefix,
+          internal_remote: external_change_prefix
+      },
+
+      # List of remotes that are okay to include in the external manifest.
+      EXTERNAL_REMOTES=None,
+
+      # Mapping 'remote name' -> regexp that matches names of repositories on
+      # that remote that can be branched when creating CrOS branch.
+      # Branching script will actually create a new git ref when branching
+      # these projects. It won't attempt to create a git ref for other projects
+      # that may be mentioned in a manifest. If a remote is missing from this
+      # dictionary, all projects on that remote are considered to not be
+      # branchable.
+      BRANCHABLE_PROJECTS={
+          external_remote: r'chromiumos/(.+)',
+          internal_remote: r'chromeos/(.+)'
+      },
+
+      # Additional parameters used to filter manifests, create modified
+      # manifests, and to branch manifests.
+      MANIFEST_VERSIONS_GOB_URL=None,
+      MANIFEST_VERSIONS_GOB_URL_TEST=None,
+      MANIFEST_VERSIONS_INT_GOB_URL=None,
+      MANIFEST_VERSIONS_INT_GOB_URL_TEST=None,
+      MANIFEST_VERSIONS_GS_URL=None,
+
+      # Standard directories under buildroot for cloning these repos.
+      EXTERNAL_MANIFEST_VERSIONS_PATH=None,
+      INTERNAL_MANIFEST_VERSIONS_PATH=None,
+
+      # URL of the repo project.
+      REPO_URL='https://chromium.googlesource.com/external/repo',
+
+      # GS URL in which to archive build artifacts.
+      ARCHIVE_URL='gs://chromeos-image-archive',
+  )
+
+  return default_site_params
 
 
 class SiteParameters(dict):
@@ -742,6 +955,20 @@ class SiteParameters(dict):
       return self[name]
 
     return super(SiteParameters, self).__getattribute__(name)
+
+  @classmethod
+  def HideDefaults(cls, site_params):
+    """Hide default valued site parameters.
+
+    Args:
+      site_params: A dictionary of site parameters.
+
+    Returns:
+      A dictionary of site parameters containing only non-default
+      valued entries.
+    """
+    defaults = DefaultSiteParameters()
+    return {k: v for k, v in site_params.iteritems() if defaults.get(k) != v}
 
 
 class SiteConfig(dict):
@@ -765,16 +992,17 @@ class SiteConfig(dict):
     super(SiteConfig, self).__init__()
     self._defaults = DefaultSettings() if defaults is None else defaults
     self._templates = {} if templates is None else templates
-    self._site_params = {} if site_params is None else site_params
+    self._site_params = (
+        DefaultSiteParameters() if site_params is None else site_params)
 
   def GetDefault(self):
-    """Create the cannonical default build configuration."""
+    """Create the canonical default build configuration."""
     # Enumeration of valid settings; any/all config settings must be in this.
     # All settings must be documented.
     return BuildConfig(**self._defaults)
 
   def GetTemplates(self):
-    """Create the cannonical default build configuration."""
+    """Create the canonical default build configuration."""
     return self._templates
 
   @property
@@ -900,7 +1128,7 @@ class SiteConfig(dict):
       name: The name to label this configuration; this is what cbuildbot
             would see.
       args: BuildConfigs to patch into this config. First one (if present) is
-            considered the template.
+            considered the template. See AddTemplate for help on templates.
       kwargs: BuildConfig values to explicitly set on this config.
 
     Returns:
@@ -908,7 +1136,9 @@ class SiteConfig(dict):
     """
     inherits, overrides = args, kwargs
 
-    assert name not in self, '%s already exists.' % (name,)
+    # TODO(kevcheng): Uncomment and fix unittests (or chromeos_config) since it
+    #                 seems configs are repeatedly added.
+    # assert name not in self, '%s already exists.' % (name,)
     overrides['name'] = name
 
     # Remember our template, if we have one.
@@ -924,42 +1154,16 @@ class SiteConfig(dict):
     self[name] = result
     return result
 
-  def AddConfig(self, config, name, *args, **kwargs):
-    """Derive and add the config to cbuildbot's usable config targets
-
-    Args:
-      config: BuildConfig to derive the new config from.
-      name: The name to label this configuration; this is what cbuildbot
-            would see.
-      args: See the docstring of derive.
-      kwargs: See the docstring of derive.
-
-    Returns:
-      See the docstring of derive.
-    """
-    inherits, overrides = args, kwargs
-
-    # Overrides 'name' and '_template' so that we consistently use the
-    # provided names and not the names from mix-ins. E.g., If this config
-    # inherits from multiple templates, we only pay attention to the first
-    # one listed. TODO(davidjames): Clean up the inheritance more so that
-    # this isn't needed.
-    overrides['name'] = name
-    overrides['_template'] = config.get('_template')
-    if config:
-      assert overrides['_template'], '%s inherits from non-template' % (name,)
-
-    # Add ourselves into the global dictionary, adding in the defaults.
-    new_config = config.derive(*inherits, **overrides)
-    self[name] = self.GetDefault().derive(config, new_config)
-
-    # Return a BuildConfig object without the defaults, so that other objects
-    # can derive from us without inheriting the defaults.
-    return new_config
-
-  def AddConfigWithoutTemplate(self, name, *args, **kwargs):
+  def AddWithoutTemplate(self, name, *args, **kwargs):
     """Add a config containing only explicitly listed values (no defaults)."""
-    return self.AddConfig(BuildConfig(), name, *args, **kwargs)
+    # TODO(kevcheng): Eventually deprecate this method and modify Add so that
+    #                 there's a clean way of handling this use case.
+    # Let's remove the _template for all the BuildConfigs passed in.
+    inherits = []
+    for build_config in args:
+      inherits.append(build_config.derive(
+          _template=BuildConfig.delete_key()))
+    return self.Add(name, BuildConfig(), *inherits, **kwargs)
 
   def AddGroup(self, name, *args, **kwargs):
     """Create a new group of build configurations.
@@ -976,7 +1180,7 @@ class SiteConfig(dict):
       A new BuildConfig instance.
     """
     child_configs = [self.GetDefault().derive(x, grouped=True) for x in args]
-    return self.AddConfig(args[0], name, child_configs=child_configs, **kwargs)
+    return self.Add(name, args[0], child_configs=child_configs, **kwargs)
 
   def SaveConfigToFile(self, config_file):
     """Save this Config to a Json file.
@@ -987,16 +1191,18 @@ class SiteConfig(dict):
     json_string = self.SaveConfigToString()
     osutils.WriteFile(config_file, json_string)
 
-  def HideDefaults(self, cfg):
+  def HideDefaults(self, name, cfg):
     """Hide the defaults from a given config entry.
 
     Args:
+      name: Default build name (usually dictionary key).
       cfg: A config entry.
 
     Returns:
       The same config entry, but without any defaults.
     """
     my_default = self.GetDefault()
+    my_default['name'] = name
 
     template = cfg.get('_template')
     if template:
@@ -1007,7 +1213,7 @@ class SiteConfig(dict):
     for k, v in cfg.iteritems():
       if my_default.get(k) != v:
         if k == 'child_configs':
-          d['child_configs'] = [self.HideDefaults(child) for child in v]
+          d['child_configs'] = [self.HideDefaults(name, child) for child in v]
         else:
           d[k] = v
 
@@ -1015,6 +1221,10 @@ class SiteConfig(dict):
 
   def AddTemplate(self, name, *args, **kwargs):
     """Create a template named |name|.
+
+    Templates are used to define common settings that are shared across types
+    of builders. They help reduce duplication in config_dump.json, because we
+    only define the template and its settings once.
 
     Args:
       name: The name of the template.
@@ -1032,12 +1242,6 @@ class SiteConfig(dict):
 
     return cfg
 
-  class _JSONEncoder(json.JSONEncoder):
-    """Json Encoder that encodes objects as their dictionaries."""
-    # pylint: disable=method-hidden
-    def default(self, obj):
-      return self.encode(obj.__dict__)
-
   def SaveConfigToString(self):
     """Save this Config object to a Json format string."""
     default = self.GetDefault()
@@ -1045,14 +1249,13 @@ class SiteConfig(dict):
 
     config_dict = {}
     for k, v in self.iteritems():
-      config_dict[k] = self.HideDefaults(v)
+      config_dict[k] = self.HideDefaults(k, v)
 
     config_dict['_default'] = default
     config_dict['_templates'] = self._templates
-    config_dict['_site_params'] = site_params
+    config_dict['_site_params'] = SiteParameters.HideDefaults(site_params)
 
-    return json.dumps(config_dict, cls=self._JSONEncoder,
-                      sort_keys=True, indent=4, separators=(',', ': '))
+    return PrettyJsonDict(config_dict)
 
   def DumpExpandedConfigToString(self):
     """Dump the SiteConfig to Json with all configs full expanded.
@@ -1060,8 +1263,21 @@ class SiteConfig(dict):
     This is intended for debugging default/template behavior. The dumped JSON
     can't be reloaded (at least not reliably).
     """
-    return json.dumps(self, cls=self._JSONEncoder,
-                      sort_keys=True, indent=4, separators=(',', ': '))
+    return PrettyJsonDict(self)
+
+
+class ObjectJSONEncoder(json.JSONEncoder):
+  """Json Encoder that encodes objects as their dictionaries."""
+  # pylint: disable=method-hidden
+  def default(self, obj):
+    return self.encode(obj.__dict__)
+
+
+def PrettyJsonDict(dictionary):
+  """Returns a pretty-ified json dump of a dictionary."""
+  return json.dumps(dictionary, cls=ObjectJSONEncoder,
+                    sort_keys=True, indent=4, separators=(',', ': '))
+
 
 #
 # Methods related to loading/saving Json.
@@ -1077,14 +1293,20 @@ def LoadConfigFromString(json_string):
   """Load a cbuildbot config from it's Json encoded string."""
   config_dict = json.loads(json_string, object_hook=_DecodeDict)
 
-  # default is a dictionary of default build configuration values.
-  defaults = config_dict.pop(DEFAULT_BUILD_CONFIG)
+  # Use standard defaults, but allow the config to override.
+  defaults = DefaultSettings()
+  defaults.update(config_dict.pop(DEFAULT_BUILD_CONFIG))
+
+  _UpdateConfig(defaults)
+
   templates = config_dict.pop('_templates', None)
-  site_params = config_dict.pop('_site_params', None)
+
+  site_params = DefaultSiteParameters()
+  site_params.update(config_dict.pop('_site_params', {}))
 
   defaultBuildConfig = BuildConfig(**defaults)
 
-  builds = {n: _CreateBuildConfig(defaultBuildConfig, v, templates)
+  builds = {n: _CreateBuildConfig(n, defaultBuildConfig, v, templates)
             for n, v in config_dict.iteritems()}
 
   # config is the struct that holds the complete cbuildbot config.
@@ -1130,36 +1352,111 @@ def _DecodeDict(data):
   return rv
 
 
+def _CreateVmTestConfig(jsonString):
+  """Create a VMTestConfig object from a JSON string."""
+  if isinstance(jsonString, VMTestConfig):
+    return jsonString
+  # Each VM Test is dumped as a json string embedded in json.
+  vm_test_config = json.loads(jsonString, object_hook=_DecodeDict)
+  return VMTestConfig(**vm_test_config)
+
+
 def _CreateHwTestConfig(jsonString):
   """Create a HWTestConfig object from a JSON string."""
+  if isinstance(jsonString, HWTestConfig):
+    return jsonString
   # Each HW Test is dumped as a json string embedded in json.
   hw_test_config = json.loads(jsonString, object_hook=_DecodeDict)
   return HWTestConfig(**hw_test_config)
 
 
-def _CreateBuildConfig(default, build_dict, templates):
+def _UpdateConfig(build_dict):
+  """Updates a config dictionary with recreated objects."""
+  # Both VM and HW test configs are serialized as strings (rather than JSON
+  # objects), so we need to turn them into real objects before they can be
+  # consumed.
+  vmtests = build_dict.pop('vm_tests', None)
+  if vmtests is not None:
+    build_dict['vm_tests'] = [_CreateVmTestConfig(vmtest) for vmtest in vmtests]
+
+  vmtests = build_dict.pop('vm_tests_override', None)
+  if vmtests is not None:
+    build_dict['vm_tests_override'] = [
+        _CreateVmTestConfig(vmtest) for vmtest in vmtests
+    ]
+  else:
+    build_dict['vm_tests_override'] = None
+
+  hwtests = build_dict.pop('hw_tests', None)
+  if hwtests is not None:
+    build_dict['hw_tests'] = [_CreateHwTestConfig(hwtest) for hwtest in hwtests]
+
+  hwtests = build_dict.pop('hw_tests_override', None)
+  if hwtests is not None:
+    build_dict['hw_tests_override'] = [
+        _CreateHwTestConfig(hwtest) for hwtest in hwtests
+    ]
+  else:
+    build_dict['hw_tests_override'] = None
+
+
+def _CreateBuildConfig(name, default, build_dict, templates):
   """Create a BuildConfig object from it's parsed JSON dictionary encoding."""
   # These build config values need special handling.
   child_configs = build_dict.pop('child_configs', None)
   template = build_dict.get('_template')
+
+  # Use the name passed in as the default build name.
+  build_dict.setdefault('name', name)
 
   my_default = default
   if template:
     my_default = default.derive(templates[template])
   result = my_default.derive(**build_dict)
 
-  hwtests = result.pop('hw_tests', None)
-  if hwtests is not None:
-    result['hw_tests'] = [_CreateHwTestConfig(hwtest) for hwtest in hwtests]
-
-  hwtests = result.pop('hw_tests_override', None)
-  if hwtests is not None:
-    result['hw_tests_override'] = [
-        _CreateHwTestConfig(hwtest) for hwtest in hwtests
-    ]
+  _UpdateConfig(result)
 
   if child_configs is not None:
-    result['child_configs'] = [_CreateBuildConfig(default, child, templates)
-                               for child in child_configs]
+    result['child_configs'] = [
+        _CreateBuildConfig(name, default, child, templates)
+        for child in child_configs
+    ]
 
   return result
+
+
+def ClearConfigCache():
+  """Clear the currently cached SiteConfig.
+
+  This is intended to be used very early in the startup, after we fetch/update
+  the site config information available to us.
+
+  However, this operation is never 100% safe, since the Chrome OS config, or an
+  outdated config was availble to any code that ran before (including on
+  import), and that code might have used or cached related values.
+  """
+  # pylint: disable=global-statement
+  global _CACHED_CONFIG
+  _CACHED_CONFIG = None
+
+
+def GetConfig():
+  """Load the current SiteConfig.
+
+  Returns:
+    SiteConfig instance to use for this build.
+  """
+  # pylint: disable=global-statement
+  global _CACHED_CONFIG
+
+  if _CACHED_CONFIG is None:
+    if os.path.exists(constants.SITE_CONFIG_FILE):
+      # Use a site specific config, if present.
+      filename = constants.SITE_CONFIG_FILE
+    else:
+      # Fall back to default Chrome OS configuration.
+      filename = constants.CHROMEOS_CONFIG_FILE
+
+    _CACHED_CONFIG = LoadConfigFromFile(filename)
+
+  return _CACHED_CONFIG

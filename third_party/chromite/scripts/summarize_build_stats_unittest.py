@@ -166,7 +166,7 @@ class TestCLActionLogic(cros_test_lib.TestCase):
                           4: constants.FAILURE_CATEGORY_BAD_CL}
       cl_stats.blames = {1: '', 2: '', 3: 'crosreview.com/1',
                          4: 'crosreview.com/1'}
-      summary = cl_stats.Summarize()
+      summary = cl_stats.Summarize('cq')
 
       expected = {
           'mean_good_patch_rejections': 0.5,
@@ -177,6 +177,7 @@ class TestCLActionLogic(cros_test_lib.TestCase):
           'good_patch_rejection_count': {CQ: 1, PRE_CQ: 1},
           'good_patch_rejections': 2,
           'false_rejection_rate': {CQ: 20., PRE_CQ: 20., 'combined': 100. / 3},
+          'long_pole_slave_counts': {},
           'submitted_patches': 4,
           'submit_fails': 0,
           'unique_cls': 4,
@@ -201,14 +202,16 @@ class TestCLActionLogic(cros_test_lib.TestCase):
   def testProcessBlameString(self):
     """Tests that bug and CL links are correctly parsed."""
     blame = ('some words then crbug.com/1234, then other junk and '
-             'https://code.google.com/p/chromium/issues/detail?id=4321 '
+             'https://bugs.chromium.org/p/chromium/issues/detail?id=4321 '
              'then some stuff and other stuff and b/2345 and also '
              'https://b.corp.google.com/issue?id=5432&query=5432 '
              'and then some crosreview.com/3456 or some '
              'https://chromium-review.googlesource.com/#/c/6543/ and '
              'then crosreview.com/i/9876 followed by '
              'https://chrome-internal-review.googlesource.com/#/c/6789/ '
-             'blah https://gutsv3.corp.google.com/#ticket/1234 t/4321')
+             'blah https://gutsv3.corp.google.com/#ticket/1234 t/4321 and '
+             'https://bugs.chromium.org/p/chromium/issues/detail?id=522555#c58'
+             ' and https://codereview.chromium.org/1216423002 ')
     expected = ['crbug.com/1234',
                 'crbug.com/4321',
                 'b/2345',
@@ -218,7 +221,9 @@ class TestCLActionLogic(cros_test_lib.TestCase):
                 'crosreview.com/i/9876',
                 'crosreview.com/i/6789',
                 't/1234',
-                't/4321']
+                't/4321',
+                'crbug.com/522555',
+                'codereview.chromium.org/1216423002']
     self.assertEqual(
         summarize_build_stats.CLStatsEngine.ProcessBlameString(blame),
         expected)

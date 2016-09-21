@@ -63,26 +63,26 @@ def ReadSymsHeader(sym_file):
 
 
 def GenerateBreakpadSymbol(elf_file, debug_file=None, breakpad_dir=None,
-                           board=None, strip_cfi=False, num_errors=None):
+                           strip_cfi=False, num_errors=None,
+                           dump_syms_cmd='dump_syms'):
   """Generate the symbols for |elf_file| using |debug_file|
 
   Args:
     elf_file: The file to dump symbols for
     debug_file: Split debug file to use for symbol information
     breakpad_dir: The dir to store the output symbol file in
-    board: If |breakpad_dir| is not specified, use |board| to find it
     strip_cfi: Do not generate CFI data
     num_errors: An object to update with the error count (needs a .value member)
+    dump_syms_cmd: Command to use for dumping symbols.
 
   Returns:
-    The number of errors that were encountered.
+    The name of symbol file written out.
   """
-  if breakpad_dir is None:
-    breakpad_dir = FindBreakpadDir(board)
+  assert breakpad_dir
   if num_errors is None:
     num_errors = ctypes.c_int()
 
-  cmd_base = ['dump_syms']
+  cmd_base = [dump_syms_cmd, '-v']
   if strip_cfi:
     cmd_base += ['-c']
   # Some files will not be readable by non-root (e.g. set*id /bin/su).
@@ -99,7 +99,7 @@ def GenerateBreakpadSymbol(elf_file, debug_file=None, breakpad_dir=None,
 
   def _CrashCheck(ret, msg):
     if ret < 0:
-      cros_build_lib.PrintBuildbotStepWarnings()
+      logging.PrintBuildbotStepWarnings()
       logging.warning('dump_syms crashed with %s; %s',
                       signals.StrSignal(-ret), msg)
 
@@ -130,7 +130,7 @@ def GenerateBreakpadSymbol(elf_file, debug_file=None, breakpad_dir=None,
       if result.returncode:
         # A lot of files (like kernel files) contain no debug information,
         # do not consider such occurrences as errors.
-        cros_build_lib.PrintBuildbotStepWarnings()
+        logging.PrintBuildbotStepWarnings()
         _CrashCheck(result.returncode, 'giving up entirely')
         if 'file contains no debugging information' in result.error:
           logging.warning('no symbols found for %s', elf_file)
@@ -151,7 +151,7 @@ def GenerateBreakpadSymbol(elf_file, debug_file=None, breakpad_dir=None,
     os.chmod(sym_file, 0o644)
     temp.delete = False
 
-  return num_errors.value
+  return sym_file
 
 
 def GenerateBreakpadSymbols(board, breakpad_dir=None, strip_cfi=False,
@@ -264,7 +264,7 @@ def GenerateBreakpadSymbols(board, breakpad_dir=None, strip_cfi=False,
 
   # Now start generating symbols for the discovered elfs.
   with parallel.BackgroundTaskRunner(GenerateBreakpadSymbol,
-                                     breakpad_dir=breakpad_dir, board=board,
+                                     breakpad_dir=breakpad_dir,
                                      strip_cfi=strip_cfi,
                                      num_errors=bg_errors,
                                      processes=num_processes) as queue:

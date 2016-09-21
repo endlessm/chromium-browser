@@ -8,8 +8,8 @@ from __future__ import print_function
 
 import ConfigParser
 import os
-import unittest
 
+from chromite.cbuildbot import config_lib
 from chromite.cbuildbot import constants
 from chromite.cbuildbot import failures_lib
 from chromite.cbuildbot import results_lib
@@ -18,14 +18,14 @@ from chromite.cbuildbot.stages import sync_stages_unittest
 from chromite.lib import cros_build_lib
 from chromite.lib import cros_test_lib
 from chromite.lib import gerrit
+from chromite.lib import git
 from chromite.lib import osutils
 from chromite.lib import patch as cros_patch
 from chromite.lib import patch_unittest
+from chromite.lib import portage_util
 
 
-# Some tests require the kernel, and fail with buildtools only repo.
-KERNEL_AVAILABLE = os.path.exists(os.path.join(
-    constants.SOURCE_ROOT, 'src', 'third_party', 'kernel'))
+site_config = config_lib.GetConfig()
 
 
 def GetFailedMessage(exceptions, stage='Build', internal=False,
@@ -51,12 +51,12 @@ class TestFindSuspects(patch_unittest.MockPatchBase):
     self.power_manager = 'chromiumos/platform2/power_manager'
     self.power_manager_pkg = 'chromeos-base/power_manager'
     self.power_manager_patch = self.GetPatches(project=self.power_manager)
-    self.kernel = 'chromiumos/third_party/kernel'
-    self.kernel_pkg = 'sys-kernel/chromeos-kernel'
+    self.kernel = 'chromiumos/third_party/kernel/foo'
+    self.kernel_pkg = 'sys-kernel/chromeos-kernel-foo'
     self.kernel_patch = self.GetPatches(project=self.kernel)
     self.secret = 'chromeos/secret'
-    self.secret_patch = self.GetPatches(project=self.secret,
-                                        remote=constants.INTERNAL_REMOTE)
+    self.secret_patch = self.GetPatches(
+        project=self.secret, remote=site_config.params.INTERNAL_REMOTE)
     self.PatchObject(cros_patch.GitRepoPatch, 'GetCheckout')
     self.PatchObject(cros_patch.GitRepoPatch, 'GetDiffStatus')
     self.PatchObject(gerrit, 'GetGerritPatchInfoWithPatchQueries',
@@ -95,22 +95,24 @@ class TestFindSuspects(patch_unittest.MockPatchBase):
         sanity=sanity)
     self.assertEquals(set(suspects), results)
 
-  @unittest.skipIf(not KERNEL_AVAILABLE, 'Full checkout is required.')
   def testFailSameProject(self):
     """Patches to the package that failed should be marked as failing."""
     suspects = [self.kernel_patch]
     patches = suspects + [self.power_manager_patch, self.secret_patch]
-    self._AssertSuspects(patches, suspects, [self.kernel_pkg])
-    self._AssertSuspects(patches, suspects, [self.kernel_pkg], sanity=False)
+    with self.PatchObject(portage_util, 'FindWorkonProjects',
+                          return_value=self.kernel):
+      self._AssertSuspects(patches, suspects, [self.kernel_pkg])
+      self._AssertSuspects(patches, suspects, [self.kernel_pkg], sanity=False)
 
-  @unittest.skipIf(not KERNEL_AVAILABLE, 'Full checkout is required.')
   def testFailSameProjectPlusOverlay(self):
     """Patches to the overlay should be marked as failing."""
     suspects = [self.overlay_patch, self.kernel_patch]
     patches = suspects + [self.power_manager_patch, self.secret_patch]
-    self._AssertSuspects(patches, suspects, [self.kernel_pkg])
-    self._AssertSuspects(patches, [self.kernel_patch], [self.kernel_pkg],
-                         sanity=False)
+    with self.PatchObject(portage_util, 'FindWorkonProjects',
+                          return_value=self.kernel):
+      self._AssertSuspects(patches, suspects, [self.kernel_pkg])
+      self._AssertSuspects(patches, [self.kernel_patch], [self.kernel_pkg],
+                           sanity=False)
 
   def testFailUnknownPackage(self):
     """If no patches changed the package, all patches should fail."""
@@ -139,10 +141,12 @@ class TestFindSuspects(patch_unittest.MockPatchBase):
     Even if there are also build failures that we can explain.
     """
     suspects = [self.kernel_patch, self.power_manager_patch, self.secret_patch]
-    self._AssertSuspects(suspects, suspects, [self.kernel_pkg],
-                         [Exception('foo bar')])
-    self._AssertSuspects(suspects, [self.kernel_patch], [self.kernel_pkg],
-                         [Exception('foo bar')], sanity=False)
+    with self.PatchObject(portage_util, 'FindWorkonProjects',
+                          return_value=self.kernel):
+      self._AssertSuspects(suspects, suspects, [self.kernel_pkg],
+                           [Exception('foo bar')])
+      self._AssertSuspects(suspects, [self.kernel_patch], [self.kernel_pkg],
+                           [Exception('foo bar')], sanity=False)
 
   def testFailNone(self):
     """If a message is just 'None', it should cause all patches to fail."""
@@ -263,12 +267,13 @@ class TestGetFullyVerifiedChanges(patch_unittest.MockPatchBase):
     no_stat = failing = messages = []
     inflight = ['foo-paladin']
     changes_by_config = {'foo-paladin': []}
+    subsys_by_config = None
 
-    verified = triage_lib.CalculateSuspects.GetFullyVerifiedChanges(
-        self.changes, changes_by_config, failing, inflight, no_stat,
-        messages, self.build_root)
-
-    self.assertEquals(verified, set(self.changes))
+    verified_results = triage_lib.CalculateSuspects.GetFullyVerifiedChanges(
+        self.changes, changes_by_config, subsys_by_config, failing,
+        inflight, no_stat, messages, self.build_root)
+    verified_changes = set(verified_results.keys())
+    self.assertEquals(verified_changes, set(self.changes))
 
   def testChangesNotVerified(self):
     """Tests that changes are not verified if builds failed prematurely."""
@@ -278,11 +283,13 @@ class TestGetFullyVerifiedChanges(patch_unittest.MockPatchBase):
     changes_by_config = {'foo-paladin': set(self.changes[:2]),
                          'bar-paladin': set(self.changes),
                          'puppy-paladin': set(self.changes[-2:])}
+    subsys_by_config = None
 
-    verified = triage_lib.CalculateSuspects.GetFullyVerifiedChanges(
-        self.changes, changes_by_config, failing, inflight, no_stat,
-        messages, self.build_root)
-    self.assertEquals(verified, set(self.changes[2:-2]))
+    verified_results = triage_lib.CalculateSuspects.GetFullyVerifiedChanges(
+        self.changes, changes_by_config, subsys_by_config, failing,
+        inflight, no_stat, messages, self.build_root)
+    verified_changes = set(verified_results.keys())
+    self.assertEquals(verified_changes, set(self.changes[2:-2]))
 
   def testChangesNotVerifiedOnFailures(self):
     """Tests that changes are not verified if failures cannot be ignored."""
@@ -290,13 +297,16 @@ class TestGetFullyVerifiedChanges(patch_unittest.MockPatchBase):
     failing = ['cub-paladin']
     changes_by_config = {'bar-paladin': set(self.changes),
                          'cub-paladin': set(self.changes[:2])}
+    subsys_by_config = None
 
     self.PatchObject(
-        triage_lib.CalculateSuspects, '_CanIgnoreFailures', return_value=False)
-    verified = triage_lib.CalculateSuspects.GetFullyVerifiedChanges(
-        self.changes, changes_by_config, failing, inflight, no_stat,
-        messages, self.build_root)
-    self.assertEquals(verified, set(self.changes[2:]))
+        triage_lib.CalculateSuspects, '_CanIgnoreFailures',
+        return_value=(False, None))
+    verified_results = triage_lib.CalculateSuspects.GetFullyVerifiedChanges(
+        self.changes, changes_by_config, subsys_by_config, failing,
+        inflight, no_stat, messages, self.build_root)
+    verified_changes = set(verified_results.keys())
+    self.assertEquals(verified_changes, set(self.changes[2:]))
 
   def testChangesVerifiedWhenFailuresCanBeIgnored(self):
     """Tests that changes are verified if failures can be ignored."""
@@ -304,13 +314,16 @@ class TestGetFullyVerifiedChanges(patch_unittest.MockPatchBase):
     failing = ['cub-paladin']
     changes_by_config = {'bar-paladin': set(self.changes),
                          'cub-paladin': set(self.changes[:2])}
+    subsys_by_config = None
 
     self.PatchObject(
-        triage_lib.CalculateSuspects, '_CanIgnoreFailures', return_value=True)
-    verified = triage_lib.CalculateSuspects.GetFullyVerifiedChanges(
-        self.changes, changes_by_config, failing, inflight, no_stat,
-        messages, self.build_root)
-    self.assertEquals(verified, set(self.changes))
+        triage_lib.CalculateSuspects, '_CanIgnoreFailures',
+        return_value=(True, None))
+    verified_results = triage_lib.CalculateSuspects.GetFullyVerifiedChanges(
+        self.changes, changes_by_config, subsys_by_config, failing,
+        inflight, no_stat, messages, self.build_root)
+    verified_changes = set(verified_results.keys())
+    self.assertEquals(verified_changes, set(self.changes))
 
   def testCanIgnoreFailures(self):
     """Tests _CanIgnoreFailures()."""
@@ -318,19 +331,58 @@ class TestGetFullyVerifiedChanges(patch_unittest.MockPatchBase):
     change = self.changes[0]
     messages = [GetFailedMessage([Exception()], stage='HWTest'),
                 GetFailedMessage([Exception()], stage='VMTest'),]
+    subsys_by_config = None
     m = self.PatchObject(triage_lib, 'GetStagesToIgnoreForChange')
 
     m.return_value = ('HWTest',)
-    self.assertFalse(triage_lib.CalculateSuspects._CanIgnoreFailures(
-        messages, change, self.build_root))
+    self.assertEqual(triage_lib.CalculateSuspects._CanIgnoreFailures(
+        messages, change, self.build_root, subsys_by_config), (False, None))
 
     m.return_value = ('HWTest', 'VMTest', 'Foo')
-    self.assertTrue(triage_lib.CalculateSuspects._CanIgnoreFailures(
-        messages, change, self.build_root))
+    self.assertEqual(triage_lib.CalculateSuspects._CanIgnoreFailures(
+        messages, change, self.build_root, subsys_by_config),
+                     (True, constants.STRATEGY_CQ_PARTIAL))
 
     m.return_value = None
-    self.assertFalse(triage_lib.CalculateSuspects._CanIgnoreFailures(
-        messages, change, self.build_root))
+    self.assertEqual(triage_lib.CalculateSuspects._CanIgnoreFailures(
+        messages, change, self.build_root, subsys_by_config), (False, None))
+
+  def testCanIgnoreFailuresWithSubsystemLogic(self):
+    """Tests _CanIgnoreFailures with subsystem logic."""
+    # pylint: disable=protected-access
+    change = self.changes[0]
+    messages = [GetFailedMessage([Exception()], stage='HWTest',
+                                 bot='foo-paladin'),
+                GetFailedMessage([Exception()], stage='VMTest',
+                                 bot='foo-paladin'),
+                GetFailedMessage([Exception()], stage='HWTest',
+                                 bot='cub-paladin')]
+    m = self.PatchObject(triage_lib, 'GetStagesToIgnoreForChange')
+    m.return_value = ('VMTest', )
+    cl_subsys = self.PatchObject(triage_lib, 'GetTestSubsystemForChange')
+    cl_subsys.return_value = ['A']
+
+    # Test not all configs failed at HWTest run the subsystem logic.
+    subsys_by_config = {'foo-paladin': {'pass_subsystems': ['A', 'B'],
+                                        'fail_subsystems': ['C']},
+                        'cub-paladin': {}}
+    self.assertEqual(triage_lib.CalculateSuspects._CanIgnoreFailures(
+        messages, change, self.build_root, subsys_by_config), (False, None))
+    # Test all configs failed at HWTest run the subsystem logic.
+    subsys_by_config = {'foo-paladin': {'pass_subsystems': ['A', 'B'],
+                                        'fail_subsystems': ['C']},
+                        'cub-paladin': {'pass_subsystems': ['A'],
+                                        'fail_subsystems': ['B']}}
+    result = triage_lib.CalculateSuspects._CanIgnoreFailures(
+        messages, change, self.build_root, subsys_by_config)
+    self.assertEqual(result, (True, constants.STRATEGY_CQ_PARTIAL_SUBSYSTEM))
+
+    subsys_by_config = {'foo-paladin': {'pass_subsystems': ['A', 'B'],
+                                        'fail_subsystems': ['C']},
+                        'cub-paladin': {'pass_subsystems': ['D'],
+                                        'fail_subsystems': ['A']}}
+    self.assertEqual(triage_lib.CalculateSuspects._CanIgnoreFailures(
+        messages, change, self.build_root, subsys_by_config), (False, None))
 
 
 class GetOptionsTest(patch_unittest.MockPatchBase):
@@ -379,15 +431,48 @@ class GetOptionsTest(patch_unittest.MockPatchBase):
 
   def testResultForBadConfigFile(self):
     """Test whether the return is None when handle a malformat config file."""
+    build_root = 'foo/build/root'
+    change = self.GetPatches(how_many=1)
+    self.PatchObject(git.ManifestCheckout, 'Cached')
+    self.PatchObject(cros_patch.GitRepoPatch, 'GetCheckout',
+                     return_value=git.ProjectCheckout(attrs={}))
+    self.PatchObject(git.ProjectCheckout, 'GetPath')
+
     with osutils.TempDir(set_global=True) as tempdir:
       path = os.path.join(tempdir, 'COMMIT-QUEUE.ini')
       osutils.WriteFile(path, 'foo\n')
       self.PatchObject(triage_lib, '_GetConfigFileForChange', return_value=path)
 
-      build_root = 'foo/build/root'
-      change = self.GetPatches(how_many=1)
       result = triage_lib.GetOptionForChange(build_root, change, 'a', 'b')
       self.assertEqual(None, result)
+
+  def testGetSubsystemFromValidCommitMessage(self):
+    """Test whether we can get subsystem from commit message."""
+    change = sync_stages_unittest.MockPatch(
+        commit_message='First line\nThird line\nsubsystem: network audio\n'
+                       'subsystem: wifi')
+    self.PatchObject(triage_lib, 'GetOptionForChange',
+                     return_value='power light')
+    result = triage_lib.GetTestSubsystemForChange('foo/build/root', change)
+    self.assertEqual(['network', 'audio', 'wifi'], result)
+
+  def testGetSubsystemFromInvalidCommitMessage(self):
+    """Test get subsystem from config file when commit message not have it."""
+    change = sync_stages_unittest.MockPatch(
+        commit_message='First line\nThird line\n')
+    self.PatchObject(triage_lib, 'GetOptionForChange',
+                     return_value='power light')
+    result = triage_lib.GetTestSubsystemForChange('foo/build/root', change)
+    self.assertEqual(['power', 'light'], result)
+
+  def testGetDefaultSubsystem(self):
+    """Test if we can get default subsystem when subsystem is not specified."""
+    change = sync_stages_unittest.MockPatch(
+        commit_message='First line\nThird line\n')
+    self.PatchObject(triage_lib, 'GetOptionForChange',
+                     return_value=None)
+    result = triage_lib.GetTestSubsystemForChange('foo/build/root', change)
+    self.assertEqual(['default'], result)
 
 
 class ConfigFileTest(cros_test_lib.MockTestCase):

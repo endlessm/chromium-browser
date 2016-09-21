@@ -11,6 +11,7 @@ for those executables involved).
 
 from __future__ import print_function
 
+import collections
 import ctypes
 import datetime
 import errno
@@ -90,8 +91,8 @@ DEDUPE_NOTIFY_TIMEOUT = 20
 
 # The unique namespace in the dedupe server that only we use.  Helps avoid
 # collisions with all the hashed values and unrelated content.
-OFFICIAL_DEDUPE_NAMESPACE = 'chromium-os-upload-symbols'
-STAGING_DEDUPE_NAMESPACE = '%s-staging' % OFFICIAL_DEDUPE_NAMESPACE
+OFFICIAL_DEDUPE_NAMESPACE_TMPL = '%s-upload-symbols'
+STAGING_DEDUPE_NAMESPACE_TMPL = '%s-staging' % OFFICIAL_DEDUPE_NAMESPACE_TMPL
 
 
 # The minimum average rate (in bytes per second) that we expect to maintain
@@ -145,6 +146,12 @@ ERROR_ADJUST_FAIL = 1.0
 ERROR_ADJUST_PASS = -0.5
 
 
+# A named tuple which hold a SymbolItem object and
+# a isolateserver._IsolateServerPushState item.
+SymbolElement = collections.namedtuple(
+    'SymbolElement', ('symbol_item', 'opaque_push_state'))
+
+
 def GetUploadTimeout(path):
   """How long to wait for a specific file to upload to the crash server.
 
@@ -160,7 +167,7 @@ def GetUploadTimeout(path):
   return max(os.path.getsize(path) / UPLOAD_MIN_RATE, UPLOAD_MIN_TIMEOUT)
 
 
-def SymUpload(upload_url, sym_item):
+def SymUpload(upload_url, sym_item, product_name):
   """Upload a symbol file to a HTTP server
 
   The upload is a multipart/form-data POST with the following parameters:
@@ -179,6 +186,7 @@ def SymUpload(upload_url, sym_item):
   Args:
     upload_url: The crash URL to POST the |sym_file| to
     sym_item: A SymbolItem containing the path to the breakpad symbol to upload
+    product_name: A string for stats purposes. Usually 'ChromeOS' or 'Android'.
   """
   sym_header = sym_item.sym_header
   sym_file = sym_item.sym_file
@@ -195,7 +203,7 @@ def SymUpload(upload_url, sym_item):
       # Not sure what to set for the version.  Maybe the git sha1 of this file.
       # Note: the server restricts this to 30 chars.
       #('version', None),
-      ('product', 'ChromeOS'),
+      ('product', product_name),
       ('os', sym_header.os),
       ('cpu', sym_header.cpu),
       poster.encode.MultipartParam.from_file('symbol_file', sym_file),
@@ -207,7 +215,7 @@ def SymUpload(upload_url, sym_item):
   urllib2.urlopen(request, timeout=GetUploadTimeout(sym_file))
 
 
-def TestingSymUpload(upload_url, sym_item):
+def TestingSymUpload(upload_url, sym_item, _product_name):
   """A stub version of SymUpload for --testing usage"""
   cmd = ['sym_upload', sym_item.sym_file, upload_url]
   # Randomly fail 80% of the time (the retry logic makes this 80%/3 per file).
@@ -270,14 +278,19 @@ def _UpdateCounter(counter, adj):
     _Update()
 
 
-def UploadSymbol(upload_url, sym_item, file_limit=DEFAULT_FILE_LIMIT,
-                 sleep=0, num_errors=None, watermark_errors=None,
-                 failed_queue=None, passed_queue=None):
-  """Upload |sym_item| to |upload_url|
+def UploadSymbol(upload_url, symbol_element, product_name,
+                 file_limit=DEFAULT_FILE_LIMIT, sleep=0, num_errors=None,
+                 watermark_errors=None, failed_queue=None, passed_queue=None):
+  """Upload |sym_element.symbol_item| to |upload_url|
 
   Args:
     upload_url: The crash server to upload things to
-    sym_item: A SymbolItem containing the path to the breakpad symbol to upload
+    symbol_element: A SymbolElement tuple. symbol_element.symbol_item is a
+                    SymbolItem object containing the path to the breakpad symbol
+                    to upload. symbol_element.opaque_push_state is an object of
+                    _IsolateServerPushState or None if the item doesn't have
+                    a push state.
+    product_name: A string for stats purposes. Usually 'ChromeOS' or 'Android'.
     file_limit: The max file size of a symbol file before we try to strip it
     sleep: Number of seconds to sleep before running
     num_errors: An object to update with the error count (needs a .value member)
@@ -288,8 +301,8 @@ def UploadSymbol(upload_url, sym_item, file_limit=DEFAULT_FILE_LIMIT,
   Returns:
     The number of errors that were encountered.
   """
-  sym_file = sym_item.sym_file
-  upload_item = sym_item
+  sym_file = symbol_element.symbol_item.sym_file
+  upload_item = symbol_element.symbol_item
 
   if num_errors is None:
     num_errors = ctypes.c_int()
@@ -321,13 +334,13 @@ def UploadSymbol(upload_url, sym_item, file_limit=DEFAULT_FILE_LIMIT,
                                   if not x.startswith('STACK CFI')])
 
         upload_item = FakeItem(sym_file=temp_sym_file.name,
-                               sym_header=sym_item.sym_header)
+                               sym_header=symbol_element.symbol_item.sym_header)
 
     # Hopefully the crash server will let it through.  But it probably won't.
     # Not sure what the best answer is in this case.
     file_size = os.path.getsize(upload_item.sym_file)
     if file_size > CRASH_SERVER_FILE_LIMIT:
-      cros_build_lib.PrintBuildbotStepWarnings()
+      logging.PrintBuildbotStepWarnings()
       logging.warning('upload file %s is awfully large, risking rejection by '
                       'the symbol server (%s > %s)', sym_file, file_size,
                       CRASH_SERVER_FILE_LIMIT)
@@ -338,13 +351,13 @@ def UploadSymbol(upload_url, sym_item, file_limit=DEFAULT_FILE_LIMIT,
       cros_build_lib.TimedCommand(
           retry_util.RetryException,
           (urllib2.HTTPError, urllib2.URLError), MAX_RETRIES, SymUpload,
-          upload_url, upload_item, sleep=INITIAL_RETRY_DELAY,
+          upload_url, upload_item, product_name, sleep=INITIAL_RETRY_DELAY,
           timed_log_msg=('upload of %10i bytes took %%(delta)s: %s' %
                          (file_size, os.path.basename(sym_file))))
       success = True
 
       if passed_queue:
-        passed_queue.put(sym_item)
+        passed_queue.put(symbol_element)
     except urllib2.HTTPError as e:
       logging.warning('could not upload: %s: HTTP %s: %s',
                       os.path.basename(sym_file), e.code, e.reason)
@@ -392,24 +405,30 @@ def SymbolDeduplicatorNotify(dedupe_namespace, dedupe_queue):
 
   Args:
     dedupe_namespace: The isolateserver namespace to dedupe uploaded symbols.
-    dedupe_queue: The queue to read SymbolItems from
+    dedupe_queue: The queue to read SymbolElements from
   """
   if dedupe_queue is None:
     return
 
-  item = None
+  sym_file = ''
   try:
     with timeout_util.Timeout(DEDUPE_TIMEOUT):
       storage = isolateserver.get_storage_api(constants.ISOLATESERVER,
                                               dedupe_namespace)
-    for item in iter(dedupe_queue.get, None):
-      with timeout_util.Timeout(DEDUPE_TIMEOUT):
-        logging.debug('sending %s to dedupe server', item.sym_file)
-        storage.push(item, item.content(0))
-        logging.debug('sent %s', item.sym_file)
+    for symbol_element in iter(dedupe_queue.get, None):
+      if not symbol_element or not symbol_element.symbol_item:
+        continue
+      symbol_item = symbol_element.symbol_item
+      push_state = symbol_element.opaque_push_state
+      sym_file = symbol_item.sym_file if symbol_item.sym_file else ''
+      if push_state is not None:
+        with timeout_util.Timeout(DEDUPE_TIMEOUT):
+          logging.debug('sending %s to dedupe server', sym_file)
+          symbol_item.prepare(SymbolItem.ALGO)
+          storage.push(symbol_item, push_state, symbol_item.content())
+          logging.debug('sent %s', sym_file)
     logging.info('dedupe notification finished; exiting')
   except Exception:
-    sym_file = item.sym_file if (item and item.sym_file) else ''
     logging.warning('posting %s to dedupe server failed',
                     os.path.basename(sym_file), exc_info=True)
 
@@ -434,20 +453,25 @@ def SymbolDeduplicator(storage, sym_paths):
     sym_paths: List of symbol files to check against the dedupe server
 
   Returns:
-    List of symbol files that have not been uploaded before
+    List of SymbolElement objects that have not been uploaded before
   """
   if not sym_paths:
     return sym_paths
 
   items = [SymbolItem(x) for x in sym_paths]
+  for item in items:
+    item.prepare(SymbolItem.ALGO)
   if storage:
     try:
       with timeout_util.Timeout(DEDUPE_TIMEOUT):
         items = storage.contains(items)
+      return [SymbolElement(symbol_item=item, opaque_push_state=push_state)
+              for (item, push_state) in items.iteritems()]
     except Exception:
       logging.warning('talking to dedupe server failed', exc_info=True)
 
-  return items
+  return [SymbolElement(symbol_item=item, opaque_push_state=None)
+          for item in items]
 
 
 def IsTarball(path):
@@ -551,7 +575,8 @@ def WriteQueueToFile(listing, queue, relpath=None):
 def UploadSymbols(board=None, official=False, server=None, breakpad_dir=None,
                   file_limit=DEFAULT_FILE_LIMIT, sleep=DEFAULT_SLEEP_DELAY,
                   upload_limit=None, sym_paths=None, failed_list=None,
-                  root=None, retry=True, dedupe_namespace=None):
+                  root=None, retry=True, dedupe_namespace=None,
+                  product_name='ChromeOS'):
   """Upload all the generated symbols for |board| to the crash server
 
   You can use in a few ways:
@@ -574,6 +599,7 @@ def UploadSymbols(board=None, official=False, server=None, breakpad_dir=None,
     root: The tree to prefix to |breakpad_dir| (if |breakpad_dir| is not set)
     retry: Whether we should retry failures.
     dedupe_namespace: The isolateserver namespace to dedupe uploaded symbols.
+    product_name: A string for stats purposes. Usually 'ChromeOS' or 'Android'.
 
   Returns:
     The number of errors that were encountered.
@@ -628,9 +654,10 @@ def UploadSymbols(board=None, official=False, server=None, breakpad_dir=None,
   watermark_errors = multiprocessing.Value('f')
   failed_queue = multiprocessing.Queue()
   uploader = functools.partial(
-      UploadSymbol, upload_url, file_limit=file_limit, sleep=sleep,
-      num_errors=bg_errors, watermark_errors=watermark_errors,
-      failed_queue=failed_queue, passed_queue=dedupe_queue)
+      UploadSymbol, upload_url, product_name=product_name,
+      file_limit=file_limit, sleep=sleep, num_errors=bg_errors,
+      watermark_errors=watermark_errors, failed_queue=failed_queue,
+      passed_queue=dedupe_queue)
 
   start_time = datetime.datetime.now()
   Counters = cros_build_lib.Collection(
@@ -737,7 +764,7 @@ def UploadSymbols(board=None, official=False, server=None, breakpad_dir=None,
     # The process is taking too long, so kill it and complain.
     if storage_notify_proc.is_alive():
       logging.warning('notification process took too long')
-      cros_build_lib.PrintBuildbotStepWarnings()
+      logging.PrintBuildbotStepWarnings()
 
       # Kill it gracefully first (traceback) before tacking it down harder.
       pid = storage_notify_proc.pid
@@ -782,7 +809,7 @@ def main(argv):
   parser.add_argument('sym_paths', type='path_or_uri', nargs='*', default=None,
                       help='symbol file or directory or URL or tarball')
   parser.add_argument('--board', default=None,
-                      help='board to build packages for')
+                      help='Used to find default breakpad_root.')
   parser.add_argument('--breakpad_root', type='path', default=None,
                       help='full path to the breakpad symbol directory')
   parser.add_argument('--root', type='path', default=None,
@@ -806,19 +833,19 @@ def main(argv):
                       help='run in testing mode')
   parser.add_argument('--yes', action='store_true', default=False,
                       help='answer yes to all prompts')
+  parser.add_argument('--product_name', type=str, default='ChromeOS',
+                      help='Produce Name for breakpad stats.')
 
   opts = parser.parse_args(argv)
   opts.Freeze()
 
-  if opts.sym_paths:
+  if opts.sym_paths or opts.breakpad_root:
     if opts.regenerate:
-      cros_build_lib.Die('--regenerate may not be used with specific files')
+      cros_build_lib.Die('--regenerate may not be used with specific files, '
+                         'or breakpad_root')
   else:
     if opts.board is None:
       cros_build_lib.Die('--board is required')
-
-  if opts.breakpad_root and opts.regenerate:
-    cros_build_lib.Die('--regenerate may not be used with --breakpad_root')
 
   if opts.testing:
     # TODO(build): Kill off --testing mode once unittests are up-to-snuff.
@@ -831,9 +858,9 @@ def main(argv):
   dedupe_namespace = None
   if opts.dedupe:
     if opts.official_build and not opts.testing:
-      dedupe_namespace = OFFICIAL_DEDUPE_NAMESPACE
+      dedupe_namespace = OFFICIAL_DEDUPE_NAMESPACE_TMPL % opts.product_name
     else:
-      dedupe_namespace = STAGING_DEDUPE_NAMESPACE
+      dedupe_namespace = STAGING_DEDUPE_NAMESPACE_TMPL % opts.product_name
 
   if not opts.yes:
     prolog = '\n'.join(textwrap.wrap(textwrap.dedent("""
@@ -858,7 +885,8 @@ def main(argv):
                        file_limit=opts.strip_cfi, sleep=DEFAULT_SLEEP_DELAY,
                        upload_limit=opts.upload_limit, sym_paths=opts.sym_paths,
                        failed_list=opts.failed_list, root=opts.root,
-                       dedupe_namespace=dedupe_namespace)
+                       dedupe_namespace=dedupe_namespace,
+                       product_name=opts.product_name)
   if ret:
     logging.error('encountered %i problem(s)', ret)
     # Since exit(status) gets masked, clamp it to 1 so we don't inadvertently

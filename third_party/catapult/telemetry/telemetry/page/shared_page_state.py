@@ -4,12 +4,8 @@
 
 import logging
 import os
-import shutil
 import sys
 import tempfile
-import zipfile
-
-from catapult_base import cloud_storage  # pylint: disable=import-error
 
 from telemetry.core import exceptions
 from telemetry.core import util
@@ -20,7 +16,8 @@ from telemetry.internal.browser import browser_info as browser_info_module
 from telemetry.internal.platform.profiler import profiler_finder
 from telemetry.internal.util import exception_formatter
 from telemetry.internal.util import file_handle
-from telemetry.page import page_test
+from telemetry.page import cache_temperature
+from telemetry.page import legacy_page_test
 from telemetry import story
 from telemetry.util import image_util
 from telemetry.util import wpr_modes
@@ -80,11 +77,10 @@ class SharedPageState(story.SharedState):
 
     self._first_browser = True
     self._did_login_for_current_page = False
+    self._previous_page = None
     self._current_page = None
     self._current_tab = None
-    self._migrated_profile = None
 
-    self._pregenerated_profile_archive_dir = None
     self._test.SetOptions(self._finder_options)
 
     # TODO(crbug/404771): Move network controller options out of
@@ -137,12 +133,12 @@ class SharedPageState(story.SharedState):
       # TODO(nednguyen): once all platforms support taking screenshot,
       # remove the tab checking logic and consider moving this to story_runner.
       # (crbug.com/369490)
-      if tab.browser.platform.CanTakeScreenshot():
+      if self.platform.CanTakeScreenshot():
         tf = tempfile.NamedTemporaryFile(delete=False, suffix='.png')
         tf.close()
-        tab.browser.platform.TakeScreenshot(tf.name)
+        self.platform.TakeScreenshot(tf.name)
         results.AddProfilingFile(page, file_handle.FromTempFile(tf))
-      elif tab.IsAlive() and tab.screenshot_supported:
+      elif tab and tab.IsAlive() and tab.screenshot_supported:
         tf = tempfile.NamedTemporaryFile(delete=False, suffix='.png')
         tf.close()
         image = tab.Screenshot()
@@ -164,6 +160,7 @@ class SharedPageState(story.SharedState):
     try:
       if self._current_tab and self._current_tab.IsAlive():
         self._current_tab.CloseConnections()
+      self._previous_page = self._current_page
     except Exception:
       if self._current_tab:
         self._current_tab.Close()
@@ -228,12 +225,6 @@ class SharedPageState(story.SharedState):
       # benchmarks.
       self.platform.tracing_controller.ClearStateIfNeeded()
 
-    if self._ShouldDownloadPregeneratedProfileArchive():
-      self._DownloadPregeneratedProfileArchive()
-
-      if self._ShouldMigrateProfile():
-        self._MigratePregeneratedProfile()
-
     page_set = page.page_set
     self._current_page = page
     if self._browser and (self._test.RestartBrowserBeforeEachPage()
@@ -281,6 +272,9 @@ class SharedPageState(story.SharedState):
       if started_browser:
         self.browser.tabs[0].WaitForDocumentReadyStateToBeComplete()
 
+    cache_temperature.EnsurePageCacheTemperature(
+        self._current_page, self.browser, self._previous_page)
+
     # Start profiling if needed.
     if self._finder_options.profiler:
       self._StartProfiling(self._current_page)
@@ -311,7 +305,7 @@ class SharedPageState(story.SharedState):
     if self._current_page.credentials:
       if not self.browser.credentials.LoginNeeded(
           self._current_tab, self._current_page.credentials):
-        raise page_test.Failure(
+        raise legacy_page_test.Failure(
             'Login as ' + self._current_page.credentials + ' failed')
       self._did_login_for_current_page = True
 
@@ -344,7 +338,7 @@ class SharedPageState(story.SharedState):
         # Avoid trying to recover from an unknown multi-tab state.
         exception_formatter.PrintFormattedException(
             msg='Telemetry Error during multi tab test:')
-        raise page_test.MultiTabTestAppCrashError
+        raise legacy_page_test.MultiTabTestAppCrashError
       raise
     except Exception:
       if self._finder_options.browser_options.take_screenshot_for_failed_page:
@@ -353,10 +347,6 @@ class SharedPageState(story.SharedState):
       raise
 
   def TearDownState(self):
-    if self._migrated_profile:
-      shutil.rmtree(self._migrated_profile)
-      self._migrated_profile = None
-
     self._StopBrowser()
     self.platform.StopAllLocalServers()
     self.platform.network_controller.Close()
@@ -383,137 +373,6 @@ class SharedPageState(story.SharedState):
         if os.path.isfile(f):
           results.AddProfilingFile(self._current_page,
                                    file_handle.FromFilePath(f))
-
-  def _ShouldMigrateProfile(self):
-    return not self._migrated_profile
-
-  def _MigrateProfile(self, finder_options, found_browser,
-                      initial_profile, final_profile):
-    """Migrates a profile to be compatible with a newer version of Chrome.
-
-    Launching Chrome with the old profile will perform the migration.
-    """
-    # Save the current input and output profiles.
-    saved_input_profile = finder_options.browser_options.profile_dir
-    saved_output_profile = finder_options.output_profile_path
-
-    # Set the input and output profiles.
-    finder_options.browser_options.profile_dir = initial_profile
-    finder_options.output_profile_path = final_profile
-
-    # Launch the browser, then close it.
-    browser = found_browser.Create(finder_options)
-    browser.Close()
-
-    # Load the saved input and output profiles.
-    finder_options.browser_options.profile_dir = saved_input_profile
-    finder_options.output_profile_path = saved_output_profile
-
-  def _MigratePregeneratedProfile(self):
-    """Migrates the pre-generated profile by launching Chrome with it.
-
-    On success, updates self._migrated_profile and
-    self._finder_options.browser_options.profile_dir with the directory of the
-    migrated profile.
-    """
-    self._migrated_profile = tempfile.mkdtemp()
-    logging.info("Starting migration of pre-generated profile to %s",
-                 self._migrated_profile)
-    pregenerated_profile = self._finder_options.browser_options.profile_dir
-
-    possible_browser = self._FindBrowser(self._finder_options)
-    self._MigrateProfile(self._finder_options, possible_browser,
-                         pregenerated_profile, self._migrated_profile)
-    self._finder_options.browser_options.profile_dir = self._migrated_profile
-    logging.info("Finished migration of pre-generated profile to %s",
-                 self._migrated_profile)
-
-  def GetPregeneratedProfileArchiveDir(self):
-    return self._pregenerated_profile_archive_dir
-
-  def SetPregeneratedProfileArchiveDir(self, archive_path):
-    """
-    Benchmarks can set a pre-generated profile archive to indicate that when
-    Chrome is launched, it should have a --user-data-dir set to the
-    pre-generated profile, rather than to an empty profile.
-
-    If the benchmark is invoked with the option --profile-dir=<dir>, that
-    option overrides this value.
-    """
-    self._pregenerated_profile_archive_dir = archive_path
-
-  def _ShouldDownloadPregeneratedProfileArchive(self):
-    """Whether to download a pre-generated profile archive."""
-    # There is no pre-generated profile archive.
-    if not self.GetPregeneratedProfileArchiveDir():
-      return False
-
-    # If profile dir is specified on command line, use that instead.
-    if self._finder_options.browser_options.profile_dir:
-      logging.warning("Profile directory specified on command line: %s, this"
-                      "overrides the benchmark's default profile directory.",
-                      self._finder_options.browser_options.profile_dir)
-      return False
-
-    # If the browser is remote, a local download has no effect.
-    if self._possible_browser.IsRemote():
-      return False
-
-    return True
-
-  def _DownloadPregeneratedProfileArchive(self):
-    """Download and extract the profile directory archive if one exists.
-
-    On success, updates self._finder_options.browser_options.profile_dir with
-    the directory of the extracted profile.
-    """
-    # Download profile directory from cloud storage.
-    generated_profile_archive_path = self.GetPregeneratedProfileArchiveDir()
-
-    try:
-      cloud_storage.GetIfChanged(generated_profile_archive_path,
-                                 cloud_storage.PUBLIC_BUCKET)
-    except (cloud_storage.CredentialsError,
-            cloud_storage.PermissionError) as e:
-      if os.path.exists(generated_profile_archive_path):
-        # If the profile directory archive exists, assume the user has their
-        # own local copy simply warn.
-        logging.warning('Could not download Profile archive: %s',
-                        generated_profile_archive_path)
-      else:
-        # If the archive profile directory doesn't exist, this is fatal.
-        logging.error('Can not run without required profile archive: %s. '
-                      'If you believe you have credentials, follow the '
-                      'instructions below.',
-                      generated_profile_archive_path)
-        logging.error(str(e))
-        sys.exit(-1)
-
-    # Check to make sure the zip file exists.
-    if not os.path.isfile(generated_profile_archive_path):
-      raise Exception("Profile directory archive not downloaded: ",
-                      generated_profile_archive_path)
-
-    # The location to extract the profile into.
-    extracted_profile_dir_path = (
-        os.path.splitext(generated_profile_archive_path)[0])
-
-    # Unzip profile directory.
-    with zipfile.ZipFile(generated_profile_archive_path) as f:
-      try:
-        f.extractall(os.path.dirname(generated_profile_archive_path))
-      except e:
-        # Cleanup any leftovers from unzipping.
-        if os.path.exists(extracted_profile_dir_path):
-          shutil.rmtree(extracted_profile_dir_path)
-        logging.error("Error extracting profile directory zip file: %s", e)
-        sys.exit(-1)
-
-    # Run with freshly extracted profile directory.
-    logging.info("Using profile archive directory: %s",
-                 extracted_profile_dir_path)
-    self._finder_options.browser_options.profile_dir = (
-        extracted_profile_dir_path)
 
 
 class SharedMobilePageState(SharedPageState):

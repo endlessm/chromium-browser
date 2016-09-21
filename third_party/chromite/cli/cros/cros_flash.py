@@ -51,6 +51,9 @@ Examples:
   cros flash usb:///dev/sde xbuddy://peppy/latest
   cros flash file:///~/images xbuddy://peppy/latest
 
+  # For a recovery image
+  cros flash usb:// xbuddy://remote/link/latest-stable/recovery
+
   For more information and known problems/fixes, please see:
   http://dev.chromium.org/chromium-os/build/cros-flash
 """
@@ -81,10 +84,7 @@ Examples:
     update.add_argument(
         '--board', help='The board to use. By default it is '
         'automatically detected. You can override the detected board with '
-        'this option')
-    update.add_argument('--brick', type='brick_path', help='The brick to use.')
-    update.add_argument('--blueprint', type='blueprint_path',
-                        help='The blueprint to use.')
+        'this option.')
     update.add_argument(
         '--yes', default=False, action='store_true',
         help='Answer yes to any prompt. Use with caution.')
@@ -119,12 +119,6 @@ Examples:
     update.add_argument(
         '--disable-rootfs-verification', default=False, action='store_true',
         help='Disable rootfs verification after update is completed.')
-    update.add_argument(
-        '--project-sdk', nargs='?', const='', metavar='VERSION',
-        help='Install a Project SDK image. This resets the device to a clean '
-        'state and ensures that it is compatible with the development '
-        'environment. The image argument is ignored. If no version provided, '
-        'will use the current SDK version.')
 
     usb = parser.add_argument_group('USB specific options')
     usb.add_argument(
@@ -135,21 +129,11 @@ Examples:
     """Perfrom the cros flash command."""
     self.options.Freeze()
 
-    # For brillo flash, enter the chroot to ensure a consistent environment. We
-    # only do this for brillo because some cros workflows do not want to use the
-    # chroot.
-    if command.GetToolset() == 'brillo':
-      commandline.RunInsideChroot(self)
-
     try:
       flash.Flash(
           self.options.device,
           self.options.image,
-          project_sdk_image=self.options.project_sdk is not None,
-          sdk_version=self.options.project_sdk or None,
           board=self.options.board,
-          brick_name=self.options.brick or self.curr_brick_locator,
-          blueprint_name=self.options.blueprint,
           install=self.options.install,
           src_image_to_delta=self.options.src_image_to_delta,
           rootfs_update=self.options.rootfs_update,

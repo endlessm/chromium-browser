@@ -35,10 +35,11 @@ except ImportError:
 import types
 
 from chromite.cbuildbot import archive_lib
-from chromite.cbuildbot import metadata_lib
 from chromite.cbuildbot import constants
+from chromite.cbuildbot import metadata_lib
 from chromite.cbuildbot import tree_status
 from chromite.lib import cidb
+from chromite.lib import cros_build_lib
 from chromite.lib import portage_util
 
 
@@ -48,6 +49,10 @@ class RunAttributesError(Exception):
   def __str__(self):
     """Handle stringify because base class will just spit out self.args."""
     return self.msg
+
+
+class VersionNotSetError(RuntimeError):
+  """Error raised if trying to access version_info before it's set."""
 
 
 class ParallelAttributeError(AttributeError):
@@ -94,6 +99,10 @@ class AttrTimeoutError(RunAttributesError):
     self.msg = 'Timed out waiting for value for run attribute "%s".' % attr
     super(AttrTimeoutError, self).__init__(self.msg, *args)
     self.args = (attr, ) + tuple(args)
+
+
+class NoAndroidVersionError(Exception):
+  """For when Android version cannot be determined."""
 
 
 class LockableQueue(object):
@@ -146,6 +155,7 @@ class RunAttributes(object):
   """
 
   REGULAR_ATTRS = frozenset((
+      'android_version',  # Set by UprevAndroidStage, if it runs.
       'chrome_version',   # Set by SyncChromeStage, if it runs.
       'manifest_manager', # Set by ManifestVersionedSyncStage.
       'release_tag',      # Set by cbuildbot after sync stage.
@@ -157,14 +167,16 @@ class RunAttributes(object):
   # attribute:  1) a log-friendly pretty name, 2) a rough upper bound timeout
   # value for consumers of the attribute to use when waiting for it.
   BOARD_ATTRS = frozenset((
-      'breakpad_symbols_generated', # Set by DebugSymbolsStage.
-      'debug_tarball_generated',    # Set by DebugSymbolsStage.
-      'images_generated',           # Set by BuildImageStage.
-      'payloads_generated',         # Set by UploadHWTestArtifacts.
-      'delta_payloads_generated',   # Set by UploadHWTestArtifacts.
+      'breakpad_symbols_generated',   # Set by DebugSymbolsStage.
+      'debug_tarball_generated',      # Set by DebugSymbolsStage.
+      'images_generated',             # Set by BuildImageStage.
+      'payloads_generated',           # Set by UploadHWTestArtifacts.
+      'delta_payloads_generated',     # Set by UploadHWTestArtifacts.
       'instruction_urls_per_channel', # Set by ArchiveStage
-      'success',                    # Set by cbuildbot.py:Builder
-      'packages_under_test',        # Set by BuildPackagesStage.
+      'success',                      # Set by cbuildbot.py:Builder
+      'packages_under_test',          # Set by BuildPackagesStage.
+      'signed_images_ready',          # Set by SigningStage
+      'paygen_test_payloads_ready',   # Set by PaygenStage
   ))
 
   # Attributes that need to be set by stages that can run in parallel
@@ -273,11 +285,7 @@ class RunAttributes(object):
       target: Build config name.
     """
     unique_attr = self._GetBoardAttrName(attr, board, target)
-    try:
-      self.SetParallel(unique_attr, value)
-    except ParallelAttributeError:
-      # Clarify the AttributeError.
-      raise ParallelAttributeError(attr, board=board, target=target)
+    self.SetParallel(unique_attr, value)
 
   def HasBoardParallel(self, attr, board, target):
     """Return True if board-specific parallel run attribute is known and set.
@@ -315,11 +323,7 @@ class RunAttributes(object):
       The value found.
     """
     unique_attr = self._GetBoardAttrName(attr, board, target)
-    try:
-      return self.GetParallel(unique_attr, timeout=timeout)
-    except ParallelAttributeError:
-      # Clarify the AttributeError.
-      raise ParallelAttributeError(attr, board=board, target=target)
+    return self.GetParallel(unique_attr, timeout=timeout)
 
   def _GetQueue(self, attr, strict=False):
     """Return the queue for the given attribute, if it exists.
@@ -575,10 +579,6 @@ class _BuilderRunBase(object):
       # Some attributes are available as properties.  In particular, attributes
       # that use self.config must be determined after __init__.
       # self.bot_id      # Effective name of builder for this run.
-
-      # TODO(mtennant): Other candidates here include:
-      # trybot, buildbot, remote_trybot, chrome_root,
-      # test = (config build_tests AND option tests)
   )
 
   def __init__(self, site_config, options, multiprocess_manager):
@@ -622,6 +622,7 @@ class _BuilderRunBase(object):
 
     # Certain run attributes have sensible defaults which can be set here.
     # This allows all code to safely assume that the run attribute exists.
+    attrs.android_version = None
     attrs.chrome_version = None
     attrs.metadata = metadata_lib.CBuildbotMetadata(
         multiprocess_manager=multiprocess_manager)
@@ -661,10 +662,20 @@ class _BuilderRunBase(object):
     # Metadata dictionary may not have been written at this time (it
     # should be written in the BuildStartStage), fall back to get the
     # environment variable in that case. Assume we are on the trybot
-    # waterfall no waterfall can be found.
+    # waterfall if no waterfall can be found.
     return (self.attrs.metadata.GetDict().get('buildbot-master-name') or
             os.environ.get('BUILDBOT_MASTERNAME') or
             constants.WATERFALL_TRYBOT)
+
+  def GetBuildbotUrl(self):
+    """Gets the URL of the waterfall hosting the current build."""
+    # Metadata dictionary may not have been written at this time (it
+    # should be written in the BuildStartStage), fall back to the
+    # environment variable in that case. Assume we are on the trybot
+    # waterfall if no waterfall can be found.
+    return (self.attrs.metadata.GetDict().get('buildbot-url') or
+            os.environ.get('BUILDBOT_BUILDBOTURL') or
+            constants.TRYBOT_DASHBOARD)
 
   def GetBuilderName(self):
     """Get the name of this builder on the current waterfall."""
@@ -682,13 +693,13 @@ class _BuilderRunBase(object):
       The fully formed URL
     """
     return tree_status.ConstructDashboardURL(
-        self.GetWaterfall(),
+        self.GetBuildbotUrl(),
         self.GetBuilderName(),
         self.options.buildnumber, stage=stage)
 
   def ShouldBuildAutotest(self):
     """Return True if this run should build autotest and artifacts."""
-    return self.config.build_tests and self.options.tests
+    return self.options.tests
 
   def ShouldUploadPrebuilts(self):
     """Return True if this run should upload prebuilts."""
@@ -732,6 +743,11 @@ class _BuilderRunBase(object):
     """Return True if this is a production run."""
     return cidb.CIDBConnectionFactory.GetCIDBConnectionType() == 'prod'
 
+  def InEmailReportingEnvironment(self):
+    """Return True if this run should send reporting emails.."""
+    in_email_waterfall = self.GetWaterfall() in constants.EMAIL_WATERFALLS
+    return self.InProduction() or in_email_waterfall
+
   def GetVersionInfo(self):
     """Helper for picking apart various version bits.
 
@@ -743,10 +759,10 @@ class _BuilderRunBase(object):
       A manifest_version.VersionInfo object.
 
     Raises:
-      RuntimeError if the version has not yet been set.
+      VersionNotSetError if the version has not yet been set.
     """
     if not hasattr(self.attrs, 'version_info'):
-      raise RuntimeError('builder must call SetVersionInfo first')
+      raise VersionNotSetError('builder must call SetVersionInfo first')
     return self.attrs.version_info
 
   def GetVersion(self):
@@ -768,6 +784,47 @@ class _BuilderRunBase(object):
                                      self.buildnumber)
 
     return calc_version
+
+  def DetermineAndroidVersion(self, boards=None):
+    """Determine the current Android version in buildroot now and return it.
+
+    This uses the typical portage logic to determine which version of Android
+    is active right now in the buildroot.
+
+    Args:
+      boards: List of boards to check version of.
+
+    Returns:
+      The Android build ID of the container for the boards.
+
+    Raises:
+      NoAndroidVersionError: if no unique Android version can be determined.
+    """
+    version = None
+    try:
+      if boards:
+        # Verify that all boards have the same version.
+        for board in boards:
+          cpv = portage_util.BestVisible(constants.ANDROID_CP,
+                                         buildroot=self.buildroot,
+                                         board=board)
+          if version is None:
+            version = cpv.version_no_rev
+          elif version != cpv.version_no_rev:
+            raise NoAndroidVersionError(
+                'Different Android versions (%s vs %s) for %s' %
+                (version, cpv.version_no_rev, boards))
+
+      else:
+        # This is expected to fail until ANDROID_CP is in the main overlays.
+        cpv = portage_util.BestVisible(constants.ANDROID_CP,
+                                       buildroot=self.buildroot)
+        version = cpv.version_no_rev
+    except cros_build_lib.RunCommandError as ex:
+      raise NoAndroidVersionError(
+          'Android version could not be determined for %s' % boards, ex)
+
+    return version
 
   def DetermineChromeVersion(self):
     """Determine the current Chrome version in buildroot now and return it.

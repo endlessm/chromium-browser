@@ -525,6 +525,10 @@ type ProtocolBugs struct {
 	// two records.
 	FragmentAlert bool
 
+	// DoubleAlert will cause all alerts to be sent as two copies packed
+	// within one record.
+	DoubleAlert bool
+
 	// SendSpuriousAlert, if non-zero, will cause an spurious, unwanted
 	// alert to be sent.
 	SendSpuriousAlert alert
@@ -783,6 +787,10 @@ type ProtocolBugs struct {
 	// on connection shutdown.
 	NoCloseNotify bool
 
+	// SendAlertOnShutdown, if non-zero, is the alert to send instead of
+	// close_notify on shutdown.
+	SendAlertOnShutdown alert
+
 	// ExpectCloseNotify, if true, requires a close_notify from the peer on
 	// shutdown. Records from the peer received after close_notify is sent
 	// are not discard.
@@ -830,6 +838,10 @@ type ProtocolBugs struct {
 	// NullAllCiphers, if true, causes every cipher to behave like the null
 	// cipher.
 	NullAllCiphers bool
+
+	// SendSCTListOnResume, if not nil, causes the server to send the
+	// supplied SCT list in resumption handshakes.
+	SendSCTListOnResume []byte
 }
 
 func (c *Config) serverInit() {

@@ -47,12 +47,12 @@
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/profiles/profile_window.h"
 #include "chrome/browser/renderer_context_menu/context_menu_content_type_factory.h"
+#include "chrome/browser/renderer_context_menu/open_with_menu_factory.h"
 #include "chrome/browser/renderer_context_menu/spelling_menu_observer.h"
 #include "chrome/browser/search/search.h"
 #include "chrome/browser/search_engines/template_url_service_factory.h"
 #include "chrome/browser/spellchecker/spellcheck_host_metrics.h"
 #include "chrome/browser/spellchecker/spellcheck_service.h"
-#include "chrome/browser/ssl/chrome_security_state_model_client.h"
 #include "chrome/browser/tab_contents/retargeting_details.h"
 #include "chrome/browser/translate/chrome_translate_client.h"
 #include "chrome/browser/translate/translate_service.h"
@@ -101,6 +101,7 @@
 #include "content/public/browser/render_widget_host_view.h"
 #include "content/public/browser/user_metrics.h"
 #include "content/public/browser/web_contents.h"
+#include "content/public/common/browser_plugin_guest_mode.h"
 #include "content/public/common/menu_item.h"
 #include "content/public/common/ssl_status.h"
 #include "content/public/common/url_utils.h"
@@ -161,7 +162,6 @@ using content::BrowserContext;
 using content::ChildProcessSecurityPolicy;
 using content::DownloadManager;
 using content::DownloadUrlParameters;
-using content::NavigationController;
 using content::NavigationEntry;
 using content::OpenURLParams;
 using content::RenderFrameHost;
@@ -291,9 +291,23 @@ const struct UmaEnumCommandIdPair {
     {71, -1, IDC_OPEN_LINK_IN_PROFILE_FIRST},
     {72, -1, IDC_CONTENT_CONTEXT_GENERATEPASSWORD},
     {73, -1, IDC_SPELLCHECK_MULTI_LINGUAL},
+    {74, -1, IDC_CONTENT_CONTEXT_OPEN_WITH1},
+    {75, -1, IDC_CONTENT_CONTEXT_OPEN_WITH2},
+    {76, -1, IDC_CONTENT_CONTEXT_OPEN_WITH3},
+    {77, -1, IDC_CONTENT_CONTEXT_OPEN_WITH4},
+    {78, -1, IDC_CONTENT_CONTEXT_OPEN_WITH5},
+    {79, -1, IDC_CONTENT_CONTEXT_OPEN_WITH6},
+    {80, -1, IDC_CONTENT_CONTEXT_OPEN_WITH7},
+    {81, -1, IDC_CONTENT_CONTEXT_OPEN_WITH8},
+    {82, -1, IDC_CONTENT_CONTEXT_OPEN_WITH9},
+    {83, -1, IDC_CONTENT_CONTEXT_OPEN_WITH10},
+    {84, -1, IDC_CONTENT_CONTEXT_OPEN_WITH11},
+    {85, -1, IDC_CONTENT_CONTEXT_OPEN_WITH12},
+    {86, -1, IDC_CONTENT_CONTEXT_OPEN_WITH13},
+    {87, -1, IDC_CONTENT_CONTEXT_OPEN_WITH14},
     // Add new items here and use |enum_id| from the next line.
     // Also, add new items to RenderViewContextMenuItem enum in histograms.xml.
-    {74, -1, 0},  // Must be the last. Increment |enum_id| when new IDC
+    {88, -1, 0},  // Must be the last. Increment |enum_id| when new IDC
                   // was added.
 };
 
@@ -487,15 +501,19 @@ gfx::Vector2d RenderViewContextMenu::GetOffset(
     RenderFrameHost* render_frame_host) {
   gfx::Vector2d offset;
 #if defined(ENABLE_EXTENSIONS)
-  WebContents* web_contents =
-      WebContents::FromRenderFrameHost(render_frame_host);
-  WebContents* top_level_web_contents =
-      guest_view::GuestViewBase::GetTopLevelWebContents(web_contents);
-  if (web_contents && top_level_web_contents &&
-      web_contents != top_level_web_contents) {
-    gfx::Rect bounds = web_contents->GetContainerBounds();
-    gfx::Rect top_level_bounds = top_level_web_contents->GetContainerBounds();
-    offset = bounds.origin() - top_level_bounds.origin();
+  // When --use-cross-process-frames-for-guests is enabled, the position is
+  // transformed in the browser process hittesting code.
+  if (!content::BrowserPluginGuestMode::UseCrossProcessFramesForGuests()) {
+    WebContents* web_contents =
+        WebContents::FromRenderFrameHost(render_frame_host);
+    WebContents* top_level_web_contents =
+        guest_view::GuestViewBase::GetTopLevelWebContents(web_contents);
+    if (web_contents && top_level_web_contents &&
+        web_contents != top_level_web_contents) {
+      gfx::Rect bounds = web_contents->GetContainerBounds();
+      gfx::Rect top_level_bounds = top_level_web_contents->GetContainerBounds();
+      offset = bounds.origin() - top_level_bounds.origin();
+    }
   }
 #endif  // defined(ENABLE_EXTENSIONS)
   return offset;
@@ -945,6 +963,8 @@ void RenderViewContextMenu::AppendLinkItems() {
     menu_model_.AddItemWithStringId(IDC_CONTENT_CONTEXT_OPENLINKOFFTHERECORD,
                                     IDS_CONTENT_CONTEXT_OPENLINKOFFTHERECORD);
 
+    AppendOpenWithLinkItems();
+
     // While ChromeOS supports multiple profiles, only one can be open at a
     // time.
     // TODO(jochen): Consider adding support for ChromeOS with similar
@@ -1037,6 +1057,14 @@ void RenderViewContextMenu::AppendLinkItems() {
       !params_.link_text.empty()) {
     menu_model_.AddItemWithStringId(IDC_CONTENT_CONTEXT_COPYLINKTEXT,
                                     IDS_CONTENT_CONTEXT_COPYLINKTEXT);
+  }
+}
+
+void RenderViewContextMenu::AppendOpenWithLinkItems() {
+  open_with_menu_observer_.reset(OpenWithMenuFactory::CreateMenu(this));
+  if (open_with_menu_observer_) {
+    observers_.AddObserver(open_with_menu_observer_.get());
+    open_with_menu_observer_->InitMenu(params_);
   }
 }
 
@@ -1436,14 +1464,6 @@ bool RenderViewContextMenu::IsCommandIdEnabled(int id) const {
     case IDC_CONTENT_CONTEXT_RESTART_PACKAGED_APP:
       return IsDevCommandEnabled(id);
 
-    case IDC_CONTENT_CONTEXT_VIEWPAGEINFO:
-      if (embedder_web_contents_->GetController().GetVisibleEntry() == NULL)
-        return false;
-      // Disabled if no browser is associated (e.g. desktop notifications).
-      if (chrome::FindBrowserWithWebContents(embedder_web_contents_) == NULL)
-        return false;
-      return true;
-
     case IDC_CONTENT_CONTEXT_TRANSLATE: {
       ChromeTranslateClient* chrome_translate_client =
           ChromeTranslateClient::FromWebContents(embedder_web_contents_);
@@ -1805,7 +1825,7 @@ void RenderViewContextMenu::ExecuteCommand(int id, int event_flags) {
       content::Referrer referrer = CreateReferrer(url, params_);
       DownloadManager* dlm =
           BrowserContext::GetDownloadManager(browser_context_);
-      scoped_ptr<DownloadUrlParameters> dl_params(
+      std::unique_ptr<DownloadUrlParameters> dl_params(
           DownloadUrlParameters::FromWebContents(source_web_contents_, url));
       dl_params->set_referrer(referrer);
       dl_params->set_referrer_encoding(params_.frame_charset);
@@ -2038,26 +2058,6 @@ void RenderViewContextMenu::ExecuteCommand(int id, int event_flags) {
       break;
     }
 
-    case IDC_CONTENT_CONTEXT_VIEWPAGEINFO: {
-      NavigationController* controller =
-          &embedder_web_contents_->GetController();
-      // Important to use GetVisibleEntry to match what's showing in the
-      // omnibox.  This may return null.
-      NavigationEntry* nav_entry = controller->GetVisibleEntry();
-      if (!nav_entry)
-        return;
-      Browser* browser =
-          chrome::FindBrowserWithWebContents(embedder_web_contents_);
-      ChromeSecurityStateModelClient* security_model_client =
-          ChromeSecurityStateModelClient::FromWebContents(
-              embedder_web_contents_);
-      DCHECK(security_model_client);
-      chrome::ShowWebsiteSettings(browser, embedder_web_contents_,
-                                  nav_entry->GetURL(),
-                                  security_model_client->GetSecurityInfo());
-      break;
-    }
-
     case IDC_CONTENT_CONTEXT_TRANSLATE: {
       // A translation might have been triggered by the time the menu got
       // selected, do nothing in that case.
@@ -2075,7 +2075,7 @@ void RenderViewContextMenu::ExecuteCommand(int id, int event_flags) {
           translate::TranslateDownloadManager::GetLanguageCode(target_lang);
       // Since the user decided to translate for that language and site, clears
       // any preferences for not translating them.
-      scoped_ptr<translate::TranslatePrefs> prefs(
+      std::unique_ptr<translate::TranslatePrefs> prefs(
           ChromeTranslateClient::CreateTranslatePrefs(
               GetPrefs(browser_context_)));
       prefs->UnblockLanguage(original_lang);

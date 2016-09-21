@@ -126,8 +126,17 @@ class GitWrappersTest(cros_build_lib_unittest.RunCommandTempDirTestCase):
     git.Init(self.fake_path)
 
     # Should have created the git repo directory, if it didn't exist.
-    os.path.exists(self.fake_git_dir)
+    self.assertExists(self.fake_git_dir)
     self.assertCommandContains(['init'])
+
+  def testClone(self):
+    url = 'http://happy/git/repo'
+
+    git.Clone(self.fake_git_dir, url)
+
+    # Should have created the git repo directory, if it didn't exist.
+    self.assertExists(self.fake_git_dir)
+    self.assertCommandContains(['clone', url, self.fake_git_dir])
 
   def testAddPath(self):
     git.AddPath(self.fake_path)
@@ -297,7 +306,7 @@ class GitPushTest(cros_test_lib.MockTestCase):
     """Runs git.GitPush with some default arguments."""
     git.GitPush('some_repo_path', 'local-ref',
                 git.RemoteRef('some-remote', 'remote-ref'),
-                dryrun=True, retry=True)
+                retry=True, skip=False)
 
   def testPushSuccess(self):
     """Test handling of successful git push."""

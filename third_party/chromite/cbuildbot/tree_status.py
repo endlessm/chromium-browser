@@ -377,7 +377,7 @@ def SendHealthAlert(builder_run, subject, body, extra_fields=None):
                   to be added to the message. Custom field names should begin
                   with the prefix 'X-'.
   """
-  if builder_run.InProduction():
+  if builder_run.InEmailReportingEnvironment():
     server = alerts.GmailServer(
         token_cache_file=constants.GMAIL_TOKEN_CACHE_FILE,
         token_json_file=constants.GMAIL_TOKEN_JSON_FILE)
@@ -388,11 +388,12 @@ def SendHealthAlert(builder_run, subject, body, extra_fields=None):
                      extra_fields=extra_fields)
 
 
-def ConstructDashboardURL(waterfall, builder_name, build_number, stage=None):
+def ConstructDashboardURL(buildbot_url, builder_name, build_number,
+                          stage=None):
   """Return the dashboard (buildbot) URL for this run
 
   Args:
-    waterfall: One of constants.ALL_WATERFALLS
+    buildbot_url: Base URL for the waterfall.
     builder_name: Builder name on buildbot dashboard.
     build_number: Build number for this validation attempt.
     stage: Link directly to a stage log, else use the general landing page.
@@ -400,9 +401,8 @@ def ConstructDashboardURL(waterfall, builder_name, build_number, stage=None):
   Returns:
     The fully formed URL.
   """
-  build_dashboard = constants.WATERFALL_TO_DASHBOARD[waterfall]
   url_suffix = 'builders/%s/builds/%s' % (builder_name, str(build_number))
   if stage:
     url_suffix += '/steps/%s/logs/stdio' % (stage,)
   url_suffix = urllib.quote(url_suffix)
-  return os.path.join(build_dashboard, url_suffix)
+  return os.path.join(buildbot_url, url_suffix)

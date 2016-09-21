@@ -41,6 +41,7 @@ class NonClassTests(cros_test_lib.MockTestCase):
 
     git_log = 'Marking test_one as stable\nMarking test_two as stable\n'
     fake_description = 'Marking set of ebuilds as stable\n\n%s' % git_log
+    self.PatchObject(git, 'DoesCommitExistInRepo', return_value=True)
     self.PatchObject(cros_mark_as_stable, '_DoWeHaveLocalCommits',
                      return_value=True)
     self.PatchObject(cros_mark_as_stable.GitBranch, 'CreateBranch',
@@ -55,6 +56,8 @@ class NonClassTests(cros_test_lib.MockTestCase):
     sync_mock = self.PatchObject(git, 'SyncPushBranch')
     create_mock = self.PatchObject(git, 'CreatePushBranch')
     git_mock = self.StartPatcher(RunGitMock())
+
+    git_mock.AddCmdResult(['checkout', self._branch])
 
     cmd = ['log', '--format=short', '--perl-regexp', '--author',
            '^(?!chrome-bot)', 'refs/remotes/gerrit/master..%s' % self._branch]
@@ -72,14 +75,13 @@ class NonClassTests(cros_test_lib.MockTestCase):
       git_mock.AddCmdResult(['commit', '-m', fake_description])
       git_mock.AddCmdResult(['config', 'push.default', 'tracking'])
 
-    try:
-      cros_mark_as_stable.PushChange(self._branch, self._target_manifest_branch,
-                                     False, '.')
-    finally:
-      sync_mock.assert_called_with('.', 'gerrit', 'refs/remotes/gerrit/master')
-      if not bad_cls:
-        push_mock.assert_called_with('merge_branch', '.', dryrun=False)
-        create_mock.assert_called_with('merge_branch', '.')
+    cros_mark_as_stable.PushChange(self._branch, self._target_manifest_branch,
+                                   False, '.')
+    sync_mock.assert_called_with('.', 'gerrit', 'refs/remotes/gerrit/master')
+    if not bad_cls:
+      push_mock.assert_called_with('merge_branch', '.', dryrun=False)
+      create_mock.assert_called_with('merge_branch', '.',
+                                     remote_push_branch=mock.ANY)
 
   def testPushChange(self):
     """Verify pushing changes works."""
@@ -98,12 +100,13 @@ class CleanStalePackagesTest(cros_build_lib_unittest.RunCommandTestCase):
 
   def testNormalClean(self):
     """Clean up boards/packages with normal success"""
-    cros_mark_as_stable.CleanStalePackages(('board1', 'board2'), ['cow', 'car'])
+    cros_mark_as_stable.CleanStalePackages('.', ('board1', 'board2'),
+                                           ['cow', 'car'])
 
   def testNothingToUnmerge(self):
     """Clean up packages that don't exist (portage will exit 1)"""
     self.rc.AddCmdResult(partial_mock.In('emerge'), returncode=1)
-    cros_mark_as_stable.CleanStalePackages((), ['no/pkg'])
+    cros_mark_as_stable.CleanStalePackages('.', (), ['no/pkg'])
 
   def testUnmergeError(self):
     """Make sure random exit errors are not ignored"""
@@ -111,7 +114,7 @@ class CleanStalePackagesTest(cros_build_lib_unittest.RunCommandTestCase):
     with parallel_unittest.ParallelMock():
       self.assertRaises(cros_build_lib.RunCommandError,
                         cros_mark_as_stable.CleanStalePackages,
-                        (), ['no/pkg'])
+                        '.', (), ['no/pkg'])
 
 
 class GitBranchTest(cros_test_lib.MockTestCase):

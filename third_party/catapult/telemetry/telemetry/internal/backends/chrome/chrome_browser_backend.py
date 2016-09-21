@@ -26,8 +26,7 @@ class ChromeBrowserBackend(browser_backend.BrowserBackend):
   # It is OK to have abstract methods. pylint: disable=abstract-method
 
   def __init__(self, platform_backend, supports_tab_control,
-               supports_extensions, browser_options, output_profile_path,
-               extensions_to_load):
+               supports_extensions, browser_options):
     super(ChromeBrowserBackend, self).__init__(
         platform_backend=platform_backend,
         supports_extensions=supports_extensions,
@@ -39,8 +38,8 @@ class ChromeBrowserBackend(browser_backend.BrowserBackend):
     self._devtools_client = None
     self._system_info_backend = None
 
-    self._output_profile_path = output_profile_path
-    self._extensions_to_load = extensions_to_load
+    self._output_profile_path = browser_options.output_profile_path
+    self._extensions_to_load = browser_options.extensions_to_load
 
     if (self.browser_options.dont_override_profile and
         not options_for_unittests.AreSet()):
@@ -238,19 +237,13 @@ class ChromeBrowserBackend(browser_backend.BrowserBackend):
   def supports_tracing(self):
     return True
 
-  def StartTracing(self, trace_options, custom_categories=None,
+  def StartTracing(self, trace_options,
                    timeout=web_contents.DEFAULT_WEB_CONTENTS_TIMEOUT):
     """
     Args:
         trace_options: An tracing_options.TracingOptions instance.
-        custom_categories: An optional string containing a list of
-                         comma separated categories that will be traced
-                         instead of the default category set.  Example: use
-                         "webkit,cc,disabled-by-default-cc.debug" to trace only
-                         those three event categories.
     """
-    return self.devtools_client.StartChromeTracing(
-        trace_options, custom_categories, timeout)
+    return self.devtools_client.StartChromeTracing(trace_options, timeout)
 
   def StopTracing(self, trace_data_builder):
     self.devtools_client.StopChromeTracing(trace_data_builder)

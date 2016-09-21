@@ -44,7 +44,8 @@ class FakeCIDBConnection(object):
 
   def InsertBuild(self, builder_name, waterfall, build_number,
                   build_config, bot_hostname, master_build_id=None,
-                  timeout_seconds=None, status=constants.BUILDER_STATUS_PASSED):
+                  timeout_seconds=None, status=constants.BUILDER_STATUS_PASSED,
+                  important=None):
     """Insert a build row.
 
     Note this API slightly differs from cidb as we pass status to avoid having
@@ -66,7 +67,9 @@ class FakeCIDBConnection(object):
            'start_time': datetime.datetime.now(),
            'master_build_id' : master_build_id,
            'deadline': deadline,
-           'status': status}
+           'status': status,
+           'finish_time': datetime.datetime.now(),
+           'important': important}
     self.buildTable.append(row)
     return build_id
 
@@ -81,7 +84,8 @@ class FakeCIDBConnection(object):
          'full_version': versions.get('full'),
          'sdk_version': d.get('sdk-versions'),
          'toolchain_url': d.get('toolchain-url'),
-         'build_type': d.get('build_type')})
+         'build_type': d.get('build_type'),
+         'important': d.get('important')})
     return 1
 
   def InsertCLActions(self, build_id, cl_actions, timestamp=None):
@@ -143,6 +147,13 @@ class FakeCIDBConnection(object):
     self.buildStageTable[build_stage_id]['status'] = (
         constants.BUILDER_STATUS_INFLIGHT)
 
+  def WaitBuildStage(self, build_stage_id):
+    if build_stage_id > len(self.buildStageTable):
+      return
+
+    self.buildStageTable[build_stage_id]['status'] = (
+        constants.BUILDER_STATUS_WAITING)
+
   def ExtendDeadline(self, build_id, timeout):
     # No sanity checking in fake object.
     now = datetime.datetime.now()
@@ -194,6 +205,11 @@ class FakeCIDBConnection(object):
     """Gets the status of the builds."""
     return [self.buildTable[x -1] for x in build_ids]
 
+  def GetSlaveStatuses(self, master_build_id):
+    """Gets the slaves of given build."""
+    return [b for b in self.buildTable
+            if b['master_build_id'] == master_build_id]
+
   def GetBuildHistory(self, build_config, num_results,
                       ignore_build_id=None, start_date=None, end_date=None,
                       starting_build_number=None):
@@ -218,6 +234,7 @@ class FakeCIDBConnection(object):
     if end_date is not None:
       build_configs = [b for b in build_configs
                        if 'finish_time' in b and
+                       b['finish_time'] and
                        b['finish_time'].date() <= end_date]
     if starting_build_number is not None:
       build_configs = [b for b in build_configs

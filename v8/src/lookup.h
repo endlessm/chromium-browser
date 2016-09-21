@@ -16,17 +16,14 @@ class LookupIterator final BASE_EMBEDDED {
  public:
   enum Configuration {
     // Configuration bits.
-    kHidden = 1 << 0,
-    kInterceptor = 1 << 1,
-    kPrototypeChain = 1 << 2,
+    kInterceptor = 1 << 0,
+    kPrototypeChain = 1 << 1,
 
     // Convience combinations of bits.
     OWN_SKIP_INTERCEPTOR = 0,
     OWN = kInterceptor,
-    HIDDEN_SKIP_INTERCEPTOR = kHidden,
-    HIDDEN = kHidden | kInterceptor,
-    PROTOTYPE_CHAIN_SKIP_INTERCEPTOR = kHidden | kPrototypeChain,
-    PROTOTYPE_CHAIN = kHidden | kPrototypeChain | kInterceptor,
+    PROTOTYPE_CHAIN_SKIP_INTERCEPTOR = kPrototypeChain,
+    PROTOTYPE_CHAIN = kPrototypeChain | kInterceptor,
     DEFAULT = PROTOTYPE_CHAIN
   };
 
@@ -179,6 +176,7 @@ class LookupIterator final BASE_EMBEDDED {
   Handle<Object> GetReceiver() const { return receiver_; }
 
   Handle<JSObject> GetStoreTarget() const {
+    DCHECK(receiver_->IsJSObject());
     if (receiver_->IsJSGlobalProxy()) {
       Map* map = JSGlobalProxy::cast(*receiver_)->map();
       if (map->has_hidden_prototype()) {
@@ -229,8 +227,8 @@ class LookupIterator final BASE_EMBEDDED {
   void ReconfigureDataProperty(Handle<Object> value,
                                PropertyAttributes attributes);
   void Delete();
-  void TransitionToAccessorProperty(AccessorComponent component,
-                                    Handle<Object> accessor,
+  void TransitionToAccessorProperty(Handle<Object> getter,
+                                    Handle<Object> setter,
                                     PropertyAttributes attributes);
   void TransitionToAccessorPair(Handle<Object> pair,
                                 PropertyAttributes attributes);
@@ -263,9 +261,12 @@ class LookupIterator final BASE_EMBEDDED {
   Handle<Object> GetDataValue() const;
   void WriteDataValue(Handle<Object> value);
   inline void UpdateProtector() {
-    if (FLAG_harmony_species && !IsElement() &&
-        (*name_ == heap()->constructor_string() ||
-         *name_ == heap()->species_symbol())) {
+    if (IsElement()) return;
+    if (*name_ == heap()->is_concat_spreadable_symbol() ||
+        (FLAG_harmony_species && (*name_ == heap()->constructor_string() ||
+                                  *name_ == heap()->species_symbol())) ||
+        (FLAG_harmony_instanceof &&
+         (*name_ == heap()->has_instance_symbol()))) {
       InternalUpdateProtector();
     }
   }
@@ -315,7 +316,6 @@ class LookupIterator final BASE_EMBEDDED {
                       : holder->GetNamedInterceptor();
   }
 
-  bool check_hidden() const { return (configuration_ & kHidden) != 0; }
   bool check_interceptor() const {
     return (configuration_ & kInterceptor) != 0;
   }
@@ -334,12 +334,7 @@ class LookupIterator final BASE_EMBEDDED {
 
   static Configuration ComputeConfiguration(
       Configuration configuration, Handle<Name> name) {
-    if (name->IsPrivate()) {
-      return static_cast<Configuration>(configuration &
-                                        HIDDEN_SKIP_INTERCEPTOR);
-    } else {
-      return configuration;
-    }
+    return name->IsPrivate() ? OWN_SKIP_INTERCEPTOR : configuration;
   }
 
   static Handle<JSReceiver> GetRootForNonJSReceiver(
@@ -352,8 +347,6 @@ class LookupIterator final BASE_EMBEDDED {
   }
 
   State NotFound(JSReceiver* const holder) const;
-
-  bool HolderIsInContextIndex(uint32_t index) const;
 
   // If configuration_ becomes mutable, update
   // HolderIsReceiverOrHiddenPrototype.

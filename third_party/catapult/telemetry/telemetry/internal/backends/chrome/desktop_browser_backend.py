@@ -78,49 +78,23 @@ def GenerateBreakpadSymbols(minidump, arch, os_name, symbols_dir, browser_dir):
   logging.info('Dumping breakpad symbols.')
   generate_breakpad_symbols_command = binary_manager.FetchPath(
       'generate_breakpad_symbols', arch, os_name)
+  if not generate_breakpad_symbols_command:
+    return
 
   for binary_path in GetSymbolBinaries(minidump, arch, os_name):
-    symbols_found = False
-    # Check if we have a symbol file for this binary path. Breakpad symbol files
-    # are of the form "$BINARY.breakpad.$ARCH" next to the binary file. We can
-    # simply look for any files which match this pattern and copy the files into
-    # the symbol directory.
-    symbols = glob.glob('%s.breakpad*' % binary_path)
-    if symbols:
-      for symbol_file in sorted(symbols, key=os.path.getmtime, reverse=True):
-        if not os.path.isfile(symbol_file):
-          continue
-        if os.path.getmtime(symbol_file) < os.path.getmtime(binary_path):
-          continue
-        with open(symbol_file, 'r') as f:
-          fields = f.readline().split()
-          if not fields:
-            continue
-          sha = fields[3]
-          binary = ' '.join(fields[4:])
+    cmd = [
+        sys.executable,
+        generate_breakpad_symbols_command,
+        '--binary=%s' % binary_path,
+        '--symbols-dir=%s' % symbols_dir,
+        '--build-dir=%s' % browser_dir,
+        ]
 
-        # The symbol directory has form: "$SYMBOL/$BINARY/$HASH/$BINARY.sym".
-        symbol_output = os.path.join(symbols_dir, binary, sha, binary + '.sym')
-        if not os.path.isfile(symbol_output):
-          os.makedirs(os.path.dirname(symbol_output))
-          shutil.copyfile(symbol_file, symbol_output)
-          symbols_found = True
-
-    # See if we can generate the symbols locally.
-    if not symbols_found and generate_breakpad_symbols_command:
-      cmd = [
-          sys.executable,
-          generate_breakpad_symbols_command,
-          '--binary=%s' % binary_path,
-          '--symbols-dir=%s' % symbols_dir,
-          '--build-dir=%s' % browser_dir,
-          ]
-
-      try:
-        subprocess.check_call(cmd, stderr=open(os.devnull, 'w'))
-      except subprocess.CalledProcessError:
-        logging.warning('Failed to execute "%s"' % ' '.join(cmd))
-        return
+    try:
+      subprocess.check_call(cmd, stderr=open(os.devnull, 'w'))
+    except subprocess.CalledProcessError:
+      logging.warning('Failed to execute "%s"' % ' '.join(cmd))
+      return
 
 
 class DesktopBrowserBackend(chrome_browser_backend.ChromeBrowserBackend):
@@ -128,15 +102,12 @@ class DesktopBrowserBackend(chrome_browser_backend.ChromeBrowserBackend):
   Mac or Windows.
   """
   def __init__(self, desktop_platform_backend, browser_options, executable,
-               flash_path, is_content_shell, browser_directory,
-               output_profile_path, extensions_to_load):
+               flash_path, is_content_shell, browser_directory):
     super(DesktopBrowserBackend, self).__init__(
         desktop_platform_backend,
         supports_tab_control=not is_content_shell,
         supports_extensions=not is_content_shell,
-        browser_options=browser_options,
-        output_profile_path=output_profile_path,
-        extensions_to_load=extensions_to_load)
+        browser_options=browser_options)
 
     # Initialize fields so that an explosion during init doesn't break in Close.
     self._proc = None
@@ -151,6 +122,8 @@ class DesktopBrowserBackend(chrome_browser_backend.ChromeBrowserBackend):
     self._flash_path = flash_path
 
     self._is_content_shell = is_content_shell
+
+    extensions_to_load = browser_options.extensions_to_load
 
     if len(extensions_to_load) > 0 and is_content_shell:
       raise browser_backend.ExtensionsNotSupportedException(
@@ -500,16 +473,23 @@ class DesktopBrowserBackend(chrome_browser_backend.ChromeBrowserBackend):
       return '<Missing link>'
 
   def GetStackTrace(self):
+    """Returns a stack trace if a valid minidump is found, will return a tuple
+       (valid, output) where valid will be True if a valid minidump was found
+       and output will contain either an error message or the attempt to
+       symbolize the minidump if one was found.
+    """
     most_recent_dump = self._GetMostRecentMinidump()
     if not most_recent_dump:
-      return 'No crash dump found.'
+      return (False, 'No crash dump found.')
     logging.info('Minidump found: %s' % most_recent_dump)
     stack = self._GetStackFromMinidump(most_recent_dump)
     if not stack:
       cloud_storage_link = self._UploadMinidumpToCloudStorage(most_recent_dump)
-      return ('Failed to symbolize minidump. Raw stack is uploaded to cloud '
-              'storage: %s.' % cloud_storage_link)
-    return stack
+      error_message = ('Failed to symbolize minidump. Raw stack is uploaded to'
+                       ' cloud storage: %s.' % cloud_storage_link)
+      return (False, error_message)
+
+    return (True, stack)
 
   def __del__(self):
     self.Close()

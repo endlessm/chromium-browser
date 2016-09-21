@@ -5,8 +5,8 @@ import unittest
 
 from telemetry.core import exceptions
 from telemetry import decorators
+from telemetry.internal.actions import action_runner as action_runner_module
 from telemetry.internal.actions import page_action
-from telemetry.page import action_runner as action_runner_module
 from telemetry.testing import tab_test_case
 import mock
 from telemetry.timeline import model
@@ -182,7 +182,8 @@ class ActionRunnerTest(tab_test_case.TabTestCase):
     self.assertRaises(exceptions.EvaluateException, WillFail)
 
   @decorators.Disabled('android', 'debug',  # crbug.com/437068
-                       'chromeos')          # crbug.com/483212
+                       'chromeos',          # crbug.com/483212
+                       'win')               # catapult/issues/2282
   def testTapElement(self):
     self.Navigate('page_with_clickables.html')
     action_runner = action_runner_module.ActionRunner(self._tab,

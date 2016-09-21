@@ -89,6 +89,64 @@ class PageTestResultsTest(base_test_results_unittest.BaseTestResultsUnittest):
     values = results.FindAllPageSpecificValuesNamed('a')
     assert len(values) == 2
 
+  def testAddValueWithStoryGroupingKeys(self):
+    results = page_test_results.PageTestResults()
+    self.pages[0].grouping_keys['foo'] = 'bar'
+    self.pages[0].grouping_keys['answer'] = '42'
+    results.WillRunPage(self.pages[0])
+    results.AddValue(scalar.ScalarValue(
+        self.pages[0], 'a', 'seconds', 3,
+        improvement_direction=improvement_direction.UP))
+    results.DidRunPage(self.pages[0])
+
+    results.PrintSummary()
+
+    values = results.FindPageSpecificValuesForPage(self.pages[0], 'a')
+    v = values[0]
+    self.assertEquals(v.grouping_keys['foo'], 'bar')
+    self.assertEquals(v.grouping_keys['answer'], '42')
+    self.assertEquals(v.tir_label, '42_bar')
+
+  def testAddValueWithStoryGroupingKeysAndMatchingTirLabel(self):
+    results = page_test_results.PageTestResults()
+    self.pages[0].grouping_keys['foo'] = 'bar'
+    self.pages[0].grouping_keys['answer'] = '42'
+    results.WillRunPage(self.pages[0])
+    results.AddValue(scalar.ScalarValue(
+        self.pages[0], 'a', 'seconds', 3,
+        improvement_direction=improvement_direction.UP,
+        tir_label='42_bar'))
+    results.DidRunPage(self.pages[0])
+
+    results.PrintSummary()
+
+    values = results.FindPageSpecificValuesForPage(self.pages[0], 'a')
+    v = values[0]
+    self.assertEquals(v.grouping_keys['foo'], 'bar')
+    self.assertEquals(v.grouping_keys['answer'], '42')
+    self.assertEquals(v.tir_label, '42_bar')
+
+  def testAddValueWithStoryGroupingKeysAndMismatchingTirLabel(self):
+    results = page_test_results.PageTestResults()
+    self.pages[0].grouping_keys['foo'] = 'bar'
+    self.pages[0].grouping_keys['answer'] = '42'
+    results.WillRunPage(self.pages[0])
+    with self.assertRaises(AssertionError):
+      results.AddValue(scalar.ScalarValue(
+          self.pages[0], 'a', 'seconds', 3,
+          improvement_direction=improvement_direction.UP,
+          tir_label='another_label'))
+
+  def testAddValueWithDuplicateStoryGroupingKeyFails(self):
+    results = page_test_results.PageTestResults()
+    self.pages[0].grouping_keys['foo'] = 'bar'
+    results.WillRunPage(self.pages[0])
+    with self.assertRaises(AssertionError):
+      results.AddValue(scalar.ScalarValue(
+          self.pages[0], 'a', 'seconds', 3,
+          improvement_direction=improvement_direction.UP,
+          grouping_keys={'foo': 'bar'}))
+
   def testUrlIsInvalidValue(self):
     results = page_test_results.PageTestResults()
     results.WillRunPage(self.pages[0])

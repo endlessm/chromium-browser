@@ -8,13 +8,16 @@ from __future__ import print_function
 
 import operator
 
-from chromite.cbuildbot import constants
+from chromite.cbuildbot import config_lib
 from chromite.lib import cros_build_lib
 from chromite.lib import cros_logging as logging
 from chromite.lib import git
 from chromite.lib import gob_util
 from chromite.lib import parallel
 from chromite.lib import patch as cros_patch
+
+
+site_config = config_lib.GetConfig()
 
 
 class GerritException(Exception):
@@ -60,10 +63,10 @@ class GerritHelper(object):
 
   @classmethod
   def FromRemote(cls, remote, **kwargs):
-    if remote == constants.INTERNAL_REMOTE:
-      host = constants.INTERNAL_GERRIT_HOST
-    elif remote == constants.EXTERNAL_REMOTE:
-      host = constants.EXTERNAL_GERRIT_HOST
+    if remote == site_config.params.INTERNAL_REMOTE:
+      host = site_config.params.INTERNAL_GERRIT_HOST
+    elif remote == site_config.params.EXTERNAL_REMOTE:
+      host = site_config.params.EXTERNAL_GERRIT_HOST
     else:
       raise ValueError('Remote %s not supported.' % remote)
     return cls(host, remote, **kwargs)
@@ -71,8 +74,10 @@ class GerritHelper(object):
   @classmethod
   def FromGob(cls, gob, **kwargs):
     """Return a helper for a GoB instance."""
-    host = constants.GOB_HOST % ('%s-review' % gob)
-    return cls(host, gob, **kwargs)
+    host = site_config.params.GOB_HOST % ('%s-review' % gob)
+    # TODO(phobbs) this will be wrong when "gob" isn't in GOB_REMOTES.
+    # We should get rid of remotes altogether and just use the host.
+    return cls(host, site_config.params.GOB_REMOTES.get(gob, gob), **kwargs)
 
   def SetReviewers(self, change, add=(), remove=(), dryrun=False):
     """Modify the list of reviewers on a gerrit change.
@@ -377,56 +382,6 @@ class GerritHelper(object):
       return
     gob_util.SubmitChange(self.host, change.gerrit_number, revision=change.sha1)
 
-  def SubmitChangeUsingGit(self, change, git_repo, dryrun=False):
-    """Submit |change| using 'git push'.
-
-    This tries to submit a change that is present in |git_repo| via 'git push'.
-    It rebases the change if necessary and submits it.
-
-    Returns:
-      True if we were able to submit the change using 'git push'. If not, we
-      output a warning and return False.
-    """
-    remote_ref = git.GetTrackingBranch(git_repo)
-    uploaded_sha1 = change.sha1
-    for _ in range(3):
-      # Get our updated SHA1.
-      local_sha1 = change.GetLocalSHA1(git_repo, remote_ref.ref)
-      if local_sha1 is None:
-        logging.warning('%s is not present in %s', change, git_repo)
-        break
-
-      if local_sha1 != uploaded_sha1:
-        try:
-          push_to = git.RemoteRef(change.project_url,
-                                  'refs/for/%s' % change.tracking_branch)
-          git.GitPush(git_repo, local_sha1, push_to, dryrun=dryrun)
-          uploaded_sha1 = local_sha1
-        except cros_build_lib.RunCommandError:
-          break
-
-      try:
-        push_to = git.RemoteRef(change.project_url, change.tracking_branch)
-        git.GitPush(git_repo, local_sha1, push_to, dryrun=dryrun)
-        return True
-      except cros_build_lib.RunCommandError:
-        # TODO(phobbs) this creates a lot of noise when we push individual
-        # changes from one branch to another.  Maybe remove this warningo?
-        logging.warning('git push failed for %s; was a change chumped in the '
-                        'middle of the CQ run?',
-                        change, exc_info=True)
-
-      # Rebase the branch and try again.
-      try:
-        git.SyncPushBranch(git_repo, remote_ref.remote, remote_ref.ref)
-      except cros_build_lib.RunCommandError:
-        logging.warning('git rebase failed for %s; was a change chumped in the '
-                        'middle of the CQ run?',
-                        change, exc_info=True)
-        break
-
-    return False
-
   def AbandonChange(self, change, dryrun=False):
     """Mark a gerrit change as 'Abandoned'."""
     if dryrun:
@@ -442,9 +397,9 @@ class GerritHelper(object):
     gob_util.RestoreChange(self.host, self._to_changenum(change))
 
   def DeleteDraft(self, change, dryrun=False):
-    """Delete a draft patch set."""
+    """Delete a gerrit change iff all its revisions are drafts."""
     if dryrun:
-      logging.info('Would have deleted draft patch set %s', change)
+      logging.info('Would have deleted draft change %s', change)
       return
     gob_util.DeleteDraft(self.host, self._to_changenum(change))
 
@@ -487,7 +442,7 @@ def GetGerritPatchInfoWithPatchQueries(patches):
   seen = set()
   results = []
   order = {k.ToGerritQueryText(): idx for (idx, k) in enumerate(patches)}
-  for remote in constants.CHANGE_PREFIX.keys():
+  for remote in site_config.params.CHANGE_PREFIX.keys():
     helper = GetGerritHelper(remote)
     raw_ids = [x.ToGerritQueryText() for x in patches if x.remote == remote]
     for k, change in helper.QueryMultipleCurrentPatchset(raw_ids):
@@ -521,12 +476,12 @@ def GetGerritHelperForChange(change):
 
 def GetCrosInternal(**kwargs):
   """Convenience method for accessing private ChromeOS gerrit."""
-  return GetGerritHelper(constants.INTERNAL_REMOTE, **kwargs)
+  return GetGerritHelper(site_config.params.INTERNAL_REMOTE, **kwargs)
 
 
 def GetCrosExternal(**kwargs):
   """Convenience method for accessing public ChromiumOS gerrit."""
-  return GetGerritHelper(constants.EXTERNAL_REMOTE, **kwargs)
+  return GetGerritHelper(site_config.params.EXTERNAL_REMOTE, **kwargs)
 
 
 def GetChangeRef(change_number, patchset=None):

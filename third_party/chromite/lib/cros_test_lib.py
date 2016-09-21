@@ -27,10 +27,8 @@ import time
 import unittest
 import urllib
 
+from chromite.cbuildbot import config_lib
 from chromite.cbuildbot import constants
-from chromite.lib import blueprint_lib
-from chromite.lib import bootstrap_lib
-from chromite.lib import brick_lib
 from chromite.lib import cidb
 from chromite.lib import commandline
 from chromite.lib import cros_build_lib
@@ -45,7 +43,9 @@ from chromite.lib import remote_access
 from chromite.lib import retry_util
 from chromite.lib import terminal
 from chromite.lib import timeout_util
-from chromite.lib import workspace_lib
+
+
+site_config = config_lib.GetConfig()
 
 
 # Unit tests should never connect to the live prod or debug instances
@@ -1128,6 +1128,8 @@ class GerritTestCase(MockTempDirTestCase):
                             path ("/").
   """
 
+  # pylint: disable=protected-access
+
   TEST_USERNAME = 'test-username'
   TEST_EMAIL = 'test-username@test.org'
 
@@ -1200,6 +1202,7 @@ class GerritTestCase(MockTempDirTestCase):
 
   def setUp(self):
     """Sets up the gerrit instances in a class-specific temp dir."""
+    self.saved_params = {}
     old_home = os.environ['HOME']
     os.environ['HOME'] = self.tempdir
 
@@ -1231,28 +1234,42 @@ class GerritTestCase(MockTempDirTestCase):
       self.PatchObject(gob_util, 'GetCookies', GetCookies)
 
     # Make all chromite code point to the test server.
-    self.PatchObject(constants, 'EXTERNAL_GOB_HOST', gi.git_host)
-    self.PatchObject(constants, 'EXTERNAL_GERRIT_HOST', gi.gerrit_host)
-    self.PatchObject(constants, 'EXTERNAL_GOB_URL', gi.git_url)
-    self.PatchObject(constants, 'EXTERNAL_GERRIT_URL', gi.gerrit_url)
-    self.PatchObject(constants, 'INTERNAL_GOB_HOST', gi.git_host)
-    self.PatchObject(constants, 'INTERNAL_GERRIT_HOST', gi.gerrit_host)
-    self.PatchObject(constants, 'INTERNAL_GOB_URL', gi.git_url)
-    self.PatchObject(constants, 'INTERNAL_GERRIT_URL', gi.gerrit_url)
-    self.PatchObject(constants, 'AOSP_GOB_HOST', gi.git_host)
-    self.PatchObject(constants, 'AOSP_GERRIT_HOST', gi.gerrit_host)
-    self.PatchObject(constants, 'AOSP_GOB_URL', gi.git_url)
-    self.PatchObject(constants, 'AOSP_GERRIT_URL', gi.gerrit_url)
-    self.PatchObject(constants, 'MANIFEST_URL', '%s/%s' % (
-        gi.git_url, constants.MANIFEST_PROJECT))
-    self.PatchObject(constants, 'MANIFEST_INT_URL', '%s/%s' % (
-        gi.git_url, constants.MANIFEST_INT_PROJECT))
-    self.PatchObject(constants, 'GIT_REMOTES', {
-        constants.EXTERNAL_REMOTE: gi.gerrit_url,
-        constants.INTERNAL_REMOTE: gi.gerrit_url,
-        constants.CHROMIUM_REMOTE: gi.gerrit_url,
-        constants.CHROME_REMOTE: gi.gerrit_url,
-    })
+    self.patched_params = {
+        'EXTERNAL_GOB_HOST': gi.git_host,
+        'EXTERNAL_GERRIT_HOST': gi.gerrit_host,
+        'EXTERNAL_GOB_URL': gi.git_url,
+        'EXTERNAL_GERRIT_URL': gi.gerrit_url,
+        'INTERNAL_GOB_HOST': gi.git_host,
+        'INTERNAL_GERRIT_HOST': gi.gerrit_host,
+        'INTERNAL_GOB_URL': gi.git_url,
+        'INTERNAL_GERRIT_URL': gi.gerrit_url,
+        'AOSP_GOB_HOST': gi.git_host,
+        'AOSP_GERRIT_HOST': gi.gerrit_host,
+        'AOSP_GOB_URL': gi.git_url,
+        'AOSP_GERRIT_URL': gi.gerrit_url,
+
+        'MANIFEST_URL': '%s/%s' % (
+            gi.git_url, site_config.params.MANIFEST_PROJECT
+        ),
+        'MANIFEST_INT_URL': '%s/%s' % (
+            gi.git_url, site_config.params.MANIFEST_INT_PROJECT
+        ),
+        'GIT_REMOTES': {
+            site_config.params.EXTERNAL_REMOTE: gi.gerrit_url,
+            site_config.params.INTERNAL_REMOTE: gi.gerrit_url,
+            site_config.params.CHROMIUM_REMOTE: gi.gerrit_url,
+            site_config.params.CHROME_REMOTE: gi.gerrit_url
+        }
+    }
+
+    for k in self.patched_params.iterkeys():
+      self.saved_params[k] = site_config.params.get(k)
+
+    site_config._site_params.update(self.patched_params)
+
+  def tearDown(self):
+    # Restore the 'patched' site parameters.
+    site_config._site_params.update(self.saved_params)
 
   def createProject(self, suffix, description='Test project', owners=None,
                     submit_type='CHERRY_PICK'):
@@ -1546,128 +1563,6 @@ class ProgressBarTestCase(MockOutputTestCase):
 
 class MockLoggingTestCase(MockTestCase, LoggingTestCase):
   """Convenience class mixing Logging and Mock."""
-
-
-class WorkspaceTestCase(MockTempDirTestCase):
-  """Test case that adds utilities for using workspaces."""
-
-  def setUp(self):
-    """Define variables populated below, mostly to make lint happy."""
-    self.bootstrap_path = None
-    self.mock_bootstrap_path = None
-
-    self.workspace_path = None
-    self.workspace_config = None
-    self.mock_workspace_path = None
-
-  def CreateBootstrap(self, sdk_version=None):
-    """Create a fake bootstrap directory in self.tempdir.
-
-    self.bootstrap_path points to new workspace path.
-    self.mock_bootstrap_path points to mock of FindBootstrapPath
-
-    Args:
-      sdk_version: Create a fake SDK version that's present in bootstrap.
-    """
-    # Create a bootstrap, inside our tempdir.
-    self.bootstrap_path = os.path.join(self.tempdir, 'bootstrap')
-    osutils.SafeMakedirs(os.path.join(self.bootstrap_path, '.git'))
-
-    # If a version is provided, fake it's existence in the bootstrap.
-    if sdk_version is not None:
-      sdk_path = bootstrap_lib.ComputeSdkPath(self.bootstrap_path, sdk_version)
-      osutils.SafeMakedirs(os.path.join(sdk_path, '.repo'))
-      osutils.SafeMakedirs(os.path.join(sdk_path, 'chromite', '.git'))
-
-    # Fake out bootstrap lookups to find this path.
-    self.mock_bootstrap_path = self.PatchObject(
-        bootstrap_lib, 'FindBootstrapPath', return_value=self.bootstrap_path)
-
-  def CreateWorkspace(self, sdk_version=None):
-    """Create a fake workspace directory in self.tempdir.
-
-    self.workspace_path points to new workspace path.
-    self.workspace_config points to workspace config file.
-    self.mock_workspace_path points to mock of WorkspacePath
-
-    Args:
-      sdk_version: Mark SDK version as active in workspace. Does NOT mean
-         it's present in bootstrap.
-    """
-    # Create a workspace, inside our tempdir.
-    self.workspace_path = os.path.join(self.tempdir, 'workspace')
-    self.workspace_config = os.path.join(
-        self.workspace_path,
-        workspace_lib.WORKSPACE_CONFIG)
-    osutils.Touch(self.workspace_config, makedirs=True)
-
-    # Define an SDK version for it, if needed.
-    if sdk_version is not None:
-      workspace_lib.SetActiveSdkVersion(self.workspace_path, sdk_version)
-
-    # Fake out workspace lookups to find this path.
-    self.mock_workspace_path = self.PatchObject(
-        workspace_lib, 'WorkspacePath', return_value=self.workspace_path)
-
-  def CreateBrick(self, name='thebrickfoo', main_package='category/bar',
-                  dependencies=None):
-    """Creates a new brick.
-
-    Args:
-      name: Brick name/path relative to the workspace root.
-      main_package: Main package to assign.
-      dependencies: List of bricks to depend on.
-
-    Returns:
-      The created Brick object.
-    """
-    brick_path = os.path.join(self.workspace_path, name)
-    config = {'name': name, 'main_package': main_package}
-    if dependencies:
-      config['dependencies'] = dependencies
-
-    return brick_lib.Brick(brick_path, initial_config=config)
-
-  def CreateBlueprint(self, name='theblueprintfoo.json', bsp=None, bricks=None,
-                      buildTargetId=None):
-    """Creates a new blueprint.
-
-    Args:
-      name: Blueprint name/path relative to the workspace root.
-      bsp: Path to BSP or None.
-      bricks: List of paths to bricks or None.
-      buildTargetId: The BuildTargetID to populate the APP_ID with or None.
-
-    Returns:
-      The created Blueprint object.
-    """
-    blueprint_path = os.path.join(self.workspace_path, name)
-
-    config = {}
-    if bricks:
-      config[blueprint_lib.BRICKS_FIELD] = bricks
-    if bsp:
-      config[blueprint_lib.BSP_FIELD] = bsp
-    if buildTargetId:
-      config[blueprint_lib.APP_ID_FIELD] = buildTargetId
-
-    return blueprint_lib.Blueprint(blueprint_path, initial_config=config)
-
-  def AssertBlueprintExists(self, name, bsp=None, bricks=None):
-    """Verifies a blueprint exists with the specified contents.
-
-    Args:
-      name: Blueprint name/path relative to the workspace root.
-      bsp: Expected blueprint BSP or None.
-      bricks: Expected blueprint bricks or None.
-    """
-    blueprint_path = os.path.join(self.workspace_path, name)
-    blueprint = blueprint_lib.Blueprint(blueprint_path)
-
-    if bsp is not None:
-      self.assertEqual(bsp, blueprint.GetBSP())
-    if bricks is not None:
-      self.assertListEqual(bricks, blueprint.GetBricks())
 
 
 @contextlib.contextmanager

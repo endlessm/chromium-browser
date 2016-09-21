@@ -2,7 +2,7 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-import atexit
+from telemetry.internal.util import atexit_with_log
 import logging
 import os
 import shutil
@@ -11,6 +11,7 @@ import sys
 import tempfile
 import traceback
 
+from py_trace_event import trace_time
 from telemetry.internal.platform import tracing_agent
 from telemetry.internal.platform.tracing_agent import (
     chrome_tracing_devtools_manager)
@@ -38,6 +39,10 @@ class ChromeTracingStartedError(Exception):
 
 
 class ChromeTracingStoppedError(Exception):
+  pass
+
+
+class ChromeClockSyncError(Exception):
   pass
 
 
@@ -88,8 +93,7 @@ class ChromeTracingAgent(tracing_agent.TracingAgent):
         raise ChromeTracingStartedError(
             'Tracing is already running on devtools at port %s on platform'
             'backend %s.' % (client.remote_port, self._platform_backend))
-      client.StartChromeTracing(
-          config, config.tracing_category_filter.filter_string, timeout)
+      client.StartChromeTracing(config, timeout)
     return True
 
   def StartAgentTracing(self, config, timeout):
@@ -117,6 +121,65 @@ class ChromeTracingAgent(tracing_agent.TracingAgent):
       self._trace_config = config
       return True
     return False
+
+  def SupportsExplicitClockSync(self):
+    return True
+
+  def _RecordClockSyncMarkerDevTools(
+      self, sync_id, record_controller_clock_sync_marker_callback,
+      devtools_clients):
+    has_clock_synced = False
+    if not devtools_clients:
+      raise ChromeClockSyncError()
+
+    for client in devtools_clients:
+      try:
+        timestamp = trace_time.Now()
+        client.RecordChromeClockSyncMarker(sync_id)
+        # We only need one successful clock sync.
+        has_clock_synced = True
+        break
+      except Exception:
+        logging.exception('Failed to record clock sync marker with sync_id=%r '
+                          'via DevTools client %r:' % (sync_id, client))
+    if not has_clock_synced:
+      raise ChromeClockSyncError()
+    record_controller_clock_sync_marker_callback(sync_id, timestamp)
+
+  def _RecordClockSyncMarkerAsyncEvent(
+      self, sync_id, record_controller_clock_sync_marker_callback):
+    has_clock_synced = False
+    for backend in self._IterInspectorBackends():
+      try:
+        timestamp = trace_time.Now()
+        backend.EvaluateJavaScript(
+            "console.time('ClockSyncEvent.%s');" % sync_id)
+        backend.EvaluateJavaScript(
+            "console.timeEnd('ClockSyncEvent.%s');" % sync_id)
+        has_clock_synced = True
+        break
+      except Exception:
+        logging.exception('Failed to record clock sync marker with sync_id=%r '
+                          'via inspector backend %r:' % (sync_id, backend))
+    if not has_clock_synced:
+      raise ChromeClockSyncError()
+    record_controller_clock_sync_marker_callback(sync_id, timestamp)
+
+  def RecordClockSyncMarker(self, sync_id,
+                            record_controller_clock_sync_marker_callback):
+    devtools_clients = (chrome_tracing_devtools_manager
+        .GetActiveDevToolsClients(self._platform_backend))
+    version = None
+    for client in devtools_clients:
+      version = client.GetChromeBranchNumber()
+      break
+    if int(version) >= 2661:
+      self._RecordClockSyncMarkerDevTools(
+          sync_id, record_controller_clock_sync_marker_callback,
+          devtools_clients)
+    else:  # TODO(rnephew): Remove once chrome stable is past branch 2661.
+      self._RecordClockSyncMarkerAsyncEvent(
+          sync_id, record_controller_clock_sync_marker_callback)
 
   def StopAgentTracing(self):
     # TODO: Split collection and stopping.
@@ -172,7 +235,7 @@ class ChromeTracingAgent(tracing_agent.TracingAgent):
           self._CreateTraceConfigFileString(config), as_root=True)
       # The config file has fixed path on Android. We need to ensure it is
       # always cleaned up.
-      atexit.register(self._RemoveTraceConfigFile)
+      atexit_with_log.Register(self._RemoveTraceConfigFile)
     elif self._platform_backend.GetOSName() in _DESKTOP_OS_NAMES:
       self._trace_config_file = os.path.join(tempfile.mkdtemp(),
                                              _CHROME_TRACE_CONFIG_FILE_NAME)

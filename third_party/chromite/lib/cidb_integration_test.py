@@ -169,6 +169,11 @@ class CIDBMigrationsTest(CIDBIntegrationTest):
 
   def testWaterfallMigration(self):
     """Test that migrating waterfall from enum to varchar preserves value."""
+    self.skipTest('Skipped obsolete waterfall migration test.')
+    # This test no longer runs. It was used only to confirm the correctness of
+    # migration #41. In #43, the InsertBuild API changes in a way that is not
+    # compatible with this test.
+    # The test code remains in place for demonstration purposes only.
     db = self._PrepareFreshDatabase(40)
     build_id = db.InsertBuild('my builder', 'chromiumos', _random(),
                               'my config', 'my bot hostname')
@@ -194,6 +199,58 @@ class CIDBAPITest(CIDBIntegrationTest):
     db = self._PrepareFreshDatabase(1)
     current_db_time = db.GetTime()
     self.assertEqual(type(current_db_time), datetime.datetime)
+
+  def testBuildMessages(self):
+    db = self._PrepareFreshDatabase(45)
+    self.assertEqual([], db.GetBuildMessages(1))
+    master_build_id = db.InsertBuild('builder name',
+                                     constants.WATERFALL_TRYBOT,
+                                     1,
+                                     'master',
+                                     'hostname')
+    slave_build_id = db.InsertBuild('slave builder name',
+                                    constants.WATERFALL_TRYBOT,
+                                    2,
+                                    'slave',
+                                    'slave hostname',
+                                    master_build_id=master_build_id)
+    db.InsertBuildMessage(master_build_id)
+    db.InsertBuildMessage(master_build_id, 'message_type', 'message_subtype',
+                          'message_value', 'board')
+    for i in range(10):
+      db.InsertBuildMessage(slave_build_id,
+                            'message_type', 'message_subtype', str(i), 'board')
+
+    master_messages = db.GetBuildMessages(master_build_id)
+    slave_messages = db.GetSlaveBuildMessages(master_build_id)
+
+    self.assertEqual(2, len(master_messages))
+    self.assertEqual(10, len(slave_messages))
+
+    mm2 = master_messages[1]
+    mm2.pop('timestamp')
+    self.assertEqual({'build_id': master_build_id,
+                      'build_config': 'master',
+                      'waterfall': constants.WATERFALL_TRYBOT,
+                      'builder_name': 'builder name',
+                      'build_number': 1L,
+                      'message_type': 'message_type',
+                      'message_subtype': 'message_subtype',
+                      'message_value': 'message_value',
+                      'board': 'board'},
+                     mm2)
+    sm10 = slave_messages[9]
+    sm10.pop('timestamp')
+    self.assertEqual({'build_id': slave_build_id,
+                      'build_config': 'slave',
+                      'waterfall': constants.WATERFALL_TRYBOT,
+                      'builder_name': 'slave builder name',
+                      'build_number': 2L,
+                      'message_type': 'message_type',
+                      'message_subtype': 'message_subtype',
+                      'message_value': '9',
+                      'board': 'board'},
+                     sm10)
 
   def testGetKeyVals(self):
     db = self._PrepareFreshDatabase(40)
@@ -228,9 +285,9 @@ def GetTestDataSeries(test_data_path):
 class DataSeries0Test(CIDBIntegrationTest):
   """Simulate a set of 630 master/slave CQ builds."""
 
-  def testCQWithSchema39(self):
-    """Run the CQ test with schema version 39."""
-    self._PrepareFreshDatabase(39)
+  def testCQWithSchema44(self):
+    """Run the CQ test with schema version 44."""
+    self._PrepareFreshDatabase(44)
     self._runCQTest()
 
   def _runCQTest(self):
@@ -416,7 +473,8 @@ class DataSeries0Test(CIDBIntegrationTest):
 
       def simulate_slave(slave_metadata):
         build_id = _SimulateBuildStart(db, slave_metadata,
-                                       master_build_id)
+                                       master_build_id,
+                                       important=True)
         _SimulateCQBuildFinish(db, slave_metadata, build_id)
         logging.debug('Simulated slave build %s on pid %s', build_id,
                       os.getpid())
@@ -469,6 +527,12 @@ class BuildStagesAndFailureTest(CIDBIntegrationTest):
     values = bot_db._Select('buildStageTable', build_stage_id, ['start_time'])
     self.assertEqual(None, values['start_time'])
 
+    bot_db.WaitBuildStage(build_stage_id)
+    values = bot_db._Select('buildStageTable', build_stage_id,
+                            ['start_time', 'status'])
+    self.assertEqual(None, values['start_time'])
+    self.assertEqual(constants.BUILDER_STATUS_WAITING, values['status'])
+
     bot_db.StartBuildStage(build_stage_id)
     values = bot_db._Select('buildStageTable', build_stage_id,
                             ['start_time', 'status'])
@@ -487,6 +551,12 @@ class BuildStagesAndFailureTest(CIDBIntegrationTest):
       e = ValueError('The value was erroneous.')
       bot_db.InsertFailure(build_stage_id, type(e).__name__, str(e), category)
       self.assertTrue(bot_db.HasBuildStageFailed(build_stage_id))
+
+    failures = bot_db.GetSlaveFailures(master_build_id)
+    self.assertEqual(len(failures),
+                     len(constants.EXCEPTION_CATEGORY_ALL_CATEGORIES))
+    for f in failures:
+      self.assertEqual(f['build_id'], build_id)
 
     slave_stages = bot_db.GetSlaveStages(master_build_id)
     self.assertEqual(len(slave_stages), 1)
@@ -568,7 +638,7 @@ class DataSeries1Test(CIDBIntegrationTest):
   """Simulate a single set of canary builds."""
 
   def runTest(self):
-    """Simulate a single set of canary builds with database schema v28."""
+    """Simulate a single set of canary builds with database schema v44."""
     metadatas = GetTestDataSeries(SERIES_1_TEST_DATA_PATH)
     self.assertEqual(len(metadatas), 18, 'Did not load expected amount of '
                                          'test data')
@@ -576,7 +646,7 @@ class DataSeries1Test(CIDBIntegrationTest):
     # Migrate db to specified version. As new schema versions are added,
     # migrations to later version can be applied after the test builds are
     # simulated, to test that db contents are correctly migrated.
-    self._PrepareFreshDatabase(39)
+    self._PrepareFreshDatabase(44)
 
     bot_db = self.LocalCIDBConnection(self.CIDB_USER_BOT)
 
@@ -663,7 +733,7 @@ def _TranslateStatus(status):
   return status
 
 
-def _SimulateBuildStart(db, metadata, master_build_id=None):
+def _SimulateBuildStart(db, metadata, master_build_id=None, important=None):
   """Returns build_id for the inserted buildTable entry."""
   metadata_dict = metadata.GetDict()
   # TODO(akeshet): We are pretending that all these builds were on the internal
@@ -677,7 +747,8 @@ def _SimulateBuildStart(db, metadata, master_build_id=None):
                             metadata_dict['build-number'],
                             metadata_dict['bot-config'],
                             metadata_dict['bot-hostname'],
-                            master_build_id)
+                            master_build_id,
+                            important=important)
 
   return build_id
 

@@ -11,6 +11,7 @@ import os
 
 from chromite.cbuildbot import commands
 from chromite.cbuildbot import constants
+from chromite.cbuildbot import cbuildbot_run
 from chromite.cbuildbot import cbuildbot_unittest
 from chromite.cbuildbot.stages import chrome_stages
 from chromite.cbuildbot.stages import generic_stages_unittest
@@ -25,9 +26,9 @@ from chromite.lib import parallel_unittest
 # pylint: disable=too-many-ancestors
 
 
-class ChromeSDKStageTest(cbuildbot_unittest.SimpleBuilderTestCase,
-                         generic_stages_unittest.AbstractStageTestCase,
-                         cros_test_lib.LoggingTestCase):
+class SimpleChromeWorkflowStage(cbuildbot_unittest.SimpleBuilderTestCase,
+                                generic_stages_unittest.AbstractStageTestCase,
+                                cros_test_lib.LoggingTestCase):
   """Verify stage that creates the chrome-sdk and builds chrome with it."""
   BOT_ID = 'link-paladin'
   RELEASE_TAG = ''
@@ -45,7 +46,7 @@ class ChromeSDKStageTest(cbuildbot_unittest.SimpleBuilderTestCase,
     self._Prepare()
 
   def _Prepare(self, bot_id=None, **kwargs):
-    super(ChromeSDKStageTest, self)._Prepare(bot_id, **kwargs)
+    super(SimpleChromeWorkflowStage, self)._Prepare(bot_id, **kwargs)
 
     self._run.options.chrome_root = '/tmp/non-existent'
     self._run.attrs.metadata.UpdateWithDict({'toolchain-tuple': ['target'],
@@ -53,17 +54,21 @@ class ChromeSDKStageTest(cbuildbot_unittest.SimpleBuilderTestCase,
 
   def ConstructStage(self):
     self._run.GetArchive().SetupArchivePath()
-    return chrome_stages.ChromeSDKStage(self._run, self._current_board)
+    return chrome_stages.SimpleChromeWorkflowStage(self._run,
+                                                   self._current_board)
 
   def testIt(self):
     """A simple run-through test."""
     rc_mock = self.StartPatcher(cros_build_lib_unittest.RunCommandMock())
     rc_mock.SetDefaultCmdResult()
-    self.PatchObject(chrome_stages.ChromeSDKStage, '_ArchiveChromeEbuildEnv',
+    self.PatchObject(chrome_stages.SimpleChromeWorkflowStage,
+                     '_ArchiveChromeEbuildEnv',
                      autospec=True)
-    self.PatchObject(chrome_stages.ChromeSDKStage, '_VerifyChromeDeployed',
+    self.PatchObject(chrome_stages.SimpleChromeWorkflowStage,
+                     '_VerifyChromeDeployed',
                      autospec=True)
-    self.PatchObject(chrome_stages.ChromeSDKStage, '_VerifySDKEnvironment',
+    self.PatchObject(chrome_stages.SimpleChromeWorkflowStage,
+                     '_VerifySDKEnvironment',
                      autospec=True)
     self.RunStage()
 
@@ -103,5 +108,25 @@ class PatchChromeStageTest(generic_stages_unittest.AbstractStageTestCase):
 
   def testBasic(self):
     """Verify requested patches are applied."""
+    stage = self.ConstructStage()
+    stage.PerformStage()
+
+
+class SyncChromeStageTest(generic_stages_unittest.AbstractStageTestCase,
+                          cros_build_lib_unittest.RunCommandTestCase):
+  """Tests for SyncChromeStage."""
+
+  # pylint: disable=protected-access
+  def setUp(self):
+    self._Prepare()
+    self.PatchObject(cbuildbot_run._BuilderRunBase, 'DetermineChromeVersion',
+                     return_value='35.0.1863.0')
+    self.PatchObject(commands, 'SyncChrome')
+
+  def ConstructStage(self):
+    return chrome_stages.SyncChromeStage(self._run)
+
+  def testBasic(self):
+    """Basic syntax sanity test."""
     stage = self.ConstructStage()
     stage.PerformStage()

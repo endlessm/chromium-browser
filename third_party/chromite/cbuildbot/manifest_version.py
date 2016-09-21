@@ -7,6 +7,7 @@
 from __future__ import print_function
 
 import cPickle
+import datetime
 import fnmatch
 import glob
 import os
@@ -15,6 +16,7 @@ import shutil
 import tempfile
 from xml.dom import minidom
 
+from chromite.cbuildbot import config_lib
 from chromite.cbuildbot import constants
 from chromite.cbuildbot import repository
 from chromite.lib import cidb
@@ -26,7 +28,11 @@ from chromite.lib import osutils
 from chromite.lib import timeout_util
 
 
-BUILD_STATUS_URL = '%s/builder-status' % constants.MANIFEST_VERSIONS_GS_URL
+site_config = config_lib.GetConfig()
+
+
+BUILD_STATUS_URL = (
+    '%s/builder-status' % site_config.params.MANIFEST_VERSIONS_GS_URL)
 PUSH_BRANCH = 'temp_auto_checkin_branch'
 NUM_RETRIES = 20
 
@@ -92,7 +98,7 @@ def RefreshManifestCheckout(manifest_dir, manifest_repo):
     repository.CloneGitRepo(manifest_dir, manifest_repo)
 
 
-def _PushGitChanges(git_repo, message, dry_run=True, push_to=None):
+def _PushGitChanges(git_repo, message, dry_run=False, push_to=None):
   """Push the final commit into the git repo.
 
   Args:
@@ -120,7 +126,7 @@ def _PushGitChanges(git_repo, message, dry_run=True, push_to=None):
       return
     raise
 
-  git.GitPush(git_repo, PUSH_BRANCH, push_to, dryrun=dry_run, force=dry_run)
+  git.GitPush(git_repo, PUSH_BRANCH, push_to, skip=dry_run)
 
 
 def CreateSymlink(src_file, dest_file):
@@ -240,12 +246,7 @@ class VersionInfo(object):
     return match.group(1) if match else None
 
   def IncrementVersion(self):
-    """Updates the version file by incrementing the patch component.
-
-    Args:
-      message: Commit message to use when incrementing the version.
-      dry_run: Git dry_run.
-    """
+    """Updates the version file by incrementing the patch component."""
     if not self.incr_type or self.incr_type not in self.VALID_INCR_TYPES:
       raise VersionUpdateException('Need to specify the part of the version to'
                                    ' increment')
@@ -267,7 +268,13 @@ class VersionInfo(object):
     return self.VersionString()
 
   def UpdateVersionFile(self, message, dry_run, push_to=None):
-    """Update the version file with our current version."""
+    """Update the version file with our current version.
+
+    Args:
+      message: Commit message.
+      dry_run: Git dryrun.
+      push_to: A git.RemoteRef object.
+    """
 
     if not self.version_file:
       raise VersionUpdateException('Cannot call UpdateVersionFile without '
@@ -412,6 +419,125 @@ class BuilderStatus(object):
                               dashboard_url=self.dashboard_url))
 
 
+class SlaveStatus(object):
+  """A Class to easily interpret data from CIDB regarding slave status.
+
+  This is intended for short lived instances used to determine if the loop on
+  getting the builders statuses should continue or break out.  The main function
+  is ShouldWait() with everything else pretty much a helper function for it.
+  """
+
+  BUILDER_START_TIMEOUT = 5
+
+  def __init__(self, status, start_time, builders_array, previous_completed):
+    """Initializes a slave status object.
+
+    Args:
+      status: Dict of the slave status from CIDB.
+      start_time: datetime.datetime object of when the build started.
+      builders_array: List of the expected builders.
+      previous_completed: Set of builders that have finished already.
+    """
+    self.status = status
+    self.start_time = start_time
+    self.builders_array = builders_array
+    self.previous_completed = previous_completed
+    self.completed = []
+
+  def GetMissing(self):
+    """Returns the missing builders.
+
+    Returns:
+      A list of the missing builders
+    """
+    return list(set(self.builders_array) - set(self.status.keys()))
+
+  def GetCompleted(self):
+    """Returns the builders that have completed.
+
+    Returns:
+      A list of the completed builders.
+    """
+    if not self.completed:
+      self.completed = [b for b, s in self.status.iteritems()
+                        if s in constants.BUILDER_COMPLETED_STATUSES and
+                        b in self.builders_array]
+
+    # Logging of the newly complete builders.
+    for builder in sorted(set(self.completed) - self.previous_completed):
+      logging.info('Build config %s completed with status "%s".',
+                   builder, self.status[builder])
+    self.previous_completed.update(set(self.completed))
+    return self.completed
+
+  def Completed(self):
+    """Returns a bool if all builders have completed successfully.
+
+    Returns:
+      A bool of True if all builders successfully completed, False otherwise.
+    """
+    return len(self.GetCompleted()) == len(self.builders_array)
+
+  def ShouldFailForBuilderStartTimeout(self, current_time):
+    """Decides if we should fail if a builder hasn't started within 5 mins.
+
+    If a builder hasn't started within BUILDER_START_TIMEOUT and the rest of the
+    builders have finished, let the caller know that we should fail.
+
+    Args:
+      current_time: A datetime.datetime object letting us know the current time.
+
+    Returns:
+      A bool saying True that we should fail, False otherwise.
+    """
+    # Check that we're at least past the start timeout.
+    builder_start_deadline = datetime.timedelta(
+        minutes=self.BUILDER_START_TIMEOUT)
+    past_deadline = current_time - self.start_time > builder_start_deadline
+
+    # Check that aside from the missing builders the rest have completed.
+    other_builders_completed = (
+        (len(self.GetMissing()) + len(self.GetCompleted())) ==
+        len(self.builders_array))
+
+    # Check that we have missing builders and logging who they are.
+    builders_are_missing = False
+    for builder in self.GetMissing():
+      logging.error('No status found for build config %s.', builder)
+      builders_are_missing = True
+
+    return past_deadline and other_builders_completed and builders_are_missing
+
+  def ShouldWait(self):
+    """Decides if we should continue to wait for the builders to finish.
+
+    This will be the retry function for timeout_util.WaitForSuccess, basically
+    this function will return False if all builders finished or we see a
+    problem with the builders.  Otherwise we'll return True to continue polling
+    for the builders statuses.
+
+    Returns:
+      A bool of True if we should continue to wait and False if we should not.
+    """
+    # Check if all builders completed.
+    if self.Completed():
+      return False
+
+    current_time = datetime.datetime.now()
+
+    # Guess there are some builders building, check if there is a problem.
+    if self.ShouldFailForBuilderStartTimeout(current_time):
+      logging.error('Ending build since at least one builder has not started '
+                    'within 5 mins.')
+      return False
+
+    # We got here which means no problems, we should still wait.
+    logging.info('Still waiting for the following builds to complete: %r',
+                 sorted(set(self.builders_array).difference(
+                     self.GetCompleted())))
+    return True
+
+
 class BuildSpecsManager(object):
   """A Class to manage buildspecs and their states."""
 
@@ -437,7 +563,7 @@ class BuildSpecsManager(object):
     """
     self.cros_source = source_repo
     buildroot = source_repo.directory
-    if manifest_repo.startswith(constants.INTERNAL_GOB_URL):
+    if manifest_repo.startswith(site_config.params.INTERNAL_GOB_URL):
       self.manifest_dir = os.path.join(buildroot, 'manifest-versions-internal')
     else:
       self.manifest_dir = os.path.join(buildroot, 'manifest-versions')
@@ -689,41 +815,23 @@ class BuildSpecsManager(object):
       A build_config name-> status dictionary of build statuses.
     """
     builders_completed = set()
-
-    def _GetStatusesFromDB():
-      """Helper function that iterates through current statuses."""
-      status_dict = self.GetSlaveStatusesFromCIDB(master_build_id)
-      for builder in set(builders_array) - set(status_dict.keys()):
-        logging.warning('No status found for build config %s.', builder)
-
-      latest_completed = set(
-          [b for b, s in status_dict.iteritems() if s in
-           constants.BUILDER_COMPLETED_STATUSES and b in builders_array])
-      for builder in sorted(latest_completed - builders_completed):
-        logging.info('Build config %s completed with status "%s".',
-                     builder, status_dict[builder])
-      builders_completed.update(latest_completed)
-
-      if len(builders_completed) < len(builders_array):
-        logging.info('Still waiting for the following builds to complete: %r',
-                     sorted(set(builders_array).difference(builders_completed)))
-        return None
-      else:
-        return 'Builds completed.'
+    start_time = datetime.datetime.now()
 
     def _PrintRemainingTime(remaining):
       logging.info('%s until timeout...', remaining)
 
     # Check for build completion until all builders report in.
+    builds_timed_out = False
     try:
-      builds_succeeded = timeout_util.WaitForSuccess(
-          lambda x: x is None,
-          _GetStatusesFromDB,
+      timeout_util.WaitForSuccess(
+          lambda statuses: statuses.ShouldWait(),
+          lambda: SlaveStatus(self.GetSlaveStatusesFromCIDB(master_build_id),
+                              start_time, builders_array, builders_completed),
           timeout,
           period=self.SLEEP_TIMEOUT,
           side_effect_func=_PrintRemainingTime)
     except timeout_util.TimeoutError:
-      builds_succeeded = None
+      builds_timed_out = True
 
     # Actually fetch the BuildStatus pickles from Google Storage.
     builder_statuses = {}
@@ -732,7 +840,7 @@ class BuildSpecsManager(object):
       builder_status = self.GetBuildStatus(builder, self.current_version)
       builder_statuses[builder] = builder_status
 
-    if not builds_succeeded:
+    if builds_timed_out:
       logging.error('Not all builds finished before timeout (%d minutes)'
                     ' reached.', int((timeout / 60) + 0.5))
 

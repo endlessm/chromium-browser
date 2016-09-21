@@ -243,19 +243,11 @@ class GenerateSymbolTest(cros_test_lib.MockTempDirTestCase):
   def testNormal(self):
     """Normal run -- given an ELF and a debug file"""
     ret = cros_generate_breakpad_symbols.GenerateBreakpadSymbol(
-        self.elf_file, self.debug_file, breakpad_dir=self.breakpad_dir)
-    self.assertEqual(ret, 0)
+        self.elf_file, self.debug_file, self.breakpad_dir)
+    self.assertEqual(ret, self.sym_file)
     self.assertEqual(self.rc_mock.call_count, 1)
-    self.assertCommandArgs(0, ['dump_syms', self.elf_file, self.debug_dir])
-    self.assertExists(self.sym_file)
-
-  def testNormalBoard(self):
-    """Normal run w/board info but not breakpad dir"""
-    ret = cros_generate_breakpad_symbols.GenerateBreakpadSymbol(
-        self.elf_file, board='foo')
-    self.assertEqual(ret, 0)
-    self.assertCommandArgs(0, ['dump_syms', self.elf_file])
-    self.assertEqual(self.rc_mock.call_count, 1)
+    self.assertCommandArgs(0, ['dump_syms', '-v', self.elf_file,
+                               self.debug_dir])
     self.assertExists(self.sym_file)
 
   def testNormalNoCfi(self):
@@ -263,18 +255,20 @@ class GenerateSymbolTest(cros_test_lib.MockTempDirTestCase):
     # Make sure the num_errors flag works too.
     num_errors = ctypes.c_int()
     ret = cros_generate_breakpad_symbols.GenerateBreakpadSymbol(
-        self.elf_file, strip_cfi=True, num_errors=num_errors)
-    self.assertEqual(ret, 0)
+        self.elf_file, breakpad_dir=self.breakpad_dir,
+        strip_cfi=True, num_errors=num_errors)
+    self.assertEqual(ret, self.sym_file)
     self.assertEqual(num_errors.value, 0)
-    self.assertCommandArgs(0, ['dump_syms', '-c', self.elf_file])
+    self.assertCommandArgs(0, ['dump_syms', '-v', '-c', self.elf_file])
     self.assertEqual(self.rc_mock.call_count, 1)
     self.assertExists(self.sym_file)
 
   def testNormalElfOnly(self):
     """Normal run -- given just an ELF"""
-    ret = cros_generate_breakpad_symbols.GenerateBreakpadSymbol(self.elf_file)
-    self.assertEqual(ret, 0)
-    self.assertCommandArgs(0, ['dump_syms', self.elf_file])
+    ret = cros_generate_breakpad_symbols.GenerateBreakpadSymbol(
+        self.elf_file, breakpad_dir=self.breakpad_dir)
+    self.assertEqual(ret, self.sym_file)
+    self.assertCommandArgs(0, ['dump_syms', '-v', self.elf_file])
     self.assertEqual(self.rc_mock.call_count, 1)
     self.assertExists(self.sym_file)
 
@@ -282,49 +276,53 @@ class GenerateSymbolTest(cros_test_lib.MockTempDirTestCase):
     """Normal run where ELF is readable only by root"""
     with mock.patch.object(os, 'access') as mock_access:
       mock_access.return_value = False
-      ret = cros_generate_breakpad_symbols.GenerateBreakpadSymbol(self.elf_file)
-      self.assertEqual(ret, 0)
-      self.assertCommandArgs(0, ['sudo', '--', 'dump_syms', self.elf_file])
+      ret = cros_generate_breakpad_symbols.GenerateBreakpadSymbol(
+          self.elf_file, breakpad_dir=self.breakpad_dir)
+    self.assertEqual(ret, self.sym_file)
+    self.assertCommandArgs(0, ['sudo', '--', 'dump_syms', '-v', self.elf_file])
 
   def testLargeDebugFail(self):
     """Running w/large .debug failed, but retry worked"""
-    self.rc_mock.AddCmdResult(['dump_syms', self.elf_file, self.debug_dir],
-                              returncode=1)
+    self.rc_mock.AddCmdResult(['dump_syms', '-v', self.elf_file,
+                               self.debug_dir], returncode=1)
     ret = cros_generate_breakpad_symbols.GenerateBreakpadSymbol(
-        self.elf_file, self.debug_file)
-    self.assertEqual(ret, 0)
+        self.elf_file, self.debug_file, self.breakpad_dir)
+    self.assertEqual(ret, self.sym_file)
     self.assertEqual(self.rc_mock.call_count, 2)
-    self.assertCommandArgs(0, ['dump_syms', self.elf_file, self.debug_dir])
+    self.assertCommandArgs(0, ['dump_syms', '-v', self.elf_file,
+                               self.debug_dir])
     self.assertCommandArgs(
-        1, ['dump_syms', '-c', '-r', self.elf_file, self.debug_dir])
+        1, ['dump_syms', '-v', '-c', '-r', self.elf_file, self.debug_dir])
     self.assertExists(self.sym_file)
 
   def testDebugFail(self):
     """Running w/.debug always failed, but works w/out"""
-    self.rc_mock.AddCmdResult(['dump_syms', self.elf_file, self.debug_dir],
-                              returncode=1)
-    self.rc_mock.AddCmdResult(['dump_syms', '-c', '-r', self.elf_file,
+    self.rc_mock.AddCmdResult(['dump_syms', '-v', self.elf_file,
+                               self.debug_dir], returncode=1)
+    self.rc_mock.AddCmdResult(['dump_syms', '-v', '-c', '-r', self.elf_file,
                                self.debug_dir],
                               returncode=1)
     ret = cros_generate_breakpad_symbols.GenerateBreakpadSymbol(
-        self.elf_file, self.debug_file)
-    self.assertEqual(ret, 0)
+        self.elf_file, self.debug_file, self.breakpad_dir)
+    self.assertEqual(ret, self.sym_file)
     self.assertEqual(self.rc_mock.call_count, 3)
-    self.assertCommandArgs(0, ['dump_syms', self.elf_file, self.debug_dir])
+    self.assertCommandArgs(0, ['dump_syms', '-v', self.elf_file,
+                               self.debug_dir])
     self.assertCommandArgs(
-        1, ['dump_syms', '-c', '-r', self.elf_file, self.debug_dir])
-    self.assertCommandArgs(2, ['dump_syms', self.elf_file])
+        1, ['dump_syms', '-v', '-c', '-r', self.elf_file, self.debug_dir])
+    self.assertCommandArgs(2, ['dump_syms', '-v', self.elf_file])
     self.assertExists(self.sym_file)
 
   def testCompleteFail(self):
     """Running dump_syms always fails"""
     self.rc_mock.SetDefaultCmdResult(returncode=1)
-    ret = cros_generate_breakpad_symbols.GenerateBreakpadSymbol(self.elf_file)
+    ret = cros_generate_breakpad_symbols.GenerateBreakpadSymbol(
+        self.elf_file, breakpad_dir=self.breakpad_dir)
     self.assertEqual(ret, 1)
     # Make sure the num_errors flag works too.
     num_errors = ctypes.c_int()
     ret = cros_generate_breakpad_symbols.GenerateBreakpadSymbol(
-        self.elf_file, num_errors=num_errors)
+        self.elf_file, breakpad_dir=self.breakpad_dir, num_errors=num_errors)
     self.assertEqual(ret, 1)
     self.assertEqual(num_errors.value, 1)
 

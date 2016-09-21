@@ -9,19 +9,21 @@ from __future__ import print_function
 import collections
 import os
 
+from chromite.cbuildbot import afdo
+from chromite.cbuildbot import cbuildbot_run
 from chromite.cbuildbot import commands
 from chromite.cbuildbot import config_lib
 from chromite.cbuildbot import constants
 from chromite.cbuildbot import failures_lib
-from chromite.cbuildbot import lab_status
 from chromite.cbuildbot import validation_pool
 from chromite.cbuildbot.stages import generic_stages
 from chromite.lib import cgroups
-from chromite.lib import cros_build_lib
 from chromite.lib import cros_logging as logging
+from chromite.lib import gs
 from chromite.lib import image_test_lib
 from chromite.lib import osutils
 from chromite.lib import perf_uploader
+from chromite.lib import portage_util
 from chromite.lib import timeout_util
 
 
@@ -29,6 +31,17 @@ _VM_TEST_ERROR_MSG = """
 !!!VMTests failed!!!
 
 Logs are uploaded in the corresponding %(vm_test_results)s. This can be found
+by clicking on the artifacts link in the "Report" Stage. Specifically look
+for the test_harness/failed for the failing tests. For more
+particulars, please refer to which test failed i.e. above see the
+individual test that failed -- or if an update failed, check the
+corresponding update directory.
+"""
+
+_GCE_TEST_ERROR_MSG = """
+!!!GCETests failed!!!
+
+Logs are uploaded in the corresponding %(gce_test_results)s. This can be found
 by clicking on the artifacts link in the "Report" Stage. Specifically look
 for the test_harness/failed for the failing tests. For more
 particulars, please refer to which test failed i.e. above see the
@@ -44,18 +57,20 @@ class UnitTestStage(generic_stages.BoardSpecificBuilderStage):
   option_name = 'tests'
   config_name = 'unittests'
 
-  # If the unit tests take longer than 70 minutes, abort. They usually take
-  # ten minutes to run.
+  # If the unit tests take longer than 90 minutes, abort. They usually take
+  # thirty minutes to run, but they can take twice as long if the machine is
+  # under load (e.g. in canary groups).
   #
   # If the processes hang, parallel_emerge will print a status report after 60
-  # minutes, so we picked 70 minutes because it gives us a little buffer time.
-  UNIT_TEST_TIMEOUT = 70 * 60
+  # minutes, so we picked 90 minutes because it gives us a little buffer time.
+  UNIT_TEST_TIMEOUT = 90 * 60
 
   def PerformStage(self):
     extra_env = {}
     if self._run.config.useflags:
       extra_env['USE'] = ' '.join(self._run.config.useflags)
-    with timeout_util.Timeout(self.UNIT_TEST_TIMEOUT):
+    r = ' Reached UnitTestStage timeout.'
+    with timeout_util.Timeout(self.UNIT_TEST_TIMEOUT, reason_message=r):
       commands.RunUnitTests(self._build_root,
                             self._current_board,
                             blacklist=self._run.config.unittest_blacklist,
@@ -73,8 +88,6 @@ class VMTestStage(generic_stages.BoardSpecificBuilderStage,
 
   option_name = 'tests'
   config_name = 'vm_tests'
-
-  VM_TEST_TIMEOUT = 60 * 60
 
   def _PrintFailedTests(self, results_path, test_basename):
     """Print links to failed tests.
@@ -166,29 +179,70 @@ class VMTestStage(generic_stages.BoardSpecificBuilderStage,
       commands.RunDevModeTest(
           self._build_root, self._current_board, self.GetImageDirSymlink())
     else:
+      if test_type == constants.GCE_VM_TEST_TYPE:
+        image_path = os.path.join(self.GetImageDirSymlink(),
+                                  constants.TEST_IMAGE_GCE_TAR)
+      else:
+        image_path = os.path.join(self.GetImageDirSymlink(),
+                                  constants.TEST_IMAGE_BIN)
+      ssh_private_key = os.path.join(self.GetImageDirSymlink(),
+                                     constants.TEST_KEY_PRIVATE)
+      if not os.path.exists(ssh_private_key):
+        # TODO: Disallow usage of default test key completely.
+        logging.warning('Test key was not found in the image directory. '
+                        'Default key will be used.')
+        ssh_private_key = None
+
       commands.RunTestSuite(self._build_root,
                             self._current_board,
-                            self.GetImageDirSymlink(),
-                            os.path.join(test_results_dir,
-                                         'test_harness'),
+                            image_path,
+                            os.path.join(test_results_dir, 'test_harness'),
                             test_type=test_type,
                             whitelist_chrome_crashes=self._chrome_rev is None,
-                            archive_dir=self.bot_archive_root)
+                            archive_dir=self.bot_archive_root,
+                            ssh_private_key=ssh_private_key)
 
   def PerformStage(self):
     # These directories are used later to archive test artifacts.
     test_results_dir = commands.CreateTestRoot(self._build_root)
     test_basename = constants.VM_TEST_RESULTS % dict(attempt=self._attempt)
     try:
-      for test_type in self._run.config.vm_tests:
-        logging.info('Running VM test %s.', test_type)
+      for vm_test in self._run.config.vm_tests:
+        logging.info('Running VM test %s.', vm_test.test_type)
         with cgroups.SimpleContainChildren('VMTest'):
-          with timeout_util.Timeout(self.VM_TEST_TIMEOUT):
-            self._RunTest(test_type, test_results_dir)
+          r = ' Reached VMTestStage test run timeout.'
+          with timeout_util.Timeout(vm_test.timeout, reason_message=r):
+            self._RunTest(vm_test.test_type, test_results_dir)
 
     except Exception:
       logging.error(_VM_TEST_ERROR_MSG % dict(vm_test_results=test_basename))
       self._ArchiveVMFiles(test_results_dir)
+      raise
+    finally:
+      self._ArchiveTestResults(test_results_dir, test_basename)
+
+
+class GCETestStage(VMTestStage):
+  """Run autotests on a GCE VM instance."""
+
+  config_name = 'run_gce_tests'
+
+  # TODO: We should revisit whether GCE tests should have their own configs.
+  TEST_TIMEOUT = 60 * 60
+
+  def PerformStage(self):
+    # These directories are used later to archive test artifacts.
+    test_results_dir = commands.CreateTestRoot(self._build_root)
+    test_basename = constants.GCE_TEST_RESULTS % dict(attempt=self._attempt)
+    try:
+      logging.info('Running GCE tests...')
+      with cgroups.SimpleContainChildren('GCETest'):
+        r = ' Reached GCETestStage test run timeout.'
+        with timeout_util.Timeout(self.TEST_TIMEOUT, reason_message=r):
+          self._RunTest(constants.GCE_VM_TEST_TYPE, test_results_dir)
+
+    except Exception:
+      logging.error(_GCE_TEST_ERROR_MSG % dict(gce_test_results=test_basename))
       raise
     finally:
       self._ArchiveTestResults(test_results_dir, test_basename)
@@ -235,41 +289,83 @@ class HWTestStage(generic_stages.BoardSpecificBuilderStage,
       # Some boards may not have been setup in the lab yet for
       # non-code-checkin configs.
       if not config_lib.IsPFQType(self._run.config.build_type):
-        logging.warning('HWTest did not run because the board was not '
-                        'available in the lab yet')
-        return self._HandleExceptionAsWarning(exc_info)
+        logging.info('HWTest did not run because the board was not '
+                     'available in the lab yet')
+        return self._HandleExceptionAsSuccess(exc_info)
 
     return super(HWTestStage, self)._HandleStageException(exc_info)
 
-  @failures_lib.SetFailureType(failures_lib.TestLabFailure)
-  def _CheckLabStatus(self):
-    """Checks whether lab is down or the boards has been disabled.
+  def GenerateSubsysResult(self, json_dump_dict, subsystems):
+    """Generate the pass/fail subsystems dict.
 
-    If tests cannot be run, raise an exception based on the reason.
+    Args:
+      json_dump_dict: the parsed json_dump dictionary.
+      subsystems: A set of subsystems that current board will test.
+
+    Returns:
+      A tuple, first element is the pass subsystem set; the second is the fail
+      subsystem set
     """
-    lab_status.CheckLabStatus(self._current_board)
+    if not subsystems or not json_dump_dict:
+      return None
+
+    pass_subsystems = set()
+    fail_subsystems = set()
+    for test_result in json_dump_dict.get('tests', dict()).values():
+      test_subsys = set([attr[10:] for attr in test_result.get('attributes')
+                         if attr.startswith('subsystem:')])
+      # Only track the test result of the subsystems current board tests.
+      target_subsys = subsystems & test_subsys
+      if test_result.get('status') == 'GOOD':
+        pass_subsystems |= target_subsys
+      else:
+        fail_subsystems |= target_subsys
+    pass_subsystems -= fail_subsystems
+    return (pass_subsystems, fail_subsystems)
+
 
   def PerformStage(self):
     # Wait for UploadHWTestArtifacts to generate the payloads.
     if not self.GetParallel('payloads_generated', pretty_name='payloads'):
-      cros_build_lib.PrintBuildbotStepWarnings('missing payloads')
+      logging.PrintBuildbotStepWarnings('missing payloads')
       logging.warning('Cannot run HWTest because UploadTestArtifacts failed. '
                       'See UploadTestArtifacts for details.')
       return
 
-    if (self.suite_config.suite == constants.HWTEST_AFDO_SUITE and
-        not self._run.attrs.metadata.GetValue('chrome_was_uprevved')):
-      logging.info('Chrome was not uprevved. Nothing to do in this stage')
-      return
+    if self.suite_config.suite == constants.HWTEST_AFDO_SUITE:
+      arch = self._GetPortageEnvVar('ARCH', self._current_board)
+      cpv = portage_util.BestVisible(constants.CHROME_CP,
+                                     buildroot=self._build_root)
+      if afdo.CheckAFDOPerfData(cpv, arch, gs.GSContext()):
+        logging.info('AFDO profile already generated for arch %s '
+                     'and Chrome %s. Not generating it again',
+                     arch, cpv.version_no_rev.split('_')[0])
+        return
 
     build = '/'.join([self._bot_id, self.version])
-    if self._run.options.remote_trybot and self._run.options.hwtest:
+    if (self._run.options.remote_trybot and (self._run.options.hwtest or
+                                             self._run.config.pre_cq)):
       debug = self._run.options.debug_forced
     else:
       debug = self._run.options.debug
 
-    self._CheckLabStatus()
-    commands.RunHWTestSuite(
+    # Get the subsystems set for the board to test
+    per_board_dict = self._run.attrs.metadata.GetDict()['board-metadata']
+    current_board_dict = per_board_dict.get(self._current_board)
+    if current_board_dict:
+      subsystems = set(current_board_dict.get('subsystems_to_test', []))
+      # 'subsystem:all' indicates to skip the subsystem logic
+      if 'all' in subsystems:
+        subsystems = None
+    else:
+      subsystems = None
+
+    skip_duts_check = False
+    if config_lib.IsCanaryType(self._run.config.build_type):
+      skip_duts_check = True
+
+    build_id, db = self._run.GetCIDBHandle()
+    cmd_result = commands.RunHWTestSuite(
         build, self.suite_config.suite, self._current_board,
         pool=self.suite_config.pool, num=self.suite_config.num,
         file_bugs=self.suite_config.file_bugs,
@@ -281,7 +377,27 @@ class HWTestStage(generic_stages.BoardSpecificBuilderStage,
         minimum_duts=self.suite_config.minimum_duts,
         suite_min_duts=self.suite_config.suite_min_duts,
         offload_failures_only=self.suite_config.offload_failures_only,
-        debug=debug)
+        debug=debug, subsystems=subsystems, skip_duts_check=skip_duts_check)
+    subsys_tuple = self.GenerateSubsysResult(cmd_result.json_dump_result,
+                                             subsystems)
+    if db:
+      if not subsys_tuple:
+        db.InsertBuildMessage(build_id, message_type=constants.SUBSYSTEMS,
+                              message_subtype=constants.SUBSYSTEM_UNUSED,
+                              board=self._current_board)
+      else:
+        logging.info('pass_subsystems: %s, fail_subsystems: %s',
+                     subsys_tuple[0], subsys_tuple[1])
+        for s in subsys_tuple[0]:
+          db.InsertBuildMessage(build_id, message_type=constants.SUBSYSTEMS,
+                                message_subtype=constants.SUBSYSTEM_PASS,
+                                message_value=str(s), board=self._current_board)
+        for s in subsys_tuple[1]:
+          db.InsertBuildMessage(build_id, message_type=constants.SUBSYSTEMS,
+                                message_subtype=constants.SUBSYSTEM_FAIL,
+                                message_value=str(s), board=self._current_board)
+    if cmd_result.to_raise:
+      raise cmd_result.to_raise
 
 
 class AUTestStage(HWTestStage):
@@ -292,7 +408,8 @@ class AUTestStage(HWTestStage):
     # Wait for UploadHWTestArtifacts to generate the payloads.
     if not self.GetParallel('delta_payloads_generated',
                             pretty_name='delta payloads'):
-      cros_build_lib.PrintBuildbotStepWarnings('missing delta payloads')
+      logging.PrintBuildbotStepText('Missing delta payloads.')
+      logging.PrintBuildbotStepWarnings()
       logging.warning('Cannot run HWTest because UploadTestArtifacts failed. '
                       'See UploadTestArtifacts for details.')
       return
@@ -366,7 +483,13 @@ class ImageTestStage(generic_stages.BoardSpecificBuilderStage,
         perf_entries[test_name].extend(entries)
 
     platform_name = self._run.bot_id
-    cros_ver = self._run.GetVersionInfo().VersionString()
+    try:
+      cros_ver = self._run.GetVersionInfo().VersionString()
+    except cbuildbot_run.VersionNotSetError:
+      logging.error('Could not obtain version info. '
+                    'Failed to upload perf results.')
+      return
+
     chrome_ver = self._run.DetermineChromeVersion()
     for test_name, perf_values in perf_entries.iteritems():
       try:
@@ -374,7 +497,8 @@ class ImageTestStage(generic_stages.BoardSpecificBuilderStage,
                                        cros_version=cros_ver,
                                        chrome_version=chrome_ver)
       except Exception:
-        logging.exception('Fail to upload perf result for test %s.', test_name)
+        logging.exception('Failed to upload perf result for test %s.',
+                          test_name)
 
 
 class BinhostTestStage(generic_stages.BuilderStage):
@@ -388,3 +512,18 @@ class BinhostTestStage(generic_stages.BuilderStage):
     incremental = not (self._run.config.chrome_rev or
                        self._run.options.chrome_rev)
     commands.RunBinhostTest(self._build_root, incremental=incremental)
+
+
+class BranchUtilTestStage(generic_stages.BuilderStage):
+  """Stage that verifies branching works on the latest manifest version."""
+
+  config_name = 'branch_util_test'
+
+  def PerformStage(self):
+    assert (hasattr(self._run.attrs, 'manifest_manager') and
+            self._run.attrs.manifest_manager is not None), \
+        'Must run ManifestVersionedSyncStage before this stage.'
+    manifest_manager = self._run.attrs.manifest_manager
+    commands.RunBranchUtilTest(
+        self._build_root,
+        manifest_manager.GetCurrentVersionInfo().VersionString())

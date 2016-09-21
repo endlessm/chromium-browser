@@ -22,6 +22,7 @@ from chromite.lib import cros_logging as logging
 from chromite.lib import git
 from chromite.lib import osutils
 from chromite.lib import parallel
+from chromite.lib import portage_util
 
 
 class CleanUpStage(generic_stages.BuilderStage):
@@ -86,26 +87,6 @@ class CleanUpStage(generic_stages.BuilderStage):
     # builders.
     osutils.RmDir(site_packages_dir, ignore_missing=True)
 
-  def _AbortPreviousHWTestSuites(self):
-    """Abort any outstanding synchronous hwtest suites from this builder."""
-    # Only try to clean up previous HWTests if this is really running on one of
-    # our builders in a non-trybot build.
-    debug = (self._run.options.remote_trybot or
-             (not self._run.options.buildbot) or
-             self._run.options.debug)
-    build_id, db = self._run.GetCIDBHandle()
-    if db:
-      builds = db.GetBuildHistory(self._run.config.name, 2,
-                                  ignore_build_id=build_id)
-      for build in builds:
-        old_version = build['full_version']
-        if old_version is None:
-          continue
-        for suite_config in self._run.config.hw_tests:
-          if not suite_config.async:
-            commands.AbortHWTests(self._run.config.name, old_version,
-                                  debug, suite_config.suite)
-
   @failures_lib.SetFailureType(failures_lib.InfrastructureFailure)
   def PerformStage(self):
     if (not (self._run.options.buildbot or self._run.options.remote_trybot)
@@ -143,8 +124,7 @@ class CleanUpStage(generic_stages.BuilderStage):
                functools.partial(commands.WipeOldOutput, self._build_root),
                self._DeleteArchivedTrybotImages,
                self._DeleteArchivedPerfResults,
-               self._DeleteAutotestSitePackages,
-               self._AbortPreviousHWTestSuites]
+               self._DeleteAutotestSitePackages]
       if self._run.options.chrome_root:
         tasks.append(self._DeleteChromeBuildOutput)
       if self._run.config.chroot_replace and self._run.options.build:
@@ -180,8 +160,8 @@ class InitSDKStage(generic_stages.BuilderStage):
             self._build_root, chrome_root=self._run.options.chrome_root,
             extra_env=self._portage_extra_env)
       except failures_lib.BuildScriptFailure:
-        cros_build_lib.PrintBuildbotStepText('Replacing broken chroot')
-        cros_build_lib.PrintBuildbotStepWarnings()
+        logging.PrintBuildbotStepText('Replacing broken chroot')
+        logging.PrintBuildbotStepWarnings()
       else:
         # Clear the chroot manifest version as we are in the middle of building.
         chroot_manager = chroot_lib.ChrootManager(self._build_root)
@@ -199,9 +179,9 @@ class InitSDKStage(generic_stages.BuilderStage):
 
     post_ver = cros_build_lib.GetChrootVersion(chroot=chroot_path)
     if pre_ver is not None and pre_ver != post_ver:
-      cros_build_lib.PrintBuildbotStepText('%s->%s' % (pre_ver, post_ver))
+      logging.PrintBuildbotStepText('%s->%s' % (pre_ver, post_ver))
     else:
-      cros_build_lib.PrintBuildbotStepText(post_ver)
+      logging.PrintBuildbotStepText(post_ver)
 
     commands.SetSharedUserPassword(
         self._build_root,
@@ -225,17 +205,14 @@ class SetupBoardStage(generic_stages.BoardSpecificBuilderStage, InitSDKStage):
           self._build_root, toolchain_boards=[self._current_board],
           usepkg=usepkg_toolchain)
 
-    # Only update the board if we need to do so.
-    chroot_path = os.path.join(self._build_root, constants.DEFAULT_CHROOT_DIR)
-    board_path = os.path.join(chroot_path, 'build', self._current_board)
-    if not os.path.isdir(board_path) or self._run.config.board_replace:
-      usepkg = self._run.config.usepkg_build_packages
-      commands.SetupBoard(
-          self._build_root, board=self._current_board, usepkg=usepkg,
-          chrome_binhost_only=self._run.config.chrome_binhost_only,
-          force=self._run.config.board_replace,
-          extra_env=self._portage_extra_env, chroot_upgrade=False,
-          profile=self._run.options.profile or self._run.config.profile)
+    # Always update the board.
+    usepkg = self._run.config.usepkg_build_packages
+    commands.SetupBoard(
+        self._build_root, board=self._current_board, usepkg=usepkg,
+        chrome_binhost_only=self._run.config.chrome_binhost_only,
+        force=self._run.config.board_replace,
+        extra_env=self._portage_extra_env, chroot_upgrade=False,
+        profile=self._run.options.profile or self._run.config.profile)
 
 
 class BuildPackagesStage(generic_stages.BoardSpecificBuilderStage,
@@ -287,10 +264,8 @@ class BuildPackagesStage(generic_stages.BoardSpecificBuilderStage,
     packages += ['virtual/target-os-test']
     # Build factory packages if requested by config.
     if self._run.config.factory:
-      packages += ['chromeos-base/chromeos-installshim',
-                   'chromeos-base/chromeos-factory',
-                   'chromeos-base/chromeos-hwid',
-                   'chromeos-base/autotest-factory-install']
+      packages += ['virtual/target-os-factory',
+                   'virtual/target-os-factory-shim']
 
     if self._run.ShouldBuildAutotest():
       packages += ['chromeos-base/autotest-all']
@@ -339,6 +314,7 @@ class BuildPackagesStage(generic_stages.BoardSpecificBuilderStage,
                    skip_chroot_upgrade=True,
                    chrome_root=self._run.options.chrome_root,
                    noworkon=noworkon,
+                   noretry=self._run.config.nobuildretry,
                    extra_env=self._portage_extra_env)
 
     if self._update_metadata:
@@ -399,7 +375,8 @@ class BuildImageStage(BuildPackagesStage):
     self.board_runattrs.SetParallel('images_generated', True)
 
     parallel.RunParallelSteps(
-        [self._BuildVMImage, lambda: self._GenerateAuZip(cbuildbot_image_link)])
+        [self._BuildVMImage, lambda: self._GenerateAuZip(cbuildbot_image_link),
+         self._BuildGceTarballs])
 
   def _BuildVMImage(self):
     if self._run.config.vm_tests and not self._afdo_generate_min:
@@ -414,6 +391,28 @@ class BuildImageStage(BuildPackagesStage):
       commands.GenerateAuZip(self._build_root,
                              image_dir,
                              extra_env=self._portage_extra_env)
+
+  def _BuildGceTarballs(self):
+    """Creates .tar.gz files that can be converted to GCE images.
+
+    These files will be used by VMTestStage for tests on GCE. They will also be
+    be uploaded to GCS buckets, where they can be used as input to the "gcloud
+    compute images create" command. This will convert them into images that can
+    be used to create GCE VM instances.
+    """
+    if self._run.config.run_gce_tests:
+      image_bins = []
+      if 'base' in self._run.config['images']:
+        image_bins.append(constants.IMAGE_TYPE_TO_NAME['base'])
+      if 'test' in self._run.config['images']:
+        image_bins.append(constants.IMAGE_TYPE_TO_NAME['test'])
+
+      image_dir = self.GetImageDirSymlink('latest')
+      for image_bin in image_bins:
+        if os.path.exists(os.path.join(image_dir, image_bin)):
+          commands.BuildGceTarball(image_dir, image_dir, image_bin)
+        else:
+          logging.warning('Missing image file skipped: %s', image_bin)
 
   def _HandleStageException(self, exc_info):
     """Tell other stages to not wait on us if we die for some reason."""
@@ -430,9 +429,8 @@ class UprevStage(generic_stages.BuilderStage):
   config_name = 'uprev'
   option_name = 'uprev'
 
-  def __init__(self, builder_run, boards=None, enter_chroot=True, **kwargs):
+  def __init__(self, builder_run, boards=None, **kwargs):
     super(UprevStage, self).__init__(builder_run, **kwargs)
-    self._enter_chroot = enter_chroot
     if boards is not None:
       self._boards = boards
 
@@ -441,5 +439,16 @@ class UprevStage(generic_stages.BuilderStage):
     overlays, _ = self._ExtractOverlays()
     commands.UprevPackages(self._build_root,
                            self._boards,
-                           overlays,
-                           enter_chroot=self._enter_chroot)
+                           overlays)
+
+
+class RegenPortageCacheStage(generic_stages.BuilderStage):
+  """Regenerates the Portage ebuild cache."""
+
+  # We only need to run this if we're pushing at least one overlay.
+  config_name = 'push_overlays'
+
+  def PerformStage(self):
+    _, push_overlays = self._ExtractOverlays()
+    inputs = [[overlay] for overlay in push_overlays if os.path.isdir(overlay)]
+    parallel.RunTasksInProcessPool(portage_util.RegenCache, inputs)

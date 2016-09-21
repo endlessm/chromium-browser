@@ -33,7 +33,6 @@
 #include "components/browser_sync/browser/profile_sync_service.h"
 #include "components/password_manager/content/browser/content_password_manager_driver.h"
 #include "components/password_manager/content/browser/password_manager_internals_service_factory.h"
-#include "components/password_manager/content/common/credential_manager_messages.h"
 #include "components/password_manager/core/browser/browser_save_password_progress_logger.h"
 #include "components/password_manager/core/browser/log_manager.h"
 #include "components/password_manager/core/browser/log_receiver.h"
@@ -57,16 +56,13 @@
 #include "net/base/url_util.h"
 #include "third_party/re2/src/re2/re2.h"
 
-#if defined(OS_MACOSX) || BUILDFLAG(ANDROID_JAVA_UI)
-#include "chrome/browser/password_manager/save_password_infobar_delegate.h"
-#endif
-
 #if BUILDFLAG(ANDROID_JAVA_UI)
 #include "chrome/browser/android/tab_android.h"
 #include "chrome/browser/password_manager/account_chooser_dialog_android.h"
 #include "chrome/browser/password_manager/auto_signin_first_run_dialog_android.h"
 #include "chrome/browser/password_manager/generated_password_saved_infobar_delegate_android.h"
-#include "chrome/browser/password_manager/update_password_infobar_delegate.h"
+#include "chrome/browser/password_manager/save_password_infobar_delegate_android.h"
+#include "chrome/browser/password_manager/update_password_infobar_delegate_android.h"
 #include "chrome/browser/ui/android/snackbars/auto_signin_prompt_controller.h"
 #endif
 
@@ -141,7 +137,7 @@ ChromePasswordManagerClient::ChromePasswordManagerClient(
       profile_(Profile::FromBrowserContext(web_contents->GetBrowserContext())),
       password_manager_(this),
       driver_factory_(nullptr),
-      credential_manager_dispatcher_(web_contents, this),
+      credential_manager_impl_(web_contents, this),
       observer_(nullptr),
       credentials_filter_(this,
                           base::Bind(&GetSyncService, profile_),
@@ -223,35 +219,28 @@ bool ChromePasswordManagerClient::PromptUserToSaveOrUpdatePassword(
     return false;
   }
 
-  if (IsTheHotNewBubbleUIEnabled()) {
 #if !BUILDFLAG(ANDROID_JAVA_UI)
-    PasswordsClientUIDelegate* manage_passwords_ui_controller =
-        PasswordsClientUIDelegateFromWebContents(web_contents());
-    if (update_password && IsUpdatePasswordUIEnabled()) {
-      manage_passwords_ui_controller->OnUpdatePasswordSubmitted(
-          std::move(form_to_save));
-    } else {
-      manage_passwords_ui_controller->OnPasswordSubmitted(
-          std::move(form_to_save));
-    }
-#endif
+  PasswordsClientUIDelegate* manage_passwords_ui_controller =
+      PasswordsClientUIDelegateFromWebContents(web_contents());
+  if (update_password) {
+    manage_passwords_ui_controller->OnUpdatePasswordSubmitted(
+        std::move(form_to_save));
   } else {
-#if defined(OS_MACOSX) || BUILDFLAG(ANDROID_JAVA_UI)
-    if (form_to_save->IsBlacklisted())
-      return false;
-#if BUILDFLAG(ANDROID_JAVA_UI)
-    if (update_password && IsUpdatePasswordUIEnabled()) {
-      UpdatePasswordInfoBarDelegate::Create(web_contents(),
-                                            std::move(form_to_save));
-      return true;
-    }
-#endif
-    SavePasswordInfoBarDelegate::Create(web_contents(),
-                                        std::move(form_to_save));
-#else
-    NOTREACHED() << "Aura platforms should always use the bubble";
-#endif
+    manage_passwords_ui_controller->OnPasswordSubmitted(
+        std::move(form_to_save));
   }
+#else
+  if (form_to_save->IsBlacklisted())
+    return false;
+
+  if (update_password && IsUpdatePasswordUIEnabled()) {
+    UpdatePasswordInfoBarDelegate::Create(web_contents(),
+                                          std::move(form_to_save));
+    return true;
+  }
+  SavePasswordInfoBarDelegate::Create(web_contents(),
+                                      std::move(form_to_save));
+#endif  // !BUILDFLAG(ANDROID_JAVA_UI)
   return true;
 }
 
@@ -350,12 +339,10 @@ void ChromePasswordManagerClient::AutomaticPasswordSave(
 #if BUILDFLAG(ANDROID_JAVA_UI)
   GeneratedPasswordSavedInfoBarDelegateAndroid::Create(web_contents());
 #else
-  if (IsTheHotNewBubbleUIEnabled()) {
-    PasswordsClientUIDelegate* manage_passwords_ui_controller =
-        PasswordsClientUIDelegateFromWebContents(web_contents());
-    manage_passwords_ui_controller->OnAutomaticPasswordSave(
-        std::move(saved_form));
-  }
+  PasswordsClientUIDelegate* manage_passwords_ui_controller =
+      PasswordsClientUIDelegateFromWebContents(web_contents());
+  manage_passwords_ui_controller->OnAutomaticPasswordSave(
+      std::move(saved_form));
 #endif
 }
 
@@ -367,9 +354,8 @@ void ChromePasswordManagerClient::PasswordWasAutofilled(
 #if !BUILDFLAG(ANDROID_JAVA_UI)
   PasswordsClientUIDelegate* manage_passwords_ui_controller =
       PasswordsClientUIDelegateFromWebContents(web_contents());
-  if (manage_passwords_ui_controller && IsTheHotNewBubbleUIEnabled())
-    manage_passwords_ui_controller->OnPasswordAutofilled(best_matches, origin,
-                                                         federated_matches);
+  manage_passwords_ui_controller->OnPasswordAutofilled(best_matches, origin,
+                                                       federated_matches);
 #endif
 }
 
@@ -563,34 +549,12 @@ void ChromePasswordManagerClient::GenerationAvailableForForm(
   password_manager_.GenerationAvailableForForm(form);
 }
 
-bool ChromePasswordManagerClient::IsTheHotNewBubbleUIEnabled() {
-#if BUILDFLAG(ANDROID_JAVA_UI)
-  return false;
-#elif defined(OS_MACOSX)
-  // Query the group first for correct UMA reporting.
-  std::string group_name =
-      base::FieldTrialList::FindFullName("PasswordManagerUI");
-  base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
-  if (command_line->HasSwitch(switches::kDisableSavePasswordBubble))
-    return false;
-
-  if (command_line->HasSwitch(switches::kEnableSavePasswordBubble))
-    return true;
-
-  // The bubble should be the default case that runs on the bots.
-  return group_name != "Infobar";
-#else
-  // All other platforms use Aura, and therefore always show the bubble.
-  return true;
-#endif
-}
-
 bool ChromePasswordManagerClient::IsUpdatePasswordUIEnabled() const {
 #if BUILDFLAG(ANDROID_JAVA_UI)
   return base::FeatureList::IsEnabled(
       password_manager::features::kEnablePasswordChangeSupport);
 #else
-  return IsTheHotNewBubbleUIEnabled();
+  return true;
 #endif
 }
 
@@ -616,4 +580,18 @@ ChromePasswordManagerClient::GetStoreResultFilter() const {
 const password_manager::LogManager* ChromePasswordManagerClient::GetLogManager()
     const {
   return log_manager_.get();
+}
+
+// static
+void ChromePasswordManagerClient::BindCredentialManager(
+    content::RenderFrameHost* render_frame_host,
+    password_manager::mojom::CredentialManagerRequest request) {
+  content::WebContents* web_contents =
+      content::WebContents::FromRenderFrameHost(render_frame_host);
+  DCHECK(web_contents);
+
+  ChromePasswordManagerClient* instance =
+      ChromePasswordManagerClient::FromWebContents(web_contents);
+  DCHECK(instance);
+  instance->credential_manager_impl_.BindRequest(std::move(request));
 }

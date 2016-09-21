@@ -10,7 +10,7 @@ import mock
 import os
 
 from chromite.cli import flash
-from chromite.lib import brick_lib
+from chromite.lib import auto_updater
 from chromite.lib import commandline
 from chromite.lib import cros_build_lib
 from chromite.lib import cros_build_lib_unittest
@@ -20,13 +20,13 @@ from chromite.lib import dev_server_wrapper
 from chromite.lib import osutils
 from chromite.lib import partial_mock
 from chromite.lib import remote_access
-from chromite.lib import workspace_lib
 
 
 class RemoteDeviceUpdaterMock(partial_mock.PartialCmdMock):
   """Mock out RemoteDeviceUpdater."""
-  TARGET = 'chromite.cli.flash.RemoteDeviceUpdater'
-  ATTRS = ('UpdateStateful', 'UpdateRootfs', 'SetupRootfsUpdate', 'Verify')
+  TARGET = 'chromite.lib.auto_updater.ChromiumOSUpdater'
+  ATTRS = ('UpdateStateful', 'UpdateRootfs', 'SetupRootfsUpdate',
+           'RebootAndVerify')
 
   def __init__(self):
     partial_mock.PartialCmdMock.__init__(self)
@@ -40,8 +40,8 @@ class RemoteDeviceUpdaterMock(partial_mock.PartialCmdMock):
   def SetupRootfsUpdate(self, _inst, *_args, **_kwargs):
     """Mock out SetupRootfsUpdate."""
 
-  def Verify(self, _inst, *_args, **_kwargs):
-    """Mock out SetupRootfsUpdate."""
+  def RebootAndVerify(self, _inst, *_args, **_kwargs):
+    """Mock out RebootAndVerify."""
 
 
 class RemoteDeviceUpdaterTest(cros_test_lib.MockTempDirTestCase):
@@ -63,7 +63,6 @@ class RemoteDeviceUpdaterTest(cros_test_lib.MockTempDirTestCase):
     self.PatchObject(dev_server_wrapper, 'GetUpdatePayloads')
     self.PatchObject(remote_access, 'CHECK_INTERVAL', new=0)
     self.PatchObject(remote_access, 'ChromiumOSDevice')
-    self.PatchObject(workspace_lib, 'WorkspacePath', return_value=None)
 
   def testUpdateAll(self):
     """Tests that update methods are called correctly."""
@@ -89,19 +88,8 @@ class RemoteDeviceUpdaterTest(cros_test_lib.MockTempDirTestCase):
   def testMissingPayloads(self):
     """Tests we raise FlashError when payloads are missing."""
     with mock.patch('os.path.exists', return_value=False):
-      self.assertRaises(flash.FlashError, flash.Flash, self.DEVICE, self.IMAGE)
-
-  def testProjectSdk(self):
-    """Tests that Project SDK flashing invoked as expected."""
-    with mock.patch('os.path.exists', return_value=True):
-      with mock.patch('chromite.lib.project_sdk.FindVersion',
-                      return_value='1.2.3'):
-        flash.Flash(self.DEVICE, self.IMAGE, project_sdk_image=True)
-        dev_server_wrapper.GetImagePathWithXbuddy.assert_called_with(
-            'project_sdk', mock.ANY, version='1.2.3', static_dir=mock.ANY,
-            lookup_only=True)
-        self.assertTrue(self.updater_mock.patched['UpdateStateful'].called)
-        self.assertTrue(self.updater_mock.patched['UpdateRootfs'].called)
+      self.assertRaises(auto_updater.ChromiumOSUpdateError, flash.Flash,
+                        self.DEVICE, self.IMAGE)
 
 
 class USBImagerMock(partial_mock.PartialCmdMock):
@@ -152,10 +140,8 @@ class USBImagerTest(cros_test_lib.MockTempDirTestCase):
                      return_value=('taco-paladin/R36/chromiumos_test_image.bin',
                                    'remote/taco-paladin/R36/test'))
     self.PatchObject(os.path, 'exists', return_value=True)
-    self.PatchObject(brick_lib, 'FindBrickInPath', return_value=None)
     self.isgpt_mock = self.PatchObject(flash, '_IsFilePathGPTDiskImage',
                                        return_value=True)
-    self.PatchObject(workspace_lib, 'WorkspacePath', return_value=None)
 
   def testLocalImagePathCopy(self):
     """Tests that imaging methods are called correctly."""

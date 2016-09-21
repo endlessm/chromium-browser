@@ -2,10 +2,12 @@
 # Copyright (c) 2016 The Chromium Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
+
+import py_utils
 import re
 
 from devil.utils import cmd_helper
-from devil.utils import timeout_retry
+
 from systrace import tracing_agents
 from systrace.tracing_agents import atrace_agent
 
@@ -27,18 +29,13 @@ class AtraceFromFileAgent(tracing_agents.TracingAgent):
     self._trace_data = False
     self._fix_circular_traces = options.fix_circular
 
-  def _StartAgentTracingImpl(self, options, categories):
+  @py_utils.Timeout(tracing_agents.START_STOP_TIMEOUT)
+  def StartAgentTracing(self, options, categories, timeout=None):
     pass
 
-  def StartAgentTracing(self, options, categories, timeout):
-    return timeout_retry.Run(self._StartAgentTracingImpl, timeout, 1,
-                             args=[options, categories])
-
-  def _StopAgentTracingImpl(self):
+  @py_utils.Timeout(tracing_agents.START_STOP_TIMEOUT)
+  def StopAgentTracing(self, timeout=None):
     self._trace_data = self._read_trace_data()
-
-  def StopAgentTracing(self, timeout):
-    return timeout_retry.Run(self._StopAgentTracingImpl, timeout, 1)
 
   def SupportsExplicitClockSync(self):
     return False
@@ -46,11 +43,9 @@ class AtraceFromFileAgent(tracing_agents.TracingAgent):
   def RecordClockSyncMarker(self, sync_id, did_record_clock_sync_callback):
     raise NotImplementedError
 
-  def _GetResultsImpl(self):
+  @py_utils.Timeout(tracing_agents.GET_RESULTS_TIMEOUT)
+  def GetResults(self, timeout=None):
     return tracing_agents.TraceResult('trace-data', self._trace_data)
-
-  def GetResults(self, timeout):
-    return timeout_retry.Run(self._GetResultsImpl, timeout, 1)
 
   def _read_trace_data(self):
     result = cmd_helper.GetCmdOutput(['cat', self._filename])

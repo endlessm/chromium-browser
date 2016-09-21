@@ -14,7 +14,7 @@ import distutils.version
 import glob
 import json
 import mock
-import optparse
+import optparse  # pylint: disable=deprecated-module
 import os
 import pickle
 import sys
@@ -45,6 +45,7 @@ from chromite.lib import parallel
 from chromite.lib import retry_stats
 from chromite.lib import sudo
 from chromite.lib import timeout_util
+from chromite.lib import ts_mon_config
 
 
 _DEFAULT_LOG_DIR = 'cbuildbot_logs'
@@ -159,7 +160,7 @@ def _IsDistributedBuilder(options, chrome_rev, build_config):
   Returns:
     True if the builder should be a distributed_builder
   """
-  if build_config['pre_cq'] or options.pre_cq:
+  if build_config['pre_cq']:
     return True
   elif not options.buildbot:
     return False
@@ -316,15 +317,6 @@ def _CheckChromeRootOption(_option, _opt_str, value, parser):
   parser.values.chrome_root = value
 
 
-def _CheckChromeRevOption(_option, _opt_str, value, parser):
-  """Validate the chrome_rev option."""
-  value = value.strip()
-  if value not in constants.VALID_CHROME_REVISIONS:
-    raise optparse.OptionValueError('Invalid chrome rev specified')
-
-  parser.values.chrome_rev = value
-
-
 def FindCacheDir(_parser, _options):
   return None
 
@@ -412,9 +404,12 @@ def _CreateParser():
                          'multiple copies of chromite. All these checkouts '
                          'will be contained in the directory specified here. '
                          'Default:%s' % osutils.GetGlobalTempDir())
-  parser.add_remote_option('--chrome_rev', default=None, type='string',
-                           action='callback', dest='chrome_rev',
-                           callback=_CheckChromeRevOption,
+  parser.add_remote_option('--android_rev', default=None, type='choice',
+                           choices=constants.VALID_ANDROID_REVISIONS,
+                           help=('Revision of Android to use, of type [%s]'
+                                 % '|'.join(constants.VALID_ANDROID_REVISIONS)))
+  parser.add_remote_option('--chrome_rev', default=None, type='choice',
+                           choices=constants.VALID_CHROME_REVISIONS,
                            help=('Revision of Chrome to use, of type [%s]'
                                  % '|'.join(constants.VALID_CHROME_REVISIONS)))
   parser.add_remote_option('--profile', default=None, type='string',
@@ -460,6 +455,10 @@ def _CreateParser():
   group = CustomGroup(
       parser,
       'Remote Trybot Options (--remote)')
+
+  group.add_option('--use-buildbucket', default=False, action='store_true',
+                   help=('Use buildbucket instead of git to request'
+                         'the tryjob(s).'))
 
   group.add_remote_option('--hwtest', dest='hwtest', action='store_true',
                           default=False,
@@ -520,6 +519,11 @@ def _CreateParser():
                                 'to skip verification by the bootstrap code'))
   group.add_remote_option('--buildbot', dest='buildbot', action='store_true',
                           default=False, help='This is running on a buildbot')
+  group.add_remote_option('--no-buildbot-tags', action='store_false',
+                          dest='enable_buildbot_tags', default=True,
+                          help='Suppress buildbot specific tags from log '
+                               'output. This is used to hide recursive '
+                               'cbuilbot runs on the waterfall.')
   group.add_remote_option('--buildnumber', help='build number', type='int',
                           default=0)
   group.add_option('--chrome_root', default=None, type='path',
@@ -638,8 +642,6 @@ def _CreateParser():
             "target is a cq target, and we're in buildbot mode."))
   group.add_option('--pass-through', dest='pass_through_args', action='append',
                    type='string', default=[])
-  group.add_remote_option('--pre-cq', action='store_true', default=False,
-                          help='Mark CLs as tested by the PreCQ on success.')
   group.add_option('--reexec-api-version', dest='output_api_version',
                    action='store_true', default=False,
                    help=('Used for handling forwards/backwards compatibility '
@@ -743,7 +745,8 @@ def _FinishParsing(options, args):
       cros_build_lib.Die('Cannot specify both --remote and --local')
 
     # options.channels is a convenient way to detect payloads builds.
-    if not options.buildbot and not options.channels and not patches:
+    if (not options.list and not options.buildbot and not options.channels and
+        not patches):
       prompt = ('No patches were provided; are you sure you want to just '
                 'run a remote build of %s?' % (
                     options.branch if options.branch else 'ToT'))
@@ -938,7 +941,6 @@ def _ParseCommandLine(parser, argv):
   # TODO(rcui): Remove when buildbot is fixed
   args = [arg for arg in args if arg]
 
-  # A couple options, like --list, trigger a quick exit.
   if options.output_api_version:
     print(constants.REEXEC_API_VERSION)
     sys.exit(0)
@@ -1005,6 +1007,7 @@ def _SetupConnections(options, build_config):
 
   if run_type == _ENVIRONMENT_PROD:
     cidb.CIDBConnectionFactory.SetupProdCidb()
+    ts_mon_config.SetupTsMonGlobalState()
   elif run_type == _ENVIRONMENT_DEBUG:
     cidb.CIDBConnectionFactory.SetupDebugCidb()
   else:
@@ -1024,26 +1027,31 @@ def _SetupConnections(options, build_config):
     graphite.StatsFactory.SetupMock()
 
 
-def _SetupSiteConfig(options):
-  """Setup our SiteConfig is specified or preset already.
+def _FetchInitialBootstrapConfigRepo(repo_url, branch_name):
+  """Fetch the TOT site config repo, if necessary to start bootstrap."""
 
-  Args:
-    options: Parsed command line options.
+  # If we are part of a repo checkout, the manifest stages control things.
+  if git.FindRepoDir(constants.SOURCE_ROOT):
+    return
 
-  Returns:
-    SiteConfig instance to use for this build.
-  """
-  if options.config_repo:
-    raise NotImplementedError('Can\'t yet fetch a site configuration.')
+  # We must be part of a bootstrap chromite checkout, probably on a buildbot.
 
-  # Use the site specific config, if we specified a site config, or if it
-  # is already present because we are in a repo checkout that specifies one.
-  if options.config_repo or os.path.exists(constants.SITE_CONFIG_FILE):
-    return config_lib.LoadConfigFromFile(constants.SITE_CONFIG_FILE)
+  # If the config directory already exists, we have started the bootstrap
+  # process. Assume the boostrap stage did the right thing, and leave the config
+  # directory alone.
+  if os.path.exists(constants.SITE_CONFIG_DIR):
+    return
 
-  # Fall back to default Chrome OS configuration.
-  return config_lib.LoadConfigFromFile(constants.CHROMEOS_CONFIG_FILE)
+  # We are part of a clean chromite checkout (buildbot always cleans chromite
+  # before launching us), so create the initial site config checkout.
+  logging.info('Fetching Config Repo: %s', repo_url)
+  git.Clone(constants.SITE_CONFIG_DIR, repo_url)
 
+  if branch_name:
+    git.RunGit(constants.SITE_CONFIG_DIR, ['checkout', branch_name])
+
+  # Clear the cached SiteConfig, if there was one.
+  config_lib.ClearConfigCache()
 
 # TODO(build): This function is too damn long.
 def main(argv):
@@ -1056,8 +1064,16 @@ def main(argv):
   parser = _CreateParser()
   options, args = _ParseCommandLine(parser, argv)
 
+  if options.buildbot and options.config_repo:
+    _FetchInitialBootstrapConfigRepo(options.config_repo, options.branch)
+
+  if options.config_repo:
+    # Ensure expected config file is present.
+    if not os.path.exists(constants.SITE_CONFIG_FILE):
+      cros_build_lib.Die('Unabled to find: %s', constants.SITE_CONFIG_FILE)
+
   # Fetch our site_config now, because we need it to do anything else.
-  site_config = _SetupSiteConfig(options)
+  site_config = config_lib.GetConfig()
 
   if options.list:
     _PrintValidConfigs(site_config, options.print_all)
@@ -1067,6 +1083,8 @@ def main(argv):
 
   cros_build_lib.AssertOutsideChroot()
 
+  if options.enable_buildbot_tags:
+    logging.EnableBuildbotMarkers()
   if options.remote:
     logging.getLogger().setLevel(logging.WARNING)
 
@@ -1094,6 +1112,7 @@ def main(argv):
       _ConfirmRemoteBuildbotRun()
 
     print('Submitting tryjob...')
+    _SetupConnections(options, build_config)
     tryjob = remote_try.RemoteTryJob(options, args, patch_pool.local_patches)
     tryjob.Submit(testjob=options.test_tryjob, dryrun=False)
     print('Tryjob submitted!')
@@ -1174,11 +1193,7 @@ def main(argv):
     _BackupPreviousLog(log_file)
 
   with cros_build_lib.ContextManagerStack() as stack:
-    # TODO(ferringb): update this once
-    # https://chromium-review.googlesource.com/25359
-    # is landed- it's sensitive to the manifest-versions cache path.
-    options.preserve_paths = set(['manifest-versions', '.cache',
-                                  'manifest-versions-internal'])
+    options.preserve_paths = set()
     if log_file is not None:
       # We don't want the critical section to try to clean up the tee process,
       # so we run Tee (forked off) outside of it. This prevents a deadlock
@@ -1226,6 +1241,7 @@ def main(argv):
     _SetupConnections(options, build_config)
     retry_stats.SetupStats()
 
+    timeout_display_message = None
     # For master-slave builds: Update slave's timeout using master's published
     # deadline.
     if options.buildbot and options.master_build_id is not None:
@@ -1244,11 +1260,14 @@ def main(argv):
           logging.info('Updating slave build timeout to %d seconds enforced '
                        'by the master', slave_timeout)
           options.timeout = slave_timeout
+          timeout_display_message = ('Slave reached the timeout deadline set '
+                                     'by master.')
       else:
         logging.warning('Could not get master deadline for master-slave build. '
                         'Can not set slave timeout.')
 
     if options.timeout > 0:
-      stack.Add(timeout_util.FatalTimeout, options.timeout)
+      stack.Add(timeout_util.FatalTimeout, options.timeout,
+                timeout_display_message)
 
     _RunBuildStagesWrapper(options, site_config, build_config)

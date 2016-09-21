@@ -20,6 +20,7 @@
 #include "SkMD5.h"
 #include "SkPaint.h"
 #include "SkPicture.h"
+#include "SkPictureAnalyzer.h"
 #include "SkPictureRecorder.h"
 #include "SkPictureUtils.h"
 #include "SkPixelRef.h"
@@ -158,7 +159,8 @@ static void test_gpu_veto(skiatest::Reporter* reporter) {
     // path effects currently render an SkPicture undesireable for GPU rendering
 
     const char *reason = nullptr;
-    REPORTER_ASSERT(reporter, !picture->suitableForGpuRasterization(nullptr, &reason));
+    REPORTER_ASSERT(reporter,
+        !SkPictureGpuAnalyzer(picture).suitableForGpuRasterization(&reason));
     REPORTER_ASSERT(reporter, reason);
 
     canvas = recorder.beginRecording(100, 100);
@@ -181,7 +183,7 @@ static void test_gpu_veto(skiatest::Reporter* reporter) {
     }
     picture = recorder.finishRecordingAsPicture();
     // A lot of small AA concave paths should be fine for GPU rendering
-    REPORTER_ASSERT(reporter, picture->suitableForGpuRasterization(nullptr));
+    REPORTER_ASSERT(reporter, SkPictureGpuAnalyzer(picture).suitableForGpuRasterization());
 
     canvas = recorder.beginRecording(100, 100);
     {
@@ -203,7 +205,7 @@ static void test_gpu_veto(skiatest::Reporter* reporter) {
     }
     picture = recorder.finishRecordingAsPicture();
     // A lot of large AA concave paths currently render an SkPicture undesireable for GPU rendering
-    REPORTER_ASSERT(reporter, !picture->suitableForGpuRasterization(nullptr));
+    REPORTER_ASSERT(reporter, !SkPictureGpuAnalyzer(picture).suitableForGpuRasterization());
 
     canvas = recorder.beginRecording(100, 100);
     {
@@ -227,7 +229,7 @@ static void test_gpu_veto(skiatest::Reporter* reporter) {
     }
     picture = recorder.finishRecordingAsPicture();
     // hairline stroked AA concave paths are fine for GPU rendering
-    REPORTER_ASSERT(reporter, picture->suitableForGpuRasterization(nullptr));
+    REPORTER_ASSERT(reporter, SkPictureGpuAnalyzer(picture).suitableForGpuRasterization());
 
     canvas = recorder.beginRecording(100, 100);
     {
@@ -243,7 +245,7 @@ static void test_gpu_veto(skiatest::Reporter* reporter) {
     }
     picture = recorder.finishRecordingAsPicture();
     // fast-path dashed effects are fine for GPU rendering ...
-    REPORTER_ASSERT(reporter, picture->suitableForGpuRasterization(nullptr));
+    REPORTER_ASSERT(reporter, SkPictureGpuAnalyzer(picture).suitableForGpuRasterization());
 
     canvas = recorder.beginRecording(100, 100);
     {
@@ -257,18 +259,18 @@ static void test_gpu_veto(skiatest::Reporter* reporter) {
     }
     picture = recorder.finishRecordingAsPicture();
     // ... but only when applied to drawPoint() calls
-    REPORTER_ASSERT(reporter, !picture->suitableForGpuRasterization(nullptr));
+    REPORTER_ASSERT(reporter, !SkPictureGpuAnalyzer(picture).suitableForGpuRasterization());
 
     // Nest the previous picture inside a new one.
     canvas = recorder.beginRecording(100, 100);
     {
-        canvas->drawPicture(picture.get());
+        canvas->drawPicture(picture);
     }
     picture = recorder.finishRecordingAsPicture();
-    REPORTER_ASSERT(reporter, !picture->suitableForGpuRasterization(nullptr));
+    REPORTER_ASSERT(reporter, !SkPictureGpuAnalyzer(picture).suitableForGpuRasterization());
 }
 
-#endif
+#endif // SK_SUPPORT_GPU
 
 static void test_savelayer_extraction(skiatest::Reporter* reporter) {
     static const int kWidth = 100;
@@ -471,69 +473,6 @@ static void test_savelayer_extraction(skiatest::Reporter* reporter) {
         REPORTER_ASSERT(reporter, nullptr != info7.fPaint);
         REPORTER_ASSERT(reporter, info7.fIsNested && !info7.fHasNestedLayers); // is nested
     }
-}
-
-static void test_has_text(skiatest::Reporter* reporter) {
-    SkPictureRecorder recorder;
-
-    SkCanvas* canvas = recorder.beginRecording(100,100);
-    {
-        canvas->drawRect(SkRect::MakeWH(20, 20), SkPaint());
-    }
-    sk_sp<SkPicture> picture(recorder.finishRecordingAsPicture());
-    REPORTER_ASSERT(reporter, !picture->hasText());
-
-    SkPoint point = SkPoint::Make(10, 10);
-    canvas = recorder.beginRecording(100,100);
-    {
-        canvas->drawText("Q", 1, point.fX, point.fY, SkPaint());
-    }
-    picture = recorder.finishRecordingAsPicture();
-    REPORTER_ASSERT(reporter, picture->hasText());
-
-    canvas = recorder.beginRecording(100,100);
-    {
-        canvas->drawPosText("Q", 1, &point, SkPaint());
-    }
-    picture = recorder.finishRecordingAsPicture();
-    REPORTER_ASSERT(reporter, picture->hasText());
-
-    canvas = recorder.beginRecording(100,100);
-    {
-        canvas->drawPosTextH("Q", 1, &point.fX, point.fY, SkPaint());
-    }
-    picture = recorder.finishRecordingAsPicture();
-    REPORTER_ASSERT(reporter, picture->hasText());
-
-    canvas = recorder.beginRecording(100,100);
-    {
-        SkPath path;
-        path.moveTo(0, 0);
-        path.lineTo(50, 50);
-
-        canvas->drawTextOnPathHV("Q", 1, path, point.fX, point.fY, SkPaint());
-    }
-    picture = recorder.finishRecordingAsPicture();
-    REPORTER_ASSERT(reporter, picture->hasText());
-
-    canvas = recorder.beginRecording(100,100);
-    {
-        SkPath path;
-        path.moveTo(0, 0);
-        path.lineTo(50, 50);
-
-        canvas->drawTextOnPath("Q", 1, path, nullptr, SkPaint());
-    }
-    picture = recorder.finishRecordingAsPicture();
-    REPORTER_ASSERT(reporter, picture->hasText());
-
-    // Nest the previous picture inside a new one.
-    canvas = recorder.beginRecording(100,100);
-    {
-        canvas->drawPicture(picture.get());
-    }
-    picture = recorder.finishRecordingAsPicture();
-    REPORTER_ASSERT(reporter, picture->hasText());
 }
 
 static void set_canvas_to_save_count_4(SkCanvas* canvas) {
@@ -874,7 +813,7 @@ static void md5(const SkBitmap& bm, SkMD5::Digest* digest) {
     SkMD5 md5;
     size_t rowLen = bm.info().bytesPerPixel() * bm.width();
     for (int y = 0; y < bm.height(); ++y) {
-        md5.update(static_cast<uint8_t*>(bm.getAddr(0, y)), rowLen);
+        md5.write(bm.getAddr(0, y), rowLen);
     }
     md5.finish(*digest);
 }
@@ -1177,10 +1116,9 @@ static void test_typeface(skiatest::Reporter* reporter) {
     SkPictureRecorder recorder;
     SkCanvas* canvas = recorder.beginRecording(10, 10);
     SkPaint paint;
-    paint.setTypeface(SkTypeface::CreateFromName("Arial", SkTypeface::kItalic));
+    paint.setTypeface(SkTypeface::MakeFromName("Arial", SkTypeface::kItalic));
     canvas->drawText("Q", 1, 0, 10, paint);
     sk_sp<SkPicture> picture(recorder.finishRecordingAsPicture());
-    REPORTER_ASSERT(reporter, picture->hasText());
     SkDynamicMemoryWStream stream;
     picture->serialize(&stream);
 }
@@ -1198,7 +1136,6 @@ DEF_TEST(Picture, reporter) {
 #if SK_SUPPORT_GPU
     test_gpu_veto(reporter);
 #endif
-    test_has_text(reporter);
     test_images_are_found_by_willPlayBackBitmaps(reporter);
     test_analysis(reporter);
     test_clip_bound_opt(reporter);
@@ -1411,3 +1348,38 @@ DEF_TEST(Picture_preserveCullRect, r) {
     REPORTER_ASSERT(r, deserializedPicture->cullRect().right() == 3);
     REPORTER_ASSERT(r, deserializedPicture->cullRect().bottom() == 4);
 }
+
+#if SK_SUPPORT_GPU
+
+DEF_TEST(PictureGpuAnalyzer, r) {
+    SkPictureRecorder recorder;
+
+    {
+        SkCanvas* canvas = recorder.beginRecording(10, 10);
+        SkPaint paint;
+        SkScalar intervals [] = { 10, 20 };
+        paint.setPathEffect(SkDashPathEffect::Make(intervals, 2, 25));
+
+        for (int i = 0; i < 50; ++i) {
+            canvas->drawRect(SkRect::MakeWH(10, 10), paint);
+        }
+    }
+    sk_sp<SkPicture> vetoPicture(recorder.finishRecordingAsPicture());
+
+    SkPictureGpuAnalyzer analyzer;
+    REPORTER_ASSERT(r, analyzer.suitableForGpuRasterization());
+
+    analyzer.analyze(vetoPicture.get());
+    REPORTER_ASSERT(r, !analyzer.suitableForGpuRasterization());
+
+    analyzer.reset();
+    REPORTER_ASSERT(r, analyzer.suitableForGpuRasterization());
+
+    recorder.beginRecording(10, 10)->drawPicture(vetoPicture);
+    sk_sp<SkPicture> nestedVetoPicture(recorder.finishRecordingAsPicture());
+
+    analyzer.analyze(nestedVetoPicture.get());
+    REPORTER_ASSERT(r, !analyzer.suitableForGpuRasterization());
+}
+
+#endif // SK_SUPPORT_GPU

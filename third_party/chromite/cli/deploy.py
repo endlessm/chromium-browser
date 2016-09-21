@@ -12,14 +12,10 @@ import json
 import os
 
 from chromite.cli import command
-from chromite.cli import flash
-from chromite.lib import blueprint_lib
-from chromite.lib import brick_lib
 from chromite.lib import cros_build_lib
 from chromite.lib import cros_logging as logging
 from chromite.lib import operation
 from chromite.lib import portage_util
-from chromite.lib import project_sdk
 from chromite.lib import remote_access
 try:
   import portage
@@ -900,36 +896,9 @@ def _UnmergePackages(pkgs, device, root):
     _Unmerge(device, pkg, root)
 
 
-def _CheckDeviceVersion(device):
-  """Decide whether the device is version-compatible with the SDK.
-
-  Args:
-    device: ChromiumOSDeviceHandler instance.
-
-  Raises:
-    DeployError: if device is not compatible.
-  """
-  sdk_version = project_sdk.FindVersion()
-  if not sdk_version:
-    return
-
-  # TODO(garnold) We ignore the third version component because, as long as the
-  # version comes from CHROMEOS_RELEASE_VERSION, it is a random timestamp. Undo
-  # when we start probing actual SDK versions (brillo:280)
-  adjusted_sdk_version = (sdk_version.rpartition('.')[0] + '.'
-                          if '.' in sdk_version else sdk_version)
-
-  if not (device.sdk_version and
-          device.sdk_version.startswith(adjusted_sdk_version)):
-    raise DeployError('Device SDK version (%s) is incompatible with '
-                      'your environment (%s)' %
-                      (device.sdk_version or 'unknown', sdk_version))
-
-
-def Deploy(device, packages, board=None, brick_name=None, blueprint=None,
-           emerge=True, update=False, deep=False, deep_rev=False,
-           clean_binpkg=True, root='/', strip=True, emerge_args=None,
-           ssh_private_key=None, ping=True, reflash=True, force=False,
+def Deploy(device, packages, board=None, emerge=True, update=False, deep=False,
+           deep_rev=False, clean_binpkg=True, root='/', strip=True,
+           emerge_args=None, ssh_private_key=None, ping=True, force=False,
            dry_run=False):
   """Deploys packages to a device.
 
@@ -937,8 +906,6 @@ def Deploy(device, packages, board=None, brick_name=None, blueprint=None,
     device: commandline.Device object; None to use the default device.
     packages: List of packages (strings) to deploy to device.
     board: Board to use; None to automatically detect.
-    brick_name: Brick locator to use. Overrides |board| if not None.
-    blueprint: Blueprint to use. Overrides |board| and |brick| if not None.
     emerge: True to emerge package, False to unmerge.
     update: Check installed version on device.
     deep: Install dependencies also. Implies |update|.
@@ -949,7 +916,6 @@ def Deploy(device, packages, board=None, brick_name=None, blueprint=None,
     emerge_args: Extra arguments to pass to emerge.
     ssh_private_key: Path to an SSH private key file; None to use test keys.
     ping: True to ping the device before trying to connect.
-    reflash: Flash the device with current SDK image if necessary.
     force: Ignore sanity checks and prompts.
     dry_run: Print deployment plan but do not deploy anything.
 
@@ -962,6 +928,9 @@ def Deploy(device, packages, board=None, brick_name=None, blueprint=None,
   if deep:
     update = True
 
+  if not packages:
+    raise DeployError('No packages provided, nothing to deploy.')
+
   if update and not emerge:
     raise ValueError('Cannot update and unmerge.')
 
@@ -973,75 +942,18 @@ def Deploy(device, packages, board=None, brick_name=None, blueprint=None,
   lsb_release = None
   sysroot = None
   try:
-    with cros_build_lib.ContextManagerStack() as stack:
-      # Get a handle to our device pre-flashing.
-      device_handler = stack.Add(
-          remote_access.ChromiumOSDeviceHandler, hostname, port=port,
-          username=username, private_key=ssh_private_key,
-          base_dir=_DEVICE_BASE_DIR, ping=ping)
-      device = device_handler.device
+    with remote_access.ChromiumOSDeviceHandler(
+        hostname, port=port, username=username, private_key=ssh_private_key,
+        base_dir=_DEVICE_BASE_DIR, ping=ping) as device:
       lsb_release = device.lsb_release
 
-      # We don't check for compatibility correctly in the brick/blueprint case
-      # as we don't have enough information to determine whether it is safe or
-      # not to deploy.
-      # TODO(bsimonnet): Check for compatibility correctly (brbug.com/969).
-      if blueprint:
-        blueprint = blueprint_lib.Blueprint(blueprint)
-        sysroot = cros_build_lib.GetSysroot(blueprint.FriendlyName())
+      board = cros_build_lib.GetBoard(device_board=device.board,
+                                      override_board=board)
+      if not force and board != device.board:
+        raise DeployError('Device (%s) is incompatible with board %s. Use '
+                          '--force to deploy anyway.' % (device, board))
 
-      elif brick_name:
-        brick = brick_lib.Brick(brick_name)
-        sysroot = cros_build_lib.GetSysroot(board=brick.FriendlyName())
-
-        # If no packages were listed, find the brick's main packages.
-        packages = packages or brick.MainPackages()
-
-      else:
-        board = cros_build_lib.GetBoard(device_board=device.board,
-                                        override_board=board)
-        if not force and board != device.board:
-          raise DeployError('Device (%s) is incompatible with board %s. Use '
-                            '--force to deploy anyway.' % (device, board))
-
-        sysroot = cros_build_lib.GetSysroot(board=board)
-
-      # Check that the target is compatible with the SDK (if any).
-      do_flash = False
-      if reflash or not force:
-        try:
-          _CheckDeviceVersion(device)
-        except DeployError as e:
-          if not reflash:
-            raise
-          logging.warning('%s, reflashing' % e)
-          do_flash = True
-
-      # Reflash the device with a current Project SDK image.
-      # TODO(garnold) We may want to clobber stateful or wipe temp, or at least
-      # expose them as options.
-      if do_flash:
-        flash.Flash(device, None, project_sdk_image=True, brick_name=brick_name,
-                    ping=ping, force=force)
-        logging.info('Done reflashing Project SDK image')
-
-        # Now refresh the handler.
-        # TODO: If ContextManagerStack allows for explicit breakdown of objects
-        # early on, we should do that here with the previous device connection.
-        device_handler = stack.Add(
-            remote_access.ChromiumOSDeviceHandler, hostname, port=port,
-            username=username, private_key=ssh_private_key,
-            base_dir=_DEVICE_BASE_DIR, ping=ping)
-        device = device_handler.device
-        lsb_release = device.lsb_release
-        # Check the version again, just to be sure.
-        try:
-          _CheckDeviceVersion(device)
-        except DeployError as e:
-          raise DeployError('%s, reflashing failed' % e)
-
-      if not packages:
-        raise DeployError('No packages found, nothing to deploy.')
+      sysroot = cros_build_lib.GetSysroot(board=board)
 
       if clean_binpkg:
         logging.notice('Cleaning outdated binary packages from %s', sysroot)

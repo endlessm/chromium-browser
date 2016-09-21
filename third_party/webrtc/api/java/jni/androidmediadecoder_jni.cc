@@ -9,6 +9,7 @@
  */
 
 #include <algorithm>
+#include <memory>
 #include <vector>
 
 // NOTICE: androidmediadecoder_jni.h must be included before
@@ -31,19 +32,16 @@
 #include "webrtc/common_video/include/i420_buffer_pool.h"
 #include "webrtc/modules/video_coding/include/video_codec_interface.h"
 #include "webrtc/system_wrappers/include/logcat_trace_context.h"
-#include "webrtc/system_wrappers/include/tick_util.h"
 
 using rtc::Bind;
 using rtc::Thread;
 using rtc::ThreadManager;
-using rtc::scoped_ptr;
 
 using webrtc::CodecSpecificInfo;
 using webrtc::DecodedImageCallback;
 using webrtc::EncodedImage;
 using webrtc::VideoFrame;
 using webrtc::RTPFragmentationHeader;
-using webrtc::TickTime;
 using webrtc::VideoCodec;
 using webrtc::VideoCodecType;
 using webrtc::kVideoCodecH264;
@@ -137,7 +135,8 @@ class MediaCodecVideoDecoder : public webrtc::VideoDecoder,
 
   // State that is constant for the lifetime of this object once the ctor
   // returns.
-  scoped_ptr<Thread> codec_thread_;  // Thread on which to operate MediaCodec.
+  std::unique_ptr<Thread>
+      codec_thread_;  // Thread on which to operate MediaCodec.
   ScopedGlobalRef<jclass> j_media_codec_video_decoder_class_;
   ScopedGlobalRef<jobject> j_media_codec_video_decoder_;
   jmethodID j_init_decode_method_;
@@ -318,7 +317,7 @@ void MediaCodecVideoDecoder::ResetVariables() {
   frames_received_ = 0;
   frames_decoded_ = 0;
   frames_decoded_logged_ = kMaxDecodedLogFrames;
-  start_time_ms_ = GetCurrentTimeMs();
+  start_time_ms_ = rtc::TimeMillis();
   current_frames_ = 0;
   current_bytes_ = 0;
   current_decoding_time_ms_ = 0;
@@ -344,8 +343,13 @@ int32_t MediaCodecVideoDecoder::InitDecodeOnCodecThread() {
   ResetVariables();
 
   if (use_surface_) {
-    surface_texture_helper_ = new rtc::RefCountedObject<SurfaceTextureHelper>(
+    surface_texture_helper_ = SurfaceTextureHelper::create(
         jni, "Decoder SurfaceTextureHelper", render_egl_context_);
+    if (!surface_texture_helper_) {
+      ALOGE << "Couldn't create SurfaceTextureHelper - fallback to SW codec";
+      sw_fallback_required_ = true;
+      return WEBRTC_VIDEO_CODEC_ERROR;
+    }
   }
 
   jobject j_video_codec_enum = JavaEnumFromIndexAndClassName(
@@ -532,10 +536,9 @@ int32_t MediaCodecVideoDecoder::Decode(
     codec_.width = inputImage._encodedWidth;
     codec_.height = inputImage._encodedHeight;
     int32_t ret;
-    if (use_surface_ && codecType_ == kVideoCodecVP8) {
-      // Soft codec reset - only for VP8 and surface decoding.
-      // TODO(glaznev): try to use similar approach for H.264
-      // and buffer decoding.
+    if (use_surface_ &&
+        (codecType_ == kVideoCodecVP8 || codecType_ == kVideoCodecH264)) {
+      // Soft codec reset - only for surface decoding.
       ret = codec_thread_->Invoke<int32_t>(Bind(
           &MediaCodecVideoDecoder::ResetDecodeOnCodecThread, this));
     } else {
@@ -584,9 +587,9 @@ int32_t MediaCodecVideoDecoder::DecodeOnCodecThread(
         frames_received_ << ". Decoded: " << frames_decoded_;
     EnableFrameLogOnWarning();
   }
-  const int64 drain_start = GetCurrentTimeMs();
+  const int64 drain_start = rtc::TimeMillis();
   while ((frames_received_ > frames_decoded_ + max_pending_frames_) &&
-         (GetCurrentTimeMs() - drain_start) < kMediaCodecTimeoutMs) {
+         (rtc::TimeMillis() - drain_start) < kMediaCodecTimeoutMs) {
     if (!DeliverPendingOutputs(jni, kMediaCodecPollMs)) {
       ALOGE << "DeliverPendingOutputs error. Frames received: " <<
           frames_received_ << ". Frames decoded: " << frames_decoded_;
@@ -839,7 +842,7 @@ bool MediaCodecVideoDecoder::DeliverPendingOutputs(
   current_frames_++;
   current_decoding_time_ms_ += decode_time_ms;
   current_delay_time_ms_ += frame_delayed_ms;
-  int statistic_time_ms = GetCurrentTimeMs() - start_time_ms_;
+  int statistic_time_ms = rtc::TimeMillis() - start_time_ms_;
   if (statistic_time_ms >= kMediaCodecStatisticsIntervalMs &&
       current_frames_ > 0) {
     int current_bitrate = current_bytes_ * 8 / statistic_time_ms;
@@ -852,7 +855,7 @@ bool MediaCodecVideoDecoder::DeliverPendingOutputs(
         ". DecTime: " << (current_decoding_time_ms_ / current_frames_) <<
         ". DelayTime: " << (current_delay_time_ms_ / current_frames_) <<
         " for last " << statistic_time_ms << " ms.";
-    start_time_ms_ = GetCurrentTimeMs();
+    start_time_ms_ = rtc::TimeMillis();
     current_frames_ = 0;
     current_bytes_ = 0;
     current_decoding_time_ms_ = 0;
@@ -988,4 +991,3 @@ const char* MediaCodecVideoDecoder::ImplementationName() const {
 }
 
 }  // namespace webrtc_jni
-

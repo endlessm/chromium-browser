@@ -17,17 +17,17 @@ from chromite.cbuildbot import failures_lib
 from chromite.cbuildbot import manifest_version
 from chromite.cbuildbot import metadata_lib
 from chromite.cbuildbot import results_lib
-from chromite.cbuildbot import validation_pool
+from chromite.cbuildbot import triage_lib
 from chromite.cbuildbot.stages import generic_stages_unittest
 from chromite.cbuildbot.stages import report_stages
-from chromite.cbuildbot.stages import sync_stages
-from chromite.cbuildbot.stages import sync_stages_unittest
 from chromite.lib import alerts
 from chromite.lib import cidb
 from chromite.lib import cros_build_lib
+from chromite.lib import cros_logging as logging
 from chromite.lib import fake_cidb
 from chromite.lib import gs_unittest
 from chromite.lib import osutils
+from chromite.lib import patch_unittest
 from chromite.lib import retry_stats
 from chromite.lib import toolchain
 
@@ -83,6 +83,54 @@ class BuildReexecutionStageTest(generic_stages_unittest.AbstractStageTestCase):
 
   def ConstructStage(self):
     return report_stages.BuildReexecutionFinishedStage(self._run)
+
+
+class ConfigDumpStageTest(generic_stages_unittest.AbstractStageTestCase):
+  """Tests that ConfigDumpStage runs without syntax error."""
+
+  def ConstructStage(self):
+    return report_stages.ConfigDumpStage(self._run)
+
+  def testPerformStage(self):
+    self._Prepare()
+    self.RunStage()
+
+
+class SlaveFailureSummaryStageTest(
+    generic_stages_unittest.AbstractStageTestCase):
+  """Tests that SlaveFailureSummaryStage behaves as expected."""
+
+  def setUp(self):
+    self.db = mock.MagicMock()
+    cidb.CIDBConnectionFactory.SetupMockCidb(self.db)
+    self._Prepare(build_id=1)
+
+  def _Prepare(self, **kwargs):
+    """Prepare stage with config['master']=True."""
+    super(SlaveFailureSummaryStageTest, self)._Prepare(**kwargs)
+    self._run.config['master'] = True
+
+  def ConstructStage(self):
+    return report_stages.SlaveFailureSummaryStage(self._run)
+
+  def testPerformStage(self):
+    """Tests that stage runs without syntax errors."""
+    fake_failure = {
+        'build_id': 10,
+        'build_stage_id': 11,
+        'waterfall': constants.WATERFALL_EXTERNAL,
+        'builder_name': 'builder_name',
+        'build_number': 12,
+        'build_config': 'build-config',
+        'stage_name': 'FailingStage',
+        'stage_status': constants.BUILDER_STATUS_FAILED,
+        'build_status': constants.BUILDER_STATUS_FAILED,
+        }
+    self.PatchObject(self.db, 'GetSlaveFailures', return_value=[fake_failure])
+    self.PatchObject(logging, 'PrintBuildbotLink')
+    self.RunStage()
+    self.assertEqual(logging.PrintBuildbotLink.call_count, 1)
+
 
 class BuildStartStageTest(generic_stages_unittest.AbstractStageTestCase):
   """Tests that BuildStartStage behaves as expected."""
@@ -157,8 +205,6 @@ class AbstractReportStageTestCase(
       self.StartPatcher(mock.patch.object(*cmd, autospec=True))
     retry_stats.SetupStats()
 
-    self.sync_stage = None
-
     # Set up a general purpose cidb mock. Tests with more specific
     # mock requirements can replace this with a separate call to
     # SetupMockCidb
@@ -170,17 +216,8 @@ class AbstractReportStageTestCase(
     self.PatchObject(report_stages.ReportStage, '_UpdateStreakCounter',
                      autospec=True, return_value=counter_value)
 
-  def _SetupCommitQueueSyncPool(self):
-    self.sync_stage = sync_stages.CommitQueueSyncStage(self._run)
-    pool = validation_pool.ValidationPool(
-        constants.BOTH_OVERLAYS,
-        self.build_root, build_number=3, builder_name=self._bot_id,
-        is_master=True, dryrun=True)
-    pool.changes = [sync_stages_unittest.MockPatch()]
-    self.sync_stage.pool = pool
-
   def ConstructStage(self):
-    return report_stages.ReportStage(self._run, self.sync_stage, None)
+    return report_stages.ReportStage(self._run, None)
 
 
 class ReportStageTest(AbstractReportStageTestCase):
@@ -217,21 +254,14 @@ class ReportStageTest(AbstractReportStageTestCase):
                        update_list=True, acl=mock.ANY)]
     self.assertEquals(calls, commands.UploadArchivedFile.call_args_list)
 
-  def testCommitQueueResults(self):
-    """Check that commit queue patches get serialized"""
-    self._SetupUpdateStreakCounter()
-    self._SetupCommitQueueSyncPool()
-    self.RunStage()
-
   def testAlertEmail(self):
     """Send out alerts when streak counter reaches the threshold."""
     self.PatchObject(cbuildbot_run._BuilderRunBase,
-                     'InProduction', return_value=True)
+                     'InEmailReportingEnvironment', return_value=True)
     self.PatchObject(cros_build_lib, 'HostIsCIBuilder', return_value=True)
     self._Prepare(extra_config={'health_threshold': 3,
                                 'health_alert_recipients': ['foo@bar.org']})
     self._SetupUpdateStreakCounter(counter_value=-3)
-    self._SetupCommitQueueSyncPool()
     self.RunStage()
     # The mocking logic gets confused with SendEmail.
     # pylint: disable=no-member
@@ -241,12 +271,11 @@ class ReportStageTest(AbstractReportStageTestCase):
   def testAlertEmailOnFailingStreak(self):
     """Continue sending out alerts when streak counter exceeds the threshold."""
     self.PatchObject(cbuildbot_run._BuilderRunBase,
-                     'InProduction', return_value=True)
+                     'InEmailReportingEnvironment', return_value=True)
     self.PatchObject(cros_build_lib, 'HostIsCIBuilder', return_value=True)
     self._Prepare(extra_config={'health_threshold': 3,
                                 'health_alert_recipients': ['foo@bar.org']})
     self._SetupUpdateStreakCounter(counter_value=-5)
-    self._SetupCommitQueueSyncPool()
     self.RunStage()
     # The mocking logic gets confused with SendEmail.
     # pylint: disable=no-member
@@ -289,3 +318,41 @@ class ReportStageNoSyncTest(AbstractReportStageTestCase):
     """Check that we can run with a RELEASE_TAG of None."""
     self._SetupUpdateStreakCounter()
     self.RunStage()
+
+
+class DetectIrrelevantChangesStageTest(
+    generic_stages_unittest.AbstractStageTestCase,
+    patch_unittest.MockPatchBase):
+  """Test the DetectIrrelevantChangesStage."""
+
+  def setUp(self):
+    self.changes = self.GetPatches(how_many=2)
+
+    self._Prepare()
+
+  def testGetSubsystemsWithoutEmptyEntry(self):
+    """Tests the logic of GetSubsystemTobeTested() under normal case."""
+    relevant_changes = self.changes
+    self.PatchObject(triage_lib, 'GetTestSubsystemForChange',
+                     side_effect=[['light'], ['light', 'power']])
+
+    expected = {'light', 'power'}
+    stage = self.ConstructStage()
+    results = stage.GetSubsystemToTest(relevant_changes)
+    self.assertEqual(results, expected)
+
+  def testGetSubsystemsWithEmptyEntry(self):
+    """Tests whether return empty set when have empty entry in subsystems."""
+    relevant_changes = self.changes
+    self.PatchObject(triage_lib, 'GetTestSubsystemForChange',
+                     side_effect=[['light'], []])
+
+    expected = set()
+    stage = self.ConstructStage()
+    results = stage.GetSubsystemToTest(relevant_changes)
+    self.assertEqual(results, expected)
+
+  def ConstructStage(self):
+    return report_stages.DetectIrrelevantChangesStage(self._run,
+                                                      self._current_board,
+                                                      self.changes)

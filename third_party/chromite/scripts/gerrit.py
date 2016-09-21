@@ -15,6 +15,7 @@ import inspect
 import pprint
 import re
 
+from chromite.cbuildbot import config_lib
 from chromite.cbuildbot import constants
 from chromite.lib import commandline
 from chromite.lib import cros_build_lib
@@ -23,6 +24,9 @@ from chromite.lib import gerrit
 from chromite.lib import git
 from chromite.lib import gob_util
 from chromite.lib import terminal
+
+
+site_config = config_lib.GetConfig()
 
 
 COLOR = None
@@ -80,9 +84,9 @@ def GetGerrit(opts, cl=None):
     A tuple of a gerrit object and a sanitized CL #.
   """
   gob = opts.gob
-  if not cl is None:
+  if cl is not None:
     if cl.startswith('*'):
-      gob = constants.INTERNAL_GOB_INSTANCE
+      gob = site_config.params.INTERNAL_GOB_INSTANCE
       cl = cl[1:]
     elif ':' in cl:
       gob, cl = cl.split(':', 1)
@@ -121,8 +125,8 @@ def PrintCl(opts, cls, lims, show_approvals=True):
   if opts.raw:
     # Special case internal Chrome GoB as that is what most devs use.
     # They can always redirect the list elsewhere via the -g option.
-    if opts.gob == constants.INTERNAL_GOB_INSTANCE:
-      print(constants.INTERNAL_CHANGE_PREFIX, end='')
+    if opts.gob == site_config.params.INTERNAL_GOB_INSTANCE:
+      print(site_config.params.INTERNAL_CHANGE_PREFIX, end='')
     print(cls['number'])
     return
 
@@ -166,10 +170,8 @@ def _MyUserInfo():
   return emails, reviewers, owners
 
 
-def FilteredQuery(opts, query):
-  """Query gerrit and filter/clean up the results"""
-  ret = []
-
+def _Query(opts, query, raw=True):
+  """Queries Gerrit with a query string built from the commandline options"""
   if opts.branch is not None:
     query += ' branch:%s' % opts.branch
   if opts.project is not None:
@@ -178,7 +180,14 @@ def FilteredQuery(opts, query):
     query += ' topic: %s' % opts.topic
 
   helper, _ = GetGerrit(opts)
-  for cl in helper.Query(query, raw=True, bypass_cache=False):
+  return helper.Query(query, raw=raw, bypass_cache=False)
+
+
+def FilteredQuery(opts, query):
+  """Query gerrit and filter/clean up the results"""
+  ret = []
+
+  for cl in _Query(opts, query, raw=True):
     # Gerrit likes to return a stats record too.
     if not 'project' in cl:
       continue
@@ -193,7 +202,7 @@ def FilteredQuery(opts, query):
 
     ret.append(cl)
 
-  if opts.sort in ('number',):
+  if opts.sort == 'number':
     key = lambda x: int(x[opts.sort])
   else:
     key = lambda x: x[opts.sort]
@@ -242,7 +251,64 @@ def UserActSearch(opts, query):
 def UserActMine(opts):
   """List your CLs with review statuses"""
   _, _, owners = _MyUserInfo()
-  UserActSearch(opts, '( %s ) status:new' % (' OR '.join(owners),))
+  if opts.draft:
+    rule = 'is:draft'
+  else:
+    rule = 'status:new'
+  UserActSearch(opts, '( %s ) %s' % (' OR '.join(owners), rule))
+
+
+def _BreadthFirstSearch(to_visit, children, visited_key=lambda x: x):
+  """Runs breadth first search starting from the nodes in |to_visit|
+
+  Args:
+    to_visit: the starting nodes
+    children: a function which takes a node and returns the nodes adjacent to it
+    visited_key: a function for deduplicating node visits. Defaults to the
+      identity function (lambda x: x)
+
+  Returns:
+    A list of nodes which are reachable from any node in |to_visit| by calling
+    |children| any number of times.
+  """
+  to_visit = list(to_visit)
+  seen = set(map(visited_key, to_visit))
+  for node in to_visit:
+    for child in children(node):
+      key = visited_key(child)
+      if key not in seen:
+        seen.add(key)
+        to_visit.append(child)
+  return to_visit
+
+
+def UserActDeps(opts, query):
+  """List CLs matching a query, and all transitive dependencies of those CLs"""
+  cls = _Query(opts, query, raw=False)
+
+  @cros_build_lib.Memoize
+  def _QueryChange(cl):
+    return _Query(opts, cl, raw=False)
+
+  def _Children(cl):
+    """Returns the Gerrit and CQ-Depends dependencies of a patch"""
+    cq_deps = cl.PaladinDependencies(None)
+    direct_deps = cl.GerritDependencies() + cq_deps
+    # We need to query the change to guarantee that we have a .gerrit_number
+    for dep in direct_deps:
+      # TODO(phobbs) this should maybe catch network errors.
+      change = _QueryChange(dep.ToGerritQueryText())[-1]
+      if change.status == 'NEW':
+        yield change
+
+  transitives = _BreadthFirstSearch(
+      cls, _Children,
+      visited_key=lambda cl: cl.gerrit_number)
+
+  transitives_raw = [cl.patch_dict for cl in transitives]
+  lims = limits(transitives_raw)
+  for cl in transitives_raw:
+    PrintCl(opts, cl, lims)
 
 
 def UserActInspect(opts, *args):
@@ -351,7 +417,7 @@ def UserActTopic(opts, topic, *args):
 
 
 def UserActDeletedraft(opts, *args):
-  """Delete draft patch set <n> [n ...]"""
+  """Delete draft CL <n> [n ...]"""
   for arg in args:
     helper, cl = GetGerrit(opts, arg)
     helper.DeleteDraft(cl, dryrun=opts.dryrun)
@@ -403,13 +469,13 @@ Actions:"""
 
   parser = commandline.ArgumentParser(usage=usage)
   parser.add_argument('-i', '--internal', dest='gob', action='store_const',
-                      default=constants.EXTERNAL_GOB_INSTANCE,
-                      const=constants.INTERNAL_GOB_INSTANCE,
+                      default=site_config.params.EXTERNAL_GOB_INSTANCE,
+                      const=site_config.params.INTERNAL_GOB_INSTANCE,
                       help='Query internal Chromium Gerrit instance')
   parser.add_argument('-g', '--gob',
-                      default=constants.EXTERNAL_GOB_INSTANCE,
+                      default=site_config.params.EXTERNAL_GOB_INSTANCE,
                       help=('Gerrit (on borg) instance to query (default: %s)' %
-                            (constants.EXTERNAL_GOB_INSTANCE)))
+                            (site_config.params.EXTERNAL_GOB_INSTANCE)))
   parser.add_argument('--sort', default='number',
                       help='Key to sort on (number, project)')
   parser.add_argument('--raw', default=False, action='store_true',
@@ -421,6 +487,8 @@ Actions:"""
                       help='Be more verbose in output')
   parser.add_argument('-b', '--branch',
                       help='Limit output to the specific branch')
+  parser.add_argument('--draft', default=False, action='store_true',
+                      help="Show draft changes (applicable to 'mine' only)")
   parser.add_argument('-p', '--project',
                       help='Limit output to the specific project')
   parser.add_argument('-t', '--topic',

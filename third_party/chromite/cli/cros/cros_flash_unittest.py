@@ -6,7 +6,6 @@
 
 from __future__ import print_function
 
-from chromite.cli import command
 from chromite.cli import command_unittest
 from chromite.cli import flash
 from chromite.cli.cros import cros_flash
@@ -69,11 +68,7 @@ class CrosFlashTest(cros_test_lib.MockTempDirTestCase,
     self.assertEqual(image, flash_args[1])
     # `cros flash` default options. Must match the configuration in AddParser().
     expected_kwargs = {
-        'project_sdk_image': False,
-        'sdk_version': None,
         'board': None,
-        'brick_name': None,
-        'blueprint_name': None,
         'install': False,
         'src_image_to_delta': None,
         'rootfs_update': True,
@@ -97,50 +92,14 @@ class CrosFlashTest(cros_test_lib.MockTempDirTestCase,
     self.cmd_mock.inst.Run()
     self.VerifyFlashParameters(self.DEVICE, self.IMAGE)
 
-  def testBrilloFlashEntersChroot(self):
-    """Test that brillo flash enters the chroot."""
-    self.SetupCommandMock([self.DEVICE, self.IMAGE])
-    self.PatchObject(command, 'GetToolset', return_value='brillo')
-    enter_chroot = self.PatchObject(commandline, 'RunInsideChroot')
-    self.cmd_mock.inst.Run()
-    self.assertTrue(enter_chroot.called)
-
-  def testCrosFlashDoesNotEnterChroot(self):
+  def testDoesNotEnterChroot(self):
     """Test that cros flash doesn't enter the chroot."""
     self.SetupCommandMock([self.DEVICE, self.IMAGE])
-    self.PatchObject(command, 'GetToolset', return_value='cros')
     enter_chroot = self.PatchObject(commandline, 'RunInsideChroot')
     self.cmd_mock.inst.Run()
     self.assertFalse(enter_chroot.called)
 
-  def testBrick(self):
-    """Tests command line --brick."""
-    self.SetupCommandMock([self.DEVICE, self.IMAGE, '--brick', '//foo'])
-    self.cmd_mock.inst.Run()
-    self.VerifyFlashParameters(self.DEVICE, self.IMAGE, brick_name='//foo')
-
-  def testImplicitBrick(self):
-    """Tests an implicit brick based on |curr_brick_locator|."""
-    self.SetupCommandMock([self.DEVICE, self.IMAGE])
-    self.cmd_mock.inst.curr_brick_locator = '//bar'
-    self.cmd_mock.inst.Run()
-    self.VerifyFlashParameters(self.DEVICE, self.IMAGE, brick_name='//bar')
-
-  def testBrickPriority(self):
-    """Tests that command line --brick takes precedence."""
-    self.SetupCommandMock([self.DEVICE, self.IMAGE, '--brick', '//foo'])
-    self.cmd_mock.inst.curr_brick_locator = '//bar'
-    self.cmd_mock.inst.Run()
-    self.VerifyFlashParameters(self.DEVICE, self.IMAGE, brick_name='//foo')
-
-  def testBrickPathNormalization(self):
-    """Tests --brick path normalization."""
-    self.SetupCommandMock([self.DEVICE, self.IMAGE, '--brick', 'foo'])
-    self.cmd_mock.inst.Run()
-    self.VerifyFlashParameters(self.DEVICE, self.IMAGE,
-                               brick_name='//bricks/foo')
-
-  def testFlashErrorDebug(self):
+  def testFlashError(self):
     """Tests that FlashErrors are passed through."""
     with self.OutputCapturer():
       self.SetupCommandMock([self.DEVICE, self.IMAGE])

@@ -141,9 +141,9 @@ void test_replacements(skiatest::Reporter* r, GrContext* context, bool doReplace
     }
 }
 
-DEF_GPUTEST_FOR_GL_RENDERING_CONTEXTS(RecordReplaceDraw, r, ctxInfo) {
-    test_replacements(r, ctxInfo.fGrContext, true);
-    test_replacements(r, ctxInfo.fGrContext, false);
+DEF_GPUTEST_FOR_RENDERING_CONTEXTS(RecordReplaceDraw, r, ctxInfo) {
+    test_replacements(r, ctxInfo.grContext(), true);
+    test_replacements(r, ctxInfo.grContext(), false);
 }
 
 #endif

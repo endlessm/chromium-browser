@@ -253,7 +253,7 @@ class GSContext(object):
   # (1*sleep) the first time, then (2*sleep), continuing via attempt * sleep.
   DEFAULT_SLEEP_TIME = 60
 
-  GSUTIL_VERSION = '4.12'
+  GSUTIL_VERSION = '4.18'
   GSUTIL_TAR = 'gsutil_%s.tar.gz' % GSUTIL_VERSION
   GSUTIL_URL = (PUBLIC_BASE_HTTPS_URL +
                 'chromeos-mirror/gentoo/distfiles/%s' % GSUTIL_TAR)
@@ -356,7 +356,8 @@ class GSContext(object):
     self.retries = self.DEFAULT_RETRIES if retries is None else int(retries)
     self._sleep_time = self.DEFAULT_SLEEP_TIME if sleep is None else int(sleep)
 
-    if init_boto:
+    if init_boto and not dry_run:
+      # We can't really expect gsutil to even be present in dry_run mode.
       self._InitBoto()
 
   @property
@@ -632,7 +633,7 @@ class GSContext(object):
       retries = self.retries
 
     extra_env = kwargs.pop('extra_env', {})
-    if self.boto_file:
+    if self.boto_file and os.path.isfile(self.boto_file):
       extra_env.setdefault('BOTO_CONFIG', self.boto_file)
 
     if self.dry_run:
@@ -955,13 +956,15 @@ class GSContext(object):
       Assorted GSContextException exceptions.
     """
     try:
-      res = self.DoCommand(['stat', path], redirect_stdout=True, **kwargs)
+      res = self.DoCommand(['stat', '--', path], redirect_stdout=True, **kwargs)
     except GSCommandError as e:
-      # Because the 'gsutil stat' command returns errors on stdout (unlike other
-      # commands), we have to look for standard errors ourselves.
-      # That behavior is different from any other command and is handled
-      # here specially. See b/16020252.
-      if e.result.output.startswith('No URLs matched'):
+      # Because the 'gsutil stat' command logs errors itself (instead of
+      # raising errors internally like other commands), we have to look
+      # for errors ourselves.  See the related bug report here:
+      # https://github.com/GoogleCloudPlatform/gsutil/issues/288
+      # Example line:
+      # No URLs matched gs://bucket/file
+      if e.result.error.startswith('No URLs matched'):
         raise GSNoSuchKey(path)
 
       # No idea what this is, so just choke.
@@ -998,10 +1001,12 @@ class GSContext(object):
     if not res.output.startswith('gs://'):
       raise GSContextException('Unexpected stat output: %s' % res.output)
 
-    def _GetField(name):
+    def _GetField(name, optional=False):
       m = re.search(r'%s:\s*(.+)' % re.escape(name), res.output)
       if m:
         return m.group(1)
+      elif optional:
+        return None
       else:
         raise GSContextException('Field "%s" missing in "%s"' %
                                  (name, res.output))
@@ -1012,7 +1017,7 @@ class GSContext(object):
         content_length=int(_GetField('Content-Length')),
         content_type=_GetField('Content-Type'),
         hash_crc32c=_GetField('Hash (crc32c)'),
-        hash_md5=_GetField('Hash (md5)'),
+        hash_md5=_GetField('Hash (md5)', optional=True),
         etag=_GetField('ETag'),
         generation=int(_GetField('Generation')),
         metageneration=int(_GetField('Metageneration')))

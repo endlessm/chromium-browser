@@ -49,7 +49,8 @@ def IsDevToolsAgentAvailable(port, app_backend):
 
 def _IsInspectorWebsocketAvailable(inspector_websocket_instance, port):
   try:
-    inspector_websocket_instance.Connect(BROWSER_INSPECTOR_WEBSOCKET_URL % port)
+    inspector_websocket_instance.Connect(
+        BROWSER_INSPECTOR_WEBSOCKET_URL % port, timeout=10)
   except websocket.WebSocketException:
     return False
   except socket.error:
@@ -121,9 +122,7 @@ class DevToolsClientBackend(object):
       return
 
     self._CreateTracingBackendIfNeeded(is_tracing_running=False)
-    self.StartChromeTracing(
-        trace_config=trace_config,
-        custom_categories=trace_config.tracing_category_filter.filter_string)
+    self.StartChromeTracing(trace_config)
 
   @property
   def remote_port(self):
@@ -309,7 +308,7 @@ class DevToolsClientBackend(object):
       self._browser_inspector_websocket = (
           inspector_websocket.InspectorWebsocket())
       self._browser_inspector_websocket.Connect(
-          BROWSER_INSPECTOR_WEBSOCKET_URL % self._devtools_port)
+          BROWSER_INSPECTOR_WEBSOCKET_URL % self._devtools_port, timeout=10)
 
   def IsChromeTracingSupported(self):
     if not self.supports_tracing:
@@ -317,21 +316,18 @@ class DevToolsClientBackend(object):
     self._CreateTracingBackendIfNeeded()
     return self._tracing_backend.IsTracingSupported()
 
-  def StartChromeTracing(
-      self, trace_config, custom_categories=None, timeout=10):
+  def StartChromeTracing(self, trace_config, timeout=10):
     """
     Args:
         trace_config: An tracing_config.TracingConfig instance.
-        custom_categories: An optional string containing a list of
-                         comma separated categories that will be traced
-                         instead of the default category set.  Example: use
-                         "webkit,cc,disabled-by-default-cc.debug" to trace only
-                         those three event categories.
     """
     assert trace_config and trace_config.enable_chrome_trace
     self._CreateTracingBackendIfNeeded()
-    return self._tracing_backend.StartTracing(
-        trace_config, custom_categories, timeout)
+    return self._tracing_backend.StartTracing(trace_config, timeout)
+
+  def RecordChromeClockSyncMarker(self, sync_id):
+    assert self.is_tracing_running, 'Tracing must be running to clock sync.'
+    self._tracing_backend.RecordClockSyncMarker(sync_id)
 
   def StopChromeTracing(self, trace_data_builder, timeout=30):
     assert self.is_tracing_running

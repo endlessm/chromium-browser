@@ -16,19 +16,12 @@ found in the LICENSE file.
 
   <link rel="import" href="/components/polymer/polymer.html">
 
-  <link rel="import" href="/dashboard/elements/custom-tooltip.html">
   <link rel="import" href="/dashboard/elements/load-analytics.html">
   <link rel="import" href="/dashboard/elements/nav-bar.html">
-  <link rel="import" href="/dashboard/elements/overlay-message.html">
   <link rel="import" href="/dashboard/elements/report-page.html">
+  <link rel="import" href="/dashboard/elements/toplevel-toast.html">
 
   <title>Chrome Performance Dashboard</title>
-
-  <style>
-    #message-bar {
-      top: 26px;
-    }
-  </style>
 
   <script>
     'use strict';
@@ -50,11 +43,8 @@ found in the LICENSE file.
 </head>
 <body>
   <nav-bar></nav-bar>
+  <toplevel-toast></toplevel-toast>
   <h1>Chrome Performance Dashboard</h1>
-  <overlay-message id="message-bar"></overlay-message>
-  <!-- This custom-tooltip is used by chart-legend.
-       See https://github.com/catapult-project/catapult/issues/2172. -->
-  <custom-tooltip id="legend-details-tooltip"></custom-tooltip>
   <report-page></report-page>
   <load-analytics></load-analytics>
 </body>

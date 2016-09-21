@@ -14,26 +14,26 @@ from telemetry.internal.backends import browser_backend
 from telemetry.internal.backends.chrome import chrome_browser_backend
 from telemetry.internal.browser import user_agent
 
+from devil.android import app_ui
 from devil.android.sdk import intent
 
 
 class AndroidBrowserBackend(chrome_browser_backend.ChromeBrowserBackend):
   """The backend for controlling a browser instance running on Android."""
   def __init__(self, android_platform_backend, browser_options,
-               backend_settings, output_profile_path, extensions_to_load):
+               backend_settings):
     assert isinstance(android_platform_backend,
                       android_platform_backend_module.AndroidPlatformBackend)
     super(AndroidBrowserBackend, self).__init__(
         android_platform_backend,
         supports_tab_control=backend_settings.supports_tab_control,
-        supports_extensions=False, browser_options=browser_options,
-        output_profile_path=output_profile_path,
-        extensions_to_load=extensions_to_load)
+        supports_extensions=False, browser_options=browser_options)
 
     self._port_keeper = util.PortKeeper()
     # Use the port hold by _port_keeper by default.
     self._port = self._port_keeper.port
 
+    extensions_to_load = browser_options.extensions_to_load
 
     if len(extensions_to_load) > 0:
       raise browser_backend.ExtensionsNotSupportedException(
@@ -154,12 +154,18 @@ class AndroidBrowserBackend(chrome_browser_backend.ChromeBrowserBackend):
         raise
 
   def Foreground(self):
+    package = self._backend_settings.package
+    activity = self._backend_settings.activity
     self.device.StartActivity(
-        intent.Intent(package=self._backend_settings.package,
-                      activity=self._backend_settings.activity,
+        intent.Intent(package=package,
+                      activity=activity,
                       action=None,
                       flags=[intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED]),
-        blocking=True)
+        blocking=False)
+    # TODO(crbug.com/601052): The following waits for any UI node for the
+    # package launched to appear on the screen. When the referenced bug is
+    # fixed, remove this workaround and just switch blocking above to True.
+    app_ui.AppUi(self.device, package).WaitForUiNode(package=package)
 
   def GetBrowserStartupArgs(self):
     args = super(AndroidBrowserBackend, self).GetBrowserStartupArgs()

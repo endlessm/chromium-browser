@@ -77,40 +77,15 @@ class ArchiveStage(generic_stages.BoardSpecificBuilderStage,
     self._recovery_image_status_queue.put(status)
     return status
 
-  @staticmethod
-  def SingleMatchGlob(path_pattern):
-    """Returns the last match (after sort) if multiple found."""
-    files = glob.glob(path_pattern)
-    files.sort()
-    if not files:
-      raise NothingToArchiveException('No %s found!' % path_pattern)
-    elif len(files) > 1:
-      cros_build_lib.PrintBuildbotStepWarnings()
-      logging.warning('Expecting one result for %s package, but found '
-                      'multiple.', path_pattern)
-    return files[-1]
-
-  def ArchiveStrippedChrome(self):
-    """Generate and upload stripped Chrome package."""
-
-    # If chrome is not installed, skip archiving.
-    chroot_path = os.path.join(self._build_root, constants.DEFAULT_CHROOT_DIR)
-    board_path = os.path.join(chroot_path, 'build', self._current_board)
-    if not portage_util.IsPackageInstalled(constants.CHROME_CP,
-                                           board_path):
-      return
-
-    cmd = ['strip_package', '--board', self._current_board,
-           constants.CHROME_PN]
-    cros_build_lib.RunCommand(cmd, cwd=self._build_root, enter_chroot=True)
-    pkg_dir = os.path.join(
-        self._build_root, constants.DEFAULT_CHROOT_DIR, 'build',
-        self._current_board, 'stripped-packages')
-    chrome_tarball = self.SingleMatchGlob(
-        os.path.join(pkg_dir, constants.CHROME_CP) + '-*')
-    filename = os.path.basename(chrome_tarball)
-    os.link(chrome_tarball, os.path.join(self.archive_path, filename))
-    self._upload_queue.put([filename])
+  def ArchiveStrippedPackages(self):
+    """Generate and archive stripped versions of packages requested."""
+    tarball = commands.BuildStrippedPackagesTarball(
+        self._build_root,
+        self._current_board,
+        self._run.config.upload_stripped_packages,
+        self.archive_path)
+    if tarball is not None:
+      self._upload_queue.put([tarball])
 
   def BuildAndArchiveDeltaSysroot(self):
     """Generate and upload delta sysroot for initial build_packages."""
@@ -121,7 +96,7 @@ class ArchiveStage(generic_stages.BoardSpecificBuilderStage,
     cmd = ['generate_delta_sysroot', '--out-dir', in_chroot_path,
            '--board', self._current_board]
     # TODO(mtennant): Make this condition into one run param.
-    if not self._run.config.build_tests or not self._run.options.tests:
+    if not self._run.options.tests:
       cmd.append('--skip-tests')
     cros_build_lib.RunCommand(cmd, cwd=self._build_root, enter_chroot=True,
                               extra_env=extra_env)
@@ -133,8 +108,7 @@ class ArchiveStage(generic_stages.BoardSpecificBuilderStage,
     It attempts to load a JSON file, scripts/artifacts.json, from the
     overlay directories for this board. This file specifies the artifacts
     to generate, if it can't be found, it will use a default set that
-    uploads every .bin file as a .tar.xz file except for
-    chromiumos_qemu_image.bin.
+    uploads every .bin file as a .tar.xz file.
 
     See BuildStandaloneArchive in cbuildbot_commands.py for format docs.
     """
@@ -150,9 +124,8 @@ class ArchiveStage(generic_stages.BoardSpecificBuilderStage,
       artifacts = []
       for image_file in glob.glob(os.path.join(image_dir, '*.bin')):
         basename = os.path.basename(image_file)
-        if basename != constants.VM_IMAGE_BIN:
-          info = {'input': [basename], 'archive': 'tar', 'compress': 'xz'}
-          artifacts.append(info)
+        info = {'input': [basename], 'archive': 'tar', 'compress': 'xz'}
+        artifacts.append(info)
 
     for artifact in artifacts:
       # Resolve the (possible) globs in the input list, and store
@@ -204,10 +177,9 @@ class ArchiveStage(generic_stages.BoardSpecificBuilderStage,
     #             \- ArchiveStandaloneArtifact
     #          \- ArchiveZipFiles
     #          \- ArchiveHWQual
-    #          \- ArchiveGceTarballs
     #       \- PushImage (blocks on BuildAndArchiveAllImages)
     #    \- ArchiveManifest
-    #    \- ArchiveStrippedChrome
+    #    \- ArchiveStrippedPackages
     #    \- ArchiveImageScripts
 
     def ArchiveManifest():
@@ -262,28 +234,6 @@ class ArchiveStage(generic_stages.BoardSpecificBuilderStage,
         parallel.RunTasksInProcessPool(ArchiveStandaloneArtifact,
                                        [[x] for x in self.artifacts])
 
-    def ArchiveGceTarballs():
-      """Creates .tar.gz files that can be converted to GCE images.
-
-      These files will be uploaded to GCS buckets, where they can be
-      used as input to the "gcloud compute images create" command.
-      This will convert them into images that can be used to create
-      GCE VM instances.
-      """
-      image_bins = []
-      if 'base' in config['images']:
-        image_bins.append(constants.IMAGE_TYPE_TO_NAME['base'])
-      if 'test' in config['images']:
-        image_bins.append(constants.IMAGE_TYPE_TO_NAME['test'])
-
-      for image_bin in image_bins:
-        if not os.path.exists(os.path.join(image_dir, image_bin)):
-          logging.warning('Missing image file skipped: %s', image_bin)
-          continue
-        output_file = commands.BuildGceTarball(
-            archive_path, image_dir, image_bin)
-        self._release_upload_queue.put([output_file])
-
     def ArchiveZipFiles():
       """Build and archive zip files.
 
@@ -305,7 +255,7 @@ class ArchiveStage(generic_stages.BoardSpecificBuilderStage,
       # TODO(petermayo): This logic needs to be exported from the BuildTargets
       # stage rather than copied/re-evaluated here.
       # TODO(mtennant): Make this autotest_built concept into a run param.
-      autotest_built = (config['build_tests'] and self._run.options.tests and
+      autotest_built = (self._run.options.tests and
                         config['upload_hw_test_artifacts'])
 
       if config['hwqual'] and autotest_built:
@@ -338,12 +288,16 @@ class ArchiveStage(generic_stages.BoardSpecificBuilderStage,
       # For recovery image to be generated correctly, BuildRecoveryImage must
       # run before BuildAndArchiveFactoryImages.
       if 'recovery' in config.images:
-        assert self.IsArchivedFile(constants.BASE_IMAGE_BIN)
+        assert os.path.isfile(os.path.join(image_dir, constants.BASE_IMAGE_BIN))
         commands.BuildRecoveryImage(buildroot, board, image_dir, extra_env)
         self._recovery_image_status_queue.put(True)
-        # Re-generate the artifacts list so we include the newly created
-        # recovery image.
-        self.LoadArtifactsList(self._current_board, image_dir)
+        recovery_image = constants.RECOVERY_IMAGE_BIN
+        if not self.IsArchivedFile(recovery_image):
+          info = {'paths': [recovery_image],
+                  'input': [recovery_image],
+                  'archive': 'tar',
+                  'compress': 'xz'}
+          self.artifacts.append(info)
       else:
         self._recovery_image_status_queue.put(False)
 
@@ -354,8 +308,6 @@ class ArchiveStage(generic_stages.BoardSpecificBuilderStage,
             ArchiveStandaloneArtifacts,
             ArchiveZipFiles,
         ]
-        if config['upload_gce_images']:
-          steps.append(ArchiveGceTarballs)
         parallel.RunParallelSteps(steps)
 
     def ArchiveImageScripts():
@@ -373,15 +325,16 @@ class ArchiveStage(generic_stages.BoardSpecificBuilderStage,
 
       self.GetParallel('debug_tarball_generated', pretty_name='debug tarball')
 
+      # Needed for stateful.tgz
+      self.GetParallel('payloads_generated', pretty_name='payloads')
+
       # Now that all data has been generated, we can upload the final result to
       # the image server.
       # TODO: When we support branches fully, the friendly name of the branch
       # needs to be used with PushImages
       sign_types = []
-      if config['name'].endswith('-%s' % config_lib.CONFIG_TYPE_FIRMWARE):
-        sign_types += ['firmware']
-      if config['name'].endswith('-%s' % config_lib.CONFIG_TYPE_FACTORY):
-        sign_types += ['factory']
+      if config['sign_types']:
+        sign_types = config['sign_types']
       urls = commands.PushImages(
           board=board,
           archive_url=upload_url,
@@ -398,9 +351,10 @@ class ArchiveStage(generic_stages.BoardSpecificBuilderStage,
 
     def BuildAndArchiveArtifacts():
       # Run archiving steps in parallel.
-      steps = [ArchiveReleaseArtifacts, ArchiveManifest]
+      steps = [ArchiveReleaseArtifacts, ArchiveManifest,
+               self.ArchiveStrippedPackages]
       if config['images']:
-        steps.extend([self.ArchiveStrippedChrome, ArchiveImageScripts])
+        steps.append(ArchiveImageScripts)
       if config['create_delta_sysroot']:
         steps.append(self.BuildAndArchiveDeltaSysroot)
 
@@ -509,101 +463,6 @@ class DebugSymbolsStage(generic_stages.BoardSpecificBuilderStage,
     """Tell other stages to not wait on us if we die for some reason."""
     self._SymbolsNotGenerated()
     return super(DebugSymbolsStage, self)._HandleStageException(exc_info)
-
-
-class MasterUploadPrebuiltsStage(generic_stages.BuilderStage):
-  """Syncs prebuilt binhost files across slaves."""
-  # TODO(mtennant): This class represents logic spun out from
-  # UploadPrebuiltsStage that is specific to a master builder. This is
-  # currently used by the Commit Queue and the Master PFQ builder, but
-  # could be used by other master builders that upload prebuilts,
-  # e.g., x86-alex-pre-flight-branch. When completed the
-  # UploadPrebuiltsStage code can be thinned significantly.
-  option_name = 'prebuilts'
-  config_name = 'prebuilts'
-
-  def _GenerateCommonArgs(self):
-    """Generate common prebuilt arguments."""
-    generated_args = []
-    if self._run.options.debug:
-      generated_args.extend(['--debug', '--dry-run'])
-
-    profile = self._run.options.profile or self._run.config['profile']
-    if profile:
-      generated_args.extend(['--profile', profile])
-
-    # Generate the version if we are a manifest_version build.
-    if self._run.config.manifest_version:
-      version = self._run.GetVersion()
-      generated_args.extend(['--set-version', version])
-
-    return generated_args
-
-  @staticmethod
-  def _AddOptionsForSlave(slave_config):
-    """Private helper method to add upload_prebuilts args for a slave builder.
-
-    Args:
-      slave_config: The build config of a slave builder.
-
-    Returns:
-      An array of options to add to upload_prebuilts array that allow a master
-      to submit prebuilt conf modifications on behalf of a slave.
-    """
-    args = []
-    if slave_config['prebuilts']:
-      for slave_board in slave_config['boards']:
-        args.extend(['--slave-board', slave_board])
-        slave_profile = slave_config['profile']
-        if slave_profile:
-          args.extend(['--slave-profile', slave_profile])
-
-    return args
-
-  @failures_lib.SetFailureType(failures_lib.InfrastructureFailure)
-  def PerformStage(self):
-    """Syncs prebuilt binhosts for slave builders."""
-    # Common args we generate for all types of builds.
-    generated_args = self._GenerateCommonArgs()
-    # Args we specifically add for public/private build types.
-    public_args, private_args = [], []
-    # Gather public/private (slave) builders.
-    public_builders, private_builders = [], []
-
-    # Distributed builders that use manifest-versions to sync with one another
-    # share prebuilt logic by passing around versions.
-    assert config_lib.IsPFQType(self._prebuilt_type)
-
-    # Public pfqs should upload host preflight prebuilts.
-    public_args.append('--sync-host')
-
-    # Update all the binhost conf files.
-    generated_args.append('--sync-binhost-conf')
-    for slave_config in self._GetSlaveConfigs():
-      if slave_config['prebuilts'] == constants.PUBLIC:
-        public_builders.append(slave_config['name'])
-        public_args.extend(self._AddOptionsForSlave(slave_config))
-      elif slave_config['prebuilts'] == constants.PRIVATE:
-        private_builders.append(slave_config['name'])
-        private_args.extend(self._AddOptionsForSlave(slave_config))
-
-    # Upload the public prebuilts, if any.
-    if public_builders:
-      prebuilts.UploadPrebuilts(
-          category=self._prebuilt_type, chrome_rev=self._chrome_rev,
-          private_bucket=False, buildroot=self._build_root, board=None,
-          extra_args=generated_args + public_args)
-
-    # Upload the private prebuilts, if any.
-    if private_builders:
-      prebuilts.UploadPrebuilts(
-          category=self._prebuilt_type, chrome_rev=self._chrome_rev,
-          private_bucket=True, buildroot=self._build_root, board=None,
-          extra_args=generated_args + private_args)
-
-    # If we're the Chrome PFQ master, update our binhost JSON file.
-    if self._run.config.build_type == constants.CHROME_PFQ_TYPE:
-      commands.UpdateBinhostJson(self._build_root)
 
 
 class UploadPrebuiltsStage(generic_stages.BoardSpecificBuilderStage):
@@ -801,43 +660,45 @@ class UploadTestArtifactsStage(generic_stages.BoardSpecificBuilderStage,
 
   def BuildUpdatePayloads(self):
     """Archives update payloads when they are ready."""
-    got_images = self.GetParallel('images_generated', pretty_name='images')
-    if not got_images:
-      return
+    try:
+      # If we are not configured to generate payloads, don't.
+      if not (self._run.config.upload_hw_test_artifacts and
+              self._run.config.images):
+        return
 
-    payload_type = self._run.config.payload_image
-    if payload_type is None:
-      payload_type = 'base'
-      for t in ['test', 'dev']:
-        if t in self._run.config.images:
-          payload_type = t
-          break
-    image_name = constants.IMAGE_TYPE_TO_NAME[payload_type]
-    logging.info('Generating payloads to upload for %s', image_name)
-    self._GeneratePayloads(image_name, full=True, stateful=True)
-    self.board_runattrs.SetParallel('payloads_generated', True)
-    self._GeneratePayloads(image_name, delta=True)
-    self.board_runattrs.SetParallel('delta_payloads_generated', True)
+      # If there are no images to generate payloads from, don't.
+      got_images = self.GetParallel('images_generated', pretty_name='images')
+      if not got_images:
+        return
+
+      payload_type = self._run.config.payload_image
+      if payload_type is None:
+        payload_type = 'base'
+        for t in ['test', 'dev']:
+          if t in self._run.config.images:
+            payload_type = t
+            break
+      image_name = constants.IMAGE_TYPE_TO_NAME[payload_type]
+      logging.info('Generating payloads to upload for %s', image_name)
+      self._GeneratePayloads(image_name, full=True, stateful=True)
+      self.board_runattrs.SetParallel('payloads_generated', True)
+      self._GeneratePayloads(image_name, delta=True)
+      self.board_runattrs.SetParallel('delta_payloads_generated', True)
+
+    finally:
+      # Make sure these flags are set to some value, no matter now we exit.
+      self.board_runattrs.SetParallelDefault('payloads_generated', False)
+      self.board_runattrs.SetParallelDefault('delta_payloads_generated', False)
 
   @failures_lib.SetFailureType(failures_lib.InfrastructureFailure)
   def PerformStage(self):
     """Upload any needed HWTest artifacts."""
-    steps = []
+    steps = [self.BuildUpdatePayloads]
     if (self._run.ShouldBuildAutotest() and
         self._run.config.upload_hw_test_artifacts):
       steps.append(self.BuildAutotestTarballs)
 
-    if self._run.config.upload_hw_test_artifacts:
-      steps.append(self.BuildUpdatePayloads)
-
     parallel.RunParallelSteps(steps)
-
-  def _HandleStageException(self, exc_info):
-    # Tell the HWTestStage not to wait for payloads to be uploaded
-    # in case UploadHWTestArtifacts throws an exception.
-    self.board_runattrs.SetParallelDefault('payloads_generated', False)
-    self.board_runattrs.SetParallelDefault('delta_payloads_generated', False)
-    return super(UploadTestArtifactsStage, self)._HandleStageException(exc_info)
 
 
 # TODO(mtennant): This class continues to exist only for subclasses that still

@@ -9,6 +9,7 @@ from __future__ import print_function
 import argparse
 import collections
 import contextlib
+import glob
 import json
 import os
 import distutils.version
@@ -23,8 +24,10 @@ from chromite.lib import gs
 from chromite.lib import osutils
 from chromite.lib import path_util
 from chromite.lib import stats
+from chromite.cbuildbot import archive_lib
 from chromite.cbuildbot import config_lib
 from chromite.cbuildbot import constants
+from gn_helpers import gn_helpers
 
 
 COMMAND_NAME = 'chrome-sdk'
@@ -91,7 +94,7 @@ class SDKFetcher(object):
         force usage of the external configuration if both external and internal
         are available.
     """
-    site_config = config_lib.LoadConfigFromFile()
+    site_config = config_lib.GetConfig()
 
     self.cache_base = os.path.join(cache_dir, COMMAND_NAME)
     if clear_cache:
@@ -104,8 +107,7 @@ class SDKFetcher(object):
     self.board = board
     self.config = site_config.FindCanonicalConfigForBoard(
         board, allow_internal=not use_external_config)
-    self.gs_base = '%s/%s' % (constants.DEFAULT_ARCHIVE_BUCKET,
-                              self.config['name'])
+    self.gs_base = archive_lib.GetBaseUploadURI(self.config)
     self.clear_cache = clear_cache
     self.chrome_src = chrome_src
     self.sdk_path = sdk_path
@@ -424,6 +426,7 @@ class ChromeSDKCommand(command.CliCommand):
       'LDFLAGS',
 
       # Misc settings.
+      'GN_ARGS',
       'GOLD_SET',
       'GYP_DEFINES',
   )
@@ -469,10 +472,11 @@ class ChromeSDKCommand(command.CliCommand):
              'Defaults to %s.' % constants.CHROME_SDK_BASHRC)
     parser.add_argument(
         '--chroot', type='path',
-        help='Path to a ChromeOS chroot to use.  If set, '
+        help='Path to a ChromeOS chroot to use. If set, '
              '<chroot>/build/<board> will be used as the sysroot that Chrome '
-             'is built against.  The version shown in the SDK shell prompt '
-             'will then have an asterisk prepended to it.')
+             'is built against. If chromeos-chrome was built, the build '
+             'environment from the chroot will also be used. The version shown '
+             'in the SDK shell prompt will have an asterisk prepended to it.')
     parser.add_argument(
         '--chrome-src', type='path',
         help='Specifies the location of a Chrome src/ directory.  Required if '
@@ -562,13 +566,15 @@ class ChromeSDKCommand(command.CliCommand):
       chroot: The path to the chroot, if set.
     """
     custom = '*' if chroot else ''
-    sdk_version = '(sdk %s %s%s)' % (board, custom, version)
-    label = '\\u@\\h: \\w'
-    window_caption = "\\[\\e]0;%(sdk_version)s %(label)s \\a\\]"
-    command_line = "%(sdk_version)s \\[\\e[1;33m\\]%(label)s \\$ \\[\\e[m\\]"
-    ps1 = window_caption + command_line
-    return (ps1 % {'sdk_version': sdk_version,
-                   'label': label})
+    current_ps1 = cros_build_lib.RunCommand(
+        ['bash', '-l', '-c', 'echo "$PS1"'], print_cmd=False,
+        capture_output=True).output.splitlines()
+    if current_ps1:
+      current_ps1 = current_ps1[-1]
+    if not current_ps1:
+      # Something went wrong, so use a fallback value.
+      current_ps1 = r'\u@\h \w $ '
+    return '(sdk %s %s%s) %s' % (board, custom, version, current_ps1)
 
   def _FixGoldPath(self, var_contents, toolchain_path):
     """Point to the gold linker in the toolchain tarball.
@@ -617,7 +623,8 @@ class ChromeSDKCommand(command.CliCommand):
     env['CXX_host'] = os.path.join(clang_path, 'clang++')
 
     if not options.fastbuild:
-      # Enable debug fission.
+      # Enable debug fission for GYP. linux_use_debug_fission cannot be used
+      # because it doesn't have effect on Release builds.
       env['CFLAGS'] = env.get('CFLAGS', '') +  ' -gsplit-dwarf'
       env['CXXFLAGS'] = env.get('CXXFLAGS', '') + ' -gsplit-dwarf'
 
@@ -634,6 +641,31 @@ class ChromeSDKCommand(command.CliCommand):
 
     environment = os.path.join(sdk_ctx.key_map[constants.CHROME_ENV_TAR].path,
                                'environment')
+    if options.chroot:
+      # Override with the environment from the chroot if available (i.e.
+      # build_packages or emerge chromeos-chrome has been run for |board|).
+      env_path = os.path.join(sysroot, 'var', 'db', 'pkg', 'chromeos-base',
+                              'chromeos-chrome-*')
+      env_glob = glob.glob(env_path)
+      if len(env_glob) != 1:
+        logging.warning('Multiple Chrome versions in %s. This can be resolved'
+                        ' by running "eclean-$BOARD -d packages". Using'
+                        ' environment from: %s', env_path, environment)
+      elif not os.path.isdir(env_glob[0]):
+        logging.warning('Environment path not found: %s. Using enviroment from:'
+                        ' %s.', env_path, environment)
+      else:
+        chroot_env_file = os.path.join(env_glob[0], 'environment.bz2')
+        if os.path.isfile(chroot_env_file):
+          # Log a warning here since this is new behavior that is not obvious.
+          logging.notice('Environment fetched from: %s', chroot_env_file)
+          # Uncompress enviornment.bz2 to pass to osutils.SourceEnvironment.
+          chroot_cache = os.path.join(
+              self.options.cache_dir, COMMAND_NAME, 'chroot')
+          osutils.SafeMakedirs(chroot_cache)
+          environment = os.path.join(chroot_cache, 'environment_%s' % board)
+          cros_build_lib.UncompressFile(chroot_env_file, environment)
+
     env = osutils.SourceEnvironment(environment, self.EBUILD_ENV)
     self._SetupTCEnvironment(sdk_ctx, options, env)
 
@@ -662,35 +694,52 @@ class ChromeSDKCommand(command.CliCommand):
     # SYSROOT is necessary for Goma and the sysroot wrapper.
     env['SYSROOT'] = sysroot
     gyp_dict = chrome_util.ProcessGypDefines(env['GYP_DEFINES'])
+    gn_args = gn_helpers.FromGNArgs(env['GN_ARGS'])
     gyp_dict['sysroot'] = sysroot
-    gyp_dict.pop('order_text_section', None)
+    gn_args['target_sysroot'] = sysroot
     gyp_dict.pop('pkg-config', None)
-    gyp_dict['host_clang'] = 1
+    gn_args.pop('pkg_config', None)
+    gyp_dict['host_clang'] = 1  # GN doesn't support this. crbug.com/588080
     if options.clang:
       gyp_dict['clang'] = 1
+      gn_args['is_clang'] = True
     if options.internal:
       gyp_dict['branding'] = 'Chrome'
+      gn_args['is_chrome_branded'] = True
       gyp_dict['buildtype'] = 'Official'
+      gn_args['is_official_build'] = True
     else:
       gyp_dict.pop('branding', None)
+      gn_args.pop('is_chrome_branded', None)
       gyp_dict.pop('buildtype', None)
+      gn_args.pop('is_official_build', None)
       gyp_dict.pop('internal_gles2_conform_tests', None)
+      gn_args.pop('internal_gles2_conform_tests', None)
     if options.component:
       gyp_dict['component'] = 'shared_library'
+      gn_args['is_component_build'] = True
     if options.fastbuild:
       gyp_dict['fastbuild'] = 1
       gyp_dict.pop('release_extra_cflags', None)
+      # symbol_level corresponds to GYP's fastbuild (https://goo.gl/ZC4fUO).
+      gn_args['symbol_level'] = 1
+    else:
+      # Enable debug fission for GN.
+      gn_args['use_debug_fission'] = True
 
     # Enable goma if requested.
     if goma_dir:
       gyp_dict['use_goma'] = 1
+      gn_args['use_goma'] = True
       gyp_dict['gomadir'] = goma_dir
+      gn_args['goma_dir'] = goma_dir
 
-    if options.clang:
-      # TODO(thakis): Remove once https://b/issue?id=16876457 is fixed.
-      gyp_dict['use_goma'] = 0
+    gn_args['cros_target_cc'] = env['CC']
+    gn_args['cros_target_cxx'] = env['CXX']
+    gn_args.pop('internal_khronos_glcts_tests', None)  # crbug.com/588080
 
     env['GYP_DEFINES'] = chrome_util.DictToGypDefines(gyp_dict)
+    env['GN_ARGS'] = gn_helpers.ToGNString(gn_args)
 
     # PS1 sets the command line prompt and xterm window caption.
     full_version = sdk_ctx.version
@@ -703,6 +752,15 @@ class ChromeSDKCommand(command.CliCommand):
     env['builddir_name'] = out_dir
     env['GYP_GENERATOR_FLAGS'] = 'output_dir=%s' % out_dir
     env['GYP_CROSSCOMPILE'] = '1'
+
+    # deploy_chrome relies on the 'gn' USE flag to locate .so (and potentially
+    # other) files. Set this by default if GYP_CHROMIUM_NO_ACTION=1.
+    # TODO(stevenjb): Maybe figure out a better way to set this by default.
+    if os.environ.get('GYP_CHROMIUM_NO_ACTION', '') == '1':
+      env['USE'] = 'gn'
+      logging.notice(
+          'GYP_CHROMIUM_NO_ACTION=1, setting USE="gn" for deploy_chrome.')
+
     return env
 
   @staticmethod

@@ -31,7 +31,7 @@ try:
   from apiclient import errors as apiclient_errors
   from oauth2client import file as oauth_client_fileio
   from oauth2client import client
-except ImportError as e:
+except (RuntimeError, ImportError) as e:
   apiclient_build = None
   oauth_client_fileio = None
 
@@ -269,7 +269,7 @@ def CreateEmail(subject, recipients, message='', attachment=None,
   return msg
 
 
-def SendEmail(subject, recipients, server=SmtpServer(), message='',
+def SendEmail(subject, recipients, server=None, message='',
               attachment=None, extra_fields=None):
   """Send an e-mail job notification with the given message in the body.
 
@@ -283,13 +283,15 @@ def SendEmail(subject, recipients, server=SmtpServer(), message='',
                   to be added to the message. Custom field names should begin
                   with the prefix 'X-'.
   """
+  if server is None:
+    server = SmtpServer()
   msg = CreateEmail(subject, recipients, message, attachment, extra_fields)
   if not msg:
     return
   server.Send(msg)
 
 
-def SendEmailLog(subject, recipients, server=SmtpServer(), message='',
+def SendEmailLog(subject, recipients, server=None, message='',
                  inc_trace=True, log=None, extra_fields=None):
   """Send an e-mail with a stack trace and log snippets.
 
@@ -304,6 +306,8 @@ def SendEmailLog(subject, recipients, server=SmtpServer(), message='',
                   to be added to the message. Custom fields names should begin
                   with the prefix 'X-'.
   """
+  if server is None:
+    server = SmtpServer()
   if not message:
     message = subject
   message = message[:]

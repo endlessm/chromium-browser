@@ -176,12 +176,11 @@ goog.scope(function() {
      * @return {tcuTexLookupVerifier.ColorQuad}
      */
     tcuTexLookupVerifier.lookupQuad = function(level, sampler, x0, x1, y0, y1, z) {
-        return new tcuTexLookupVerifier.ColorQuad(
-            tcuTexLookupVerifier.lookupFloat(level, sampler, x0, y0, z),
-            tcuTexLookupVerifier.lookupFloat(level, sampler, x1, y0, z),
-            tcuTexLookupVerifier.lookupFloat(level, sampler, x0, y1, z),
-            tcuTexLookupVerifier.lookupFloat(level, sampler, x1, y1, z)
-        );
+        var p00 = tcuTexLookupVerifier.lookupFloat(level, sampler, x0, y0, z);
+        var p10 = tcuTexLookupVerifier.lookupFloat(level, sampler, x1, y0, z);
+        var p01 = tcuTexLookupVerifier.lookupFloat(level, sampler, x0, y1, z);
+        var p11 = tcuTexLookupVerifier.lookupFloat(level, sampler, x1, y1, z);
+        return new tcuTexLookupVerifier.ColorQuad(p00, p01, p10, p11);
     };
 
     /**
@@ -625,7 +624,7 @@ goog.scope(function() {
 
         function interp(result, p0, p1, s) {
             for (var ii = 0; ii < 4; ++ii) {
-                result = p0[ii] * (1 - s) + p1[ii] * s;
+                result[ii] = p0[ii] * (1 - s) + p1[ii] * s;
             }
         }
 
@@ -703,7 +702,12 @@ goog.scope(function() {
 
         for (var i = minI; i <= maxI; i++) {
             /** @type {number} */ var x = tcuTexVerifierUtil.wrap(sampler.wrapS, i, level.getWidth());
-            /** @type {Array<number>} */ var color = tcuTexLookupVerifier.lookupScalar(level, sampler, x, coordY, 0);
+            /** @type {Array<number>} */ var color;
+            if (tcuTexLookupVerifier.isSRGB(level.getFormat())) {
+                color = tcuTexLookupVerifier.lookupFloat(level, sampler, x, coordY, 0);
+            } else {
+                color = tcuTexLookupVerifier.lookupScalar(level, sampler, x, coordY, 0);
+            }
 
             if (tcuTexLookupVerifier.isColorValid(prec, color, result))
                 return true;
@@ -741,7 +745,12 @@ goog.scope(function() {
         for (var i = minI; i <= maxI; i++) {
             /** @type {number} */ var x = tcuTexVerifierUtil.wrap(sampler.wrapS, i, level.getWidth());
             /** @type {number} */ var y = tcuTexVerifierUtil.wrap(sampler.wrapT, j, level.getHeight());
-            /** @type {Array<number>} */ var color = tcuTexLookupVerifier.lookupScalar(level, sampler, x, y, coordZ);
+            /** @type {Array<number>} */ var color;
+            if (tcuTexLookupVerifier.isSRGB(level.getFormat())) {
+                color = tcuTexLookupVerifier.lookupFloat(level, sampler, x, y, coordZ);
+            } else {
+                color = tcuTexLookupVerifier.lookupScalar(level, sampler, x, y, coordZ);
+            }
 
             if (tcuTexLookupVerifier.isColorValid(prec, color, result))
                 return true;
@@ -785,7 +794,12 @@ goog.scope(function() {
                     /** @type {number} */ var x = tcuTexVerifierUtil.wrap(sampler.wrapS, i, level.getWidth());
                     /** @type {number} */ var y = tcuTexVerifierUtil.wrap(sampler.wrapT, j, level.getHeight());
                     /** @type {number} */ var z = tcuTexVerifierUtil.wrap(sampler.wrapR, k, level.getDepth());
-                    /** @type {Array<number>} */ var color = tcuTexLookupVerifier.lookupScalar(level, sampler, x, y, z);
+                    /** @type {Array<number>} */ var color;
+                    if (tcuTexLookupVerifier.isSRGB(level.getFormat())) {
+                        color = tcuTexLookupVerifier.lookupFloat(level, sampler, x, y, z);
+                    } else {
+                        color = tcuTexLookupVerifier.lookupScalar(level, sampler, x, y, z);
+                    }
 
                     if (tcuTexLookupVerifier.isColorValid(prec, color, result))
                         return true;

@@ -175,6 +175,25 @@ class PageTestResults(object):
     self._ValidateValue(value)
     is_first_result = (
       self._current_page_run.story not in self._all_stories)
+
+    story_keys = self._current_page_run.story.grouping_keys
+
+    if story_keys:
+      for k, v in story_keys.iteritems():
+        assert k not in value.grouping_keys, (
+            'Tried to add story grouping key ' + k + ' already defined by ' +
+            'value')
+        value.grouping_keys[k] = v
+
+      # We sort by key name to make building the tir_label deterministic.
+      story_keys_label = '_'.join(v for _, v in sorted(story_keys.iteritems()))
+      if value.tir_label:
+        assert value.tir_label == story_keys_label, (
+            'Value has an explicit tir_label (%s) that does not match the '
+            'one computed from story_keys (%s)' % (value.tir_label, story_keys))
+      else:
+        value.tir_label = story_keys_label
+
     if not (isinstance(value, skip.SkipValue) or
             isinstance(value, failure.FailureValue) or
             isinstance(value, trace.TraceValue) or

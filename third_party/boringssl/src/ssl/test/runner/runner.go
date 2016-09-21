@@ -1206,6 +1206,31 @@ func addBasicTests() {
 		},
 		{
 			testType: serverTest,
+			name:     "DoubleAlert",
+			config: Config{
+				Bugs: ProtocolBugs{
+					DoubleAlert:       true,
+					SendSpuriousAlert: alertRecordOverflow,
+				},
+			},
+			shouldFail:    true,
+			expectedError: ":BAD_ALERT:",
+		},
+		{
+			protocol: dtls,
+			testType: serverTest,
+			name:     "DoubleAlert-DTLS",
+			config: Config{
+				Bugs: ProtocolBugs{
+					DoubleAlert:       true,
+					SendSpuriousAlert: alertRecordOverflow,
+				},
+			},
+			shouldFail:    true,
+			expectedError: ":BAD_ALERT:",
+		},
+		{
+			testType: serverTest,
 			name:     "EarlyChangeCipherSpec-server-1",
 			config: Config{
 				Bugs: ProtocolBugs{
@@ -2036,6 +2061,19 @@ func addBasicTests() {
 			shimShutsDown: true,
 		},
 		{
+			name: "Unclean-Shutdown-Alert",
+			config: Config{
+				Bugs: ProtocolBugs{
+					SendAlertOnShutdown: alertDecompressionFailure,
+					ExpectCloseNotify:   true,
+				},
+			},
+			shimShutsDown: true,
+			flags:         []string{"-check-close-notify"},
+			shouldFail:    true,
+			expectedError: ":SSLV3_ALERT_DECOMPRESSION_FAILURE:",
+		},
+		{
 			name: "LargePlaintext",
 			config: Config{
 				Bugs: ProtocolBugs{
@@ -2686,6 +2724,40 @@ func addClientAuthTests() {
 		},
 		// Setting SSL_VERIFY_PEER allows anonymous clients.
 		flags:         []string{"-verify-peer"},
+		shouldFail:    true,
+		expectedError: ":UNEXPECTED_MESSAGE:",
+	})
+
+	// Client auth is only legal in certificate-based ciphers.
+	testCases = append(testCases, testCase{
+		testType: clientTest,
+		name:     "ClientAuth-PSK",
+		config: Config{
+			CipherSuites: []uint16{TLS_PSK_WITH_AES_128_CBC_SHA},
+			PreSharedKey: []byte("secret"),
+			ClientAuth:   RequireAnyClientCert,
+		},
+		flags: []string{
+			"-cert-file", path.Join(*resourceDir, rsaCertificateFile),
+			"-key-file", path.Join(*resourceDir, rsaKeyFile),
+			"-psk", "secret",
+		},
+		shouldFail:    true,
+		expectedError: ":UNEXPECTED_MESSAGE:",
+	})
+	testCases = append(testCases, testCase{
+		testType: clientTest,
+		name:     "ClientAuth-ECDHE_PSK",
+		config: Config{
+			CipherSuites: []uint16{TLS_ECDHE_PSK_WITH_AES_128_CBC_SHA},
+			PreSharedKey: []byte("secret"),
+			ClientAuth:   RequireAnyClientCert,
+		},
+		flags: []string{
+			"-cert-file", path.Join(*resourceDir, rsaCertificateFile),
+			"-key-file", path.Join(*resourceDir, rsaKeyFile),
+			"-psk", "secret",
+		},
 		shouldFail:    true,
 		expectedError: ":UNEXPECTED_MESSAGE:",
 	})
@@ -3854,6 +3926,20 @@ func addExtensionTests() {
 		resumeSession: true,
 	})
 	testCases = append(testCases, testCase{
+		name: "SendSCTListOnResume",
+		config: Config{
+			Bugs: ProtocolBugs{
+				SendSCTListOnResume: []byte("bogus"),
+			},
+		},
+		flags: []string{
+			"-enable-signed-cert-timestamps",
+			"-expect-signed-cert-timestamps",
+			base64.StdEncoding.EncodeToString(testSCTList),
+		},
+		resumeSession: true,
+	})
+	testCases = append(testCases, testCase{
 		name:     "SignedCertificateTimestampList-Server",
 		testType: serverTest,
 		flags: []string{
@@ -4558,6 +4644,24 @@ var timeouts = []time.Duration{
 	60 * time.Second,
 }
 
+// shortTimeouts is an alternate set of timeouts which would occur if the
+// initial timeout duration was set to 250ms.
+var shortTimeouts = []time.Duration{
+	250 * time.Millisecond,
+	500 * time.Millisecond,
+	1 * time.Second,
+	2 * time.Second,
+	4 * time.Second,
+	8 * time.Second,
+	16 * time.Second,
+	32 * time.Second,
+	60 * time.Second,
+	60 * time.Second,
+	60 * time.Second,
+	60 * time.Second,
+	60 * time.Second,
+}
+
 func addDTLSRetransmitTests() {
 	// Test that this is indeed the timeout schedule. Stress all
 	// four patterns of handshake.
@@ -4633,6 +4737,31 @@ func addDTLSRetransmitTests() {
 			},
 		},
 		flags: []string{"-async"},
+	})
+
+	// Test the timeout schedule when a shorter initial timeout duration is set.
+	testCases = append(testCases, testCase{
+		protocol: dtls,
+		name:     "DTLS-Retransmit-Short-Client",
+		config: Config{
+			Bugs: ProtocolBugs{
+				TimeoutSchedule: shortTimeouts[:len(shortTimeouts)-1],
+			},
+		},
+		resumeSession: true,
+		flags:         []string{"-async", "-initial-timeout-duration-ms", "250"},
+	})
+	testCases = append(testCases, testCase{
+		protocol: dtls,
+		testType: serverTest,
+		name:     "DTLS-Retransmit-Short-Server",
+		config: Config{
+			Bugs: ProtocolBugs{
+				TimeoutSchedule: shortTimeouts[:len(shortTimeouts)-1],
+			},
+		},
+		resumeSession: true,
+		flags:         []string{"-async", "-initial-timeout-duration-ms", "250"},
 	})
 }
 

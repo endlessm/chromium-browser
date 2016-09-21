@@ -10,6 +10,7 @@ import os
 import re
 from xml.etree import ElementTree
 
+from chromite.cbuildbot import config_lib
 from chromite.cbuildbot import constants
 from chromite.cbuildbot import manifest_version
 from chromite.cbuildbot.stages import generic_stages
@@ -17,6 +18,9 @@ from chromite.lib import cros_build_lib
 from chromite.lib import cros_logging as logging
 from chromite.lib import git
 from chromite.lib import parallel
+
+
+site_config = config_lib.GetConfig()
 
 
 class BranchError(Exception):
@@ -47,8 +51,8 @@ class BranchUtilStage(generic_stages.BuilderStage):
 
   def __init__(self, builder_run, **kwargs):
     super(BranchUtilStage, self).__init__(builder_run, **kwargs)
-    self.skip_remote_push = self._run.options.skip_remote_push
-    self.dryrun = self._run.options.debug_forced
+    self.skip_remote_push = (self._run.options.skip_remote_push or
+                             self._run.options.debug_forced)
     self.branch_name = self._run.options.branch_name
     self.rename_to = self._run.options.rename_to
 
@@ -66,9 +70,8 @@ class BranchUtilStage(generic_stages.BuilderStage):
     # If dest_ref is already refs/heads/<branch> it's a noop.
     dest_ref = git.NormalizeRef(git.StripRefs(dest_ref))
     push_to = git.RemoteRef(checkout['push_remote'], dest_ref)
-    dryrun = self.dryrun or self.skip_remote_push
-    git.GitPush(checkout['local_path'], src_ref, push_to, dryrun=dryrun,
-                force=force)
+    git.GitPush(checkout['local_path'], src_ref, push_to, force=force,
+                skip=self.skip_remote_push)
 
   def _FetchAndCheckoutTo(self, checkout_dir, remote_ref):
     """Fetch a remote ref and check out to it.
@@ -302,7 +305,7 @@ class BranchUtilStage(generic_stages.BuilderStage):
     branch_ref = git.NormalizeRef(self.branch_name)
 
     logging.debug('Fixing manifest projects for new branch.')
-    for project in constants.MANIFEST_PROJECTS:
+    for project in site_config.params.MANIFEST_PROJECTS:
       manifest_checkout = repo_manifest.FindCheckout(project)
       manifest_dir = manifest_checkout['local_path']
       push_remote = manifest_checkout['push_remote']
@@ -343,9 +346,8 @@ class BranchUtilStage(generic_stages.BuilderStage):
       message = 'Fix up manifest after branching %s.' % branch_ref
       git.RunGit(manifest_dir, ['commit', '-m', message], print_cmd=True)
       push_to = git.RemoteRef(push_remote, branch_ref)
-      dryrun = self.dryrun or self.skip_remote_push
       git.GitPush(manifest_dir, manifest_version.PUSH_BRANCH, push_to,
-                  dryrun=dryrun, force=dryrun)
+                  skip=self.skip_remote_push)
 
   def _IncrementVersionOnDisk(self, incr_type, push_to, message):
     """Bumps the version found in chromeos_version.sh on a branch.
@@ -358,7 +360,8 @@ class BranchUtilStage(generic_stages.BuilderStage):
     version_info = manifest_version.VersionInfo.from_repo(
         self._build_root, incr_type=incr_type)
     version_info.IncrementVersion()
-    version_info.UpdateVersionFile(message, dry_run=self.dryrun,
+    version_info.UpdateVersionFile(message,
+                                   dry_run=self.skip_remote_push,
                                    push_to=push_to)
 
   @staticmethod
@@ -398,8 +401,9 @@ class BranchUtilStage(generic_stages.BuilderStage):
     # This needs to happen before the source branch version bumping above
     # because we rely on the fact that since our current overlay checkout
     # is what we just pushed to the new branch, we don't need to do another
-    # sync.  This also makes it easier to implement dryrun functionality (the
-    # new branch doesn't actually get created in dryrun mode).
+    # sync.  This also makes it easier to implement skip_remote_push
+    # functionality (the new branch doesn't actually get created in
+    # skip_remote_push mode).
 
     # Use local branch ref.
     branch_ref = git.NormalizeRef(self.branch_name)

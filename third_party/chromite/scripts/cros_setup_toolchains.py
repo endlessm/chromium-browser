@@ -18,7 +18,6 @@ from chromite.lib import cros_logging as logging
 from chromite.lib import osutils
 from chromite.lib import parallel
 from chromite.lib import toolchain
-from chromite.lib import workspace_lib
 
 # Needs to be after chromite imports.
 import lddtree
@@ -83,6 +82,11 @@ class Crossdev(object):
 
   _CACHE_FILE = os.path.join(CROSSDEV_OVERLAY, '.configured.json')
   _CACHE = {}
+  # Packages that needs separate handling, in addition to what we have from
+  # crossdev.
+  MANUAL_PKGS = {
+      'llvm': 'sys-devel',
+  }
 
   @classmethod
   def Load(cls, reconfig):
@@ -122,7 +126,18 @@ class Crossdev(object):
       out = cros_build_lib.RunCommand(cmd, print_cmd=False,
                                       redirect_stdout=True).output.splitlines()
       # List of tuples split at the first '=', converted into dict.
-      val[target] = dict([x.split('=', 1) for x in out])
+      conf = dict((k, cros_build_lib.ShellUnquote(v))
+                  for k, v in (x.split('=', 1) for x in out))
+      conf['crosspkgs'] = conf['crosspkgs'].split()
+
+      for pkg, cat in cls.MANUAL_PKGS.iteritems():
+          conf[pkg + '_pn'] = pkg
+          conf[pkg + '_category'] = cat
+          if pkg not in conf['crosspkgs']:
+            conf['crosspkgs'].append(pkg)
+
+      val[target] = conf
+
     return val[target]
 
   @classmethod
@@ -162,6 +177,8 @@ class Crossdev(object):
         elif pkg == 'ex_go':
           # Go does not have selectable versions.
           cmd.extend(CROSSDEV_GO_ARGS)
+        elif pkg in cls.MANUAL_PKGS:
+          pass
         else:
           # The first of the desired versions is the "primary" one.
           version = GetDesiredPackageVersions(target, pkg)[0]
@@ -213,7 +230,7 @@ def GetTargetPackages(target):
   """Returns a list of packages for a given target."""
   conf = Crossdev.GetConfig(target)
   # Undesired packages are denoted by empty ${pkg}_pn variable.
-  return [x for x in conf['crosspkgs'].strip("'").split() if conf[x+'_pn']]
+  return [x for x in conf['crosspkgs'] if conf.get(x+'_pn')]
 
 
 # Portage helper functions:
@@ -221,7 +238,7 @@ def GetPortagePackage(target, package):
   """Returns a package name for the given target."""
   conf = Crossdev.GetConfig(target)
   # Portage category:
-  if target == 'host':
+  if target == 'host' or package in Crossdev.MANUAL_PKGS:
     category = conf[package + '_category']
   else:
     category = conf['category']
@@ -569,8 +586,8 @@ def ExpandTargets(targets_wanted):
     Dictionary of concrete targets and their toolchain tuples.
   """
   targets_wanted = set(targets_wanted)
-  if targets_wanted in (set(['boards']), set(['bricks'])):
-    # Only pull targets from the included boards/bricks.
+  if targets_wanted == set(['boards']):
+    # Only pull targets from the included boards.
     return {}
 
   all_targets = toolchain.GetAllTargets()
@@ -589,7 +606,7 @@ def ExpandTargets(targets_wanted):
 
 
 def UpdateToolchains(usepkg, deleteold, hostonly, reconfig,
-                     targets_wanted, boards_wanted, bricks_wanted, root='/'):
+                     targets_wanted, boards_wanted, root='/'):
   """Performs all steps to create a synchronized toolchain enviroment.
 
   Args:
@@ -599,7 +616,6 @@ def UpdateToolchains(usepkg, deleteold, hostonly, reconfig,
     reconfig: Reload crossdev config and reselect toolchains
     targets_wanted: All the targets to update
     boards_wanted: Load targets from these boards
-    bricks_wanted: Load targets from these bricks
     root: The root in which to install the toolchains.
   """
   targets, crossdev_targets, reconfig_targets = {}, {}, {}
@@ -608,12 +624,10 @@ def UpdateToolchains(usepkg, deleteold, hostonly, reconfig,
     # work on bare systems where this is useful.
     targets = ExpandTargets(targets_wanted)
 
-    # Now re-add any targets that might be from this board/brick. This is to
+    # Now re-add any targets that might be from this board. This is to
     # allow unofficial boards to declare their own toolchains.
     for board in boards_wanted:
       targets.update(toolchain.GetToolchainsForBoard(board))
-    for brick in bricks_wanted:
-      targets.update(toolchain.GetToolchainsForBrick(brick))
 
     # First check and initialize all cross targets that need to be.
     for target in targets:
@@ -647,12 +661,9 @@ def ShowConfig(name):
   """Show the toolchain tuples used by |name|
 
   Args:
-    name: The board name or brick locator to query.
+    name: The board name to query.
   """
-  if workspace_lib.IsLocator(name):
-    toolchains = toolchain.GetToolchainsForBrick(name)
-  else:
-    toolchains = toolchain.GetToolchainsForBoard(name)
+  toolchains = toolchain.GetToolchainsForBoard(name)
   # Make sure we display the default toolchain first.
   print(','.join(
       toolchain.FilterToolchains(toolchains, 'default', True).keys() +
@@ -1018,8 +1029,14 @@ def CreatePackagableRoot(target, output_dir, ldpaths, root='/'):
   # Link in all the package's files, any ELF dependencies, and wrap any
   # executable ELFs with helper scripts.
   def MoveUsrBinToBin(path):
-    """Move /usr/bin to /bin so people can just use that toplevel dir"""
-    return path[4:] if path.startswith('/usr/bin/') else path
+    """Move /usr/bin to /bin so people can just use that toplevel dir
+
+    Note we do not apply this to clang - there is correlation between clang's
+    search path for libraries / inclusion and its installation path.
+    """
+    if path.startswith('/usr/bin/') and path.find('clang') == -1:
+      return path[4:]
+    return path
   _BuildInitialPackageRoot(output_dir, paths, elfs, ldpaths,
                            path_rewrite_func=MoveUsrBinToBin, root=root)
 
@@ -1075,13 +1092,10 @@ def main(argv):
   parser.add_argument('-t', '--targets',
                       dest='targets', default='sdk',
                       help="Comma separated list of tuples. Special keywords "
-                           "'host', 'sdk', 'boards', 'bricks' and 'all' are "
+                           "'host', 'sdk', 'boards', and 'all' are "
                            "allowed. Defaults to 'sdk'.")
   parser.add_argument('--include-boards', default='', metavar='BOARDS',
                       help='Comma separated list of boards whose toolchains we '
-                           'will always include. Default: none')
-  parser.add_argument('--include-bricks', default='', metavar='BRICKS',
-                      help='Comma separated list of bricks whose toolchains we '
                            'will always include. Default: none')
   parser.add_argument('--hostonly',
                       dest='hostonly', default=False, action='store_true',
@@ -1089,7 +1103,7 @@ def main(argv):
                            'Useful for bootstrapping chroot')
   parser.add_argument('--show-board-cfg', '--show-cfg',
                       dest='cfg_name', default=None,
-                      help='Board or brick to list toolchains tuples for')
+                      help='Board  to list toolchains tuples for')
   parser.add_argument('--create-packages',
                       action='store_true', default=False,
                       help='Build redistributable packages')
@@ -1110,15 +1124,6 @@ def main(argv):
   targets_wanted = set(options.targets.split(','))
   boards_wanted = (set(options.include_boards.split(','))
                    if options.include_boards else set())
-  bricks_wanted = (set(options.include_bricks.split(','))
-                   if options.include_bricks else set())
-
-  # pylint: disable=global-statement
-  global TARGET_GO_ENABLED
-  if GetStablePackageVersion('sys-devel/crossdev', True) < '20150527':
-    # Crossdev --ex-pkg flag was added in version 20150527.
-    # Disable Go toolchain until the chroot gets a newer crossdev.
-    TARGET_GO_ENABLED = ()
 
   if options.cfg_name:
     ShowConfig(options.cfg_name)
@@ -1136,7 +1141,7 @@ def main(argv):
     root = options.sysroot or '/'
     UpdateToolchains(options.usepkg, options.deleteold, options.hostonly,
                      options.reconfig, targets_wanted, boards_wanted,
-                     bricks_wanted, root=root)
+                     root=root)
     Crossdev.Save()
 
   return 0

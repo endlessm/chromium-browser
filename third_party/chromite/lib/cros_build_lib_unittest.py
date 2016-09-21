@@ -665,17 +665,62 @@ class TestRetries(cros_test_lib.MockTempDirTestCase):
   """Tests of GenericRetry and relatives."""
 
   def testGenericRetry(self):
-    source, source2 = iter(xrange(5)).next, iter(xrange(5)).next
+    """Test basic semantics of retry and success recording."""
+    source = iter(xrange(5)).next
+
     def f():
-      val = source2()
-      self.assertEqual(val, source())
+      val = source()
       if val < 4:
         raise ValueError()
       return val
+
+    s = []
+    def sf(attempt):
+      s.append(attempt)
+
     handler = lambda ex: isinstance(ex, ValueError)
-    self.assertRaises(ValueError, retry_util.GenericRetry, handler, 3, f)
-    self.assertEqual(4, retry_util.GenericRetry(handler, 1, f))
-    self.assertRaises(StopIteration, retry_util.GenericRetry, handler, 3, f)
+
+    self.assertRaises(ValueError, retry_util.GenericRetry, handler, 3, f,
+                      success_functor=sf)
+    self.assertEqual(s, [])
+
+    self.assertEqual(4, retry_util.GenericRetry(handler, 1, f,
+                                                success_functor=sf))
+    self.assertEqual(s, [1])
+
+    self.assertRaises(StopIteration, retry_util.GenericRetry, handler, 3, f,
+                      success_functor=sf)
+    self.assertEqual(s, [1])
+
+  def testRaisedException(self):
+    """Test which exception gets raised by repeated failure."""
+
+    def getTestFunction():
+      """Get function that fails once with ValueError, Then AssertionError."""
+      source = itertools.count()
+      def f():
+        if source.next() == 0:
+          raise ValueError()
+        else:
+          raise AssertionError()
+      return f
+
+    handler = lambda ex: True
+
+    with self.assertRaises(ValueError):
+      retry_util.GenericRetry(handler, 3, getTestFunction())
+
+    with self.assertRaises(AssertionError):
+      retry_util.GenericRetry(handler, 3, getTestFunction(),
+                              raise_first_exception_on_failure=False)
+
+  def testSuccessFunctorException(self):
+    """Exceptions in |success_functor| should not be retried."""
+    def sf(_):
+      assert False
+
+    with self.assertRaises(AssertionError):
+      retry_util.GenericRetry(lambda: True, 1, lambda: None, success_functor=sf)
 
   def testRetryExceptionBadArgs(self):
     """Verify we reject non-classes or tuples of classes"""
@@ -1285,6 +1330,26 @@ class TestManifestCheckout(cros_test_lib.TempDirTestCase):
     self.assertEqual(branches, ['refs/remotes/origin/release-R23-2913.B'])
 
 
+class TestGroupByKey(cros_test_lib.TestCase):
+  """Test SplitByKey."""
+
+  def testEmpty(self):
+    self.assertEqual({}, cros_build_lib.GroupByKey([], ''))
+
+  def testGroupByKey(self):
+    input_iter = [{'a': None, 'b': 0},
+                  {'a': 1, 'b': 1},
+                  {'a': 2, 'b': 2},
+                  {'a': 1, 'b': 3}]
+    expected_result = {
+        None: [{'a': None, 'b': 0}],
+        1:    [{'a': 1, 'b': 1},
+               {'a': 1, 'b': 3}],
+        2:    [{'a': 2, 'b': 2}]}
+    self.assertEqual(cros_build_lib.GroupByKey(input_iter, 'a'),
+                     expected_result)
+
+
 class Test_iflatten_instance(cros_test_lib.TestCase):
   """Test iflatten_instance function."""
 
@@ -1767,3 +1832,54 @@ EEC571FFB6E1)
 
     self.assertRaises(KeyError, cros_build_lib.GetImageDiskPartitionInfo,
                       '_ignored', 'PB')
+
+
+class CreateTarballTests(cros_test_lib.TempDirTestCase):
+  """Test the CreateTarball function."""
+
+  def setUp(self):
+    """Create files/dirs needed for tar test."""
+    self.target = os.path.join(self.tempdir, 'test.tar.xz')
+    self.inputDir = os.path.join(self.tempdir, 'inputs')
+    self.inputs = [
+        'inputA',
+        'inputB',
+        'sub/subfile',
+        'sub2/subfile',
+    ]
+
+    self.inputsWithDirs = [
+        'inputA',
+        'inputB',
+        'sub',
+        'sub2',
+    ]
+
+
+    # Create the input files.
+    for i in self.inputs:
+      osutils.WriteFile(os.path.join(self.inputDir, i), i, makedirs=True)
+
+  def testSuccess(self):
+    """Create a tarfile."""
+    cros_build_lib.CreateTarball(self.target, self.inputDir,
+                                 inputs=self.inputs)
+
+  def testSuccessWithDirs(self):
+    """Create a tarfile."""
+    cros_build_lib.CreateTarball(self.target, self.inputDir,
+                                 inputs=self.inputsWithDirs)
+
+  def testWriting(self):
+    """Create a tarfile."""
+    with self.assertRaises(cros_build_lib.TarOfOpenFileError):
+      with open(os.path.join(self.inputDir, self.inputs[0]), 'a'):
+        cros_build_lib.CreateTarball(self.target, self.inputDir,
+                                     inputs=self.inputs)
+
+  def testWritingWithDirs(self):
+    """Create a tarfile."""
+    with self.assertRaises(cros_build_lib.TarOfOpenFileError):
+      with open(os.path.join(self.inputDir, self.inputs[3]), 'w'):
+        cros_build_lib.CreateTarball(self.target, self.inputDir,
+                                     inputs=self.inputsWithDirs)

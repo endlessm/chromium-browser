@@ -197,12 +197,16 @@ class RunCommandError(Exception):
       error: See comment about individual arguments above.
       output: See comment about individual arguments above.
     """
-    items = ['return code: %s' % (self.result.returncode,)]
+    items = [
+        'return code: %s; command: %s' % (
+            self.result.returncode, self.result.cmdstr),
+    ]
     if error and self.result.error:
       items.append(self.result.error)
     if output and self.result.output:
       items.append(self.result.output)
-    items.append(self.msg)
+    if self.msg:
+      items.append(self.msg)
     return '\n'.join(items)
 
   def __str__(self):
@@ -607,8 +611,9 @@ def RunCommand(cmd, print_cmd=True, error_message=None, redirect_stdout=False,
         logging.log(debug_level, '(stderr):\n%s', cmd_result.error)
 
     if not error_code_ok and proc.returncode:
-      msg = ('Failed command "%s", cwd=%s, extra env=%r'
-             % (CmdToStr(cmd), cwd, extra_env))
+      msg = 'cwd=%s' % cwd
+      if extra_env:
+        msg += ', extra env=%s' % extra_env
       if error_message:
         msg += '\n%s' % error_message
       raise RunCommandError(msg, cmd_result)
@@ -667,33 +672,6 @@ def GetSysrootToolPath(sysroot, tool_name):
     return os.path.join(sysroot, 'usr', 'bin', tool_name)
 
   return os.path.join(sysroot, 'build', 'bin', tool_name)
-
-
-def PrintBuildbotLink(text, url, handle=None):
-  """Prints out a link to buildbot."""
-  text = ' '.join(text.split())
-  (handle or sys.stderr).write('\n@@@STEP_LINK@%s@%s@@@\n' % (text, url))
-
-
-def PrintBuildbotStepText(text, handle=None):
-  """Prints out stage text to buildbot."""
-  text = ' '.join(text.split())
-  (handle or sys.stderr).write('\n@@@STEP_TEXT@%s@@@\n' % (text,))
-
-
-def PrintBuildbotStepWarnings(handle=None):
-  """Marks a stage as having warnings."""
-  (handle or sys.stderr).write('\n@@@STEP_WARNINGS@@@\n')
-
-
-def PrintBuildbotStepFailure(handle=None):
-  """Marks a stage as having failures."""
-  (handle or sys.stderr).write('\n@@@STEP_FAILURE@@@\n')
-
-
-def PrintBuildbotStepName(name, handle=None):
-  """Marks a step name for buildbot to display."""
-  (handle or sys.stderr).write('\n@@@BUILD_STEP %s@@@\n' % name)
 
 
 def ListFiles(base_dir):
@@ -951,6 +929,10 @@ def UncompressFile(infile, outfile):
   RunCommand(cmd, log_stdout_to_file=outfile)
 
 
+class TarOfOpenFileError(Exception):
+  """Exception raised when a file being tarred is opened for write."""
+
+
 def CreateTarball(target, cwd, sudo=False, compression=COMP_XZ, chroot=None,
                   inputs=None, extra_args=None, **kwargs):
   """Create a tarball.  Executes 'tar' on the commandline.
@@ -972,6 +954,34 @@ def CreateTarball(target, cwd, sudo=False, compression=COMP_XZ, chroot=None,
   """
   if inputs is None:
     inputs = ['.']
+
+  # TODO(dgarrett): Cleanup temp debugging for crbug.com/547055.
+  cmd = ['lsof']
+  # Copy the inputs, with the directories sorted to the beginning. lsof recurses
+  # into directories with +D, you can't use +D after a normal file name. I'm
+  # sure there is a better way to manage this.
+  cmd_files = [os.path.join(cwd, i) for i in inputs]
+  cmd_files.sort(key=os.path.isdir, reverse=True)
+
+  for f in cmd_files:
+    if os.path.isdir(f):
+      cmd.append('+D')
+    cmd.append(f)
+
+  # Build command of the form:
+  #   lsof +D sub +D sub2 file1 file2
+  result = RunCommand(
+      cmd, cwd=cwd,
+      combine_stdout_stderr=True, capture_output=True, error_code_ok=True)
+
+  # Search for any files open for write or update:
+  # cat     117977 dgarrett    1w   REG  252,1        0 1835299 sub2/subfile
+  if re.search(r'^(\S+\s+){3}\d+[uw]', result.output, re.MULTILINE):
+    raise TarOfOpenFileError(
+        'ERROR: Found open file before tar (crbug.com/547055):\n%s' %
+        result.output)
+  # End TODO.
+
   if extra_args is None:
     extra_args = []
   kwargs.setdefault('debug_level', logging.DEBUG)
@@ -982,7 +992,46 @@ def CreateTarball(target, cwd, sudo=False, compression=COMP_XZ, chroot=None,
          ['--sparse', '-I', comp, '-cf', target] +
          list(inputs))
   rc_func = SudoRunCommand if sudo else RunCommand
-  return rc_func(cmd, cwd=cwd, **kwargs)
+  try:
+    return rc_func(cmd, cwd=cwd, **kwargs)
+  except RunCommandError as e:
+    # TODO(dgarrett): Cleanup temp debugging for crbug.com/547055
+    #
+    # In the condition we are watching for, tar output contains:
+    #  tar: <filename>: file changed as we read it
+    m = re.search(
+        r'tar: (.*): file changed as we read it',
+        e.result.output + e.result.error)
+
+    if m:
+      modified_file = m.group(1)
+      print('ERROR: crbug.com/547055 lsof for file: "%s"' % modified_file)
+      RunCommand(['lsof', modified_file], cwd=cwd, mute_output=False,
+                 error_code_ok=True)
+
+    raise
+    # End TODO.
+
+
+def GroupByKey(input_iter, key):
+  """Split an iterable of dicts, based on value of a key.
+
+  GroupByKey([{'a': 1}, {'a': 2}, {'a': 1, 'b': 2}], 'a') =>
+    {1: [{'a': 1}, {'a': 1, 'b': 2}], 2: [{'a': 2}]}
+
+  Args:
+    input_iter: An iterable of dicts.
+    key: A string specifying the key name to split by.
+
+  Returns:
+    A dictionary, mapping from each unique value for |key| that
+    was encountered in |input_iter| to a list of entries that had
+    that value.
+  """
+  split_dict = dict()
+  for entry in input_iter:
+    split_dict.setdefault(entry.get(key), []).append(entry)
+  return split_dict
 
 
 def GetInput(prompt):
@@ -1500,21 +1549,50 @@ def MemoizedSingleCall(functor):
   """
   # TODO(build): Should we rebase to snakeoil.klass.cached* functionality?
   # pylint: disable=protected-access
-  def f(obj):
-    key = f._cache_key
+  @functools.wraps(functor)
+  def wrapper(obj):
+    key = wrapper._cache_key
     val = getattr(obj, key, None)
     if val is None:
       val = functor(obj)
       setattr(obj, key, val)
     return val
 
-  # Dummy up our wrapper to make it look like what we're wrapping,
-  # and expose the underlying docstrings.
-  f.__name__ = functor.__name__
-  f.__module__ = functor.__module__
-  f.__doc__ = functor.__doc__
-  f._cache_key = '_%s_cached' % (functor.__name__.lstrip('_'),)
-  return f
+  # Use name mangling to store the cached value in a (hopefully) unique place.
+  wrapper._cache_key = '_%s_cached' % (functor.__name__.lstrip('_'),)
+  return wrapper
+
+
+def Memoize(f):
+  """Decorator for memoizing a function.
+
+  Caches all calls to the function using a ._memo_cache dict mapping (args,
+  kwargs) to the results of the first function call with those args and kwargs.
+
+  If any of args or kwargs are not hashable, trying to store them in a dict will
+  cause a ValueError.
+
+  Note that this cache is per-process, so sibling and parent processes won't
+  notice updates to the cache.
+  """
+  # pylint: disable=protected-access
+  f._memo_cache = {}
+
+  @functools.wraps(f)
+  def wrapper(*args, **kwargs):
+    # Make sure that the key is hashable... as long as the contents of args and
+    # kwargs are hashable.
+    # TODO(phobbs) we could add an option to use the id(...) of an object if
+    # it's not hashable.  Then "MemoizedSingleCall" would be obsolete.
+    key = (tuple(args), tuple(sorted(kwargs.items())))
+    if key in f._memo_cache:
+      return f._memo_cache[key]
+
+    result = f(*args, **kwargs)
+    f._memo_cache[key] = result
+    return result
+
+  return wrapper
 
 
 def SafeRun(functors, combine_exceptions=False):

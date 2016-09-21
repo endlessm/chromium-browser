@@ -23,6 +23,10 @@ CHROME_BINARY_CONFIG = os.path.join(util.GetCatapultDir(), 'catapult_base',
                                     'catapult_base', 'chrome_binaries.json')
 
 
+BATTOR_BINARY_CONFIG = os.path.join(util.GetCatapultDir(), 'common', 'battor',
+                                    'battor', 'battor_binary_dependencies.json')
+
+
 NoPathFoundError = dependency_manager.NoPathFoundError
 CloudStorageError = dependency_manager.CloudStorageError
 
@@ -34,15 +38,16 @@ def NeedsInit():
   return not _binary_manager
 
 
-def InitDependencyManager(environment_config):
+def InitDependencyManager(client_configs):
   global _binary_manager
   if _binary_manager:
     raise exceptions.InitializationError(
         'Trying to re-initialize the binary manager with config %s'
-        % environment_config)
-  configs = [TELEMETRY_PROJECT_CONFIG, CHROME_BINARY_CONFIG]
-  if environment_config:
-    configs.insert(0, environment_config)
+        % client_configs)
+  configs = []
+  if client_configs:
+    configs += client_configs
+  configs += [TELEMETRY_PROJECT_CONFIG, CHROME_BINARY_CONFIG]
   _binary_manager = binary_manager.BinaryManager(configs)
 
   devil_env.config.Initialize()
@@ -68,7 +73,7 @@ def LocalPath(binary_name, arch, os_name, os_version=None):
   return _binary_manager.LocalPath(binary_name, os_name, arch, os_version)
 
 
-def FetchBinaryDepdencies(platform, client_config,
+def FetchBinaryDepdencies(platform, client_configs,
                           fetch_reference_chrome_binary):
   """ Fetch all binary dependenencies for the given |platform|.
 
@@ -78,11 +83,14 @@ def FetchBinaryDepdencies(platform, client_config,
 
   Args:
     platform: an instance of telemetry.core.platform
-    client_config: A path (string) to a dependencies json file.
+    client_configs: A list of paths (string) to dependencies json files.
     fetch_reference_chrome_binary: whether to fetch reference chrome binary for
       the given platform.
   """
-  configs = [dependency_manager.BaseConfig(TELEMETRY_PROJECT_CONFIG)]
+  configs = [
+      dependency_manager.BaseConfig(TELEMETRY_PROJECT_CONFIG),
+      dependency_manager.BaseConfig(BATTOR_BINARY_CONFIG)
+  ]
   dep_manager = dependency_manager.DependencyManager(configs)
   target_platform = '%s_%s' % (platform.GetOSName(), platform.GetArchName())
   dep_manager.PrefetchPaths(target_platform)
@@ -104,9 +112,9 @@ def FetchBinaryDepdencies(platform, client_config,
   # storage infos.
   # TODO(nednguyen): remove the logic of swallowing exception once the issue is
   # fixed on Chromium side.
-  if client_config:
+  if client_configs:
     manager = dependency_manager.DependencyManager(
-        [dependency_manager.BaseConfig(client_config)])
+        list(dependency_manager.BaseConfig(c) for c in client_configs))
     try:
       manager.PrefetchPaths(target_platform)
     except Exception:

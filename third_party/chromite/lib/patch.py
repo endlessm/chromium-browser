@@ -13,11 +13,15 @@ import random
 import re
 import time
 
+from chromite.cbuildbot import config_lib
 from chromite.cbuildbot import constants
 from chromite.lib import cros_build_lib
 from chromite.lib import cros_logging as logging
 from chromite.lib import git
 from chromite.lib import gob_util
+
+
+site_config = config_lib.GetConfig()
 
 
 # We import mock so that we can identify mock.MagicMock instances in tests
@@ -28,7 +32,7 @@ except ImportError:
   mock = None
 
 
-_MAXIMUM_GERRIT_NUMBER_LENGTH = 6
+_MAXIMUM_GERRIT_NUMBER_LENGTH = 7
 _GERRIT_CHANGE_ID_PREFIX = 'I'
 _GERRIT_CHANGE_ID_LENGTH = 40
 _GERRIT_CHANGE_ID_TOTAL_LENGTH = (_GERRIT_CHANGE_ID_LENGTH +
@@ -36,6 +40,38 @@ _GERRIT_CHANGE_ID_TOTAL_LENGTH = (_GERRIT_CHANGE_ID_LENGTH +
 REPO_NAME_RE = re.compile(r'^[a-zA-Z_][a-zA-Z0-9_\-]*(/[a-zA-Z0-9_-]+)*$')
 BRANCH_NAME_RE = re.compile(r'^(refs/heads/)?[a-zA-Z0-9_][a-zA-Z0-9_\-]*$')
 
+# Constants for attributes names.
+ATTR_REMOTE = 'remote'
+ATTR_GERRIT_NUMBER = 'gerrit_number'
+ATTR_PROJECT = 'project'
+ATTR_BRANCH = 'branch'
+ATTR_PROJECT_URL = 'project_url'
+ATTR_REF = 'ref'
+ATTR_CHANGE_ID = 'change_id'
+ATTR_COMMIT = 'commit'
+ATTR_PATCH_NUMBER = 'patch_number'
+ATTR_OWNER_EMAIL = 'owner_email'
+ATTR_FAIL_COUNT = 'fail_count'
+ATTR_PASS_COUNT = 'pass_count'
+ATTR_TOTAL_FAIL_COUNT = 'total_fail_count'
+ATTR_COMMIT_MESSAGE = 'commit_message'
+
+ALL_ATTRS = (
+    ATTR_REMOTE,
+    ATTR_GERRIT_NUMBER,
+    ATTR_PROJECT,
+    ATTR_BRANCH,
+    ATTR_PROJECT_URL,
+    ATTR_REF,
+    ATTR_CHANGE_ID,
+    ATTR_COMMIT,
+    ATTR_PATCH_NUMBER,
+    ATTR_OWNER_EMAIL,
+    ATTR_FAIL_COUNT,
+    ATTR_PASS_COUNT,
+    ATTR_TOTAL_FAIL_COUNT,
+    ATTR_COMMIT_MESSAGE,
+)
 
 def ParseSHA1(text, error_ok=True):
   """Checks if |text| conforms to the SHA1 format and parses it.
@@ -394,11 +430,11 @@ def StripPrefix(text):
   Returns:
     A tuple of the corresponding remote and the stripped text.
   """
-  remote = constants.EXTERNAL_REMOTE
-  prefix = constants.INTERNAL_CHANGE_PREFIX
+  remote = site_config.params.EXTERNAL_REMOTE
+  prefix = site_config.params.INTERNAL_CHANGE_PREFIX
   if text.startswith(prefix):
     text = text[len(prefix):]
-    remote = constants.INTERNAL_REMOTE
+    remote = site_config.params.INTERNAL_REMOTE
 
   return remote, text
 
@@ -415,7 +451,7 @@ def AddPrefix(patch, text):
   Returns:
     |text| with an added prefix for internal patches; otherwise, returns text.
   """
-  return '%s%s' % (constants.CHANGE_PREFIX[patch.remote], text)
+  return '%s%s' % (site_config.params.CHANGE_PREFIX[patch.remote], text)
 
 
 def ParsePatchDep(text, no_change_id=False, no_sha1=False,
@@ -602,7 +638,8 @@ class PatchQuery(object):
     elif self.sha1:
       # We assume sha1 is unique, but in rare cases (e.g. two branches with
       # the same history) it is not. We don't handle that.
-      self.id = '%s%s' % (constants.CHANGE_PREFIX[self.remote], self.sha1)
+      self.id = '%s%s' % (site_config.params.CHANGE_PREFIX[self.remote],
+                          self.sha1)
 
   def LookupAliases(self):
     """Returns the list of lookup keys to query a PatchCache.
@@ -625,7 +662,7 @@ class PatchQuery(object):
     if self.sha1:
       l.append(self.sha1)
 
-    return ['%s%s' % (constants.CHANGE_PREFIX[self.remote], x)
+    return ['%s%s' % (site_config.params.CHANGE_PREFIX[self.remote], x)
             for x in l if x is not None]
 
   def ToGerritQueryText(self):
@@ -711,6 +748,12 @@ class GitRepoPatch(PatchQuery):
                                        tracking_branch=tracking_branch,
                                        change_id=change_id,
                                        sha1=sha1, gerrit_number=None)
+
+    # git_remote_url is the url of the remote git repo that this patch
+    # belongs to. Differs from project_url as that may point to a local
+    # repo or a gerrit review repo.
+    self.git_remote_url = '%s/%s' % (
+        site_config.params.GIT_REMOTES.get(remote), project)
     self.project_url = project_url
     self.commit_message = None
     self._subject_line = None
@@ -731,7 +774,7 @@ class GitRepoPatch(PatchQuery):
   @property
   def internal(self):
     """Whether patch is to an internal cros project."""
-    return self.remote == constants.INTERNAL_REMOTE
+    return self.remote == site_config.params.INTERNAL_REMOTE
 
   def _GetFooters(self, msg):
     """Get the Git footers of the specified commit message.
@@ -923,9 +966,7 @@ class GitRepoPatch(PatchQuery):
 
   def _AmendCommitMessage(self, git_repo):
     """"Amend the commit and update our sha1 with the new commit."""
-    git.RunGit(git_repo, ['commit', '--amend', '-m', self.commit_message],
-               extra_env={'GIT_COMMITTER_NAME': self._committer_name or '',
-                          'GIT_COMMITTER_EMAIL': self._committer_email or ''})
+    git.RunGit(git_repo, ['commit', '--amend', '-m', self.commit_message])
     self.sha1 = ParseSHA1(self._PullData('HEAD', git_repo)[0], error_ok=False)
 
   def CherryPick(self, git_repo, trivial=False, inflight=False,
@@ -950,7 +991,7 @@ class GitRepoPatch(PatchQuery):
 
     reset_target = None if leave_dirty else 'HEAD'
     try:
-      git.RunGit(git_repo, cmd)
+      git.RunGit(git_repo, cmd, capture_output=False)
       self._AmendCommitMessage(git_repo)
       reset_target = None
       return
@@ -983,7 +1024,12 @@ class GitRepoPatch(PatchQuery):
 
       # ret=2 handling, this deals w/ trivial conflicts; including figuring
       # out if it was trivial induced or not.
-      assert trivial
+      if not trivial:
+        logging.error('The git tree may be corrupted.')
+        logging.error('If the git error is "unable to read tree", '
+                      'please clean up this repo.')
+        raise
+
       # Here's the kicker; trivial conflicts can mask content conflicts.
       # We would rather state if it's a content conflict since in solving the
       # content conflict, the trivial conflict is solved.  Thus this
@@ -1249,7 +1295,8 @@ class GitRepoPatch(PatchQuery):
     """Returns custom string to identify this patch."""
     s = '%s:%s' % (self.project, self.ref)
     if self.sha1 is not None:
-      s = '%s:%s%s' % (s, constants.CHANGE_PREFIX[self.remote], self.sha1[:8])
+      s = '%s:%s%s' % (s, site_config.params.CHANGE_PREFIX[self.remote],
+                       self.sha1[:8])
     # TODO(ferringb,build): This gets a bit long in output; should likely
     # do some form of truncation to it.
     if self._subject_line:
@@ -1454,7 +1501,8 @@ class GerritFetchOnlyPatch(GitRepoPatch):
 
   def __init__(self, project_url, project, ref, tracking_branch, remote,
                sha1, change_id, gerrit_number, patch_number, owner_email=None,
-               fail_count=None, pass_count=None, total_fail_count=None):
+               fail_count=0, pass_count=0, total_fail_count=0,
+               commit_message=None):
     """Initializes a GerritFetchOnlyPatch object."""
     super(GerritFetchOnlyPatch, self).__init__(
         project_url, project, ref, tracking_branch, remote,
@@ -1471,10 +1519,39 @@ class GerritFetchOnlyPatch(GitRepoPatch):
       self.owner = self.owner_email.split('@', 1)[0]
 
     self.url = gob_util.GetChangePageUrl(
-        constants.GERRIT_HOSTS[self.remote], int(self.gerrit_number))
+        site_config.params.GERRIT_HOSTS[self.remote], int(self.gerrit_number))
     self.fail_count = fail_count
     self.pass_count = pass_count
     self.total_fail_count = total_fail_count
+    # commit_message is herited from GitRepoPatch, only override it when passed
+    # in value is not None.
+    if commit_message:
+      self.commit_message = commit_message
+
+  @classmethod
+  def FromAttrDict(cls, attr_dict):
+    """Get a GerritFetchOnlyPatch instance from a dict.
+
+    Args:
+      attr_dict: A dictionary with the keys given in ALL_ATTRS.
+    """
+    return GerritFetchOnlyPatch(attr_dict[ATTR_PROJECT_URL],
+                                attr_dict[ATTR_PROJECT],
+                                attr_dict[ATTR_REF],
+                                attr_dict[ATTR_BRANCH],
+                                attr_dict[ATTR_REMOTE],
+                                attr_dict[ATTR_COMMIT],
+                                attr_dict[ATTR_CHANGE_ID],
+                                attr_dict[ATTR_GERRIT_NUMBER],
+                                attr_dict[ATTR_PATCH_NUMBER],
+                                owner_email=attr_dict[ATTR_OWNER_EMAIL],
+                                fail_count=int(attr_dict[ATTR_FAIL_COUNT]),
+                                pass_count=int(attr_dict[ATTR_PASS_COUNT]),
+                                total_fail_count=int(
+                                    attr_dict[ATTR_TOTAL_FAIL_COUNT]),
+                                commit_message=attr_dict.get(
+                                    ATTR_COMMIT_MESSAGE))
+
 
   def _EnsureId(self, commit_message):
     """Ensure we have a usable Change-Id
@@ -1509,6 +1586,30 @@ class GerritFetchOnlyPatch(GitRepoPatch):
           'Change-Id into the commit message to resolve this.',
           self, self.change_id, self.sha1)
 
+  def GetAttributeDict(self):
+    """Get a dictionary of attribute used for manifest.
+
+    Returns:
+      A dictionary with the keys given in ALL_ATTRS.
+    """
+    attr_dict = {
+        ATTR_REMOTE: self.remote,
+        ATTR_GERRIT_NUMBER: self.gerrit_number,
+        ATTR_PROJECT: self.project,
+        ATTR_PROJECT_URL: self.project_url,
+        ATTR_REF: self.ref,
+        ATTR_BRANCH: self.tracking_branch,
+        ATTR_CHANGE_ID: self.change_id,
+        ATTR_COMMIT: self.commit,
+        ATTR_PATCH_NUMBER: self.patch_number,
+        ATTR_OWNER_EMAIL: self.owner_email,
+        ATTR_FAIL_COUNT: str(self.fail_count),
+        ATTR_PASS_COUNT: str(self.pass_count),
+        ATTR_TOTAL_FAIL_COUNT: str(self.total_fail_count),
+        ATTR_COMMIT_MESSAGE: self.commit_message,
+    }
+
+    return attr_dict
 
 class GerritPatch(GerritFetchOnlyPatch):
   """Object that represents a Gerrit CL."""
@@ -1543,7 +1644,7 @@ class GerritPatch(GerritFetchOnlyPatch):
         current_patch_set.get('number'),
         owner_email=patch_dict['owner']['email'])
 
-    prefix_str = constants.CHANGE_PREFIX[self.remote]
+    prefix_str = site_config.params.CHANGE_PREFIX[self.remote]
     self.gerrit_number_str = '%s%s' % (prefix_str, self.gerrit_number)
     self.url = patch_dict['url']
     # status - Current state of this change.  Can be one of
@@ -1783,7 +1884,7 @@ class GerritPatch(GerritFetchOnlyPatch):
     # goto/createCherryPickCommitMessage
     old_footers = self._GetFooters(msg)
 
-    gerrit_host = constants.GERRIT_HOSTS[self.remote]
+    gerrit_host = site_config.params.GERRIT_HOSTS[self.remote]
     reviewed_on = 'https://%s/%s' % (gerrit_host, self.gerrit_number)
     if ('Reviewed-on', reviewed_on) not in old_footers:
       msg += 'Reviewed-on: %s\n' % reviewed_on
@@ -1799,7 +1900,8 @@ class GerritPatch(GerritFetchOnlyPatch):
     """Returns custom string to identify this patch."""
     s = '%s:%s' % (self.owner, self.gerrit_number_str)
     if self.sha1 is not None:
-      s = '%s:%s%s' % (s, constants.CHANGE_PREFIX[self.remote], self.sha1[:8])
+      s = '%s:%s%s' % (s, site_config.params.CHANGE_PREFIX[self.remote],
+                       self.sha1[:8])
     if self._subject_line:
       s += ':"%s"' % (self._subject_line,)
     return s
@@ -1941,11 +2043,11 @@ def PrepareRemotePatches(patches):
     if tag not in constants.PATCH_TAGS:
       raise ValueError('Bad remote patch format.  Unknown tag %s' % tag)
 
-    remote = constants.EXTERNAL_REMOTE
+    remote = site_config.params.EXTERNAL_REMOTE
     if tag == constants.INTERNAL_PATCH_TAG:
-      remote = constants.INTERNAL_REMOTE
+      remote = site_config.params.INTERNAL_REMOTE
 
-    push_url = constants.GIT_REMOTES[remote]
+    push_url = site_config.params.GIT_REMOTES[remote]
     patch_info.append(UploadedLocalPatch(os.path.join(push_url, project),
                                          project, ref, tracking_branch,
                                          original_branch,

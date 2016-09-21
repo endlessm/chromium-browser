@@ -35,10 +35,6 @@ def make_test_io_interface(permitted_files):
     def haveWritePermissions(path):
       return path in permitted_files
 
-    @staticmethod
-    def checkAndWriteFile(path, data):
-      permitted_files[path] = data
-
   return TestIoImpl
 
 
@@ -82,7 +78,7 @@ class FtraceAgentTest(unittest.TestCase):
     self.assertEqual(['workq'], agent._avail_categories())
 
     # confirm tracing is enabled, buffer is cleared
-    agent.StartAgentTracing(options, categories, 10)
+    agent.StartAgentTracing(options, categories)
     self.assertEqual(permitted_files[FT_TRACE_ON], "1")
     self.assertEqual(permitted_files[FT_TRACE], "")
 
@@ -91,12 +87,12 @@ class FtraceAgentTest(unittest.TestCase):
     permitted_files[FT_TRACE] = dummy_trace
 
     # confirm tracing is disabled
-    agent.StopAgentTracing(10)
-    agent.GetResults(30)
+    agent.StopAgentTracing()
+    agent.GetResults()
     self.assertEqual(permitted_files[FT_TRACE_ON], "0")
 
     # confirm trace is expected, and read from fs
-    self.assertEqual(agent.GetResults(30).raw_data, dummy_trace)
+    self.assertEqual(agent.GetResults().raw_data, dummy_trace)
 
     # confirm buffer size is reset to 1
     self.assertEqual(permitted_files[FT_BUFFER_SIZE], "1")
@@ -116,23 +112,15 @@ class FtraceAgentTest(unittest.TestCase):
     self.assertEqual(['irq'], agent._avail_categories())
 
     # confirm all the event nodes are turned on during tracing
-    agent.StartAgentTracing(options, categories, 10)
+    agent.StartAgentTracing(options, categories)
     self.assertEqual(permitted_files[irq_event_path], "1")
     self.assertEqual(permitted_files[ipi_event_path], "1")
 
     # and then turned off when completed.
-    agent.StopAgentTracing(10)
-    agent.GetResults(30)
+    agent.StopAgentTracing()
+    agent.GetResults()
     self.assertEqual(permitted_files[irq_event_path], "0")
     self.assertEqual(permitted_files[ipi_event_path], "0")
-
-  def test_trace_time(self):
-    systrace_cmd = SYSTRACE_HOST_CMD_DEFAULT + ['-t', '10']
-    options, categories = run_systrace.parse_options(systrace_cmd)
-    agent = ftrace_agent.FtraceAgent()
-    agent._options = options
-    agent._categories = categories
-    self.assertEqual(agent._get_trace_time(), 10)
 
   def test_buffer_size(self):
     systrace_cmd = SYSTRACE_HOST_CMD_DEFAULT + ['-b', '16000']

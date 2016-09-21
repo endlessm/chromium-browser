@@ -27,9 +27,13 @@ class IA32OperandGenerator final : public OperandGenerator {
     return DefineAsRegister(node);
   }
 
-  bool CanBeMemoryOperand(InstructionCode opcode, Node* node, Node* input) {
+  bool CanBeMemoryOperand(InstructionCode opcode, Node* node, Node* input,
+                          int effect_level) {
     if (input->opcode() != IrOpcode::kLoad ||
         !selector()->CanCover(node, input)) {
+      return false;
+    }
+    if (effect_level != selector()->GetEffectLevel(input)) {
       return false;
     }
     MachineRepresentation rep =
@@ -56,13 +60,20 @@ class IA32OperandGenerator final : public OperandGenerator {
       case IrOpcode::kInt32Constant:
       case IrOpcode::kNumberConstant:
       case IrOpcode::kExternalConstant:
+      case IrOpcode::kRelocatableInt32Constant:
+      case IrOpcode::kRelocatableInt64Constant:
         return true;
       case IrOpcode::kHeapConstant: {
+// TODO(bmeurer): We must not dereference handles concurrently. If we
+// really have to this here, then we need to find a way to put this
+// information on the HeapConstant node already.
+#if 0
         // Constants in new space cannot be used as immediates in V8 because
         // the GC does not scan code objects when collecting the new generation.
         Handle<HeapObject> value = OpParameter<Handle<HeapObject>>(node);
         Isolate* isolate = value->GetIsolate();
         return !isolate->heap()->InNewSpace(*value);
+#endif
       }
       default:
         return false;
@@ -870,15 +881,12 @@ void InstructionSelector::VisitTruncateFloat64ToFloat32(Node* node) {
   VisitRO(this, node, kSSEFloat64ToFloat32);
 }
 
+void InstructionSelector::VisitTruncateFloat64ToWord32(Node* node) {
+  VisitRR(this, node, kArchTruncateDoubleToI);
+}
 
-void InstructionSelector::VisitTruncateFloat64ToInt32(Node* node) {
-  switch (TruncationModeOf(node->op())) {
-    case TruncationMode::kJavaScript:
-      return VisitRR(this, node, kArchTruncateDoubleToI);
-    case TruncationMode::kRoundToZero:
-      return VisitRO(this, node, kSSEFloat64ToInt32);
-  }
-  UNREACHABLE();
+void InstructionSelector::VisitRoundFloat64ToInt32(Node* node) {
+  VisitRO(this, node, kSSEFloat64ToInt32);
 }
 
 
@@ -915,6 +923,9 @@ void InstructionSelector::VisitFloat32Sub(Node* node) {
   VisitRROFloat(this, node, kAVXFloat32Sub, kSSEFloat32Sub);
 }
 
+void InstructionSelector::VisitFloat32SubPreserveNan(Node* node) {
+  VisitRROFloat(this, node, kAVXFloat32Sub, kSSEFloat32Sub);
+}
 
 void InstructionSelector::VisitFloat64Sub(Node* node) {
   IA32OperandGenerator g(this);
@@ -939,6 +950,9 @@ void InstructionSelector::VisitFloat64Sub(Node* node) {
   VisitRROFloat(this, node, kAVXFloat64Sub, kSSEFloat64Sub);
 }
 
+void InstructionSelector::VisitFloat64SubPreserveNan(Node* node) {
+  VisitRROFloat(this, node, kAVXFloat64Sub, kSSEFloat64Sub);
+}
 
 void InstructionSelector::VisitFloat32Mul(Node* node) {
   VisitRROFloat(this, node, kAVXFloat32Mul, kSSEFloat32Mul);
@@ -1225,18 +1239,24 @@ void VisitWordCompare(InstructionSelector* selector, Node* node,
 
   InstructionCode narrowed_opcode = TryNarrowOpcodeSize(opcode, left, right);
 
+  int effect_level = selector->GetEffectLevel(node);
+  if (cont->IsBranch()) {
+    effect_level = selector->GetEffectLevel(
+        cont->true_block()->PredecessorAt(0)->control_input());
+  }
+
   // If one of the two inputs is an immediate, make sure it's on the right, or
   // if one of the two inputs is a memory operand, make sure it's on the left.
   if ((!g.CanBeImmediate(right) && g.CanBeImmediate(left)) ||
-      (g.CanBeMemoryOperand(narrowed_opcode, node, right) &&
-       !g.CanBeMemoryOperand(narrowed_opcode, node, left))) {
+      (g.CanBeMemoryOperand(narrowed_opcode, node, right, effect_level) &&
+       !g.CanBeMemoryOperand(narrowed_opcode, node, left, effect_level))) {
     if (!node->op()->HasProperty(Operator::kCommutative)) cont->Commute();
     std::swap(left, right);
   }
 
   // Match immediates on right side of comparison.
   if (g.CanBeImmediate(right)) {
-    if (g.CanBeMemoryOperand(opcode, node, left)) {
+    if (g.CanBeMemoryOperand(opcode, node, left, effect_level)) {
       // TODO(epertoso): we should use `narrowed_opcode' here once we match
       // immediates too.
       return VisitCompareWithMemoryOperand(selector, opcode, left,
@@ -1247,7 +1267,7 @@ void VisitWordCompare(InstructionSelector* selector, Node* node,
   }
 
   // Match memory operands on left side of comparison.
-  if (g.CanBeMemoryOperand(narrowed_opcode, node, left)) {
+  if (g.CanBeMemoryOperand(narrowed_opcode, node, left, effect_level)) {
     bool needs_byte_register =
         narrowed_opcode == kIA32Test8 || narrowed_opcode == kIA32Cmp8;
     return VisitCompareWithMemoryOperand(
@@ -1563,6 +1583,52 @@ void InstructionSelector::VisitFloat64InsertHighWord32(Node* node) {
        g.UseRegister(left), g.Use(right));
 }
 
+void InstructionSelector::VisitAtomicLoad(Node* node) {
+  LoadRepresentation load_rep = LoadRepresentationOf(node->op());
+  DCHECK(load_rep.representation() == MachineRepresentation::kWord8 ||
+         load_rep.representation() == MachineRepresentation::kWord16 ||
+         load_rep.representation() == MachineRepresentation::kWord32);
+  USE(load_rep);
+  VisitLoad(node);
+}
+
+void InstructionSelector::VisitAtomicStore(Node* node) {
+  IA32OperandGenerator g(this);
+  Node* base = node->InputAt(0);
+  Node* index = node->InputAt(1);
+  Node* value = node->InputAt(2);
+
+  MachineRepresentation rep = AtomicStoreRepresentationOf(node->op());
+  ArchOpcode opcode = kArchNop;
+  switch (rep) {
+    case MachineRepresentation::kWord8:
+      opcode = kIA32Xchgb;
+      break;
+    case MachineRepresentation::kWord16:
+      opcode = kIA32Xchgw;
+      break;
+    case MachineRepresentation::kWord32:
+      opcode = kIA32Xchgl;
+      break;
+    default:
+      UNREACHABLE();
+      break;
+  }
+  AddressingMode addressing_mode;
+  InstructionOperand inputs[4];
+  size_t input_count = 0;
+  inputs[input_count++] = g.UseUniqueRegister(base);
+  if (g.CanBeImmediate(index)) {
+    inputs[input_count++] = g.UseImmediate(index);
+    addressing_mode = kMode_MRI;
+  } else {
+    inputs[input_count++] = g.UseUniqueRegister(index);
+    addressing_mode = kMode_MR1;
+  }
+  inputs[input_count++] = g.UseUniqueRegister(value);
+  InstructionCode code = opcode | AddressingModeField::encode(addressing_mode);
+  Emit(code, 0, nullptr, input_count, inputs);
+}
 
 // static
 MachineOperatorBuilder::Flags

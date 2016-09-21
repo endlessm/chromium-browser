@@ -7,27 +7,38 @@
 
 from __future__ import print_function
 
+import datetime
 import os
 import sys
+import StringIO
 
+from chromite.cbuildbot import cbuildbot_run
 from chromite.cbuildbot import commands
+from chromite.cbuildbot import config_lib
 from chromite.cbuildbot import constants
 from chromite.cbuildbot import failures_lib
 from chromite.cbuildbot import metadata_lib
 from chromite.cbuildbot import results_lib
 from chromite.cbuildbot import tree_status
+from chromite.cbuildbot import triage_lib
+from chromite.cbuildbot import validation_pool
 from chromite.cbuildbot.stages import completion_stages
 from chromite.cbuildbot.stages import generic_stages
-from chromite.cbuildbot.stages import sync_stages
+from chromite.lib import build_time_stats
 from chromite.lib import cidb
 from chromite.lib import cros_build_lib
 from chromite.lib import cros_logging as logging
 from chromite.lib import graphite
+from chromite.lib import git
 from chromite.lib import gs
 from chromite.lib import osutils
+from chromite.lib import patch as cros_patch
 from chromite.lib import portage_util
 from chromite.lib import retry_stats
 from chromite.lib import toolchain
+
+
+site_config = config_lib.GetConfig()
 
 
 def WriteBasicMetadata(builder_run):
@@ -39,7 +50,7 @@ def WriteBasicMetadata(builder_run):
 
   In particular, this method does not write any metadata values that depend
   on the builder config, as the config may be modified by patches that are
-  applied before the final reexectuion.
+  applied before the final reexectuion. (exception: the config's name itself)
 
   This method is safe to run more than once (for instance, once per cbuildbot
   execution) because it will write the same data each time.
@@ -111,9 +122,7 @@ class BuildStartStage(generic_stages.BuilderStage):
     """
     timeout_seconds = self._run.options.timeout
     if self._run.config.master:
-      master_timeout = constants.MASTER_BUILD_TIMEOUT_SECONDS.get(
-          self._run.config.build_type,
-          constants.MASTER_BUILD_TIMEOUT_DEFAULT_SECONDS)
+      master_timeout = self._run.config.build_timeout
       if timeout_seconds > 0:
         master_timeout = min(master_timeout, timeout_seconds)
       return master_timeout
@@ -123,10 +132,19 @@ class BuildStartStage(generic_stages.BuilderStage):
   @failures_lib.SetFailureType(failures_lib.InfrastructureFailure)
   def PerformStage(self):
     if self._run.config['doc']:
-      cros_build_lib.PrintBuildbotLink('Builder documentation',
-                                       self._run.config['doc'])
+      logging.PrintBuildbotLink('Builder documentation',
+                                self._run.config['doc'])
 
     WriteBasicMetadata(self._run)
+
+    # This is a heuristic value for |important|, since patches that get applied
+    # later in the build might change the config. We write it now anyway,
+    # because in case the build fails before Sync, it is better to have this
+    # heuristic value than None. In BuildReexectuionFinishedStage, we re-write
+    # the definitive value.
+    self._run.attrs.metadata.UpdateWithDict(
+        {'important': self._run.config['important']})
+
     d = self._run.attrs.metadata.GetDict()
 
     # BuildStartStage should only run once per build. But just in case it
@@ -157,21 +175,26 @@ class BuildStartStage(generic_stages.BuilderStage):
             build_config=d['bot-config'],
             bot_hostname=d['bot-hostname'],
             master_build_id=d['master_build_id'],
-            timeout_seconds=self._GetBuildTimeoutSeconds())
+            timeout_seconds=self._GetBuildTimeoutSeconds(),
+            important=d['important'])
         self._run.attrs.metadata.UpdateWithDict({'build_id': build_id,
                                                  'db_type': db_type})
         logging.info('Inserted build_id %s into cidb database type %s.',
                      build_id, db_type)
+        logging.PrintBuildbotStepText('database: %s, build_id: %s' %
+                                      (db_type, build_id))
 
         master_build_id = d['master_build_id']
         if master_build_id is not None:
           master_build_status = db.GetBuildStatus(master_build_id)
+          master_waterfall_url = constants.WATERFALL_TO_DASHBOARD[
+              master_build_status['waterfall']]
+
           master_url = tree_status.ConstructDashboardURL(
-              master_build_status['waterfall'],
+              master_waterfall_url,
               master_build_status['builder_name'],
               master_build_status['build_number'])
-          cros_build_lib.PrintBuildbotLink('Link to master build',
-                                           master_url)
+          logging.PrintBuildbotLink('Link to master build', master_url)
 
   def HandleSkip(self):
     """Ensure that re-executions use the same db instance as initial db."""
@@ -188,6 +211,51 @@ class BuildStartStage(generic_stages.BuilderStage):
         cidb.CIDBConnectionFactory.InvalidateCIDBSetup()
         raise AssertionError('Invalid attempt to switch from database %s to '
                              '%s.' % (metadata_dict['db_type'], db_type))
+
+
+class SlaveFailureSummaryStage(generic_stages.BuilderStage):
+  """Stage which summarizes and links to the failures of slave builds."""
+
+  @failures_lib.SetFailureType(failures_lib.InfrastructureFailure)
+  def PerformStage(self):
+    if not self._run.config.master:
+      logging.info('This stage is only meaningful for master builds. '
+                   'Doing nothing.')
+      return
+
+    build_id, db = self._run.GetCIDBHandle()
+
+    if not db:
+      logging.info('No cidb connection for this build. '
+                   'Doing nothing.')
+      return
+
+    slave_failures = db.GetSlaveFailures(build_id)
+    failures_by_build = cros_build_lib.GroupByKey(slave_failures, 'build_id')
+    for build_id, build_failures in sorted(failures_by_build.items()):
+      failures_by_stage = cros_build_lib.GroupByKey(build_failures,
+                                                    'build_stage_id')
+      # Surface a link to each slave stage that failed, in stage_id sorted
+      # order.
+      for stage_id in sorted(failures_by_stage):
+        failure = failures_by_stage[stage_id][0]
+        # Ignore failures that did not cause their enclosing stage to fail.
+        # Ignore slave builds that are still inflight, because some stage logs
+        # might not have been printed to buildbot yet.
+        # TODO(akeshet) revisit this approach, if we seem to be suppressing
+        # useful information as a result of it.
+        if (failure['stage_status'] != constants.BUILDER_STATUS_FAILED or
+            failure['build_status'] == constants.BUILDER_STATUS_INFLIGHT):
+          continue
+        waterfall_url = constants.WATERFALL_TO_DASHBOARD[failure['waterfall']]
+        slave_stage_url = tree_status.ConstructDashboardURL(
+            waterfall_url,
+            failure['builder_name'],
+            failure['build_number'],
+            failure['stage_name'])
+        logging.PrintBuildbotLink('%s %s' % (failure['build_config'],
+                                             failure['stage_name']),
+                                  slave_stage_url)
 
 
 class BuildReexecutionFinishedStage(generic_stages.BuilderStage,
@@ -207,10 +275,36 @@ class BuildReexecutionFinishedStage(generic_stages.BuilderStage,
   written at this time rather than in ReportStage.
   """
 
+  def _AbortPreviousHWTestSuites(self):
+    """Abort any outstanding synchronous hwtest suites from this builder."""
+    # Only try to clean up previous HWTests if this is really running on one of
+    # our builders in a non-trybot build.
+    debug = (self._run.options.remote_trybot or
+             (not self._run.options.buildbot) or
+             self._run.options.debug)
+    build_id, db = self._run.GetCIDBHandle()
+    if db:
+      builds = db.GetBuildHistory(self._run.config.name, 2,
+                                  ignore_build_id=build_id)
+      for build in builds:
+        old_version = build['full_version']
+        if old_version is None:
+          continue
+        for suite_config in self._run.config.hw_tests:
+          if not suite_config.async:
+            commands.AbortHWTests(self._run.config.name, old_version,
+                                  debug, suite_config.suite)
+
   @failures_lib.SetFailureType(failures_lib.InfrastructureFailure)
   def PerformStage(self):
     config = self._run.config
     build_root = self._build_root
+
+    logging.info('Build re-executions have finished. Chromite source '
+                 'will not be modified for remainder of run.')
+    logging.info("config['important']=%s", config['important'])
+    logging.PrintBuildbotStepText(
+        "config['important']=%s" % config['important'])
 
     # Flat list of all child config boards. Since child configs
     # are not allowed to have children, it is not necessary to search
@@ -239,6 +333,7 @@ class BuildReexecutionFinishedStage(generic_stages.BuilderStage,
         'boards': config['boards'],
         'child-configs': child_configs,
         'build_type': config['build_type'],
+        'important': config['important'],
 
         # Data for the toolchain used.
         'sdk-version': sdk_verinfo.get('SDK_LATEST_VERSION', '<unknown>'),
@@ -298,6 +393,25 @@ class BuildReexecutionFinishedStage(generic_stages.BuilderStage,
               'Master build id %s has full_version %s, while slave version is '
               '%s.' % (master_id, master_full_version, my_full_version))
 
+    # Abort previous hw test suites. This happens after reexecution as it
+    # requires chromite/third_party/swarming.client, which is not available
+    # untill after reexecution.
+    self._AbortPreviousHWTestSuites()
+
+
+class ConfigDumpStage(generic_stages.BuilderStage):
+  """Stage that dumps the current build config to the build log.
+
+  This stage runs immediately after BuildReexecutionFinishedStage, at which
+  point the build is finalized.
+  """
+
+  @failures_lib.SetFailureType(failures_lib.InfrastructureFailure)
+  def PerformStage(self):
+    """Dump the running config to info logs."""
+    config = self._run.config
+    logging.info('The current build config is dumped below:\n%s',
+                 config_lib.PrettyJsonDict(config))
 
 
 class ReportStage(generic_stages.BuilderStage,
@@ -311,14 +425,16 @@ class ReportStage(generic_stages.BuilderStage,
 <body>
 <h2>Artifacts Index: %(board)s / %(version)s (%(config)s config)</h2>"""
 
-  def __init__(self, builder_run, sync_instance, completion_instance, **kwargs):
+  _STATS_HISTORY_DAYS = 7
+
+  def __init__(self, builder_run, completion_instance, **kwargs):
     super(ReportStage, self).__init__(builder_run, **kwargs)
 
     # TODO(mtennant): All these should be retrieved from builder_run instead.
     # Or, more correctly, the info currently retrieved from these stages should
     # be stored and retrieved from builder_run instead.
-    self._sync_instance = sync_instance
     self._completion_instance = completion_instance
+    self._post_completion = False
 
   def _UpdateRunStreak(self, builder_run, final_status):
     """Update the streak counter for this builder, if applicable, and notify.
@@ -330,7 +446,7 @@ class ReportStage(generic_stages.BuilderStage,
       builder_run: BuilderRun for this run.
       final_status: Final status string for this run.
     """
-    if builder_run.InProduction():
+    if builder_run.InEmailReportingEnvironment():
       streak_value = self._UpdateStreakCounter(
           final_status=final_status, counter_name=builder_run.config.name,
           dry_run=self._run.debug)
@@ -370,7 +486,7 @@ class ReportStage(generic_stages.BuilderStage,
       The new value of the streak counter.
     """
     gs_ctx = gs.GSContext(dry_run=dry_run)
-    counter_url = os.path.join(constants.MANIFEST_VERSIONS_GS_URL,
+    counter_url = os.path.join(site_config.params.MANIFEST_VERSIONS_GS_URL,
                                constants.STREAK_COUNTERS,
                                counter_name)
     gs_counter = gs.GSCounter(gs_ctx, counter_url)
@@ -393,7 +509,7 @@ class ReportStage(generic_stages.BuilderStage,
         self._run.config.overlays,
         self._run.config.name,
         self._run.ConstructDashboardURL())
-    pre_cq = self._run.config.pre_cq or self._run.options.pre_cq
+    pre_cq = self._run.config.pre_cq
     if pre_cq and msg.HasFailureType(failures_lib.InfrastructureFailure):
       name = self._run.config.name
       title = 'pre-cq infra failures'
@@ -402,18 +518,6 @@ class ReportStage(generic_stages.BuilderStage,
       extra_fields = {'X-cbuildbot-alert': 'pre-cq-infra-alert'}
       tree_status.SendHealthAlert(self._run, title, '\n\n'.join(body),
                                   extra_fields=extra_fields)
-
-  def _UploadMetadataForRun(self, final_status):
-    """Upload metadata.json for this entire run.
-
-    Args:
-      final_status: Final status string for this run.
-    """
-    self._run.attrs.metadata.UpdateWithDict(
-        self.GetReportMetadata(final_status=final_status,
-                               sync_instance=self._sync_instance,
-                               completion_instance=self._completion_instance))
-    self.UploadMetadata()
 
   def _UploadArchiveIndex(self, builder_run):
     """Upload an HTML index for the artifacts at remote archive location.
@@ -473,7 +577,7 @@ class ReportStage(generic_stages.BuilderStage,
       return dict((b, archive.download_url + '/index.html') for b in boards)
 
   def GetReportMetadata(self, config=None, stage=None, final_status=None,
-                        sync_instance=None, completion_instance=None):
+                        completion_instance=None):
     """Generate ReportStage metadata.
 
     Args:
@@ -481,9 +585,6 @@ class ReportStage(generic_stages.BuilderStage,
       stage: The stage name that this metadata file is being uploaded for.
       final_status: Whether the build passed or failed. If None, the build
         will be treated as still running.
-      sync_instance: The stage instance that was used for syncing the source
-        code. This should be a derivative of SyncStage. If None, the list of
-        commit queue patches will not be included in the metadata.
       completion_instance: The stage instance that was used to wait for slave
         completion. Used to add slave build information to master builder's
         metadata. If None, no such status information will be included. It not
@@ -494,12 +595,6 @@ class ReportStage(generic_stages.BuilderStage,
     """
     builder_run = self._run
     config = config or builder_run.config
-
-    commit_queue_stages = (sync_stages.CommitQueueSyncStage,
-                           sync_stages.PreCQSyncStage)
-    get_changes_from_pool = (sync_instance and
-                             isinstance(sync_instance, commit_queue_stages) and
-                             sync_instance.pool)
 
     get_statuses_from_slaves = (
         config['master'] and
@@ -514,9 +609,9 @@ class ReportStage(generic_stages.BuilderStage,
                                                                  final_status))
 
     return metadata_lib.CBuildbotMetadata.GetReportMetadataDict(
-        builder_run, get_changes_from_pool,
-        get_statuses_from_slaves, config, stage, final_status, sync_instance,
-        completion_instance, child_configs_list)
+        builder_run, get_statuses_from_slaves,
+        config, stage, final_status, completion_instance,
+        child_configs_list)
 
   def ArchiveResults(self, final_status):
     """Archive our build results.
@@ -534,7 +629,7 @@ class ReportStage(generic_stages.BuilderStage,
 
     # Upload metadata, and update the pass/fail streak counter for the main
     # run only. These aren't needed for the child builder runs.
-    self._UploadMetadataForRun(final_status)
+    self.UploadMetadata()
     self._UpdateRunStreak(self._run, final_status)
 
     # Alert if the Pre-CQ has infra failures.
@@ -573,6 +668,39 @@ class ReportStage(generic_stages.BuilderStage,
 
     return archive_urls
 
+  def CollectComparativeBuildTimings(self, output, build_id, db):
+    """Create a report comparing this build to recent history.
+
+    Compare the timings for this build to the recent history of the
+    same build config.
+
+    Args:
+      output: File like object to write too, usually sys.stdout.
+      build_id: CIDB id for the current build.
+      db: CIDBConnection instance.
+
+    Returns:
+      The generated report as a multiline string.
+    """
+    current_status = build_time_stats.BuildIdToBuildStatus(db, build_id)
+    current_build = build_time_stats.GetBuildTimings(current_status)
+
+    # We compare against seven days of history.
+    end_date = datetime.datetime.now().date()
+    start_date = end_date - datetime.timedelta(days=self._STATS_HISTORY_DAYS)
+
+    build_config = current_status['build_config']
+    historical_statuses = build_time_stats.BuildConfigToStatuses(
+        db, build_config, start_date, end_date)
+
+    historical_timing = [build_time_stats.GetBuildTimings(status)
+                         for status in historical_statuses]
+
+    description = 'This build versus last week of %s' % build_config
+
+    build_time_stats.Report(output, description, current_build,
+                            historical_timing)
+
   def PerformStage(self):
     """Perform the actual work for this stage.
 
@@ -590,14 +718,25 @@ class ReportStage(generic_stages.BuilderStage,
       # ArchiveResults() depends the existence of this attr.
       self._run.attrs.release_tag = None
 
-    archive_urls = self.ArchiveResults(final_status)
-    metadata_url = os.path.join(self.upload_url, constants.METADATA_JSON)
+    # Set up our report metadata.
+    self._run.attrs.metadata.UpdateWithDict(
+        self.GetReportMetadata(final_status=final_status,
+                               completion_instance=self._completion_instance))
+
+    # Some operations can only be performed if a valid version is available.
+    try:
+      self._run.GetVersionInfo()
+      archive_urls = self.ArchiveResults(final_status)
+      metadata_url = os.path.join(self.upload_url, constants.METADATA_JSON)
+    except cbuildbot_run.VersionNotSetError:
+      logging.error('A valid version was never set for this run. '
+                    'Can not archive results.')
+      archive_urls = ''
+      metadata_url = ''
 
     results_lib.Results.Report(
         sys.stdout, archive_urls=archive_urls,
         current_version=(self._run.attrs.release_tag or ''))
-
-    retry_stats.ReportStats(sys.stdout)
 
     build_id, db = self._run.GetCIDBHandle()
     if db:
@@ -628,11 +767,130 @@ class ReportStage(generic_stages.BuilderStage,
                      summary=build_data.failure_message,
                      metadata_url=metadata_url)
 
+      # From this point forward, treat all exceptions as warnings.
+      self._post_completion = True
 
-class RefreshPackageStatusStage(generic_stages.BuilderStage):
-  """Stage for refreshing Portage package status in online spreadsheet."""
+      # Dump report about things we retry.
+      retry_stats.ReportStats(sys.stdout)
 
+      # Dump performance stats for this build versus recent builds.
+      if db:
+        output = StringIO.StringIO()
+        self.CollectComparativeBuildTimings(output, build_id, db)
+        # Bunch up our output, so it doesn't interleave with CIDB logs.
+        sys.stdout.write(output.getvalue())
+
+  def _HandleStageException(self, exc_info):
+    """Override and don't set status to FAIL but FORGIVEN instead."""
+    if self._post_completion:
+      # If we've already reported the stage completion, treat exceptions as
+      # warnings so we keep reported success in-line with waterfall displayed
+      # results.
+      return self._HandleExceptionAsWarning(exc_info)
+
+    return super(ReportStage, self)._HandleStageException(exc_info)
+
+
+class DetectIrrelevantChangesStage(generic_stages.BoardSpecificBuilderStage):
+  """Stage to detect irrelevant changes for slave per board base.
+
+  This stage will get the irrelevant changes for the current board of the build,
+  and record the irrelevant changes and the subsystem of the relevant changes
+  test to board_metadata.
+  """
+
+  def __init__(self, builder_run, board, changes, suffix=None, **kwargs):
+    super(DetectIrrelevantChangesStage, self).__init__(builder_run, board,
+                                                       suffix=suffix, **kwargs)
+    # changes is a list of GerritPatch instances.
+    self.changes = changes
+
+  def _GetIrrelevantChangesBoardBase(self, changes):
+    """Calculates irrelevant changes to the current board.
+
+    Returns:
+      A subset of |changes| which are irrelevant to current board.
+    """
+    manifest = git.ManifestCheckout.Cached(self._build_root)
+    packages = self._GetPackagesUnderTestForCurrentBoard()
+
+    irrelevant_changes = triage_lib.CategorizeChanges.GetIrrelevantChanges(
+        changes, self._run.config, self._build_root, manifest, packages)
+    return irrelevant_changes
+
+  def _GetPackagesUnderTestForCurrentBoard(self):
+    """Get a list of packages used in this build for current board.
+
+    Returns:
+      A set of packages used in this build. E.g.,
+      set(['chromeos-base/chromite-0.0.1-r1258']); returns None if
+      the information is missing for any board in the current config.
+    """
+    packages_under_test = set()
+
+    for run in [self._run] + self._run.GetChildren():
+      board_runattrs = run.GetBoardRunAttrs(self._current_board)
+      if not board_runattrs.HasParallel('packages_under_test'):
+        logging.warning('Packages under test were not recorded correctly')
+        return None
+      packages_under_test.update(
+          board_runattrs.GetParallel('packages_under_test'))
+
+    return packages_under_test
+
+  def GetSubsystemToTest(self, relevant_changes):
+    """Get subsystems from relevant cls for current board, write to BOARD_ATTRS.
+
+    Args:
+      relevant_changes: A set of changes that are relevant to current board.
+
+    Returns:
+      A set of the subsystems. An empty set indicates that all subsystems should
+      be tested.
+    """
+    # Go through all the relevant changes, collect subsystem info from them. If
+    # there exists a change without subsystem info, we assume it affects all
+    # subsystems. Then set the superset of all the subsystems to be empty, which
+    # means that need to test all subsystems.
+    subsystem_set = set()
+    for change in relevant_changes:
+      sys_lst = triage_lib.GetTestSubsystemForChange(self._build_root, change)
+      if sys_lst:
+        subsystem_set = subsystem_set.union(sys_lst)
+      else:
+        subsystem_set = set()
+        break
+
+    return subsystem_set
+
+  @failures_lib.SetFailureType(failures_lib.InfrastructureFailure)
   def PerformStage(self):
-    commands.RefreshPackageStatus(buildroot=self._build_root,
-                                  boards=self._boards,
-                                  debug=self._run.options.debug)
+    """Run DetectIrrelevantChangesStage."""
+    irrelevant_changes = None
+    if not self._run.config.master:
+      # Slave writes the irrelevant changes to current board to metadata.
+      irrelevant_changes = self._GetIrrelevantChangesBoardBase(self.changes)
+      change_dict_list = [c.GetAttributeDict() for c in irrelevant_changes]
+      change_dict_list = sorted(change_dict_list,
+                                key=lambda x: (x[cros_patch.ATTR_GERRIT_NUMBER],
+                                               x[cros_patch.ATTR_PATCH_NUMBER],
+                                               x[cros_patch.ATTR_REMOTE]))
+
+      self._run.attrs.metadata.UpdateBoardDictWithDict(
+          self._current_board, {'irrelevant_changes': change_dict_list})
+
+    if irrelevant_changes:
+      relevant_changes = list(set(self.changes) - irrelevant_changes)
+      logging.info('Below are the irrelevant changes for board: %s.',
+                   self._current_board)
+      (validation_pool.ValidationPool.
+       PrintLinksToChanges(list(irrelevant_changes)))
+    else:
+      relevant_changes = self.changes
+
+    subsystem_set = self.GetSubsystemToTest(relevant_changes)
+    logging.info('Subsystems need to be tested: %s. Empty set represents '
+                 'testing all subsystems.', subsystem_set)
+    # Record subsystems to metadata
+    self._run.attrs.metadata.UpdateBoardDictWithDict(
+        self._current_board, {'subsystems_to_test': list(subsystem_set)})

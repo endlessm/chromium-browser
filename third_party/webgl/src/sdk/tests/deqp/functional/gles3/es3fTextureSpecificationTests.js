@@ -212,6 +212,21 @@ goog.scope(function() {
         es3fTextureSpecificationTests.TextureSpecCase;
 
     /**
+     * deinit
+     */
+    es3fTextureSpecificationTests.TextureSpecCase.prototype.deinit =
+    function() {
+        gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4);
+        gl.pixelStorei(gl.UNPACK_ROW_LENGTH, 0);
+        gl.pixelStorei(gl.UNPACK_IMAGE_HEIGHT, 0);
+        gl.pixelStorei(gl.UNPACK_SKIP_PIXELS, 0);
+        gl.pixelStorei(gl.UNPACK_SKIP_ROWS, 0);
+        gl.pixelStorei(gl.UNPACK_SKIP_IMAGES, 0);
+
+        gl.bindBuffer(gl.PIXEL_UNPACK_BUFFER, null);
+    }
+
+    /**
      * createTexture - Needs to be overridden
      */
     es3fTextureSpecificationTests.TextureSpecCase.prototype.createTexture =
@@ -405,7 +420,7 @@ goog.scope(function() {
             for (var ndx = 0; ndx < 2; ndx++) {
                 /** @type {tcuSurface.Surface} */
                 var dst = ndx ? reference : result;
-                ctx = ndx ? refContext : webgl2Context;
+                var ctx = ndx ? refContext : webgl2Context;
                 var shaderID = ndx ? shaderIDRef : shaderIDgles;
 
                 this.m_context = ctx;
@@ -1366,7 +1381,7 @@ goog.scope(function() {
 
         images = rnd.shuffle(images);
 
-        for (var ndx = 0; ndx < this.m_numLevels; ndx++) {
+        for (var ndx = 0; ndx < images.length; ndx++) {
             var levelNdx = images[ndx].ndx;
             /** @type {framework.common.tcuTexture.CubeFace} */
             var face = images[ndx].face;
@@ -1415,10 +1430,7 @@ goog.scope(function() {
         es3fTextureSpecificationTests.Texture2DSpecCase.call(
             this, name, desc, gluTextureUtil.mapGLTransferFormat(
                 format, dataType
-            ), width, height,
-            es3fTextureSpecificationTests.maxLevelCount(
-                width, height
-            )
+            ), width, height, numLevels
         );
 
         this.m_internalFormat = format;
@@ -1677,7 +1689,7 @@ goog.scope(function() {
         );
 
         // Fill data with grid.
-        data = new ArrayBuffer(rowPitch * height);
+        data = new ArrayBuffer(rowPitch * height + this.m_skipPixels * pixelSize);
 
         var cScale = deMath.subtract(
             this.m_texFormatInfo.valueMax, this.m_texFormatInfo.valueMin
@@ -1694,7 +1706,7 @@ goog.scope(function() {
             ), cBias
         );
 
-        var access = new tcuTexture.PixelBufferAccess({
+        var accessWithOffset = new tcuTexture.PixelBufferAccess({
                 format: this.m_texFormat,
                 width: this.m_width,
                 height: this.m_height,
@@ -1702,8 +1714,15 @@ goog.scope(function() {
                 data: data,
                 offset: this.m_skipRows * rowPitch + this.m_skipPixels * pixelSize
                 });
-        tcuTextureUtil.fillWithGrid(access, 4, colorA, colorB
+        tcuTextureUtil.fillWithGrid(accessWithOffset, 4, colorA, colorB
         );
+        var access = new tcuTexture.PixelBufferAccess({
+                format: this.m_texFormat,
+                width: this.m_width,
+                height: this.m_height,
+                rowPitch: rowPitch,
+                data: data,
+                });
 
         this.m_context.pixelStorei(gl.UNPACK_ROW_LENGTH, this.m_rowLength);
         this.m_context.pixelStorei(gl.UNPACK_SKIP_ROWS, this.m_skipRows);
@@ -1783,7 +1802,7 @@ goog.scope(function() {
         );
 
         // Fill data with grid.
-        data = new ArrayBuffer(slicePitch * (this.m_depth + this.m_skipImages));
+        data = new ArrayBuffer(slicePitch * (this.m_depth + this.m_skipImages) + this.m_skipPixels * pixelSize);
 
         var cScale = deMath.subtract(
             this.m_texFormatInfo.valueMax, this.m_texFormatInfo.valueMin
@@ -1800,8 +1819,7 @@ goog.scope(function() {
             ), cBias
         );
 
-        tcuTextureUtil.fillWithGrid(
-            new tcuTexture.PixelBufferAccess({
+        var accessWithOffset = new tcuTexture.PixelBufferAccess({
                 format: this.m_texFormat,
                 width: this.m_width,
                 height: this.m_height,
@@ -1810,8 +1828,18 @@ goog.scope(function() {
                 slicePitch: slicePitch,
                 data: data,
                 offset: this.m_skipImages * slicePitch + this.m_skipRows * rowPitch + this.m_skipPixels * pixelSize
-                }) ,
-            4, colorA, colorB
+            });
+        var access = new tcuTexture.PixelBufferAccess({
+                format: this.m_texFormat,
+                width: this.m_width,
+                height: this.m_height,
+                depth: this.m_depth,
+                rowPitch: rowPitch,
+                slicePitch: slicePitch,
+                data: data
+            });
+        tcuTextureUtil.fillWithGrid(
+            accessWithOffset, 4, colorA, colorB
         );
 
         this.m_context.pixelStorei(gl.UNPACK_IMAGE_HEIGHT, this.m_imageHeight);
@@ -1826,7 +1854,7 @@ goog.scope(function() {
         this.m_context.texImage3D(
             gl.TEXTURE_3D, 0, this.m_internalFormat,
             this.m_width, this.m_height, this.m_depth, 0,
-            transferFmt.format, transferFmt.dataType, new Uint8Array(data)
+            transferFmt.format, transferFmt.dataType, access.getDataPtr()
         );
     };
 
@@ -2154,12 +2182,13 @@ goog.scope(function() {
         var access = new tcuTexture.PixelBufferAccess({
                 format: this.m_texFormat,
                 width: this.m_width,
+                height: this.m_height,
                 rowPitch: deMath.deAlign32(this.m_width * pixelSize, 4),
                 data: data
             });
         tcuTextureUtil.fillWithComponentGradients(access, this.m_texFormatInfo.valueMin, this.m_texFormatInfo.valueMax
         );
-        gl.texImage2D(
+        this.m_context.texImage2D(
             gl.TEXTURE_2D, 0, this.m_internalFormat, this.m_width,
             this.m_height, 0, transferFmt.format, transferFmt.dataType,
             access.getDataPtr()
@@ -2184,6 +2213,7 @@ goog.scope(function() {
             ), cBias
         );
 
+        data = new ArrayBuffer(rowPitch * height + this.m_skipPixels * pixelSize);
         tcuTextureUtil.fillWithGrid(
             new tcuTexture.PixelBufferAccess({
                 format: this.m_texFormat,
@@ -2196,16 +2226,22 @@ goog.scope(function() {
             4, colorA, colorB
         );
 
+        access = new tcuTexture.PixelBufferAccess({
+                format: this.m_texFormat,
+                width: this.m_subW,
+                height: this.m_subH,
+                rowPitch: rowPitch,
+                data: data
+            });
         this.m_context.pixelStorei(gl.UNPACK_ROW_LENGTH, this.m_rowLength);
         this.m_context.pixelStorei(gl.UNPACK_SKIP_ROWS, this.m_skipRows);
         this.m_context.pixelStorei(gl.UNPACK_SKIP_PIXELS, this.m_skipPixels);
         this.m_context.pixelStorei(gl.UNPACK_ALIGNMENT, this.m_alignment);
-
         this.m_context.texSubImage2D(
             gl.TEXTURE_2D, 0, this.m_subX, this.m_subY,
             this.m_subW, this.m_subH,
             transferFmt.format, transferFmt.dataType,
-            new Uint8Array(data, 0, rowPitch * height)
+            access.getDataPtr()
         );
     };
 
@@ -2639,8 +2675,7 @@ goog.scope(function() {
                 format: this.m_texFormat,
                 width: this.m_width,
                 height: this.m_height,
-                data: data,
-                offset: this.m_texFormat.getPixelSize() * this.m_width * this.m_height
+                data: data
             });
         tcuTextureUtil.fillWithComponentGradients(access, [0, 0, 0, 0], [1, 1, 1, 1]);
 
@@ -2782,14 +2817,14 @@ goog.scope(function() {
             this.m_texFormat.getPixelSize() * this.m_subW, this.m_alignment
         );
         data = new ArrayBuffer(rowPitch * this.m_subH);
-        tcuTextureUtil.fillWithGrid(
-            new tcuTexture.PixelBufferAccess({
-                            format: this.m_texFormat,
-                            width: this.m_subW,
-                            height: this.m_subH,
-                            rowPitch: rowPitch,
-                            data: data
-                        }), 4, [1, 0, 0, 1], [0, 1, 0, 1]
+        access = new tcuTexture.PixelBufferAccess({
+                format: this.m_texFormat,
+                width: this.m_subW,
+                height: this.m_subH,
+                rowPitch: rowPitch,
+                data: data
+        });
+        tcuTextureUtil.fillWithGrid(access, 4, [1, 0, 0, 1], [0, 1, 0, 1]
         );
         this.m_context.pixelStorei(gl.UNPACK_ALIGNMENT, this.m_alignment);
         for (var f in tcuTexture.CubeFace) {
@@ -2797,7 +2832,7 @@ goog.scope(function() {
             this.m_context.texSubImage2D(
                 es3fTextureSpecificationTests.s_cubeMapFaces[face],
                 0, this.m_subX, this.m_subY, this.m_subW, this.m_subH,
-                this.m_format, this.m_dataType, new Uint8Array(data)
+                this.m_format, this.m_dataType, access.getDataPtr()
             );
         }
     };
@@ -2912,8 +2947,8 @@ goog.scope(function() {
             deMath.multiply([0.0, 1.0, 0.0, 1.0], cScale), cBias
         );
 
-        data = new ArrayBuffer(slicePitch * (this.m_depth + this.m_skipImages));
-        access = new tcuTexture.PixelBufferAccess({
+        data = new ArrayBuffer(slicePitch * (this.m_depth + this.m_skipImages) + this.m_skipPixels * pixelSize);
+        var accessWithOffset = new tcuTexture.PixelBufferAccess({
                 format: this.m_texFormat,
                 width: this.m_subW,
                 height: this.m_subH,
@@ -2923,7 +2958,16 @@ goog.scope(function() {
                 data: data,
                 offset: this.m_skipImages * slicePitch + this.m_skipRows * rowPitch + this.m_skipPixels * pixelSize
             });
-        tcuTextureUtil.fillWithGrid(access, 4, colorA, colorB);
+        access = new tcuTexture.PixelBufferAccess({
+                format: this.m_texFormat,
+                width: this.m_subW,
+                height: this.m_subH,
+                depth: this.m_subD,
+                rowPitch: rowPitch,
+                slicePitch: slicePitch,
+                data: data
+            });
+        tcuTextureUtil.fillWithGrid(accessWithOffset, 4, colorA, colorB);
 
         this.m_context.pixelStorei(gl.UNPACK_IMAGE_HEIGHT, this.m_imageHeight);
         this.m_context.pixelStorei(gl.UNPACK_ROW_LENGTH, this.m_rowLength);
@@ -3728,7 +3772,7 @@ goog.scope(function() {
         var height = this.m_height + this.m_skipRows;
         var buf = null;
         var tex = null;
-        var data = new ArrayBuffer(rowPitch * height + this.m_offset);
+        var data = new ArrayBuffer(rowPitch * height + this.m_skipPixels * pixelSize + this.m_offset);
 
         assertMsgOptions(
             this.m_numLevels == 1, 'Number of levels different than 1',
@@ -3831,7 +3875,7 @@ goog.scope(function() {
         );
         var height = this.m_size + this.m_skipRows;
 
-        var data = new ArrayBuffer(rowPitch * height + this.m_offset);
+        var data = new ArrayBuffer(rowPitch * height + this.m_skipPixels * pixelSize + this.m_offset);
         var access = new tcuTexture.PixelBufferAccess({
                             format: this.m_texFormat,
                             width: this.m_size,
@@ -4373,12 +4417,13 @@ goog.scope(function() {
             deMath.multiply([0.0, 1.0, 0.0, 1.0], cScale), cBias
         );
 
+        data = new ArrayBuffer(rowPitch * height + this.m_skipPixels * pixelSize + this.m_offset);
         var accessSub = new tcuTexture.PixelBufferAccess({
                         format: this.m_texFormat,
                         width: this.m_subW,
                         height: this.m_subH,
                         rowPitch: rowPitch,
-                        data: new ArrayBuffer(rowPitch * height + this.m_offset),
+                        data: data,
                         offset: this.m_skipRows * rowPitch +
                             this.m_skipPixels * pixelSize +
                             this.m_offset
@@ -4388,7 +4433,7 @@ goog.scope(function() {
         buf = this.m_context.createBuffer();
         this.m_context.bindBuffer(gl.PIXEL_UNPACK_BUFFER, buf);
         this.m_context.bufferData(
-            gl.PIXEL_UNPACK_BUFFER, accessSub.getBuffer(), gl.STATIC_DRAW
+            gl.PIXEL_UNPACK_BUFFER, data, gl.STATIC_DRAW
         );
 
         this.m_context.pixelStorei(gl.UNPACK_ROW_LENGTH, this.m_rowLength);
@@ -4802,7 +4847,7 @@ goog.scope(function() {
 
     es3fTextureSpecificationTests.TexImage2DArrayDepthCase.prototype =
         Object.create(
-            es3fTextureSpecificationTests.Texture2DSpecCase.prototype
+            es3fTextureSpecificationTests.Texture2DArraySpecCase.prototype
         );
 
     es3fTextureSpecificationTests.
@@ -4991,7 +5036,7 @@ goog.scope(function() {
         );
 
         tex = this.m_context.createTexture();
-        this.m_context.bindTexture(gl.TEXTURE_2D, tex);
+        this.m_context.bindTexture(gl.TEXTURE_2D_ARRAY, tex);
         this.m_context.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
 
         // First specify full texture.
@@ -5001,15 +5046,14 @@ goog.scope(function() {
             var gMin = [-1.5, -2.0, 1.7, -1.5];
             var gMax = [2.0, 1.5, -1.0, 2.0];
 
-            levelData.setSize(levelW, levelH);
+            levelData.setSize(levelW, levelH, this.m_numLayers);
             tcuTextureUtil.fillWithComponentGradients(
                 levelData.getAccess(), gMin, gMax
             );
-
-            this.m_context.texImage2D(
-                gl.TEXTURE_2D, ndx, this.m_internalFormat, levelW, levelH,
-                 this.m_numLayers, 0, fmt.format, fmt.dataType,
-                 levelData.getAccess().getDataPtr()
+            this.m_context.texImage3D(
+                gl.TEXTURE_2D_ARRAY, ndx, this.m_internalFormat, levelW, levelH,
+                this.m_numLayers, 0, fmt.format, fmt.dataType,
+                levelData.getAccess().getDataPtr()
             );
         }
 
@@ -5814,6 +5858,9 @@ goog.scope(function() {
         this.addChild(shadow2dGroup);
 
         for (var ndx = 0; ndx < depthStencilFormats.length; ndx++) {
+            // WebGL 2 specific constraint.
+            if (depthStencilFormats[ndx].internalFormat == gl.DEPTH32F_STENCIL8)
+                continue;
             var tex2DWidth = 64;
             var tex2DHeight = 128;
 
@@ -6298,6 +6345,9 @@ goog.scope(function() {
         this.addChild(shadow2dGroup);
 
         for (var ndx = 0; ndx < depthStencilFormats.length; ndx++) {
+            // WebGL 2 specific constraint.
+            if (depthStencilFormats[ndx].internalFormat == gl.DEPTH32F_STENCIL8)
+                continue;
             tex2DWidth = 64;
             tex2DHeight = 32;
 
@@ -6637,6 +6687,9 @@ goog.scope(function() {
         this.addChild(shadow3dGroup);
 
         for (var ndx = 0; ndx < depthStencilFormats.length; ndx++) {
+            // WebGL 2 specific constraint.
+            if (depthStencilFormats[ndx].internalFormat == gl.DEPTH32F_STENCIL8)
+                continue;
             tex3DWidth = 32;
             tex3DHeight = 64;
             tex3DDepth = 8;
@@ -6914,6 +6967,9 @@ goog.scope(function() {
         this.addChild(shadow3dGroup);
 
         for (var ndx = 0; ndx < depthStencilFormats.length; ndx++) {
+            // WebGL 2 specific constraint.
+            if (depthStencilFormats[ndx].internalFormat == gl.DEPTH32F_STENCIL8)
+                continue;
             tex2DArrayWidth = 57;
             tex2DArrayHeight = 44;
             tex2DArrayLevels = 5;

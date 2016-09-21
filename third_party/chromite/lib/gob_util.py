@@ -368,7 +368,7 @@ def RestoreChange(host, change, msg=''):
 
 
 def DeleteDraft(host, change):
-  """Delete a gerrit draft patch set."""
+  """Delete a gerrit draft change."""
   path = _GetChangePath(change)
   try:
     FetchUrl(host, path, reqtype='DELETE', ignore_204=True, ignore_404=False)
@@ -387,6 +387,30 @@ def SubmitChange(host, change, revision='current', wait_for_merge=True):
   path = '%s/revisions/%s/submit' % (_GetChangePath(change), revision)
   body = {'wait_for_merge': wait_for_merge}
   return FetchUrlJson(host, path, reqtype='POST', body=body, ignore_404=False)
+
+
+def CheckChange(host, change, sha1=None):
+  """Performs consistency checks on the change, and fixes inconsistencies.
+
+  This is useful for forcing Gerrit to check whether a change has already been
+  merged into the git repo. Namely, if |sha1| is provided and the change is in
+  'NEW' status, Gerrit will check if a change with that |sha1| is in the repo
+  and mark the change as 'MERGED' if it exists.
+
+  Args:
+    host: The Gerrit host to interact with.
+    change: The Gerrit change ID.
+    sha1: An optional hint of the commit's SHA1 in Git.
+  """
+  path = '%s/check' % (_GetChangePath(change),)
+  if sha1:
+    body, headers = {'expect_merged_as': sha1}, {}
+  else:
+    body, headers = {}, {'Content-Length': '0'}
+
+  return FetchUrlJson(host, path, reqtype='POST',
+                      body=body, ignore_404=False,
+                      headers=headers)
 
 
 def GetReviewers(host, change):

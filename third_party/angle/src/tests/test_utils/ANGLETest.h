@@ -18,6 +18,7 @@
 #include "angle_test_configs.h"
 #include "common/angleutils.h"
 #include "shader_utils.h"
+#include "system_utils.h"
 #include "Vector.h"
 
 #define EXPECT_GL_ERROR(err) EXPECT_EQ(static_cast<GLenum>(err), glGetError())
@@ -52,6 +53,13 @@ struct GLColor
     Vector4 toNormalizedVector() const;
 
     GLubyte R, G, B, A;
+
+    static const GLColor red;
+    static const GLColor green;
+    static const GLColor blue;
+    static const GLColor cyan;
+    static const GLColor black;
+    static const GLColor white;
 };
 
 // Useful to cast any type to GLubyte.
@@ -108,13 +116,18 @@ class ANGLETest : public ::testing::TestWithParam<angle::PlatformParameters>
 
     virtual void swapBuffers();
 
-    static void drawQuad(GLuint program,
-                         const std::string &positionAttribName,
-                         GLfloat positionAttribZ);
-    static void drawQuad(GLuint program,
-                         const std::string &positionAttribName,
-                         GLfloat positionAttribZ,
-                         GLfloat positionAttribXYScale);
+    void setupQuadVertexBuffer(GLfloat positionAttribZ, GLfloat positionAttribXYScale);
+
+    void drawQuad(GLuint program, const std::string &positionAttribName, GLfloat positionAttribZ);
+    void drawQuad(GLuint program,
+                  const std::string &positionAttribName,
+                  GLfloat positionAttribZ,
+                  GLfloat positionAttribXYScale);
+    void drawQuad(GLuint program,
+                  const std::string &positionAttribName,
+                  GLfloat positionAttribZ,
+                  GLfloat positionAttribXYScale,
+                  bool useVertexBuffer);
     static std::array<Vector3, 6> GetQuadVertices();
     void drawIndexedQuad(GLuint program,
                          const std::string &positionAttribName,
@@ -148,6 +161,7 @@ class ANGLETest : public ::testing::TestWithParam<angle::PlatformParameters>
     bool isMultisampleEnabled() const;
 
     bool isOpenGL() const;
+    bool isGLES() const;
     EGLint getPlatformRenderer() const;
 
     void ignoreD3D11SDKLayersWarnings();
@@ -173,8 +187,12 @@ class ANGLETest : public ::testing::TestWithParam<angle::PlatformParameters>
 class ANGLETestEnvironment : public testing::Environment
 {
   public:
-    virtual void SetUp();
-    virtual void TearDown();
+    void SetUp() override;
+    void TearDown() override;
+
+  private:
+    // For loading and freeing platform
+    std::unique_ptr<angle::Library> mGLESLibrary;
 };
 
 bool IsIntel();
@@ -189,5 +207,8 @@ bool IsD3D9();
 bool IsD3DSM3();
 bool IsLinux();
 bool IsOSX();
+
+// Negative tests may trigger expected errors/warnings in the ANGLE Platform.
+void IgnoreANGLEPlatformMessages();
 
 #endif  // ANGLE_TESTS_ANGLE_TEST_H_

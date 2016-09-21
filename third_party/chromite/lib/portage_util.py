@@ -18,6 +18,7 @@ import shutil
 import sys
 
 from chromite.cbuildbot import constants
+from chromite.cbuildbot import failures_lib
 from chromite.lib import cros_build_lib
 from chromite.lib import cros_logging as logging
 from chromite.lib import gerrit
@@ -857,36 +858,6 @@ class EBuild(object):
 
     return ebuild_projects
 
-  @classmethod
-  def UpdateCommitHashesForChanges(cls, changes, buildroot, manifest):
-    """Updates the commit hashes for the EBuilds uprevved in changes.
-
-    Args:
-      changes: Changes from Gerrit that are being pushed.
-      buildroot: Path to root of build directory.
-      manifest: git.ManifestCheckout object.
-    """
-    path_sha1s = {}
-    overlay_list = FindOverlays(constants.BOTH_OVERLAYS, buildroot=buildroot)
-    ebuild_paths = cls._GetEBuildPaths(buildroot, manifest, overlay_list,
-                                       changes)
-    for ebuild, paths in ebuild_paths.iteritems():
-      # Calculate any SHA1s that are not already in path_sha1s.
-      for path in set(paths).difference(path_sha1s):
-        path_sha1s[path] = cls._GetSHA1ForPath(manifest, path)
-
-      sha1s = [path_sha1s[path] for path in paths]
-      logging.info('Updating ebuild for package %s with commit hashes %r',
-                   ebuild.package, sha1s)
-      updates = dict(CROS_WORKON_COMMIT=cls.FormatBashArray(sha1s))
-      EBuild.UpdateEBuild(ebuild.ebuild_path, updates)
-
-    # Commit any changes to all overlays.
-    for overlay in overlay_list:
-      if EBuild.GitRepoHasChanges(overlay):
-        EBuild.CommitChange('Updating commit hashes in ebuilds '
-                            'to match remote repository.', overlay=overlay)
-
 
 class PortageDBException(Exception):
   """Generic PortageDB error."""
@@ -1085,7 +1056,7 @@ def BestEBuild(ebuilds):
   return winner
 
 
-def _FindUprevCandidates(files):
+def _FindUprevCandidates(files, allow_blacklisted=False):
   """Return the uprev candidate ebuild from a specified list of files.
 
   Usually an uprev candidate is a the stable ebuild in a cros_workon
@@ -1096,6 +1067,7 @@ def _FindUprevCandidates(files):
 
   Args:
     files: List of files in a package directory.
+    allow_blacklisted: If False, discard blacklisted packages.
   """
   stable_ebuilds = []
   unstable_ebuilds = []
@@ -1103,7 +1075,8 @@ def _FindUprevCandidates(files):
     if not path.endswith('.ebuild') or os.path.islink(path):
       continue
     ebuild = EBuild(path)
-    if not ebuild.is_workon or ebuild.is_blacklisted:
+    if not ebuild.is_workon or (ebuild.is_blacklisted and
+                                not allow_blacklisted):
       continue
     if ebuild.is_stable:
       if ebuild.version == WORKON_EBUILD_VERSION:
@@ -1149,7 +1122,7 @@ def _FindUprevCandidates(files):
   return uprev_ebuild
 
 
-def BuildEBuildDictionary(overlays, use_all, packages):
+def BuildEBuildDictionary(overlays, use_all, packages, allow_blacklisted=False):
   """Build a dictionary of the ebuilds in the specified overlays.
 
   Args:
@@ -1160,16 +1133,26 @@ def BuildEBuildDictionary(overlays, use_all, packages):
       of whether they are in our set of packages.
     packages: A set of the packages we want to gather.  If use_all is
       True, this argument is ignored, and should be None.
+    allow_blacklisted: Whether or not to consider blacklisted ebuilds.
   """
   for overlay in overlays:
     for package_dir, _dirs, files in os.walk(overlay):
+      # If we were given a list of packages to uprev, only consider the files
+      # whose potential CP match.
+      # This allows us to uprev specific blacklisted without throwing errors on
+      # every badly formatted blacklisted ebuild.
+      package_name = os.path.basename(package_dir)
+      category = os.path.basename(os.path.dirname(package_dir))
+      if not (use_all or os.path.join(category, package_name) in packages):
+        continue
+
       # Add stable ebuilds to overlays[overlay].
       paths = [os.path.join(package_dir, path) for path in files]
-      ebuild = _FindUprevCandidates(paths)
+      ebuild = _FindUprevCandidates(paths, allow_blacklisted)
 
       # If the --all option isn't used, we only want to update packages that
       # are in packages.
-      if ebuild and (use_all or ebuild.package in packages):
+      if ebuild:
         overlays[overlay].append(ebuild)
 
 
@@ -1191,7 +1174,8 @@ def RegenCache(overlay):
 
   # Regen for the whole repo.
   cros_build_lib.RunCommand(['egencache', '--update', '--repo', repo_name,
-                             '--jobs', str(multiprocessing.cpu_count())])
+                             '--jobs', str(multiprocessing.cpu_count())],
+                            cwd=overlay, enter_chroot=True)
   # If there was nothing new generated, then let's just bail.
   result = git.RunGit(overlay, ['status', '-s', 'metadata/'])
   if not result.output:
@@ -1460,12 +1444,14 @@ def IsPackageInstalled(package, sysroot='/'):
   return False
 
 
-def FindPackageNameMatches(pkg_str, board=None):
+def FindPackageNameMatches(pkg_str, board=None,
+                           buildroot=constants.SOURCE_ROOT):
   """Finds a list of installed packages matching |pkg_str|.
 
   Args:
     pkg_str: The package name with optional category, version, and slot.
     board: The board to insepct.
+    buildroot: Source root to find overlays.
 
   Returns:
     A list of matched CPV objects.
@@ -1476,7 +1462,8 @@ def FindPackageNameMatches(pkg_str, board=None):
 
   cmd += ['list', pkg_str]
   result = cros_build_lib.RunCommand(
-      cmd, capture_output=True, error_code_ok=True)
+      cmd, cwd=buildroot, enter_chroot=True, capture_output=True,
+      error_code_ok=True)
 
   matches = []
   if result.returncode == 0:
@@ -1486,7 +1473,7 @@ def FindPackageNameMatches(pkg_str, board=None):
 
 
 def FindEbuildForPackage(pkg_str, sysroot, include_masked=False,
-                         extra_env=None):
+                         extra_env=None, error_code_ok=True):
   """Returns a path to an ebuild responsible for package matching |pkg_str|.
 
   Args:
@@ -1495,6 +1482,9 @@ def FindEbuildForPackage(pkg_str, sysroot, include_masked=False,
     include_masked: True iff we should include masked ebuilds in our query.
     extra_env: optional dictionary of extra string/string pairs to use as the
       environment of equery command.
+    error_code_ok: If true, do not raise an exception when RunCommand returns
+      a non-zero exit code. Instead, return the CommandResult object containing
+      the exit code.
 
   Returns:
     Path to ebuild for this package.
@@ -1505,9 +1495,10 @@ def FindEbuildForPackage(pkg_str, sysroot, include_masked=False,
   cmd += [pkg_str]
 
   result = cros_build_lib.RunCommand(cmd, extra_env=extra_env, print_cmd=False,
-                                     capture_output=True, error_code_ok=True)
+                                     capture_output=True,
+                                     error_code_ok=error_code_ok)
 
-  if result.error:
+  if result.returncode:
     return None
   return result.output.strip()
 
@@ -1567,6 +1558,29 @@ def GetBinaryPackagePath(c, p, v, sysroot='/', packages_dir=None):
   return path
 
 
+def GetRepositoryFromEbuildInfo(info):
+  """Parse output of the result of `ebuild <ebuild_path> info`
+
+  This command should return output that looks a lot like:
+   CROS_WORKON_SRCDIR=("/mnt/host/source/src/platform2")
+   CROS_WORKON_PROJECT=("chromiumos/platform2")
+  """
+  srcdir_match = re.search(r'^CROS_WORKON_SRCDIR=(\(".*"\))$',
+                           info, re.MULTILINE)
+  project_match = re.search(r'^CROS_WORKON_PROJECT=(\(".*"\))$',
+                            info, re.MULTILINE)
+  if not srcdir_match or not project_match:
+    return None
+
+  srcdirs = ParseBashArray(srcdir_match.group(1))
+  projects = ParseBashArray(project_match.group(1))
+  if len(srcdirs) != len(projects):
+    return None
+
+  return [RepositoryInfoTuple(srcdir, project)
+          for srcdir, project in zip(srcdirs, projects)]
+
+
 def GetRepositoryForEbuild(ebuild_path, sysroot):
   """Get parsed output of `ebuild <ebuild_path> info`
 
@@ -1584,24 +1598,7 @@ def GetRepositoryForEbuild(ebuild_path, sysroot):
          ebuild_path, 'info')
   result = cros_build_lib.RunCommand(
       cmd, capture_output=True, print_cmd=False, error_code_ok=True)
-
-  # This command should return output that looks a lot like:
-  # CROS_WORKON_SRCDIR=("/mnt/host/source/src/platform2")
-  # CROS_WORKON_PROJECT=("chromiumos/platform2")
-  srcdir_match = re.search(r'^CROS_WORKON_SRCDIR=\((".*")\)$',
-                           result.output, re.MULTILINE)
-  project_match = re.search(r'^CROS_WORKON_PROJECT=\((".*")\)$',
-                            result.output, re.MULTILINE)
-  if not srcdir_match or not project_match:
-    return None
-
-  srcdirs = ParseBashArray(srcdir_match.group(1))
-  projects = ParseBashArray(project_match.group(1))
-  if len(srcdirs) != len(projects):
-    return None
-
-  return [RepositoryInfoTuple(srcdir, project)
-          for srcdir, project in zip(srcdirs, projects)]
+  return GetRepositoryFromEbuildInfo(result.output)
 
 
 def CleanOutdatedBinaryPackages(sysroot):
@@ -1619,8 +1616,17 @@ def _CheckHasTest(cp, sysroot):
 
   Returns:
     |cp| if the ebuild for |cp| defines a test stanza, None otherwise.
+
+  Raises:
+    raise failures_lib.PackageBuildFailure if FindEbuildForPackage
+    raises a RunCommandError
   """
-  ebuild = EBuild(FindEbuildForPackage(cp, sysroot))
+  try:
+    path = FindEbuildForPackage(cp, sysroot, error_code_ok=False)
+  except cros_build_lib.RunCommandError as e:
+    logging.error('FindEbuildForPackage error %s', e)
+    raise failures_lib.PackageBuildFailure(e, 'equery', cp)
+  ebuild = EBuild(path)
   return cp if ebuild.has_test else None
 
 

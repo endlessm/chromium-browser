@@ -7,10 +7,10 @@
 from __future__ import print_function
 
 import cStringIO
-import mock
 import os
 
 from chromite.cbuildbot import constants
+from chromite.cbuildbot import failures_lib
 from chromite.lib import cros_test_lib
 from chromite.lib import git
 from chromite.lib import osutils
@@ -166,6 +166,13 @@ platform_pkg_test() {
     run_case(self._MULTILINE_PLATFORM, True)
     run_case(self._SINGLE_LINE_TEST, True)
 
+  def testCheckHasTestWithoutEbuild(self):
+    """Test CheckHasTest on a package without ebuild config file"""
+    package_name = 'chromeos-base/temp_mypackage'
+    package_path = os.path.join(self.tempdir, package_name)
+    os.makedirs(package_path)
+    with self.assertRaises(failures_lib.PackageBuildFailure):
+      portage_util._CheckHasTest(self.tempdir, package_name)
 
 class ProjectAndPathTest(cros_test_lib.MockTempDirTestCase):
   """Project and Path related tests."""
@@ -453,33 +460,6 @@ class EBuildRevWorkonTest(cros_test_lib.MockTempDirTestCase):
     mock_message = 'Commitme'
     self.m_ebuild.CommitChange(mock_message, '.')
     m.assert_called_once_with('.', ['commit', '-a', '-m', 'Commitme'])
-
-  def testUpdateCommitHashesForChanges(self):
-    """Tests that we can update the commit hashes for changes correctly."""
-    build_root = 'fakebuildroot'
-    overlays = ['public_overlay']
-    changes = ['fake change']
-    paths = ['fake_path1', 'fake_path2']
-    sha1s = ['sha1', 'shaaaaaaaaaaaaaaaa2']
-    path_ebuilds = {self.m_ebuild: paths}
-
-    self.PatchObject(portage_util, 'FindOverlays', return_value=overlays)
-    self.PatchObject(portage_util.EBuild, '_GetEBuildPaths',
-                     return_value=path_ebuilds)
-    self.PatchObject(portage_util.EBuild, '_GetSHA1ForPath',
-                     side_effect=reversed(sha1s))
-    update_mock = self.PatchObject(portage_util.EBuild, 'UpdateEBuild')
-    self.PatchObject(portage_util.EBuild, 'GitRepoHasChanges',
-                     return_value=True)
-    commit_mock = self.PatchObject(portage_util.EBuild, 'CommitChange')
-
-    portage_util.EBuild.UpdateCommitHashesForChanges(changes, build_root,
-                                                     MANIFEST)
-
-    update_mock.assert_called_once_with(
-        self.m_ebuild.ebuild_path,
-        {'CROS_WORKON_COMMIT': '(%s)' % ' '.join('"%s"' % x for x in sha1s)})
-    commit_mock.assert_called_once_with(mock.ANY, overlay=overlays[0])
 
   def testGitRepoHasChanges(self):
     """Tests that GitRepoHasChanges works correctly."""
@@ -842,29 +822,108 @@ class UtilFuncsTest(cros_test_lib.TempDirTestCase):
     osutils.WriteFile(layout_conf, 'here = we go')
     self.assertEqual(portage_util.GetOverlayName(self.tempdir), 'hi!')
 
+  def testGetRepositoryFromEbuildInfo(self):
+    """Verify GetRepositoryFromEbuildInfo handles data from ebuild info."""
+
+    def _runTestGetRepositoryFromEbuildInfo(fake_projects, fake_srcdirs):
+      """Generate the output from ebuild info"""
+
+      # ebuild info always put () around the result, even for single element
+      # array.
+      fake_ebuild_contents = """
+CROS_WORKON_PROJECT=("%s")
+CROS_WORKON_SRCDIR=("%s")
+      """ % ('" "'.join(fake_projects),
+             '" "'.join(fake_srcdirs))
+      result = portage_util.GetRepositoryFromEbuildInfo(fake_ebuild_contents)
+      result_srcdirs, result_projects = zip(*result)
+      self.assertEquals(fake_projects, list(result_projects))
+      self.assertEquals(fake_srcdirs, list(result_srcdirs))
+
+    _runTestGetRepositoryFromEbuildInfo(['a', 'b'], ['src_a', 'src_b'])
+    _runTestGetRepositoryFromEbuildInfo(['a'], ['src_a'])
+
 
 class BuildEBuildDictionaryTest(cros_test_lib.MockTempDirTestCase):
   """Tests of the EBuild Dictionary."""
 
   def setUp(self):
     self.overlay = self.tempdir
-    self.package = 'chromeos-base/test_package'
-    self.root = os.path.join(self.overlay, 'chromeos-base', 'test_package')
-    self.package_path = os.path.join(self.root, 'test_package-0.0.1.ebuild')
+    self.uprev_candidate_mock = self.PatchObject(
+        portage_util, '_FindUprevCandidates',
+        side_effect=BuildEBuildDictionaryTest._FindUprevCandidateMock)
+    self.overlays = {self.overlay: []}
+
+  def _CreatePackage(self, name, blacklisted=False):
+    """Helper that creates an ebuild."""
+    package_path = os.path.join(self.overlay, name,
+                                'test_package-0.0.1.ebuild')
+    content = 'CROS_WORKON_BLACKLIST=1' if blacklisted else ''
+    osutils.WriteFile(package_path, content, makedirs=True)
+
+  @staticmethod
+  def _FindUprevCandidateMock(files, allow_blacklisted=False):
+    """Mock for the FindUprevCandidateMock function.
+
+    Simplified implementation of FindUprevCandidate: consider an ebuild worthy
+    of uprev if |allow_blacklisted| is set or the ebuild is not blacklisted.
+    """
+    for f in files:
+      if (f.endswith('.ebuild') and
+          (not 'CROS_WORKON_BLACKLIST=1' in osutils.ReadFile(f) or
+           allow_blacklisted)):
+        pkgdir = os.path.dirname(f)
+        return _Package(os.path.join(os.path.basename(os.path.dirname(pkgdir)),
+                                     os.path.basename(pkgdir)))
+    return None
+
+  def _assertFoundPackages(self, packages):
+    """Succeeds iff the packages discovered were packages."""
+    self.assertEquals(len(self.overlays), 1)
+    self.assertEquals([p.package for p in self.overlays[self.overlay]],
+                      packages)
 
   def testWantedPackage(self):
-    overlays = {self.overlay: []}
-    package = _Package(self.package)
-    self.PatchObject(portage_util, '_FindUprevCandidates', return_value=package)
-    portage_util.BuildEBuildDictionary(overlays, False, [self.package])
-    self.assertEquals(len(overlays), 1)
-    self.assertEquals(overlays[self.overlay], [package])
+    """Test that we can find a specific package."""
+    package_name = 'chromeos-base/mypackage'
+    self._CreatePackage(package_name)
+    portage_util.BuildEBuildDictionary(self.overlays, False, [package_name])
+    self._assertFoundPackages([package_name])
 
   def testUnwantedPackage(self):
-    overlays = {self.overlay: []}
-    portage_util.BuildEBuildDictionary(overlays, False, [])
-    self.assertEquals(len(overlays), 1)
-    self.assertEquals(overlays[self.overlay], [])
+    """Test that we find only the packages we want."""
+    portage_util.BuildEBuildDictionary(self.overlays, False, [])
+    self._assertFoundPackages([])
+
+  def testAnyPackage(self):
+    """Test that we return all packages available if use_all is set."""
+    package_name = 'chromeos-base/package_name'
+    self._CreatePackage(package_name)
+    portage_util.BuildEBuildDictionary(self.overlays, True, [])
+    self._assertFoundPackages([package_name])
+
+  def testUnknownPackage(self):
+    """Test that _FindUprevCandidates is only called if the CP matches."""
+    self._CreatePackage('chromeos-base/package_name')
+    portage_util.BuildEBuildDictionary(self.overlays, False,
+                                       ['chromeos-base/other_package'])
+    self.assertFalse(self.uprev_candidate_mock.called)
+    self._assertFoundPackages([])
+
+  def testBlacklistedPackagesIgnoredByDefault(self):
+    """Test that blacklisted packages are ignored by default."""
+    package_name = 'chromeos-base/blacklisted_package'
+    self._CreatePackage(package_name, blacklisted=True)
+    portage_util.BuildEBuildDictionary(self.overlays, False, [package_name])
+    self._assertFoundPackages([])
+
+  def testBlacklistedPackagesAllowed(self):
+    """Test that we can find blacklisted packages with |allow_blacklisted|."""
+    package_name = 'chromeos-base/blacklisted_package'
+    self._CreatePackage(package_name, blacklisted=True)
+    portage_util.BuildEBuildDictionary(self.overlays, False, [package_name],
+                                       allow_blacklisted=True)
+    self._assertFoundPackages([package_name])
 
 
 class ProjectMappingTest(cros_test_lib.TestCase):
@@ -902,12 +961,12 @@ class ProjectMappingTest(cros_test_lib.TestCase):
     """Test if we can find the list of workon projects."""
     ply_image = 'media-gfx/ply-image'
     ply_image_project = 'chromiumos/third_party/ply-image'
-    kernel = 'sys-kernel/chromeos-kernel'
-    kernel_project = 'chromiumos/third_party/kernel'
+    this = 'chromeos-base/chromite'
+    this_project = 'chromiumos/chromite'
     matches = [
         ([ply_image], set([ply_image_project])),
-        ([kernel], set([kernel_project])),
-        ([ply_image, kernel], set([ply_image_project, kernel_project]))
+        ([this], set([this_project])),
+        ([ply_image, this], set([ply_image_project, this_project]))
     ]
     if portage_util.FindOverlays(constants.BOTH_OVERLAYS):
       for packages, projects in matches:

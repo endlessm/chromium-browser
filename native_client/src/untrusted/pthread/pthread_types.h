@@ -11,6 +11,8 @@
 #ifndef NATIVE_CLIENT_SRC_UNTRUSTED_PTHREAD_NC_PTHREAD_TYPES_H_
 #define NATIVE_CLIENT_SRC_UNTRUSTED_PTHREAD_NC_PTHREAD_TYPES_H_ 1
 
+#include <sys/queue.h>
+
 #include "native_client/src/untrusted/pthread/pthread.h"
 
 
@@ -31,28 +33,27 @@ typedef struct entry {
   int32_t padding[5];              /* 4 * 5 = 20 bytes */
 } nc_thread_memory_block_t;
 
-typedef enum {
-  THREAD_STACK_MEMORY = 0,
-  TLS_AND_TDB_MEMORY,
-  MAX_MEMORY_TYPE
-} nc_thread_memory_block_type_t;
-
 struct __nc_basic_thread_data;
 
 /* This struct defines the layout of the TDB */
 typedef struct nc_thread_descriptor {
   void *tls_base;  /* tls accesses are made relative to this base */
+  /*
+   * joinable and join_waiting are always accessed with
+   * __nc_thread_management_lock held (except when the thread is being
+   * created).
+   */
   int joinable;
   int join_waiting;
   nc_thread_memory_block_t *stack_node;
-  nc_thread_memory_block_t *tls_node;
+  void *tls_allocation;  /* Used for free()ing the TLS+TDB allocation. */
   void *(*start_func)(void *thread_arg);
   void *state;
   /*
    * irt_thread_data is used when libpthread is linked into the IRT.
    * It is used for free()ing the thread block.
-   * TODO(mseaborn): This plays a similar role to tls_node; the two
-   * could be unified in future.
+   * TODO(mseaborn): This plays a similar role to tls_allocation; the
+   * two could be unified in future.
    */
   void *irt_thread_data;
   struct __nc_basic_thread_data *basic_data;

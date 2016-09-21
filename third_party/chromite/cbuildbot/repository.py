@@ -11,6 +11,7 @@ import os
 import re
 import shutil
 
+from chromite.cbuildbot import config_lib
 from chromite.lib import cros_build_lib
 from chromite.lib import cros_logging as logging
 from chromite.lib import git
@@ -18,6 +19,9 @@ from chromite.lib import osutils
 from chromite.lib import path_util
 from chromite.lib import retry_util
 from chromite.lib import rewrite_git_alternates
+
+
+site_config = config_lib.GetConfig()
 
 
 # File that marks a buildroot as being used by a trybot
@@ -38,8 +42,9 @@ def IsInternalRepoCheckout(root):
   manifest_dir = os.path.join(root, '.repo', 'manifests')
   manifest_url = git.RunGit(
       manifest_dir, ['config', 'remote.origin.url']).output.strip()
-  return (os.path.splitext(os.path.basename(manifest_url))[0]
-          == os.path.splitext(os.path.basename(constants.MANIFEST_INT_URL))[0])
+  return (os.path.splitext(os.path.basename(manifest_url))[0] ==
+          os.path.splitext(os.path.basename(
+              site_config.params.MANIFEST_INT_URL))[0])
 
 
 def CloneGitRepo(working_dir, repo_url, reference=None, bare=False,
@@ -173,8 +178,9 @@ class RepoRepository(object):
 
   def __init__(self, manifest_repo_url, directory, branch=None,
                referenced_repo=None, manifest=constants.DEFAULT_MANIFEST,
-               depth=None, repo_url=constants.REPO_URL, repo_branch=None,
-               groups=None, repo_cmd='repo'):
+               depth=None, repo_url=site_config.params.REPO_URL,
+               repo_branch=None, groups=None, repo_cmd='repo',
+               preserve_paths=()):
     """Initialize.
 
     Args:
@@ -190,6 +196,8 @@ class RepoRepository(object):
       repo_branch: Branch to check out the repo tool at.
       groups: Only sync projects that match this filter.
       repo_cmd: Name of repo_cmd to use.
+      preserve_paths: paths need to be preserved in repo clean
+        in case we want to clean and retry repo sync.
     """
     self.manifest_repo_url = manifest_repo_url
     self.repo_url = repo_url
@@ -198,6 +206,7 @@ class RepoRepository(object):
     self.branch = branch
     self.groups = groups
     self.repo_cmd = repo_cmd
+    self.preserve_paths = preserve_paths
 
     # It's perfectly acceptable to pass in a reference pathway that isn't
     # usable.  Detect it, and suppress the setting so that any depth
@@ -227,14 +236,18 @@ class RepoRepository(object):
     os.unlink(manifest_path)
     shutil.copyfile(local_manifest, manifest_path)
 
-  def Initialize(self, local_manifest=None, extra_args=()):
+  def Initialize(self, local_manifest=None, manifest_repo_url=None,
+                 extra_args=()):
     """Initializes a repository.  Optionally forces a local manifest.
 
     Args:
       local_manifest: The absolute path to a custom manifest to use.  This will
                       replace .repo/manifest.xml.
+      manifest_repo_url: A new value for manifest_repo_url.
       extra_args: Extra args to pass to 'repo init'
     """
+    if manifest_repo_url:
+      self.manifest_repo_url = manifest_repo_url
 
     # Do a sanity check on the repo; if it exists and we can't pull a
     # manifest from it, we know it's fairly screwed up and needs a fresh
@@ -344,8 +357,18 @@ class RepoRepository(object):
            self._referenced_repo]
     git.RunGit('.', cmd)
 
+  def _CleanUpAndRunCommand(self, *args, **kwargs):
+    """Clean up repository and run command"""
+    ClearBuildRoot(self.directory, self.preserve_paths)
+    local_manifest = kwargs.pop('local_manifest', None)
+    # Always re-initialize to the current branch.
+    self.Initialize(local_manifest)
+    # Fix existing broken mirroring configurations.
+    self._EnsureMirroring()
+    cros_build_lib.RunCommand(*args, **kwargs)
+
   def Sync(self, local_manifest=None, jobs=None, all_branches=True,
-           network_only=False):
+           network_only=False, detach=False):
     """Sync/update the source.  Changes manifest if specified.
 
     Args:
@@ -362,6 +385,8 @@ class RepoRepository(object):
         if the manifest has bad copyfile statements, via skipping checkout
         the broken copyfile tag won't be spotted), or of use when the
         invoking code is fine w/ operating on bare repos, ie .repo/projects/*.
+      detach: If true, throw away all local changes, even if on tracking
+        branches.
     """
     try:
       # Always re-initialize to the current branch.
@@ -376,11 +401,25 @@ class RepoRepository(object):
         # Note that this option can break kernel checkouts. crbug.com/464536
         cmd.append('-c')
       # Do the network half of the sync; retry as necessary to get the content.
-      retry_util.RunCommandWithRetries(constants.SYNC_RETRIES, cmd + ['-n'],
-                                       cwd=self.directory)
+      try:
+        cros_build_lib.RunCommand(cmd + ['-n'], cwd=self.directory)
+      except cros_build_lib.RunCommandError:
+        if constants.SYNC_RETRIES > 0:
+          # Retry on clean up and repo sync commands,
+          # decrement max_retry for this command
+          retry_util.RetryCommand(self._CleanUpAndRunCommand,
+                                  constants.SYNC_RETRIES - 1,
+                                  cmd + ['-n'], cwd=self.directory,
+                                  local_manifest=local_manifest)
+        else:
+          # No need to retry
+          raise
 
       if network_only:
         return
+
+      if detach:
+        cmd.append('--detach')
 
       # Do the local sync; note that there is a couple of corner cases where
       # the new manifest cannot transition from the old checkout cleanly-

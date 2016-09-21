@@ -7,6 +7,7 @@
 from __future__ import print_function
 
 import datetime
+import itertools
 import numpy
 import re
 import sys
@@ -14,6 +15,7 @@ import sys
 from chromite.cbuildbot import constants
 from chromite.lib import cidb
 from chromite.lib import commandline
+from chromite.lib import cros_build_lib
 from chromite.lib import cros_logging as logging
 
 
@@ -23,6 +25,7 @@ GUTS_BASE_URL = 't/'
 CROS_BUG_BASE_URL = 'crbug.com/'
 INTERNAL_CL_BASE_URL = 'crosreview.com/i/'
 EXTERNAL_CL_BASE_URL = 'crosreview.com/'
+CHROMIUM_CL_BASE_URL = 'codereview.chromium.org/'
 
 class CLStatsEngine(object):
   """Engine to generate stats about CL actions taken by the Commit Queue."""
@@ -35,6 +38,8 @@ class CLStatsEngine(object):
     self.blames = {}
     self.summary = {}
     self.builds_by_build_id = {}
+    self.slave_builds_by_master_id = {}
+    self.slave_builds_by_config = {}
 
   def GatherBuildAnnotations(self):
     """Gather the failure annotations for builds from cidb."""
@@ -75,15 +80,17 @@ class CLStatsEngine(object):
 
     # Format to generate the regex patterns. Matches one of provided domain
     # names, followed by lazy wildcard, followed by greedy digit wildcard,
-    # followed by optional slash and optional comma.
-    general_regex = r'^.*(%s).*?([0-9]+)/?,?$'
+    # followed by optional slash and optional comma and optional (# +
+    # alphanum wildcard).
+    general_regex = r'^.*(%s).*?([0-9]+)/?,?(#\S*)?$'
 
-    crbug = general_regex % r'crbug.com|code.google.com'
+    crbug = general_regex % r'crbug.com|bugs.chromium.org'
     internal_review = general_regex % (
         r'chrome-internal-review.googlesource.com|crosreview.com/i')
     external_review = general_regex % (
         r'crosreview.com|chromium-review.googlesource.com')
     guts = general_regex % r't/|gutsv\d.corp.google.com/#ticket/'
+    chromium_review = general_regex % r'codereview.chromium.org'
 
     # Buganizer regex is different, as buganizer urls do not end with the bug
     # number.
@@ -96,12 +103,14 @@ class CLStatsEngine(object):
                 internal_review,
                 external_review,
                 buganizer,
-                guts]
+                guts,
+                chromium_review]
     url_patterns = [CROS_BUG_BASE_URL,
                     INTERNAL_CL_BASE_URL,
                     EXTERNAL_CL_BASE_URL,
                     BUGANIZER_BASE_URL,
-                    GUTS_BASE_URL]
+                    GUTS_BASE_URL,
+                    CHROMIUM_CL_BASE_URL]
 
     for t in tokens:
       for p, u in zip(patterns, url_patterns):
@@ -112,7 +121,9 @@ class CLStatsEngine(object):
 
     return urls
 
-  def Gather(self, start_date, end_date, sort_by_build_number=True,
+  def Gather(self, start_date, end_date,
+             master_config=constants.CQ_MASTER,
+             sort_by_build_number=True,
              starting_build_number=None):
     """Fetches build data and failure reasons.
 
@@ -121,15 +132,17 @@ class CLStatsEngine(object):
           examine.
       end_date: A datetime.date instance for the latest build to
           examine.
+      master_config: Config name of master to gather data for.
+                     Default to CQ_MASTER.
       sort_by_build_number: Optional boolean. If True, builds will be
           sorted by build number.
-      starting_build_number: (optional) The lowest build number from the CQ to
+      starting_build_number: (optional) The lowest build number to
           include in the results.
     """
-    logging.info('Gathering data for %s from %s until %s', constants.CQ_MASTER,
+    logging.info('Gathering data for %s from %s until %s', master_config,
                  start_date, end_date)
     self.builds = self.db.GetBuildHistory(
-        constants.CQ_MASTER,
+        master_config,
         start_date=start_date,
         end_date=end_date,
         starting_build_number=starting_build_number,
@@ -148,6 +161,16 @@ class CLStatsEngine(object):
 
     self.builds_by_build_id.update(
         {b['id'] : b for b in self.builds})
+
+    # Gather slave statuses for each of the master builds. For now this is a
+    # separate query per CQ run, but this could be consolidated to a single
+    # query if necessary (requires adding a cidb.py API method).
+    for bid in self.builds_by_build_id:
+      self.slave_builds_by_master_id[bid] = self.db.GetSlaveStatuses(bid)
+
+    self.slave_builds_by_config = cros_build_lib.GroupByKey(
+        itertools.chain(*self.slave_builds_by_master_id.values()),
+        'build_config')
 
   def _PrintCounts(self, reasons, fmt):
     """Print a sorted list of reasons in descending order of frequency.
@@ -190,7 +213,36 @@ class CLStatsEngine(object):
       )
     return false_rejection_rate
 
-  def Summarize(self):
+  def GetBuildRunTimes(self, builds):
+    """Gets the elapsed run times of the completed builds within |builds|.
+
+    Args:
+      builds: Iterable of build statuses as returned by cidb.
+
+    Returns:
+      A list of the elapsed times (in seconds) of the builds that completed.
+    """
+    times = []
+    for b in builds:
+      if b['finish_time']:
+        td = (b['finish_time'] - b['start_time']).total_seconds()
+        times.append(td)
+    return times
+
+  def Summarize(self, build_type, bad_patch_candidates=False):
+    """Process, print, and return a summary of statistics.
+
+    As a side effect, save summary to self.summary.
+
+    Returns:
+      A dictionary summarizing the statistics.
+    """
+    if build_type == 'cq':
+      return self.SummarizeCQ(bad_patch_candidates=bad_patch_candidates)
+    else:
+      return self.SummarizePFQ()
+
+  def SummarizeCQ(self, bad_patch_candidates=False):
     """Process, print, and return a summary of cl action statistics.
 
     As a side effect, save summary to self.summary.
@@ -208,6 +260,8 @@ class CLStatsEngine(object):
     else:
       logging.info('No runs included.')
 
+    build_times_sec = sorted(self.GetBuildRunTimes(self.builds))
+
     build_reason_counts = {}
     for reasons in self.reasons.values():
       for reason in reasons:
@@ -215,8 +269,11 @@ class CLStatsEngine(object):
           build_reason_counts[reason] = build_reason_counts.get(reason, 0) + 1
 
     unique_blames = set()
+    build_blame_counts = {}
     for blames in self.blames.itervalues():
       unique_blames.update(blames)
+      for blame in blames:
+        build_blame_counts[blame] = build_blame_counts.get(blame, 0) + 1
     unique_cl_blames = {blame for blame in unique_blames if
                         EXTERNAL_CL_BASE_URL in blame}
 
@@ -268,6 +325,19 @@ class CLStatsEngine(object):
       for x in range(max(rejection_counts) + 1):
         good_patch_rejection_breakdown.append((x, rejection_counts.count(x)))
 
+    # For CQ runs that passed, track which slave was the long pole, i.e. the
+    # last to finish.
+    long_pole_slave_counts = {}
+    for bid, master_build in self.builds_by_build_id.items():
+      if master_build['status'] == constants.BUILDER_STATUS_PASSED:
+        if not self.slave_builds_by_master_id[bid]:
+          continue
+        _, long_config = max((slave['finish_time'], slave['build_config'])
+                             for slave in self.slave_builds_by_master_id[bid]
+                             if slave['finish_time'] and slave['important'])
+        long_pole_slave_counts[long_config] = (
+            long_pole_slave_counts.get(long_config, 0) + 1)
+
     summary = {
         'total_cl_actions': len(self.claction_history),
         'unique_cls': len(self.claction_history.affected_cls),
@@ -284,6 +354,7 @@ class CLStatsEngine(object):
         'patch_handling_time': patch_handle_times,
         'bad_cl_candidates': bad_cl_candidates,
         'unique_blames_change_count': len(unique_cl_blames),
+        'long_pole_slave_counts': long_pole_slave_counts,
     }
 
     logging.info('CQ committed %s changes', summary['submitted_patches'])
@@ -366,11 +437,19 @@ class CLStatsEngine(object):
                  numpy.percentile(cq_handle_times, 90) / 3600.0)
     logging.info('')
 
+    # Log some statistics about cq-master run-time.
+    logging.info('CQ-master run time:')
+    logging.info('  50th percentile: %.2f hours',
+                 numpy.percentile(build_times_sec, 50) / 3600.0)
+    logging.info('  90th percenfile: %.2f hours',
+                 numpy.percentile(build_times_sec, 90) / 3600.0)
+
     for bot_type, patches in summary['bad_cl_candidates'].items():
       logging.info('%d bad patch candidates were rejected by the %s',
                    len(patches), bot_type)
-      for k in patches:
-        logging.info('Bad patch candidate in: %s', k)
+      if bad_patch_candidates:
+        for k in patches:
+          logging.info('Bad patch candidate in: %s', k)
 
     fmt_fai = '  %(cnt)d failures in %(reason)s'
     fmt_rej = '  %(cnt)d rejections due to %(reason)s'
@@ -384,7 +463,63 @@ class CLStatsEngine(object):
     logging.info('Reasons why builds failed:')
     self._PrintCounts(build_reason_counts, fmt_fai)
 
+    logging.info('Bugs or CLs responsible for build failures:')
+    self._PrintCounts(build_blame_counts, fmt_fai)
+
+    total_counts = sum(long_pole_slave_counts.values())
+    logging.info('Slowest CQ slaves out of %s passing runs:', total_counts)
+    for (count, config) in sorted(
+        (v, k) for (k, v) in long_pole_slave_counts.items()):
+      if count < (total_counts / 20.0):
+        continue
+      build_times = self.GetBuildRunTimes(self.slave_builds_by_config[config])
+      logging.info('%s times the slowest slave was %s', count, config)
+      logging.info('  50th percentile: %.2f hours, 90th percentile: %.2f hours',
+                   numpy.percentile(build_times, 50) / 3600.0,
+                   numpy.percentile(build_times, 90) / 3600.0)
+
     return summary
+
+  # TODO(akeshet): some of this logic is copied directly from SummarizeCQ.
+  # Refactor to reuse that code instead.
+  def SummarizePFQ(self):
+    """Process, print, and return a summary of pfq bug and failure statistics.
+
+    As a side effect, save summary to self.summary.
+
+    Returns:
+      A dictionary summarizing the statistics.
+    """
+    if self.builds:
+      logging.info('%d total runs included, from build %d to %d.',
+                   len(self.builds), self.builds[-1]['build_number'],
+                   self.builds[0]['build_number'])
+      total_passed = len([b for b in self.builds
+                          if b['status'] == constants.BUILDER_STATUS_PASSED])
+      logging.info('%d of %d runs passed.', total_passed, len(self.builds))
+    else:
+      logging.info('No runs included.')
+
+    # TODO(akeshet): This is the end of the verbatim copied code.
+
+    # Count the number of times each particular (canonicalized) blame url was
+    # given.
+    unique_blame_counts = {}
+    for blames in self.blames.itervalues():
+      for b in blames:
+        unique_blame_counts[b] = unique_blame_counts.get(b, 0) + 1
+
+    top_blames = sorted([(count, blame) for
+                         blame, count in unique_blame_counts.iteritems()],
+                        reverse=True)
+    logging.info('Top blamed issues:')
+    if top_blames:
+      for tb in top_blames:
+        logging.info('   %s x %s', tb[0], tb[1])
+    else:
+      logging.info('None!')
+
+    return {}
 
 
 def _CheckOptions(options):
@@ -423,6 +558,14 @@ def GetParser():
                                          '(inclusive).')
   parser.add_argument('--end-date', action='store', type='date', default=None,
                       help='Limit scope to an end date in the past.')
+
+  parser.add_argument('--build-type', choices=['cq', 'chrome-pfq'],
+                      default='cq',
+                      help='Build type to summarize. Default: cq.')
+  parser.add_argument('--bad-patch-candidates', action='store_true',
+                      default=False,
+                      help='In CQ mode, whether to print bad patch '
+                           'candidates.')
   return parser
 
 
@@ -452,7 +595,13 @@ def main(argv):
     else:
       start_date = end_date - datetime.timedelta(days=1)
 
+  if options.build_type == 'cq':
+    master_config = constants.CQ_MASTER
+  else:
+    master_config = constants.PFQ_MASTER
+
   cl_stats_engine = CLStatsEngine(db)
-  cl_stats_engine.Gather(start_date, end_date,
+  cl_stats_engine.Gather(start_date, end_date, master_config,
                          starting_build_number=options.starting_build)
-  cl_stats_engine.Summarize()
+  cl_stats_engine.Summarize(options.build_type,
+                            options.bad_patch_candidates)

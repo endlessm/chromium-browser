@@ -7,21 +7,31 @@
 from __future__ import print_function
 
 import base64
+import json
 import mock
 import os
 from StringIO import StringIO
+from os.path import join as pathjoin
+from os.path import abspath as abspath
 
-from chromite.cbuildbot import autotest_rpc_errors
 from chromite.cbuildbot import commands
+from chromite.cbuildbot import config_lib
 from chromite.cbuildbot import constants
 from chromite.cbuildbot import failures_lib
+from chromite.cbuildbot import swarming_lib
+from chromite.cbuildbot import topology
+from chromite.lib import cros_build_lib
 from chromite.lib import cros_build_lib_unittest
 from chromite.lib import cros_test_lib
 from chromite.lib import gob_util
 from chromite.lib import osutils
 from chromite.lib import partial_mock
 from chromite.lib import path_util
+from chromite.lib import portage_util
 from chromite.scripts import pushimage
+
+
+site_config = config_lib.GetConfig()
 
 
 class RunBuildScriptTest(cros_test_lib.TempDirTestCase):
@@ -40,7 +50,7 @@ class RunBuildScriptTest(cros_test_lib.TempDirTestCase):
     # Write specified error message to status file.
     def WriteError(_cmd, extra_env=None, **_kwargs):
       if extra_env is not None and error is not None:
-        status_file = extra_env['PARALLEL_EMERGE_STATUS_FILE']
+        status_file = extra_env[constants.PARALLEL_EMERGE_STATUS_FILE_ENVVAR]
         osutils.WriteFile(status_file, error)
 
     buildroot = self.tempdir
@@ -110,7 +120,7 @@ class RunTestSuiteTest(cros_build_lib_unittest.RunCommandTempDirTestCase):
   BUILD_ROOT = '/fake/root'
 
   def _RunTestSuite(self, test_type):
-    commands.RunTestSuite(self.tempdir, self.TEST_BOARD, self.BUILD_ROOT,
+    commands.RunTestSuite(self.BUILD_ROOT, self.TEST_BOARD, self.tempdir,
                           '/tmp/taco', archive_dir='/fake/root',
                           whitelist_chrome_crashes=False,
                           test_type=test_type)
@@ -130,6 +140,13 @@ class RunTestSuiteTest(cros_build_lib_unittest.RunCommandTempDirTestCase):
     """Test SMOKE config."""
     self._RunTestSuite(constants.SMOKE_SUITE_TEST_TYPE)
     self.assertCommandContains(['--only_verify'])
+
+  def testGceVmTestType(self):
+    """Test GCE_VM_TEST_TYPE."""
+    self._RunTestSuite(constants.GCE_VM_TEST_TYPE)
+    self.assertCommandContains(['--only_verify'])
+    self.assertCommandContains(['--type=gce'])
+    self.assertCommandContains(['--suite=gce-smoke'])
 
 
 class ChromeSDKTest(cros_build_lib_unittest.RunCommandTempDirTestCase):
@@ -184,26 +201,41 @@ class ChromeSDKTest(cros_build_lib_unittest.RunCommandTempDirTestCase):
 
 
 class HWLabCommandsTest(cros_build_lib_unittest.RunCommandTestCase,
-                        cros_test_lib.OutputTestCase):
-  """Test commands related to HWLab tests."""
+                        cros_test_lib.OutputTestCase,
+                        cros_test_lib.MockTempDirTestCase):
+  """Test commands related to HWLab tests that are runing via swarming proxy."""
 
   # pylint: disable=protected-access
-  CONNECTION_REFUSED = '''
-Connection refused
-'''
   JOB_ID_OUTPUT = '''
 Autotest instance: cautotest
 02-23-2015 [06:26:51] Submitted create_suite_job rpc
 02-23-2015 [06:26:53] Created suite job: http://cautotest.corp.google.com/afe/#tab_id=view_job&object_id=26960110
 @@@STEP_LINK@Suite created@http://cautotest.corp.google.com/afe/#tab_id=view_job&object_id=26960110@@@
 '''
+
   WAIT_RETRY_OUTPUT = '''
-Connection dropped
+ERROR: Encountered swarming internal error
 '''
+
   WAIT_OUTPUT = '''
 The suite job has another 3:09:50.012887 till timeout.
 The suite job has another 2:39:39.789250 till timeout.
 '''
+  JSON_DICT = '''
+{"tests": {"test_1":{"status":"GOOD", "attributes": ["suite:test-suite",
+                                                     "subsystem:light",
+                                                     "subsystem:bluetooth"]},
+           "test_2":{"status":"other", "attributes": ["suite:test-suite",
+                                                      "subsystem:network"]}
+}}
+'''
+  JSON_OUTPUT = ('%s%s%s' % (commands.JSON_DICT_START, JSON_DICT,
+                             commands.JSON_DICT_END))
+  SWARMING_TIMEOUT_DEFAULT = str(
+      commands._DEFAULT_HWTEST_TIMEOUT_MINS * 60 +
+      commands._SWARMING_ADDITIONAL_TIMEOUT)
+  SWARMING_EXPIRATION = str(commands._SWARMING_EXPIRATION)
+
 
   def setUp(self):
     self._build = 'test-build'
@@ -212,46 +244,85 @@ The suite job has another 2:39:39.789250 till timeout.
     self._pool = 'test-pool'
     self._num = 42
     self._file_bugs = True
-    self._wait_for_results = False
+    self._wait_for_results = True
     self._priority = 'test-priority'
     self._timeout_mins = 23
     self._retry = False
     self._max_retries = 3
     self._minimum_duts = 2
     self._suite_min_duts = 2
+    self._subsystems = {'light', 'network'}
     self.create_cmd = None
     self.wait_cmd = None
+    self.json_dump_cmd = None
+    self.temp_json_path = os.path.join(self.tempdir, 'temp_summary.json')
+    # Bot died
+    self.retriable_swarming_code = 80
+    self.internal_failure_exit_code = 1
+    # A random code that's not retriable.
+    self.swarming_code = 10
+    topology.FetchTopologyFromCIDB(None)
 
   def RunHWTestSuite(self, *args, **kwargs):
     """Run the hardware test suite, printing logs to stdout."""
     kwargs.setdefault('debug', False)
     with cros_test_lib.LoggingCapturer() as logs:
       try:
-        commands.RunHWTestSuite(self._build, self._suite, self._board,
-                                *args, **kwargs)
+        cmd_result = commands.RunHWTestSuite(self._build, self._suite,
+                                             self._board, *args, **kwargs)
+        return cmd_result
       finally:
         print(logs.messages)
 
-  def SetCmdResults(self, create_return_code=0, wait_return_code=0, args=()):
+  def SetCmdResults(self, create_return_code=0, wait_return_code=0,
+                    dump_json_return_code=0, wait_retry=False, args=(),
+                    swarming_timeout_secs=SWARMING_TIMEOUT_DEFAULT,
+                    swarming_io_timeout_secs=SWARMING_TIMEOUT_DEFAULT,
+                    swarming_hard_timeout_secs=SWARMING_TIMEOUT_DEFAULT,
+                    swarming_expiration_secs=SWARMING_EXPIRATION):
     """Set the expected results from the specified commands.
 
     Args:
       create_return_code: Return code from create command.
       wait_return_code: Return code from wait command.
+      dump_json_return_code: Return code from json_dump command.
+      wait_retry: Boolean, if wait command should be retried.
       args: Additional args to pass to create and wait commands.
+      swarming_timeout_secs: swarming client timeout.
+      swarming_io_timeout_secs: swarming client io timeout.
+      swarming_hard_timeout_secs: swarming client hard timeout.
+      swarming_expiration_secs: swarming task expiration.
     """
-    base_cmd = [
-        commands._AUTOTEST_RPC_CLIENT, commands._AUTOTEST_RPC_HOSTNAME,
-        'RunSuite', '--build', 'test-build', '--suite_name', 'test-suite',
-        '--board', 'test-board'
-    ] + list(args)
+    base_cmd = [swarming_lib._SWARMING_PROXY_CLIENT, 'run',
+                '--swarming', topology.topology.get(
+                    topology.SWARMING_PROXY_HOST_KEY),
+                '--task-summary-json', self.temp_json_path,
+                '--raw-cmd',
+                '--task-name', 'test-build-test-suite',
+                '--dimension', 'os', 'Ubuntu-14.04',
+                '--dimension', 'pool', 'default',
+                '--print-status-updates',
+                '--timeout', swarming_timeout_secs,
+                '--io-timeout', swarming_io_timeout_secs,
+                '--hard-timeout', swarming_hard_timeout_secs,
+                '--expiration', swarming_expiration_secs,
+                '--', commands._RUN_SUITE_PATH,
+                '--build', 'test-build', '--board', 'test-board']
+    args = list(args)
+    if '--subsystems' in args:
+      i = [i for i, val in enumerate(args) if val == '--subsystems'][0]
+      args[i] = '--suite_args'
+      subsys_lst = ['subsystem:%s' % x for x in json.loads(args[i+1])]
+      subsys_str = ' or '.join(subsys_lst)
+      args[i+1] = "{'attr_filter': '(suite:test-suite) and (%s)'}" % subsys_str
+      base_cmd = base_cmd + ['--suite_name', 'suite_attr_wrapper'] + args
+    else:
+      base_cmd = base_cmd + ['--suite_name', 'test-suite'] + args
+
     self.create_cmd = base_cmd + ['-c']
     self.wait_cmd = base_cmd + ['-m', '26960110']
-    conn_refused = autotest_rpc_errors.PROXY_CANNOT_SEND_REQUEST
+    self.json_dump_cmd = base_cmd + ['--json_dump', '-m', '26960110']
     create_results = iter([
-        self.rc.CmdResult(returncode=conn_refused,
-                          output=self.CONNECTION_REFUSED,
-                          error=''),
         self.rc.CmdResult(returncode=create_return_code,
                           output=self.JOB_ID_OUTPUT,
                           error=''),
@@ -260,86 +331,238 @@ The suite job has another 2:39:39.789250 till timeout.
         self.create_cmd,
         side_effect=lambda *args, **kwargs: create_results.next(),
     )
+    wait_results_list = []
+    if wait_retry:
+      r = self.rc.CmdResult(
+          returncode=self.internal_failure_exit_code,
+          output=self.WAIT_RETRY_OUTPUT,
+          error='')
+      wait_results_list.append(r)
 
-    conn_lost = autotest_rpc_errors.PROXY_CONNECTION_LOST
-    wait_results = iter([
-        self.rc.CmdResult(returncode=conn_lost,
-                          output=self.WAIT_RETRY_OUTPUT,
-                          error=''),
-        self.rc.CmdResult(returncode=wait_return_code,
-                          output=self.WAIT_OUTPUT,
-                          error=''),
-    ])
+    wait_results_list.append(
+        self.rc.CmdResult(
+            returncode=wait_return_code, output=self.WAIT_OUTPUT,
+            error='')
+    )
+    wait_results = iter(wait_results_list)
+
     self.rc.AddCmdResult(
         self.wait_cmd,
         side_effect=lambda *args, **kwargs: wait_results.next(),
     )
 
+    dump_json_results = iter([
+        self.rc.CmdResult(returncode=dump_json_return_code,
+                          output=self.JSON_OUTPUT,
+                          error=''),
+    ])
+    self.rc.AddCmdResult(
+        self.json_dump_cmd,
+        side_effect=lambda *args, **kwargs: dump_json_results.next(),
+    )
+  def PatchJson(self, task_outputs):
+    """Mock out the code that loads from json.
+
+    Args:
+      task_outputs: A list of tuple, the first element is the value of 'outputs'
+                    field in the json dictionary, the second is a boolean
+                    indicating whether there is an internal failure,
+                    the third is a state code for the internal failure.
+                    e.g.
+                    ('some output', True, 80)
+                    ('some output', False, None)
+    """
+    orig_func = commands._CreateSwarmingArgs
+
+    def replacement(*args, **kargs):
+      swarming_args = orig_func(*args, **kargs)
+      swarming_args['temp_json_path'] = self.temp_json_path
+      return swarming_args
+
+    self.PatchObject(commands, '_CreateSwarmingArgs', side_effect=replacement)
+
+    if task_outputs:
+      return_values = []
+      for s in task_outputs:
+        j = {'shards':[{'name': 'fake_name', 'bot_id': 'chromeos-server990',
+                        'created_ts': '2015-06-12 12:00:00',
+                        'internal_failure': s[1],
+                        'state': s[2],
+                        'outputs': [s[0]]}]}
+        return_values.append(j)
+      return_values_iter = iter(return_values)
+      self.PatchObject(swarming_lib.SwarmingCommandResult, 'LoadJsonSummary',
+                       side_effect=lambda json_file: return_values_iter.next())
+    else:
+      self.PatchObject(swarming_lib.SwarmingCommandResult, 'LoadJsonSummary',
+                       return_value=None)
+
   def testRunHWTestSuiteMinimal(self):
     """Test RunHWTestSuite without optional arguments."""
     self.SetCmdResults()
+    # When run without optional arguments, wait and dump_json cmd will not run.
+    self.PatchJson([(self.JOB_ID_OUTPUT, False, None)])
+
     with self.OutputCapturer() as output:
-      self.RunHWTestSuite()
+      cmd_result = self.RunHWTestSuite()
+    self.assertEqual(cmd_result, (None, None))
     self.assertCommandCalled(self.create_cmd, capture_output=True,
                              combine_stdout_stderr=True)
-    self.assertCommandCalled(self.wait_cmd)
-    self.assertIn(self.WAIT_RETRY_OUTPUT, '\n'.join(output.GetStdoutLines()))
-    self.assertIn(self.WAIT_OUTPUT, '\n'.join(output.GetStdoutLines()))
-    self.assertIn(self.CONNECTION_REFUSED, '\n'.join(output.GetStdoutLines()))
     self.assertIn(self.JOB_ID_OUTPUT, '\n'.join(output.GetStdoutLines()))
 
   def testRunHWTestSuiteMaximal(self):
     """Test RunHWTestSuite with all arguments."""
-    self.SetCmdResults(args=[
-        '--pool', 'test-pool', '--num', '42',
-        '--file_bugs', 'True', '--no_wait', 'True',
-        '--priority', 'test-priority', '--timeout_mins', '23',
-        '--retry', 'False', '--max_retries', '3', '--minimum_duts', '2',
-        '--suite_min_duts', '2'
-    ])
+    swarming_timeout = str(self._timeout_mins * 60 +
+                           commands._SWARMING_ADDITIONAL_TIMEOUT)
+    self.SetCmdResults(
+        args=[
+            '--pool', 'test-pool', '--num', '42',
+            '--file_bugs', 'True',
+            '--priority', 'test-priority', '--timeout_mins', '23',
+            '--retry', 'False', '--max_retries', '3', '--minimum_duts', '2',
+            '--suite_min_duts', '2', '--subsystems', '["light", "network"]'
+        ],
+        swarming_timeout_secs=swarming_timeout,
+        swarming_io_timeout_secs=swarming_timeout,
+        swarming_hard_timeout_secs=swarming_timeout)
+
+    self.PatchJson([(self.JOB_ID_OUTPUT, False, None),
+                    (self.WAIT_OUTPUT, False, None),
+                    (self.JSON_OUTPUT, False, None)])
     with self.OutputCapturer() as output:
-      self.RunHWTestSuite(self._pool, self._num, self._file_bugs,
-                          self._wait_for_results, self._priority,
-                          self._timeout_mins, self._retry,
-                          self._max_retries,
-                          self._minimum_duts, self._suite_min_duts)
+      cmd_result = self.RunHWTestSuite(pool=self._pool, num=self._num,
+                                       file_bugs=self._file_bugs,
+                                       wait_for_results=self._wait_for_results,
+                                       priority=self._priority,
+                                       timeout_mins=self._timeout_mins,
+                                       retry=self._retry,
+                                       max_retries=self._max_retries,
+                                       minimum_duts=self._minimum_duts,
+                                       suite_min_duts=self._suite_min_duts,
+                                       subsystems=self._subsystems)
+    expect_result = json.loads(self.JSON_DICT)
+    self.assertEqual(cmd_result, (None, expect_result))
     self.assertCommandCalled(self.create_cmd, capture_output=True,
                              combine_stdout_stderr=True)
-    self.assertCommandCalled(self.wait_cmd)
-    self.assertIn(self.WAIT_RETRY_OUTPUT, '\n'.join(output.GetStdoutLines()))
+    self.assertCommandCalled(self.wait_cmd, capture_output=True,
+                             combine_stdout_stderr=True)
+    self.assertCommandCalled(self.json_dump_cmd, capture_output=True,
+                             combine_stdout_stderr=True)
     self.assertIn(self.WAIT_OUTPUT, '\n'.join(output.GetStdoutLines()))
-    self.assertIn(self.CONNECTION_REFUSED, '\n'.join(output.GetStdoutLines()))
     self.assertIn(self.JOB_ID_OUTPUT, '\n'.join(output.GetStdoutLines()))
 
   def testRunHWTestSuiteFailure(self):
     """Test RunHWTestSuite when ERROR is returned."""
+    self.PatchJson([(self.JOB_ID_OUTPUT, False, None)])
     self.rc.SetDefaultCmdResult(returncode=1, output=self.JOB_ID_OUTPUT)
     with self.OutputCapturer():
-      self.assertRaises(failures_lib.TestFailure, self.RunHWTestSuite)
+      cmd_result = self.RunHWTestSuite()
+      self.assertIsInstance(cmd_result.to_raise, failures_lib.TestFailure)
 
   def testRunHWTestSuiteTimedOut(self):
     """Test RunHWTestSuite when SUITE_TIMEOUT is returned."""
+    self.PatchJson([(self.JOB_ID_OUTPUT, False, None)])
     self.rc.SetDefaultCmdResult(returncode=4, output=self.JOB_ID_OUTPUT)
     with self.OutputCapturer():
-      self.assertRaises(failures_lib.SuiteTimedOut, self.RunHWTestSuite)
+      cmd_result = self.RunHWTestSuite()
+      self.assertIsInstance(cmd_result.to_raise, failures_lib.SuiteTimedOut)
 
   def testRunHWTestSuiteInfraFail(self):
     """Test RunHWTestSuite when INFRA_FAILURE is returned."""
+    self.PatchJson([(self.JOB_ID_OUTPUT, False, None)])
     self.rc.SetDefaultCmdResult(returncode=3, output=self.JOB_ID_OUTPUT)
     with self.OutputCapturer():
-      self.assertRaises(failures_lib.TestLabFailure, self.RunHWTestSuite)
+      cmd_result = self.RunHWTestSuite()
+      self.assertIsInstance(cmd_result.to_raise, failures_lib.TestLabFailure)
 
   def testRunHWTestBoardNotAvailable(self):
     """Test RunHWTestSuite when BOARD_NOT_AVAILABLE is returned."""
+    self.PatchJson([(self.JOB_ID_OUTPUT, False, None)])
     self.rc.SetDefaultCmdResult(returncode=5, output=self.JOB_ID_OUTPUT)
     with self.OutputCapturer():
-      self.assertRaises(failures_lib.BoardNotAvailable, self.RunHWTestSuite)
+      cmd_result = self.RunHWTestSuite()
+      self.assertIsInstance(cmd_result.to_raise, failures_lib.BoardNotAvailable)
 
   def testRunHWTestTestWarning(self):
     """Test RunHWTestSuite when WARNING is returned."""
+    self.PatchJson([(self.JOB_ID_OUTPUT, False, None)])
     self.rc.SetDefaultCmdResult(returncode=2, output=self.JOB_ID_OUTPUT)
     with self.OutputCapturer():
-      self.assertRaises(failures_lib.TestWarning, self.RunHWTestSuite)
+      cmd_result = self.RunHWTestSuite()
+      self.assertIsInstance(cmd_result.to_raise, failures_lib.TestWarning)
+
+  def testRunHWTestTestSwarmingClientNoSummaryFile(self):
+    """Test RunHWTestSuite when no summary file is generated."""
+    unknown_failure = 'Unknown failure'
+    self.PatchJson(task_outputs=[])
+    self.rc.SetDefaultCmdResult(returncode=1, output=unknown_failure)
+    with self.OutputCapturer() as output:
+      cmd_result = self.RunHWTestSuite()
+      self.assertIsInstance(cmd_result.to_raise,
+                            failures_lib.SwarmingProxyFailure)
+      self.assertIn(unknown_failure, '\n'.join(output.GetStdoutLines()))
+
+  def testRunHWTestTestSwarmingClientInternalFailure(self):
+    """Test RunHWTestSuite when swarming encounters internal failure."""
+    unknown_failure = 'Unknown failure'
+    self.PatchJson(
+        task_outputs=[(self.JOB_ID_OUTPUT, True, self.swarming_code)])
+    self.rc.SetDefaultCmdResult(returncode=1, output=unknown_failure)
+    with self.OutputCapturer() as output:
+      cmd_result = self.RunHWTestSuite()
+      self.assertIsInstance(cmd_result.to_raise,
+                            failures_lib.SwarmingProxyFailure)
+      self.assertIn(unknown_failure, '\n'.join(output.GetStdoutLines()))
+      self.assertIn('summary json content', '\n'.join(output.GetStdoutLines()))
+
+  def testRunHWTestTestSwarmingClientWithRetires(self):
+    """Test RunHWTestSuite with retries."""
+    self.SetCmdResults(wait_retry=True)
+    self.PatchJson(
+        [(self.JOB_ID_OUTPUT, False, None),
+         (self.WAIT_RETRY_OUTPUT, True, self.retriable_swarming_code),
+         (self.WAIT_OUTPUT, False, None),
+         (self.JSON_OUTPUT, False, None),
+        ])
+    with self.OutputCapturer() as output:
+      self.RunHWTestSuite(wait_for_results=self._wait_for_results)
+      self.assertCommandCalled(self.create_cmd, capture_output=True,
+                               combine_stdout_stderr=True)
+      self.assertCommandCalled(self.wait_cmd, capture_output=True,
+                               combine_stdout_stderr=True)
+      self.assertCommandCalled(self.json_dump_cmd, capture_output=True,
+                               combine_stdout_stderr=True)
+      self.assertIn(self.WAIT_RETRY_OUTPUT.strip(),
+                    '\n'.join(output.GetStdoutLines()))
+      self.assertIn(self.WAIT_OUTPUT, '\n'.join(output.GetStdoutLines()))
+      self.assertIn(self.JOB_ID_OUTPUT, '\n'.join(output.GetStdoutLines()))
+
+  def testGetRunSuiteArgsWithSubsystems(self):
+    """Test _GetRunSuiteArgs when subsystems is specified."""
+    result_1 = commands._GetRunSuiteArgs(build=self._build,
+                                         suite=self._suite,
+                                         board=self._board,
+                                         subsystems=['light'])
+    expected_1 = ['--build', self._build,
+                  '--board', self._board,
+                  '--suite_name', 'suite_attr_wrapper',
+                  '--suite_args',
+                  ("{'attr_filter': '(suite:%s) and (subsystem:light)'}" %
+                   self._suite)]
+    # Test with multiple subsystems.
+    result_2 = commands._GetRunSuiteArgs(build=self._build,
+                                         suite=self._suite,
+                                         board=self._board,
+                                         subsystems=['light', 'power'])
+    expected_2 = ['--build', self._build,
+                  '--board', self._board,
+                  '--suite_name', 'suite_attr_wrapper',
+                  '--suite_args',
+                  ("{'attr_filter': '(suite:%s) and (subsystem:light or "
+                   "subsystem:power)'}" % self._suite)]
+
+    self.assertEqual(result_1, expected_1)
+    self.assertEqual(result_2, expected_2)
 
 
 class CBuildBotTest(cros_build_lib_unittest.RunCommandTempDirTestCase):
@@ -450,27 +673,44 @@ f6b0b80d5f2d9a2fb41ebb6e2cee7ad8 *./updater4.sh
     commands.GenerateBreakpadSymbols(self.tempdir, self._board, False)
     self.assertCommandContains(['--board=%s' % self._board])
 
-  def testUploadSymbols(self, official=False, cnt=None):
-    """Test UploadSymbols Command."""
-    commands.UploadSymbols(self.tempdir, self._board, official, cnt, None)
-    self.assertCommandContains(['--board', self._board])
-    self.assertCommandContains(['--official_build'], expected=official)
-    self.assertCommandContains(['--upload-limit'], expected=cnt is not None)
-    self.assertCommandContains(['--failed-list'], expected=False)
-
-  def testOfficialUploadSymbols(self):
+  def testUploadSymbolsMinimal(self):
     """Test uploading symbols for official builds"""
-    self.testUploadSymbols(official=True)
+    commands.UploadSymbols('/buildroot', 'MyBoard')
+    self.assertCommandContains(
+        ['/buildroot/chromite/bin/upload_symbols', '--yes',
+         '--root', '/buildroot/chroot',
+         '--board', 'MyBoard'])
 
-  def testLimitUploadSymbols(self):
-    """Test uploading a limited number of symbols"""
-    self.testUploadSymbols(cnt=10)
+  def testUploadSymbolsMinimalNoneChromeOS(self):
+    """Test uploading symbols for official builds"""
+    commands.UploadSymbols(
+        '/buildroot', breakpad_root='/breakpad', product_name='CoolProduct')
+    self.assertCommandContains(
+        ['/buildroot/chromite/bin/upload_symbols', '--yes',
+         '--breakpad_root', '/breakpad',
+         '--product_name', 'CoolProduct'])
+
+  def testUploadSymbolsMaximal(self):
+    """Test uploading symbols for official builds"""
+    commands.UploadSymbols(
+        '/buildroot', 'MyBoard', official=True, cnt=55,
+        failed_list='/failed_list.txt', breakpad_root='/breakpad',
+        product_name='CoolProduct')
+    self.assertCommandContains(
+        ['/buildroot/chromite/bin/upload_symbols', '--yes',
+         '--root', '/buildroot/chroot',
+         '--board', 'MyBoard',
+         '--official_build',
+         '--upload-limit', '55',
+         '--failed-list', '/failed_list.txt',
+         '--breakpad_root', '/breakpad',
+         '--product_name', 'CoolProduct'])
 
   def testFailedUploadSymbols(self):
     """Test when uploading fails"""
     self.rc.SetDefaultCmdResult(returncode=1, error='i am sad')
     # This should not throw an exception.
-    commands.UploadSymbols(self.tempdir, self._board, None, None, None)
+    commands.UploadSymbols(self.tempdir)
 
   def testPushImages(self):
     """Test PushImages Command."""
@@ -515,7 +755,7 @@ f6b0b80d5f2d9a2fb41ebb6e2cee7ad8 *./updater4.sh
         gob_util, 'FetchUrl',
         return_value=StringIO(base64.b64encode(chrome_lkgm))) as patcher:
       self.assertEqual(chrome_lkgm, commands.GetChromeLKGM(chrome_revision))
-      patcher.assert_called_with(constants.EXTERNAL_GOB_HOST, url)
+      patcher.assert_called_with(site_config.params.EXTERNAL_GOB_HOST, url)
 
   def testChromeLKGM(self):
     """Verifies that we can get the chrome lkgm without a chrome revision."""
@@ -527,12 +767,13 @@ f6b0b80d5f2d9a2fb41ebb6e2cee7ad8 *./updater4.sh
 
   def testAbortHWTests(self):
     """Verifies that HWTests are aborted for a specific non-CQ config."""
+    topology.FetchTopologyFromCIDB(None)
     commands.AbortHWTests('my_config', 'my_version', debug=False)
     self.assertCommandContains(['-i', 'my_config/my_version'])
 
 
 class BuildTarballTests(cros_build_lib_unittest.RunCommandTempDirTestCase):
-  """Tests related to Building the Test Tarball Artifacts."""
+  """Tests related to building tarball artifacts."""
 
   def setUp(self):
     self._buildroot = os.path.join(self.tempdir, 'buildroot')
@@ -611,6 +852,42 @@ class BuildTarballTests(cros_build_lib_unittest.RunCommandTempDirTestCase):
         self._buildroot, control_file_list,
         os.path.join(self._tarball_dir, 'autotest_server_package.tar.bz2'),
         cwd=self._cwd, error_code_ok=True)
+
+  def testBuildStrippedPackagesArchive(self):
+    """Test generation of stripped package tarball using globs."""
+    package_globs = ['chromeos-base/chromeos-chrome', 'sys-kernel/*kernel*']
+    self.PatchObject(
+        portage_util, 'FindPackageNameMatches',
+        side_effect=[
+            [portage_util.SplitCPV('chromeos-base/chrome-1-r0')],
+            [portage_util.SplitCPV('sys-kernel/kernel-1-r0'),
+             portage_util.SplitCPV('sys-kernel/kernel-2-r0')]])
+    # Drop "stripped packages".
+    pkg_dir = pathjoin(self._buildroot, 'chroot', 'build', 'test-board',
+                       'stripped-packages')
+    osutils.Touch(pathjoin(pkg_dir, 'chromeos-base', 'chrome-1-r0.tbz2'),
+                  makedirs=True)
+    sys_kernel = pathjoin(pkg_dir, 'sys-kernel')
+    osutils.Touch(pathjoin(sys_kernel, 'kernel-1-r0.tbz2'), makedirs=True)
+    osutils.Touch(pathjoin(sys_kernel, 'kernel-1-r01.tbz2'), makedirs=True)
+    osutils.Touch(pathjoin(sys_kernel, 'kernel-2-r0.tbz1'), makedirs=True)
+    osutils.Touch(pathjoin(sys_kernel, 'kernel-2-r0.tbz2'), makedirs=True)
+    stripped_files_list = [
+        abspath(pathjoin(pkg_dir, 'chromeos-base', 'chrome-1-r0.tbz2')),
+        abspath(pathjoin(pkg_dir, 'sys-kernel', 'kernel-1-r0.tbz2')),
+        abspath(pathjoin(pkg_dir, 'sys-kernel', 'kernel-2-r0.tbz2'))]
+
+    tar_mock = self.PatchObject(commands, 'BuildTarball')
+    self.PatchObject(cros_build_lib, 'RunCommand')
+    commands.BuildStrippedPackagesTarball(self._buildroot,
+                                          'test-board',
+                                          package_globs,
+                                          self.tempdir)
+    tar_mock.assert_called_once_with(
+        self._buildroot, stripped_files_list,
+        pathjoin(self.tempdir, 'stripped-packages.tar'),
+        compressed=False)
+
 
 class UnmockedTests(cros_test_lib.TempDirTestCase):
   """Test cases which really run tests, instead of using mocks."""
@@ -736,8 +1013,7 @@ class UnmockedTests(cros_test_lib.TempDirTestCase):
     commands.GenerateHtmlIndex(index, files)
     html = osutils.ReadFile(index)
     for f in files:
-      # TODO(build): Use assertIn w/python-2.7.
-      self.assertTrue('>%s</a>' % f in html)
+      self.assertIn('>%s</a>' % f, html)
 
   def testGenerateHtmlIndexTupleDupe(self):
     """Verifies GenerateHtmlIndex gives us something unique (input: tuple)"""
@@ -755,9 +1031,8 @@ class UnmockedTests(cros_test_lib.TempDirTestCase):
     html = osutils.ReadFile(index)
     for f in files:
       a = f.split('|')
-      # TODO(build): Use assertIn w/python-2.7.
-      self.assertTrue('href="%s"' % a[0] in html)
-      self.assertTrue('>%s</a>' % a[1] in html)
+      self.assertIn('href="%s"' % a[0], html)
+      self.assertIn('>%s</a>' % a[1], html)
 
   def testGenerateHtmlIndexDir(self):
     """Verifies GenerateHtmlIndex gives us something sane (input: dir)"""
@@ -769,8 +1044,7 @@ class UnmockedTests(cros_test_lib.TempDirTestCase):
     commands.GenerateHtmlIndex(index, files)
     html = osutils.ReadFile(index)
     for f in files:
-      # TODO(build): Use assertIn w/python-2.7.
-      self.assertTrue('>%s</a>' % f in html)
+      self.assertIn('>%s</a>' % f, html)
 
   def testGenerateHtmlIndexFile(self):
     """Verifies GenerateHtmlIndex gives us something sane (input: file)"""
@@ -781,8 +1055,7 @@ class UnmockedTests(cros_test_lib.TempDirTestCase):
     commands.GenerateHtmlIndex(index, filelist)
     html = osutils.ReadFile(index)
     for f in files:
-      # TODO(build): Use assertIn w/python-2.7.
-      self.assertTrue('>%s</a>' % f in html)
+      self.assertIn('>%s</a>' % f, html)
 
   def testArchiveGeneration(self):
     """Verifies BuildStandaloneImageArchive produces correct archives"""
@@ -820,8 +1093,8 @@ class UnmockedTests(cros_test_lib.TempDirTestCase):
     """Verifies BuildGceTarball produces correct archives"""
     image_dir = os.path.join(self.tempdir, 'inputs')
     archive_dir = os.path.join(self.tempdir, 'outputs')
-    image = 'a.bin'
-    output = 'a_gce.tar.gz'
+    image = constants.TEST_IMAGE_BIN
+    output = constants.TEST_IMAGE_GCE_TAR
 
     osutils.SafeMakedirs(image_dir)
     osutils.SafeMakedirs(archive_dir)
