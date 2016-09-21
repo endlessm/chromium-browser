@@ -57,6 +57,8 @@ const base::FilePath::CharType kFilepathSinglePrefExtensions[] =
 #else
     FILE_PATH_LITERAL("/usr/share/chromium/extensions");
 #endif  // defined(GOOGLE_CHROME_BUILD)
+const base::FilePath::CharType kFilepathSinglePrefExtensionsNew[] =
+    FILE_PATH_LITERAL("/usr/share/chromium-browser/extensions");
 
 // The path to the hint file that tells the pepper plugin loader
 // where it can find the latest component updated flash.
@@ -475,6 +477,9 @@ bool PathProvider(int key, base::FilePath* result) {
       cur = base::FilePath(FILE_PATH_LITERAL("/etc/opt/chrome/policies"));
 #else
       cur = base::FilePath(FILE_PATH_LITERAL("/etc/chromium/policies"));
+      if (!base::PathExists(cur)) {
+        cur = base::FilePath(FILE_PATH_LITERAL("/etc/chromium-browser/policies"));
+      }
 #endif
       break;
     }
@@ -490,6 +495,10 @@ bool PathProvider(int key, base::FilePath* result) {
 #endif
 #if defined(OS_LINUX)
     case chrome::DIR_STANDALONE_EXTERNAL_EXTENSIONS: {
+      if (access(kFilepathSinglePrefExtensionsNew, R_OK|X_OK) == 0) {
+        cur = base::FilePath(kFilepathSinglePrefExtensionsNew);
+        break;
+      }
       cur = base::FilePath(kFilepathSinglePrefExtensions);
       break;
     }
@@ -540,6 +549,10 @@ bool PathProvider(int key, base::FilePath* result) {
 #else
       cur = base::FilePath(FILE_PATH_LITERAL(
           "/etc/chromium/native-messaging-hosts"));
+      if (!base::PathExists(cur))
+        cur = base::FilePath(FILE_PATH_LITERAL(
+            "/etc/chromium-browser/native-messaging-hosts"));
+
 #endif
 #endif  // !defined(OS_MACOSX)
       break;
