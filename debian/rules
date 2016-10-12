@@ -13,7 +13,7 @@ LIB_DIR        := usr/lib/chromium-browser
 BINARY_PACKAGE_COMPRESSION ?= xz
 FFMPEG_DIR     := third_party/ffmpeg
 FFMPEG_SRC_DIR := $(SRC_DIR)/$(FFMPEG_DIR)
-NINJA          := ninja
+NINJA          := ninja -l 3
 
 ifneq (,$(findstring Ubuntu,$(DEBIAN_DIST)))
 DISTRIBUTION=UBUNTU
