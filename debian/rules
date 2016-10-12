@@ -20,6 +20,11 @@ DISTRIBUTION=UBUNTU
 UBUNTU_DIST=$(DEBIAN_DIST)
 endif
 
+ifneq (,$(findstring Endless,$(DEBIAN_DIST)))
+DISTRIBUTION=ENDLESS
+UBUNTU_DIST=$(DEBIAN_DIST)
+endif
+
 COMPONENT_SHARED_LIB_BUILD := 1
 
 # Set up Google API keys, see http://www.chromium.org/developers/how-tos/api-keys .
