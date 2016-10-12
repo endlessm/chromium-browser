@@ -14,6 +14,11 @@ DISTRIBUTION := UBUNTU
 UBUNTU_DIST := $(DEBIAN_DIST)
 endif
 
+ifneq (,$(findstring Endless,$(DEBIAN_DIST)))
+DISTRIBUTION=ENDLESS
+UBUNTU_DIST=$(DEBIAN_DIST)
+endif
+
 # Set up Google API keys, see http://www.chromium.org/developers/how-tos/api-keys .
 # Note: these are for Ubuntu use ONLY. For your own distribution,
 # please get your own set of keys.
