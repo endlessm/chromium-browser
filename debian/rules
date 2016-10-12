@@ -91,6 +91,8 @@ export CFLAGS+=-fno-delete-null-pointer-checks
 defines+=werror=
 
 # build with gcc instead of clang
+# Note that Endless has previously experienced unacceptable startup performance
+# regressions when Chromium is built with Clang as opposed to GCC.
 defines+=clang=0
 defines+=clang_use_chrome_plugins=
 
