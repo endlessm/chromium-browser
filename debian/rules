@@ -303,7 +303,7 @@ override_dh_install-arch:
 
 	# Record files that were built, so we can compare later that we installed everything.
 	find debian/tmp debian/tmp-std debian/tmp-std -type f |cut -d/ -f3- >$(T)/unfiltered-built
-	grep -vE \($(subst $(SPACE),\|,$(BUILT_UNUSED_MATCH))\) $(T)/unfiltered-built $(foreach expr,$(RENAMED_FILE), |sed -r -e $(expr)) |grep -vE \($(subst $(SPACE),\|,$(INDEP_MATCH))\) | LC_ALL=C sort >$(T)/built
+	grep -vE \($(subst $(SPACE),\|,$(BUILT_UNUSED_MATCH))\) $(T)/unfiltered-built $(foreach expr,$(RENAMED_FILE), | grep -v libffmpeg.so | sed -r -e $(expr)) |grep -vE \($(subst $(SPACE),\|,$(INDEP_MATCH))\) | LC_ALL=C sort >$(T)/built
 
 	#
 	#
@@ -314,6 +314,10 @@ override_dh_install-arch:
 	mkdir -p debian/chromium-browser/$(LIB_DIR)
 
 	install -T -m 644 debian/chromium-browser.default debian/chromium-browser/etc/chromium-browser/default
+
+	# Convert rpath to runpath if needed, so that LD_LIBRARY_PATH (set in our launcher script)
+	# takes precedence. This is required for Endless extra codecs to work properly.
+	chrpath --convert debian/tmp/$(LIB_DIR)/chrome || true
 
 	# Rename the binary from chrome to chromium-browser, this is required as
 	# chromium dereferences all symlinks before starting its children making
@@ -368,13 +372,13 @@ endif
 
 
 	# compare built to packaged
-	DUPES=`find $(PKG_DIRS) -type f -print | grep -v /DEBIAN/ | cut -d/ -f3- | LC_ALL=C sort | uniq -c | grep -vE '^ *2 .*/libffmpeg.so$$' | grep -vE '^  *1 '`; \
+	DUPES=`find $(PKG_DIRS) -type f -print | grep -v /DEBIAN/ | cut -d/ -f3- | LC_ALL=C sort | uniq -c | grep -v libffmpeg.so | grep -vE '^  *1 '`; \
 	if [ "Z$$DUPES" != Z ] ; then \
 	  echo " => Found duplicates:\n $$DUPES" ; \
 	  exit 1 ; \
 	fi;
 
-	find $(PKG_DIRS) -type f |grep -v /DEBIAN |cut -d/ -f3- |grep -v ^usr/lib/debug/ | LC_ALL=C sort >$(T)/unfiltered-packaged
+	find $(PKG_DIRS) -type f |grep -v /DEBIAN |cut -d/ -f3- |grep -v ^usr/lib/debug/ | grep -v libffmpeg.so | LC_ALL=C sort >$(T)/unfiltered-packaged
 	grep -vE \($(subst $(SPACE),\|,$(PACKAGED_NOT_FROM_TREE_MATCH))\) $(T)/unfiltered-packaged |grep -vE \($(subst $(SPACE),\|,$(INDEP_MATCH))\) >$(T)/packaged ; \
 	if ! diff -U0 $(T)/built $(T)/packaged; then \
 	  echo " => Found archdep differences, please investigate. $(T)/built $(T)/packaged" ; \
