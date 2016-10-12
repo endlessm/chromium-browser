@@ -68,6 +68,8 @@ export LDFLAGS+=-Wl,--no-keep-memory -Wl,--stats
 # See https://bugs.chromium.org/p/v8/issues/detail?id=3782
 #export CFLAGS+=-fno-delete-null-pointer-checks
 
+# Note that Endless has previously experienced unacceptable startup performance
+# regressions when Chromium is built with Clang as opposed to GCC.
 export CC := $(shell which gcc-4 gcc-5 gcc cc |head -1)
 export CXX := $(shell which g++-4 g+++5 g++ c++ |head -1)
 export CPP := $(shell which g++-4 g+++5 g++ c++ |head -1)
