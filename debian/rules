@@ -10,6 +10,7 @@ DEBIAN_DIST_NAME	:= $(shell lsb_release -si |sed -e 's/\#/ /g')
 DEB_TAR_SRCDIR := .
 SRC_DIR        := $(CURDIR)/$(DEB_TAR_SRCDIR)
 LIB_DIR        := usr/lib/chromium-browser
+EXTRA_CODECS_DIR := var/lib/codecs/$(DEBIAN_NAME)
 BINARY_PACKAGE_COMPRESSION ?= xz
 FFMPEG_DIR     := third_party/ffmpeg
 FFMPEG_SRC_DIR := $(SRC_DIR)/$(FFMPEG_DIR)
@@ -349,8 +350,10 @@ ifeq (1,$(COMPONENT_SHARED_LIB_BUILD))
 	mkdir -p                                                          $(CURDIR)/debian/tmp-std/$(LIB_DIR)/libs
 	mv -v $(SRC_DIR)/out/$(BUILD_TYPE)-chromium/lib/libffmpeg.so      $(CURDIR)/debian/tmp-std/$(LIB_DIR)/libs
 
-	mkdir -p                                                          $(CURDIR)/debian/tmp-extra/$(LIB_DIR)/libs
-	mv -v $(SRC_DIR)/out/$(BUILD_TYPE)-ffmpeg-extra/lib/libffmpeg.so  $(CURDIR)/debian/tmp-extra/$(LIB_DIR)/libs
+	# For the -extra package, install under /var/lib/codecs and
+	# append the browser's version number to the filename.
+	mkdir -p                                                          $(CURDIR)/debian/tmp-extra/$(EXTRA_CODECS_DIR)
+	mv -v $(SRC_DIR)/out/$(BUILD_TYPE)-ffmpeg-extra/lib/libffmpeg.so  $(CURDIR)/debian/tmp-extra/$(EXTRA_CODECS_DIR)
 endif
 
 	mkdir -p $(CURDIR)/debian/tmp/$(LIB_DIR)
@@ -395,6 +398,13 @@ ifeq (1,$(COMPONENT_SHARED_LIB_BUILD))
 	find debian/*/$(LIB_DIR)/libs             -type f -name \*.so             -execdir chrpath --replace "\$$ORIGIN" {} \;
 	find debian/*/$(LIB_DIR)      -maxdepth 1 -type f -name \*.so             -execdir chrpath --replace "\$$ORIGIN/libs" {} \;
 	find debian/*/$(LIB_DIR)      -maxdepth 1 -type f             -executable -execdir chrpath --replace "\$$ORIGIN/libs" {} \;
+
+	# We can't really use RPATH since it does ignore LD_LIBRARY_PATH,
+	# which we need to load the extra codecs from /var/lib/codecs,
+	# so we convert it to RUNPATH in all the affected binaries.
+	find debian/*/$(LIB_DIR)/libs             -type f -name \*.so             -execdir chrpath -c {} \;
+	find debian/*/$(LIB_DIR)      -maxdepth 1 -type f -name \*.so             -execdir chrpath -c {} \;
+	find debian/*/$(LIB_DIR)      -maxdepth 1 -type f             -executable -execdir chrpath -c {} \;
 endif
 
 	# Launcher script
