@@ -211,9 +211,9 @@ override_dh_auto_configure: out/Release/gn
 override_dh_auto_build: BUILD_TARGETS := chrome chrome_sandbox chromedriver
 override_dh_auto_build:
 
-	while sleep 1200; do echo "#  I ATEN'T DEAD"; done& ninja -v -C out/Release $(BUILD_TARGETS) && { kill \%1; sleep 1; echo; true; } || { kill \%1; exit 1; sleep 2; echo; false; }
+	while sleep 1200; do echo "#  I ATEN'T DEAD"; done& ninja -l6 -v -C out/Release $(BUILD_TARGETS) && { kill \%1; sleep 1; echo; true; } || { kill \%1; exit 1; sleep 2; echo; false; }
 
-	ninja -v -C out/ffmpeg-std libffmpeg.so
+	ninja -l6 -v -C out/ffmpeg-std libffmpeg.so
 
 
 override_dh_fixperms:
