@@ -28,7 +28,6 @@ Build-Depends:
 	libglib2.0-dev,
 	libgnome-keyring-dev,
 	libudev-dev,
-	libgconf2-dev,
 	libdrm-dev,
 	libcap-dev,
 	libexif-dev,
