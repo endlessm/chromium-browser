@@ -1,1 +1,1 @@
-debian/tmp-extra/usr/lib/chromium-browser/libffmpeg.so usr/lib/chromium-browser
+debian/tmp-extra/usr/lib/chromium-browser/libffmpeg.so var/lib/codecs/chromium-browser
