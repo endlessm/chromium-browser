@@ -52,6 +52,7 @@ export CPU_FEATURES_TESTED=1
 
 readonly APPNAME=chromium-browser
 LIBDIR=/usr/lib/chromium-browser
+EXTRA_CODECS_DIR=/var/lib/codecs/chromium-browser
 GDB=/usr/bin/gdb
 readonly BUILD_DIST="@BUILD_DIST@"
 readonly UPSTREAM_VERSION="@UPSTREAM_VERSION@"
@@ -113,6 +114,15 @@ if test -n "$CHROMIUM_USER_FLAGS"; then
 	echo "CHROMIUM_USER_FLAGS=${CHROMIUM_USER_FLAGS}"
 	CHROMIUM_FLAGS=${CHROMIUM_USER_FLAGS}
 fi
+
+# FFmpeg needs to know where its libs are located
+if [ "Z$LD_LIBRARY_PATH" != Z ] ; then
+  LD_LIBRARY_PATH=$EXTRA_CODECS_DIR:$LIBDIR:$LD_LIBRARY_PATH
+else
+  LD_LIBRARY_PATH=$EXTRA_CODECS_DIR:$LIBDIR
+fi
+
+export LD_LIBRARY_PATH
 
 # For the Default Browser detection to work, we need to give access
 # to xdg-settings if it's not present on the system (ensures that the system
