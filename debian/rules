@@ -208,8 +208,8 @@ override_dh_auto_configure: out/Release/gn
 # There are two things to build. Standard ffmpeg+browser, and full ffmpeg.
 override_dh_auto_build: BUILD_TARGETS := chrome chrome_sandbox chromedriver
 override_dh_auto_build:
-	while sleep 1200; do echo "#  I ATEN'T DEAD"; done& ninja -C out/Release $(BUILD_TARGETS) && { kill \%1; sleep 1; echo; true; } || { kill \%1; exit 1; sleep 2; echo; false; }
-	ninja -C out/ffmpeg-std libffmpeg.so
+	while sleep 1200; do echo "#  I ATEN'T DEAD"; done& ninja -l6 -C out/Release $(BUILD_TARGETS) && { kill \%1; sleep 1; echo; true; } || { kill \%1; exit 1; sleep 2; echo; false; }
+	ninja -l6 -C out/ffmpeg-std libffmpeg.so
 
 override_dh_fixperms:
 	dh_fixperms --exclude chrome-sandbox
