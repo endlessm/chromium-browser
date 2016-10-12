@@ -28,7 +28,15 @@ GOOGLEAPI_APIKEY_UBUNTU := AIzaSyDGQzx0c0ptZVDriLi9Wblo2voeLnmPq-o
 GOOGLEAPI_CLIENTID_UBUNTU := 424119844901-tilod0e1nm0dt85e1evrdfp3cc3ec01d.apps.googleusercontent.com
 GOOGLEAPI_CLIENTSECRET_UBUNTU := WCCejhqORuxKG272GAWxsPIU
 
+# Set up Google API keys, see http://www.chromium.org/developers/how-tos/api-keys .
+# Note: these are for Endless use ONLY. For your own distribution,
+# please get your own set of keys.
+GOOGLEAPI_APIKEY_ENDLESS := AIzaSyChQFDXkTljICsLpPO6t90OlWQ8-xRd6BA
+GOOGLEAPI_CLIENTID_ENDLESS := 398519776638-svi4sr3c7716j1hgcs8cpq83psj4mov9.apps.googleusercontent.com
+GOOGLEAPI_CLIENTSECRET_ENDLESS := 1N8wLrO5WFJPapT0TlgoOh0r
+
 common_defines :=
+
 browser_defines :=
 ffmpeg_std_defines :=
 ffmpeg_extra_defines :=
