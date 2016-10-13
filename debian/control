@@ -3,7 +3,7 @@ Section: web
 Priority: optional
 Maintainer: Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>
 XS-Testsuite: autopkgtest
-Vcs-Bzr: https://code.launchpad.net/~chromium-team/chromium-browser/trusty-working
+Vcs-Bzr: https://code.launchpad.net/~chromium-team/chromium-browser/yakkety-working
 Homepage: http://code.google.com/chromium/
 Build-Depends:
 	debhelper (>= 9),
@@ -19,6 +19,7 @@ Build-Depends:
 	libcups2-dev | libcupsys2-dev,
 	libasound2-dev,
 	libnss3-dev,
+	mesa-common-dev,
 	libgles2-mesa-dev [armel armhf],
 	libpci-dev,
 	libxtst-dev,
@@ -27,6 +28,7 @@ Build-Depends:
 	libglib2.0-dev,
 	libgnome-keyring-dev,
 	libudev-dev,
+	libgconf2-dev,
 	libdrm-dev,
 	libcap-dev,
 	libexif-dev,
@@ -34,9 +36,25 @@ Build-Depends:
 	libkrb5-dev,
 	libxkbcommon-dev,
 	libssl-dev,
+	libpam0g-dev,
+	libffi-dev,
 	chrpath,
-	gcc-4.8,
-	g++-4.8,
+	libre2-dev,
+	yasm,
+	libopus-dev,
+	zlib1g-dev,
+	libspeex-dev,
+	libspeechd-dev,
+	libexpat-dev,
+	libpng-dev,
+	libxml2-dev,
+	libjpeg-dev,
+	libwebp-dev,
+	libxslt-dev,
+	libsrtp-dev,
+	libjsoncpp-dev,
+	libevent-dev,
+	libharfbuzz-dev,
 	xdg-utils
 Standards-Version: 3.9.6
 
@@ -47,26 +65,17 @@ Depends: ${shlibs:Depends}, ${misc:Depends},
 	bash (>= 4),
 	libnss3,
 	xdg-utils,
-	chromium-codecs-ffmpeg (>= 0.6)
+	chromium-codecs-ffmpeg-extra (= ${binary:Version}) | chromium-codecs-ffmpeg (= ${binary:Version})
 Recommends: chromium-browser-l10n
 Suggests: webaccounts-chromium-extension,
 	unity-chromium-extension,
-	chromiumflashplugin
-Provides: www-browser, chromium-browser-inspector
+	adobe-flashplugin
+Provides: www-browser, chromium-browser-inspector, exec<usr/bin/chromium-browser>, mime<text/html>, mime<x-scheme-handler/http>, mime<x-scheme-handler/https>
 Replaces: chromium-browser-inspector
 Conflicts: chromium-browser-inspector
 Description: Chromium web browser, open-source version of Chrome
  An open-source browser project that aims to build a safer, faster, and more
  stable way for all Internet users to experience the web.
-
-Package: chromium-browser-dbg
-Architecture: armhf armel i386 amd64
-Priority: extra
-Section: debug
-Pre-Depends: dpkg (>= 1.15.6)
-Depends: ${misc:Depends}, chromium-browser (= ${binary:Version})
-Description: chromium-browser debug symbols
- Debug symbols for the Chromium browser
 
 Package: chromium-browser-l10n
 Architecture: all
@@ -88,8 +97,8 @@ Package: chromium-codecs-ffmpeg
 Architecture: armhf armel i386 amd64
 Pre-Depends: dpkg (>= 1.15.6)
 Depends: ${shlibs:Depends}, ${misc:Depends}
-Conflicts: chromium-codecs-ffmpeg-extra
-Replaces: chromium-codecs-ffmpeg-extra
+Conflicts: chromium-codecs-ffmpeg-extra, chromium-browser (<< 44)
+Replaces: chromium-codecs-ffmpeg-extra, chromium-browser (<< 44)
 Description: Free ffmpeg codecs for the Chromium Browser
  An open-source browser project that aims to build a safer, faster, and more
  stable way for all Internet users to experience the web.
@@ -98,23 +107,12 @@ Description: Free ffmpeg codecs for the Chromium Browser
  <audio> and <video> tags. Only the free ogg, vorbis and theora codecs are
  included. See chromium-codecs-ffmpeg-extra for additional codecs
 
-Package: chromium-codecs-ffmpeg-dbg
-Architecture: armhf armel i386 amd64
-Section: debug
-Priority: extra
-Pre-Depends: dpkg (>= 1.15.6)
-Depends: ${misc:Depends}, chromium-codecs-ffmpeg (= ${binary:Version})
-Conflicts: chromium-codecs-ffmpeg-extra-dbg
-Replaces: chromium-codecs-ffmpeg-extra-dbg
-Description: chromium-codecs-ffmpeg debug symbols
- Debug symbols for the free ffmpeg-mt codecs
-
 Package: chromium-codecs-ffmpeg-extra
 Architecture: armhf armel i386 amd64
 Pre-Depends: dpkg (>= 1.15.6)
 Depends: ${shlibs:Depends}, ${misc:Depends}
-Conflicts: chromium-codecs-ffmpeg
-Replaces: chromium-codecs-ffmpeg
+Conflicts: chromium-codecs-ffmpeg, chromium-browser (<< 44)
+Replaces: chromium-codecs-ffmpeg, chromium-browser (<< 44)
 Description: Extra ffmpeg codecs for the Chromium Browser
  An open-source browser project that aims to build a safer, faster, and more
  stable way for all Internet users to experience the web.
@@ -123,17 +121,6 @@ Description: Extra ffmpeg codecs for the Chromium Browser
  <audio> and <video> tags. In addition to the patent-free ogg, vorbis and
  theora codecs, aac/ac3/mpeg4audio/h264/mov/mp3 are also included.  See
  chromium-codecs-ffmpeg if you prefer only the patent-free codecs
-
-Package: chromium-codecs-ffmpeg-extra-dbg
-Architecture: armhf armel i386 amd64
-Section: debug
-Priority: extra
-Pre-Depends: dpkg (>= 1.15.6)
-Depends: ${misc:Depends}, chromium-codecs-ffmpeg-extra (= ${binary:Version})
-Conflicts: chromium-codecs-ffmpeg-dbg
-Replaces: chromium-codecs-ffmpeg-dbg
-Description: chromium-codecs-ffmpeg-extra debug symbols
- Debug symbols for the extra ffmpeg-mt codecs
 
 Package: chromium-chromedriver
 Architecture: armhf armel i386 amd64
@@ -144,12 +131,3 @@ Description: WebDriver driver for the Chromium Browser
  WebDriver.
  .
  See http://code.google.com/p/selenium/wiki/ChromeDriver for details.
-
-Package: chromium-chromedriver-dbg
-Architecture: armhf armel i386 amd64
-Pre-Depends: dpkg (>= 1.15.6)
-Section: debug
-Priority: extra
-Depends: ${misc:Depends}, chromium-chromedriver (= ${binary:Version})
-Description: chromium-chromedriver debug symbols
- Debug symbols for the chromium-chromedriver package.

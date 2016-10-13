@@ -34,6 +34,8 @@ RELATED_PACKAGES = [
     'libgtk2.0-0',
     'nspluginwrapper',
     # various plugins
+    'adobe-flash-player',
+    'adobe-flashplugin',
     'chromiumflashplugin',
     'pepperflashplugin-nonfree',
     'pepflashplugin-nonfree',
@@ -69,6 +71,14 @@ def gconf_values(report, keys):
         if out == "":
             out = "**unset**\n"
         report['gconf-keys'] += key + " = " + out
+
+def loadavg_processes_running_percent():
+    with open("/proc/loadavg") as loadavg:
+        for line in loadavg:
+            l1, l5, l10, runfrac, maxpid = line.split()
+            running_count, total_count = map(int, runfrac.split("/"))
+            percent = 100.0 * running_count / total_count
+            return "#" * int(percent) + "  %0.1f%%" % (percent,)
 
 def get_user_profile_dir():
     profiledir = HOME + "/.config/chromium/Default"
@@ -162,9 +172,9 @@ def list_installed_plugins(report):
                 report['InstalledPlugins'] += "\n"
 
 def get_envs(envs):
-    return "\n".join(os.getenv(envs)) + "\n"
+    return "\n".join(repr(os.getenv(env) or "None") for env in envs) + "\n"
 
-def add_info(report, userdir=None):
+def add_info(report, hookui, userdir=None):
     apport.hookutils.attach_related_packages(report, RELATED_PACKAGES)
     installed_version(report, RELATED_PACKAGES)
 
@@ -173,30 +183,30 @@ def add_info(report, userdir=None):
         report['ThirdParty'] = 'True'
         report['CrashDB'] = 'ubuntu'
 
-    for filename in os.listdir('/etc/chromium-browser/customizations'):
-        try:
-            with open(os.path.join('/etc/chromium-browser/customizations', filename)) as f:
-                report['etcconfig/c/'+filename] = "\n".join(f.readlines())
-        except IOError:
-            report['etcconfig/c/'+filename] = "# could not read"
-
-    try:
-        with open('/etc/chromium-browser/default') as f:
-            report['etcconfig/default'] = "\n".join(f.readlines())
-    except IOError:
-        report['etcconfig/default'] = "# could not read"
-
-    try:
-        report['user-desktop-file'] = \
-          open(HOME + '/.local/share/applications/' + PACKAGE + '.desktop').read()
-    except IOError:
-        pass
+    customizations_dir = '/etc/chromium-browser/customizations'
+    for filename in os.listdir(customizations_dir):
+        apport.hookutils.attach_file_if_exists(report, os.path.join(customizations_dir, filename), key='etcconfigc'+filename.replace("-", "").replace("_", "").replace(".", ""))
+    apport.hookutils.attach_file_if_exists(report, os.path.join(customizations_dir, 'default'), key='etcconfigdefault')
+    apport.hookutils.attach_file_if_exists(report, os.path.join(HOME, '.local/share/applications', PACKAGE + 'desktop'))
 
     gconf_values(report, ['/desktop/gnome/applications/browser/exec', '/desktop/gnome/url-handlers/https/command', '/desktop/gnome/url-handlers/https/enabled', '/desktop/gnome/url-handlers/http/command', '/desktop/gnome/url-handlers/http/enabled', '/desktop/gnome/session/required_components/windowmanager', '/apps/metacity/general/compositing_manager', '/desktop/gnome/interface/icon_theme', '/desktop/gnome/interface/gtk_theme'])
-    user_dir = userdir if userdir is not None else get_user_profile_dir()
-    user_prefs(report, user_dir + "/Preferences")
+    if userdir:
+        user_dir = userdir
+    else:
+        user_dir = get_user_profile_dir()
+
+    try:
+        user_prefs(report, user_dir + "/Preferences")
+    except OSError:
+        pass
 
     list_installed_plugins(report)
+
+    # PCI video
+    report['Lspci'] = apport.hookutils.command_output(["lspci", "-mmkv"])
+
+    report['Load-Avg-1min'] = apport.hookutils.command_output(["cut", "-d ", "-f1", "/proc/loadavg"])
+    report['Load-Processes-Running-Percent'] = loadavg_processes_running_percent()
 
     # DE
     report['Desktop-Session'] = get_envs(['DESKTOP_SESSION', 'XDG_CONFIG_DIRS', 'XDG_DATA_DIRS'])
@@ -205,17 +215,14 @@ def add_info(report, userdir=None):
     report['Env'] = get_envs(['MOZ_PLUGIN_PATH', 'LD_LIBRARY_PATH'])
 
     # Disk usage
-    script = subprocess.Popen(['df', '-Th'], stdout=subprocess.PIPE)
-    report['DiskUsage'] = str(script.communicate()[0]) + "\n\nInodes:\n"
-    script = subprocess.Popen(['df', '-ih'], stdout=subprocess.PIPE)
-    report['DiskUsage'] += str(script.communicate()[0])
-    script = subprocess.Popen(['dmesg', '-k'], stdout=subprocess.PIPE)
-    kernel_messages = list()
-    for line in str(script.communicate()[0]).split("\n"):  # to str. Size bounded by dmesg buffer.
-        if "chrom" in line.lower():
-            kernel_messages.append(line + "\n")
-    if kernel_messages:
-        report['DmesgChromium'] = "".join(kernel_messages)
+    report['DiskUsage'] = apport.hookutils.command_output(['df', '-Th', '/home', '/tmp', '/run/shm', '/etc/chromium-browser', user_dir])
+
+    apport.hookutils.attach_hardware(report)
+    try:
+        apport.hookutils.attach_drm_info(report)
+    except TypeError as exc:
+        print("buggy hookutils", exc)
+    apport.hookutils.attach_dmesg(report)
 
 ## DEBUGING ##
 def main():
@@ -234,7 +241,7 @@ def main():
             assert False, "unhandled option"
 
     report = {}
-    add_info(report, userdir=userdir)
+    add_info(report, None, userdir=userdir)
     for key in report:
         print('[%s]\n%s\n' % (key, report[key]))
 

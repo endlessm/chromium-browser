@@ -63,6 +63,7 @@ readonly LIBDIR
 usage () {
   echo "$APPNAME [-h|--help] [-g|--debug] [--temp-profile] [--no-touch-pinch] [options] [URL]"
   echo
+  echo "        --verbose               Events logged to stderr."
   echo "        -g or --debug           Start within $GDB"
   echo "        -h or --help            This help screen"
   echo "        --temp-profile          Start with a new and temporary profile"
@@ -80,11 +81,24 @@ if [ -f /etc/$APPNAME/default ] ; then
   . /etc/$APPNAME/default
 fi
 
-
-while read f; do
-	. "$f"
-done < <(run-parts --list -- /etc/$APPNAME/customizations)
+if test -d /etc/$APPNAME/customizations; then
+	while read f; do
+		. "$f"
+	done < <(run-parts --list -- /etc/$APPNAME/customizations)
+fi
 test -f ~/.chromium-browser.init && . ~/.chromium-browser.init
+
+FLASH_GOOD_PACKAGE="adobe-flashplugin"
+if test "$FLASH_GOOD_PACKAGE"; then
+	PREVIOUS_CANDIDATE=""
+	CANDIDATE="$CHROMIUM_FLAGS"
+	while test "$PREVIOUS_CANDIDATE" != "$CANDIDATE"; do  # Strip ppapi-flash-xxxx params off that are outside our known good params, for as long as we still make progress.
+		PREVIOUS_CANDIDATE="$CANDIDATE"
+		CANDIDATE=$(echo "$CANDIDATE" |sed -e "s,--ppapi-flash-\w*=\S*\s\(.*--ppapi-flash-path=/usr/lib/${FLASH_GOOD_PACKAGE}/libpepflashplayer.so --ppapi-flash-version=\),\1,")
+		CANDIDATE=$(echo "$CANDIDATE" |sed -e "s,\(.*--ppapi-flash-path=/usr/lib/${FLASH_GOOD_PACKAGE}/libpepflashplayer.so --ppapi-flash-version=.*\) --ppapi-flash-\w*=\S*,\1,")
+	done
+	CHROMIUM_FLAGS="$CANDIDATE"
+fi
 
 # Prefer user defined CHROMIUM_USER_FLAGS (fron env) over system
 # default CHROMIUM_FLAGS (from /etc/$APPNAME/default)
@@ -138,11 +152,15 @@ fi
 want_touch_pinch=1
 want_debug=0
 want_temp_profile=0
+want_verbose=0
 while [ $# -gt 0 ]; do
   case "$1" in
     -h | --help | -help )
       usage
       exit 0 ;;
+    --verbose )
+      want_verbose=1
+      shift ;;
     -g | --debug )
       want_debug=1
       shift ;;
@@ -163,6 +181,10 @@ done
 discover_registration ${LIBDIR}/pepper/pepper-flash.info ppapi-flash && echo "Pepper Flash detected."
 
 CHROMIUM_FLAGS="${CHROMIUM_FLAGS} ${PLUGIN_PARAMETERS}"
+
+if [ $want_verbose -eq 1 ] ; then
+  CHROMIUM_FLAGS="${CHROMIUM_FLAGS} --enable-logging=stderr --v=${want_verbose}"
+fi
 
 if [ $want_temp_profile -eq 1 ] ; then
   TEMP_PROFILE=`mktemp -d`
