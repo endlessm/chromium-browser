@@ -21,6 +21,7 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 
+import os
 import subprocess
 import sys
 
@@ -56,7 +57,15 @@ if __name__ == '__main__':
    custom_uri = sys.argv[1]
    try:
       (wm_class, actual_uri) = parseURI(custom_uri)
-      subprocess.Popen(['chromium-browser','--class={}'.format(wm_class),'--app={}'.format(actual_uri)])
+
+      # External web apps (i.e. URLs not managed by chromium-broser as extensions) need
+      # to run in an isolated environment not to conflict with the main browsing session.
+      data_dir = os.path.expanduser('~/.config/chromium-appmode/{}'.format(wm_class))
+      subprocess.Popen(['chromium-browser',
+                        '--class={}'.format(wm_class),
+                        '--app={}'.format(actual_uri),
+                        '--start-maximized',
+                        '--user-data-dir={}'.format(data_dir)])
    except ParsingError as e:
       print('Error parsing custom URI: {}'.format(e.value))
       print('Usage: chromium-browser-appmode webapp://<WM_CLASS>@<URI>')
