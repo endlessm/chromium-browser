@@ -50,7 +50,6 @@
     'werror%': '-Werror',
     'v8_optimized_debug%': 0,
     'v8_use_external_startup_data%': 0,
-    'icu_use_data_file_flag%': 1,
     'icu_gyp_path': '../third_party/icu/icu.gyp',
     'libjpeg_gyp_path': '../third_party/third_party.gyp',
     'conditions': [
@@ -206,8 +205,7 @@
       # This section is PDFium specific.
       # ####
 
-      # C4800: forcing value to bool 'true' or 'false' (performance warning)
-      4800,
+      # Now there is no PDFium specific flag. Add here if needed.
 
       # ####
       # This section should match Chromium's build/common.gypi.
@@ -320,10 +318,6 @@
               # Don't warn about the "struct foo f = {0};" initialization
               # pattern.
               '-Wno-missing-field-initializers',
-
-              # Many files use intrinsics without including this header.
-              # TODO(hans): Fix those files, or move this to sub-GYPs.
-              '/FIIntrin.h',
 
               # TODO(hans): Make this list shorter eventually, http://crbug.com/504657
               '-Qunused-arguments',  # http://crbug.com/504658
@@ -480,6 +474,10 @@
             '-Wno-unused-variable',
           ],
         },
+        'msvs_disabled_warnings': [
+          # forcing value to bool 'true' or 'false' (performance warning)
+          4800,
+        ],
         'msvs_settings': {
           'VCCLCompilerTool': {
             'WarningLevel': '3',

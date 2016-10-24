@@ -9,6 +9,7 @@
 #ifndef TESTS_ANGLE_UNITTESTS_UTILS_H_
 #define TESTS_ANGLE_UNITTESTS_UTILS_H_
 
+#include "libANGLE/Surface.h"
 #include "libANGLE/renderer/ContextImpl.h"
 #include "libANGLE/renderer/EGLImplFactory.h"
 #include "libANGLE/renderer/GLImplFactory.h"
@@ -58,6 +59,11 @@ class NullFactory : public GLImplFactory
 
     // Sampler object creation
     SamplerImpl *createSampler() override { return nullptr; }
+
+    std::vector<PathImpl *> createPaths(GLsizei range) override
+    {
+        return std::vector<PathImpl *>();
+    }
 };
 
 // A class with all the factory methods mocked.
@@ -78,21 +84,31 @@ class MockGLFactory : public GLImplFactory
     MOCK_METHOD0(createFenceSync, FenceSyncImpl *());
     MOCK_METHOD0(createTransformFeedback, TransformFeedbackImpl *());
     MOCK_METHOD0(createSampler, SamplerImpl *());
+    MOCK_METHOD1(createPaths, std::vector<PathImpl *>(GLsizei));
 };
 
 class MockEGLFactory : public EGLImplFactory
 {
   public:
-    MOCK_METHOD3(createWindowSurface,
-                 SurfaceImpl *(const egl::Config *,
+    MOCK_METHOD4(createWindowSurface,
+                 SurfaceImpl *(const egl::SurfaceState &,
+                               const egl::Config *,
                                EGLNativeWindowType,
                                const egl::AttributeMap &));
-    MOCK_METHOD2(createPbufferSurface,
-                 SurfaceImpl *(const egl::Config *, const egl::AttributeMap &));
-    MOCK_METHOD3(createPbufferFromClientBuffer,
-                 SurfaceImpl *(const egl::Config *, EGLClientBuffer, const egl::AttributeMap &));
-    MOCK_METHOD3(createPixmapSurface,
-                 SurfaceImpl *(const egl::Config *, NativePixmapType, const egl::AttributeMap &));
+    MOCK_METHOD3(createPbufferSurface,
+                 SurfaceImpl *(const egl::SurfaceState &,
+                               const egl::Config *,
+                               const egl::AttributeMap &));
+    MOCK_METHOD4(createPbufferFromClientBuffer,
+                 SurfaceImpl *(const egl::SurfaceState &,
+                               const egl::Config *,
+                               EGLClientBuffer,
+                               const egl::AttributeMap &));
+    MOCK_METHOD4(createPixmapSurface,
+                 SurfaceImpl *(const egl::SurfaceState &,
+                               const egl::Config *,
+                               NativePixmapType,
+                               const egl::AttributeMap &));
     MOCK_METHOD3(createImage, ImageImpl *(EGLenum, egl::ImageSibling *, const egl::AttributeMap &));
     MOCK_METHOD1(createContext, ContextImpl *(const gl::ContextState &));
     MOCK_METHOD2(createStreamProducerD3DTextureNV12,

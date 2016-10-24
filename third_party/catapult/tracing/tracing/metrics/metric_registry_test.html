@@ -21,26 +21,17 @@ tr.b.unittest.testSuite(function() {
     function sampleMetricA(values, model) {
       var unit = tr.v.Unit.byName.sizeInBytes_smallerIsBetter;
       var n1 = new tr.v.ScalarNumeric(unit, 1);
-      values.addValue(new tr.v.NumericValue(
-        model.canonicalUrl, 'foo', n1));
+      values.addValue(new tr.v.NumericValue('foo', n1));
     }
-    sampleMetricA.prototype = {
-      __proto__: Function.prototype
-    };
     tr.metrics.MetricRegistry.register(sampleMetricA);
 
     function sampleMetricB(values, model) {
       var unit = tr.v.Unit.byName.sizeInBytes_smallerIsBetter;
       var n1 = new tr.v.ScalarNumeric(unit, 1);
       var n2 = new tr.v.ScalarNumeric(unit, 2);
-      values.addValue(new tr.v.NumericValue(
-        model.canonicalUrl, 'foo', n1));
-      values.addValue(new tr.v.NumericValue(
-        model.canonicalUrl, 'bar', n2));
+      values.addValue(new tr.v.NumericValue('foo', n1));
+      values.addValue(new tr.v.NumericValue('bar', n2));
     }
-    sampleMetricB.prototype = {
-      __proto__: Function.prototype
-    };
     tr.metrics.MetricRegistry.register(sampleMetricB);
 
     function sampleMetricC(values, model) {
@@ -48,19 +39,27 @@ tr.b.unittest.testSuite(function() {
       var n1 = new tr.v.ScalarNumeric(unit, 1);
       var n2 = new tr.v.ScalarNumeric(unit, 2);
       var n3 = new tr.v.ScalarNumeric(unit, 3);
-      values.addValue(new tr.v.NumericValue(
-        model.canonicalUrl, 'foo', n1));
-      values.addValue(new tr.v.NumericValue(
-        model.canonicalUrl, 'bar', n2));
-      values.addValue(new tr.v.NumericValue(
-        model.canonicalUrl, 'baz', n3));
+      values.addValue(new tr.v.NumericValue('foo', n1));
+      values.addValue(new tr.v.NumericValue('bar', n2));
+      values.addValue(new tr.v.NumericValue('baz', n3));
     }
-    sampleMetricC.prototype = {
-      __proto__: Function.prototype
-    };
     tr.metrics.MetricRegistry.register(sampleMetricC);
 
     assert.isTrue(tr.metrics.MetricRegistry.findTypeInfoWithName('sampleMetricB').constructor === sampleMetricB); // @suppress longLineCheck
+  });
+
+  test('registerNonFunctionThrows', function() {
+    assert.throws(function() {
+      tr.metrics.MetricRegistry.register('not a function');
+    });
+
+    assert.throws(function() {
+      tr.metrics.MetricRegistry.register(function() {});
+    });
+
+    assert.throws(function() {
+      tr.metrics.MetricRegistry.register(function(a) {});
+    });
   });
 });
 </script>

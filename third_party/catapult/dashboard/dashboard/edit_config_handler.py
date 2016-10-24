@@ -17,6 +17,11 @@ _MAX_TESTS_TO_PUT_AT_ONCE = 25
 # The queue to use to re-put tests. Should be present in queue.yaml.
 _TASK_QUEUE_NAME = 'edit-sheriffs-queue'
 
+# Minimum time before starting tasks, in seconds. It appears that the tasks
+# may be executed before the sheriff is saved, so this is a workaround for that.
+# See http://crbug.com/621499
+_TASK_QUEUE_COUNTDOWN = 60
+
 
 class EditConfigHandler(request_handler.RequestHandler):
   """Base class for handlers that are used to add or edit entities.
@@ -92,11 +97,12 @@ class EditConfigHandler(request_handler.RequestHandler):
   def _UpdateAndReportResults(self, entity):
     """Updates the entity and reports the results of this updating."""
     new_patterns = _SplitPatternLines(self.request.get('patterns'))
-    added_test_paths, removed_test_paths = _ChangeTestPatterns(
-        entity.patterns, new_patterns)
+    old_patterns = entity.patterns
     entity.patterns = new_patterns
     self._UpdateFromRequestParameters(entity)
     entity.put()
+    added_test_paths, removed_test_paths = _ChangeTestPatterns(
+        old_patterns, new_patterns)
     self._RenderResults(entity, added_test_paths, removed_test_paths)
 
   def _UpdateFromRequestParameters(self, entity):
@@ -163,9 +169,9 @@ def _ChangeTestPatterns(old_patterns, new_patterns):
   series). Any tests that are different between these two sets need to be
   updated.
 
-  Some properties of Test entities are updated when they are put in the
-  |_pre_put_hook| method of Test, so any Test entity that might need to
-  be updated should be re-put.
+  Some properties of TestMetadata entities are updated when they are put in the
+  |_pre_put_hook| method of TestMetadata, so any TestMetadata entity that might
+  need to be updated should be re-put.
 
   Args:
     old_patterns: An iterable of test path pattern strings.
@@ -214,8 +220,8 @@ def _AllTestPathsMatchingPatterns(patterns_list):
 def _AddTestsToPutToTaskQueue(test_paths):
   """Adds tests that we want to re-put in the datastore to a queue.
 
-  We need to re-put the tests so that Test._pre_put_hook is run, so that
-  the sheriff or alert threshold config of the Test is updated.
+  We need to re-put the tests so that TestMetadata._pre_put_hook is run, so that
+  the sheriff or alert threshold config of the TestMetadata is updated.
 
   Args:
     test_paths: List of test paths of tests to be re-put.
@@ -226,4 +232,5 @@ def _AddTestsToPutToTaskQueue(test_paths):
     taskqueue.add(
         url='/put_entities_task',
         params={'keys': ','.join(urlsafe_keys)},
-        queue_name=_TASK_QUEUE_NAME)
+        queue_name=_TASK_QUEUE_NAME,
+        countdown=_TASK_QUEUE_COUNTDOWN)

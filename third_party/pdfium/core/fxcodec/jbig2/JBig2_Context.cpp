@@ -69,7 +69,7 @@ CJBig2_Context::CJBig2_Context(CPDF_StreamAcc* pGlobalStream,
       m_PauseStep(10),
       m_pPause(pPause),
       m_ProcessingStatus(FXCODEC_STATUS_FRAME_READY),
-      m_gbContext(NULL),
+      m_gbContext(nullptr),
       m_dwOffset(0),
       m_pSymbolDictCache(pSymbolDictCache),
       m_bIsGlobal(bIsGlobal) {
@@ -85,9 +85,9 @@ CJBig2_Context::CJBig2_Context(CPDF_StreamAcc* pGlobalStream,
 
 CJBig2_Context::~CJBig2_Context() {
   FX_Free(m_gbContext);
-  m_gbContext = NULL;
+  m_gbContext = nullptr;
   delete m_pGlobalContext;
-  m_pGlobalContext = NULL;
+  m_pGlobalContext = nullptr;
 }
 
 int32_t CJBig2_Context::decode_SquentialOrgnazation(IFX_Pause* pPause) {
@@ -259,7 +259,7 @@ CJBig2_Segment* CJBig2_Context::findReferredSegmentByTypeAndIndex(
       ++count;
     }
   }
-  return NULL;
+  return nullptr;
 }
 int32_t CJBig2_Context::parseSegmentHeader(CJBig2_Segment* pSegment) {
   if (m_pStream->readInteger(&pSegment->m_dwNumber) != 0 ||
@@ -631,7 +631,7 @@ int32_t CJBig2_Context::parseSymbolDict(CJBig2_Segment* pSegment,
         return JBIG2_ERROR_FATAL;
       m_pStream->alignByte();
     }
-    if (m_bIsGlobal && kSymbolDictCacheMaxSize > 0) {
+    if (m_bIsGlobal) {
       std::unique_ptr<CJBig2_SymbolDict> value =
           pSegment->m_Result.sd->DeepCopy();
       int size = pdfium::CollectionSize<int>(*m_pSymbolDictCache);
@@ -737,7 +737,7 @@ int32_t CJBig2_Context::parseTextRegion(CJBig2_Segment* pSegment) {
     }
     pTRD->SBSYMS = SBSYMS.get();
   } else {
-    pTRD->SBSYMS = NULL;
+    pTRD->SBSYMS = nullptr;
   }
 
   std::unique_ptr<JBig2HuffmanCode, FxFreeDeleter> SBSYMCODES;
@@ -939,14 +939,14 @@ int32_t CJBig2_Context::parseTextRegion(CJBig2_Segment* pSegment) {
     if (!m_bBufSpecified) {
       JBig2PageInfo* pPageInfo = m_PageInfoList.back();
       if ((pPageInfo->m_bIsStriped == 1) &&
-          (ri.y + ri.height > m_pPage->m_nHeight)) {
+          (ri.y + ri.height > m_pPage->height())) {
         m_pPage->expand(ri.y + ri.height, (pPageInfo->m_cFlags & 4) ? 1 : 0);
       }
     }
     m_pPage->composeFrom(ri.x, ri.y, pSegment->m_Result.im,
                          (JBig2ComposeOp)(ri.flags & 0x03));
     delete pSegment->m_Result.im;
-    pSegment->m_Result.im = NULL;
+    pSegment->m_Result.im = nullptr;
   }
   return JBIG2_SUCCESS;
 }
@@ -1030,8 +1030,8 @@ int32_t CJBig2_Context::parseHalftoneRegion(CJBig2_Segment* pSegment,
 
   pHRD->HNUMPATS = pPatternDict->NUMPATS;
   pHRD->HPATS = pPatternDict->HDPATS;
-  pHRD->HPW = pPatternDict->HDPATS[0]->m_nWidth;
-  pHRD->HPH = pPatternDict->HDPATS[0]->m_nHeight;
+  pHRD->HPW = pPatternDict->HDPATS[0]->width();
+  pHRD->HPH = pPatternDict->HDPATS[0]->height();
   pSegment->m_nResultType = JBIG2_IMAGE_POINTER;
   if (pHRD->HMMR == 0) {
     const size_t size = GetHuffContextSize(pHRD->HTEMPLATE);
@@ -1057,14 +1057,14 @@ int32_t CJBig2_Context::parseHalftoneRegion(CJBig2_Segment* pSegment,
     if (!m_bBufSpecified) {
       JBig2PageInfo* pPageInfo = m_PageInfoList.back();
       if (pPageInfo->m_bIsStriped == 1 &&
-          ri.y + ri.height > m_pPage->m_nHeight) {
+          ri.y + ri.height > m_pPage->height()) {
         m_pPage->expand(ri.y + ri.height, (pPageInfo->m_cFlags & 4) ? 1 : 0);
       }
     }
     m_pPage->composeFrom(ri.x, ri.y, pSegment->m_Result.im,
                          (JBig2ComposeOp)(ri.flags & 0x03));
     delete pSegment->m_Result.im;
-    pSegment->m_Result.im = NULL;
+    pSegment->m_Result.im = nullptr;
   }
   return JBIG2_SUCCESS;
 }
@@ -1123,7 +1123,7 @@ int32_t CJBig2_Context::parseGenericRegion(CJBig2_Segment* pSegment,
         if (!m_bBufSpecified) {
           JBig2PageInfo* pPageInfo = m_PageInfoList.back();
           if ((pPageInfo->m_bIsStriped == 1) &&
-              (m_ri.y + m_ri.height > m_pPage->m_nHeight)) {
+              (m_ri.y + m_ri.height > m_pPage->height())) {
             m_pPage->expand(m_ri.y + m_ri.height,
                             (pPageInfo->m_cFlags & 4) ? 1 : 0);
           }
@@ -1137,7 +1137,7 @@ int32_t CJBig2_Context::parseGenericRegion(CJBig2_Segment* pSegment,
     } else {
       m_pArithDecoder.reset();
       FX_Free(m_gbContext);
-      m_gbContext = NULL;
+      m_gbContext = nullptr;
       if (!pSegment->m_Result.im) {
         m_ProcessingStatus = FXCODEC_STATUS_ERROR;
         m_pGRD.reset();
@@ -1147,11 +1147,7 @@ int32_t CJBig2_Context::parseGenericRegion(CJBig2_Segment* pSegment,
       m_pStream->offset(2);
     }
   } else {
-    FXCODEC_STATUS status = m_pGRD->Start_decode_MMR(&pSegment->m_Result.im,
-                                                     m_pStream.get(), pPause);
-    while (status == FXCODEC_STATUS_DECODE_TOBECONTINUE) {
-      m_pGRD->Continue_decode(pPause);
-    }
+    m_pGRD->Start_decode_MMR(&pSegment->m_Result.im, m_pStream.get(), pPause);
     if (!pSegment->m_Result.im) {
       m_pGRD.reset();
       return JBIG2_ERROR_FATAL;
@@ -1162,7 +1158,7 @@ int32_t CJBig2_Context::parseGenericRegion(CJBig2_Segment* pSegment,
     if (!m_bBufSpecified) {
       JBig2PageInfo* pPageInfo = m_PageInfoList.back();
       if ((pPageInfo->m_bIsStriped == 1) &&
-          (m_ri.y + m_ri.height > m_pPage->m_nHeight)) {
+          (m_ri.y + m_ri.height > m_pPage->height())) {
         m_pPage->expand(m_ri.y + m_ri.height,
                         (pPageInfo->m_cFlags & 4) ? 1 : 0);
       }
@@ -1172,7 +1168,7 @@ int32_t CJBig2_Context::parseGenericRegion(CJBig2_Segment* pSegment,
                          pSegment->m_Result.im,
                          (JBig2ComposeOp)(m_ri.flags & 0x03), &Rect);
     delete pSegment->m_Result.im;
-    pSegment->m_Result.im = NULL;
+    pSegment->m_Result.im = nullptr;
   }
   m_pGRD.reset();
   return JBIG2_SUCCESS;
@@ -1235,14 +1231,14 @@ int32_t CJBig2_Context::parseGenericRefinementRegion(CJBig2_Segment* pSegment) {
     if (!m_bBufSpecified) {
       JBig2PageInfo* pPageInfo = m_PageInfoList.back();
       if ((pPageInfo->m_bIsStriped == 1) &&
-          (ri.y + ri.height > m_pPage->m_nHeight)) {
+          (ri.y + ri.height > m_pPage->height())) {
         m_pPage->expand(ri.y + ri.height, (pPageInfo->m_cFlags & 4) ? 1 : 0);
       }
     }
     m_pPage->composeFrom(ri.x, ri.y, pSegment->m_Result.im,
                          (JBig2ComposeOp)(ri.flags & 0x03));
     delete pSegment->m_Result.im;
-    pSegment->m_Result.im = NULL;
+    pSegment->m_Result.im = nullptr;
   }
   return JBIG2_SUCCESS;
 }

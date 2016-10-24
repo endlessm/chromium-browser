@@ -1445,12 +1445,22 @@ def UprevPackages(buildroot, boards, overlays):
   RunBuildScript(buildroot, cmd, chromite_cmd=True)
 
 
-def UprevPush(buildroot, overlays, dryrun):
-  """Pushes uprev changes to the main line."""
+def UprevPush(buildroot, overlays, dryrun, staging_branch=None):
+  """Pushes uprev changes to the main line.
+
+  Args:
+    buildroot: Root directory where build occurs.
+    overlays: The overlays to push uprevs.
+    dryrun: If True, do not actually push.
+    staging_branch: If not None, push uprev commits to this
+                    staging_branch.
+  """
   cmd = ['cros_mark_as_stable',
          '--srcroot=%s' % os.path.join(buildroot, 'src'),
          '--overlays=%s' % ':'.join(overlays)
         ]
+  if staging_branch is not None:
+    cmd.append('--staging_branch=%s' % staging_branch)
   if dryrun:
     cmd.append('--dryrun')
   cmd.append('push')
@@ -1680,7 +1690,7 @@ def UploadSymbols(buildroot, board=None, official=False, cnt=None,
                   failed_list=None, breakpad_root=None, product_name=None,
                   error_code_ok=True):
   """Upload debug symbols for this build."""
-  cmd = ['upload_symbols', '--yes']
+  cmd = ['upload_symbols', '--yes', '--dedupe']
 
   if board is not None:
     # Board requires both root and board to be set to be useful.

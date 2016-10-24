@@ -348,7 +348,8 @@ class BuilderStage(object):
   def WaitUntilReady(self):
     """Wait until all the preconditions for the stage are satisfied.
 
-    Can be overridden by stages.
+    Can be overridden by stages. If it returns True, trigger the run
+    of PerformStage; else, skip this stage.
 
     Returns:
       By default it just returns True. Subclass can override it
@@ -484,13 +485,16 @@ class BuilderStage(object):
     ready = self.WaitUntilReady()
 
     if not ready:
-      # If WaitUntilReady returns false, mark stage as failed in CIDB
       self._PrintLoudly('Stage %s precondition failed while waiting to start.'
                         % self.name)
-      # TODO(nxia):we might want to record a failure. The catch block
-      # for PerformStage can use a refactor actually
-      # (see crbug.com/425249 also, which would be a similar concern)
-      self._FinishBuildStageInCIDB(constants.BUILDER_STATUS_FAILED)
+      # TODO(nxia):The catch block for PerformStage can use a refactor actually
+      # (see crbug.com/425249, which would be a similar concern)
+
+      # If WaitUntilReady is false, mark stage as skipped in Results and CIDB
+      self._RecordResult(self.name,
+                         results_lib.Results.SKIPPED,
+                         prefix=self._prefix)
+      self._FinishBuildStageInCIDB(constants.BUILDER_STATUS_SKIPPED)
       return
 
     #  Ready to start, mark buildStage as inflight in CIDB
@@ -515,6 +519,10 @@ class BuilderStage(object):
 
       raise
     except Exception as e:
+      if isinstance(e, failures_lib.ExitEarlyException):
+        # One stage finished and exited early, not a failure.
+        raise
+
       if mox is not None and isinstance(e, mox.Error):
         raise
 

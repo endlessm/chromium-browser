@@ -79,7 +79,7 @@ public class MediaCodecVideoDecoder {
     {"OMX.qcom.", "OMX.Exynos." };
   // List of supported HW H.264 decoders.
   private static final String[] supportedH264HwCodecPrefixes =
-    {"OMX.qcom.", "OMX.Intel." };
+    {"OMX.qcom.", "OMX.Intel.", "OMX.Exynos." };
   // NV12 color format supported by QCOM codec, but not declared in MediaCodec -
   // see /hardware/qcom/media/mm-core/inc/OMX_QCOMExtns.h
   private static final int
@@ -547,10 +547,10 @@ public class MediaCodecVideoDecoder {
     }
 
     public void release() {
-      // SurfaceTextureHelper.dispose() will block until any onTextureFrameAvailable() in
-      // progress is done. Therefore, the call to dispose() must be outside any synchronized
+      // SurfaceTextureHelper.stopListening() will block until any onTextureFrameAvailable() in
+      // progress is done. Therefore, the call must be outside any synchronized
       // statement that is also used in the onTextureFrameAvailable() above to avoid deadlocks.
-      surfaceTextureHelper.dispose();
+      surfaceTextureHelper.stopListening();
       synchronized (newFrameLock) {
         if (renderedBuffer != null) {
           surfaceTextureHelper.returnTextureFrame();
@@ -619,8 +619,9 @@ public class MediaCodecVideoDecoder {
           TimeStamps timeStamps = decodeStartTimeMs.remove();
           long decodeTimeMs = SystemClock.elapsedRealtime() - timeStamps.decodeStartTimeMs;
           if (decodeTimeMs > MAX_DECODE_TIME_MS) {
-            Logging.e(TAG, "Very high decode time: " + decodeTimeMs + "ms."
-                + " Might be caused by resuming H264 decoding after a pause.");
+            Logging.e(TAG, "Very high decode time: " + decodeTimeMs + "ms"
+                + ". Q size: " + decodeStartTimeMs.size()
+                + ". Might be caused by resuming H264 decoding after a pause.");
             decodeTimeMs = MAX_DECODE_TIME_MS;
           }
           return new DecodedOutputBuffer(result,

@@ -52,13 +52,6 @@ AndroidVideoCapturerJni::~AndroidVideoCapturerJni() {
       *j_video_capturer_,
       GetMethodID(jni(), *j_video_capturer_class_, "dispose", "()V"));
   CHECK_EXCEPTION(jni()) << "error during VideoCapturer.dispose()";
-  if (surface_texture_helper_) {
-    jni()->CallVoidMethod(
-        surface_texture_helper_->GetJavaSurfaceTextureHelper(),
-        GetMethodID(jni(), FindClass(jni(), "org/webrtc/SurfaceTextureHelper"),
-                    "dispose", "()V"));
-  }
-  CHECK_EXCEPTION(jni()) << "error during SurfaceTextureHelper.dispose()";
 }
 
 void AndroidVideoCapturerJni::Start(int width, int height, int framerate,
@@ -95,6 +88,10 @@ void AndroidVideoCapturerJni::Stop() {
   LOG(LS_INFO) << "AndroidVideoCapturerJni stop";
   RTC_DCHECK(thread_checker_.CalledOnValidThread());
   {
+    // TODO(nisse): Consider moving this block until *after* the call to
+    // stopCapturer. stopCapturer should ensure that we get no
+    // more frames, and then we shouldn't need the if (!capturer_)
+    // checks in OnMemoryBufferFrame and OnTextureFrame.
     rtc::CritScope cs(&capturer_lock_);
     // Destroying |invoker_| will cancel all pending calls to |capturer_|.
     invoker_ = nullptr;
@@ -109,15 +106,17 @@ void AndroidVideoCapturerJni::Stop() {
 
 template <typename... Args>
 void AndroidVideoCapturerJni::AsyncCapturerInvoke(
-    const char* method_name,
+    const rtc::Location& posted_from,
     void (webrtc::AndroidVideoCapturer::*method)(Args...),
     typename Identity<Args>::type... args) {
   rtc::CritScope cs(&capturer_lock_);
   if (!invoker_) {
-    LOG(LS_WARNING) << method_name << "() called for closed capturer.";
+    LOG(LS_WARNING) << posted_from.function_name()
+                    << "() called for closed capturer.";
     return;
   }
-  invoker_->AsyncInvoke<void>(rtc::Bind(method, capturer_, args...));
+  invoker_->AsyncInvoke<void>(posted_from,
+                              rtc::Bind(method, capturer_, args...));
 }
 
 std::vector<cricket::VideoFormat>
@@ -133,21 +132,27 @@ AndroidVideoCapturerJni::GetSupportedFormats() {
   jclass j_list_class = jni->FindClass("java/util/List");
   jclass j_format_class =
       jni->FindClass("org/webrtc/CameraEnumerationAndroid$CaptureFormat");
+  jclass j_framerate_class = jni->FindClass(
+      "org/webrtc/CameraEnumerationAndroid$CaptureFormat$FramerateRange");
   const int size = jni->CallIntMethod(
       j_list_of_formats, GetMethodID(jni, j_list_class, "size", "()I"));
   jmethodID j_get =
       GetMethodID(jni, j_list_class, "get", "(I)Ljava/lang/Object;");
+  jfieldID j_framerate_field = GetFieldID(
+      jni, j_format_class, "framerate",
+      "Lorg/webrtc/CameraEnumerationAndroid$CaptureFormat$FramerateRange;");
   jfieldID j_width_field = GetFieldID(jni, j_format_class, "width", "I");
   jfieldID j_height_field = GetFieldID(jni, j_format_class, "height", "I");
   jfieldID j_max_framerate_field =
-      GetFieldID(jni, j_format_class, "maxFramerate", "I");
+      GetFieldID(jni, j_framerate_class, "max", "I");
 
   std::vector<cricket::VideoFormat> formats;
   formats.reserve(size);
   for (int i = 0; i < size; ++i) {
     jobject j_format = jni->CallObjectMethod(j_list_of_formats, j_get, i);
+    jobject j_framerate = GetObjectField(jni, j_format, j_framerate_field);
     const int frame_interval = cricket::VideoFormat::FpsToInterval(
-        (GetIntField(jni, j_format, j_max_framerate_field) + 999) / 1000);
+        (GetIntField(jni, j_framerate, j_max_framerate_field) + 999) / 1000);
     formats.emplace_back(GetIntField(jni, j_format, j_width_field),
                          GetIntField(jni, j_format, j_height_field),
                          frame_interval, cricket::FOURCC_NV21);
@@ -158,9 +163,8 @@ AndroidVideoCapturerJni::GetSupportedFormats() {
 
 void AndroidVideoCapturerJni::OnCapturerStarted(bool success) {
   LOG(LS_INFO) << "AndroidVideoCapturerJni capture started: " << success;
-  AsyncCapturerInvoke("OnCapturerStarted",
-                      &webrtc::AndroidVideoCapturer::OnCapturerStarted,
-                      success);
+  AsyncCapturerInvoke(
+      RTC_FROM_HERE, &webrtc::AndroidVideoCapturer::OnCapturerStarted, success);
 }
 
 void AndroidVideoCapturerJni::OnMemoryBufferFrame(void* video_frame,
@@ -169,21 +173,72 @@ void AndroidVideoCapturerJni::OnMemoryBufferFrame(void* video_frame,
                                                   int height,
                                                   int rotation,
                                                   int64_t timestamp_ns) {
-  const uint8_t* y_plane = static_cast<uint8_t*>(video_frame);
-  const uint8_t* vu_plane = y_plane + width * height;
+  RTC_DCHECK(rotation == 0 || rotation == 90 || rotation == 180 ||
+             rotation == 270);
+  rtc::CritScope cs(&capturer_lock_);
+  if (!capturer_) {
+    LOG(LS_WARNING) << "OnMemoryBufferFrame() called for closed capturer.";
+    return;
+  }
+  int adapted_width;
+  int adapted_height;
+  int crop_width;
+  int crop_height;
+  int crop_x;
+  int crop_y;
+  int64_t translated_camera_time_us;
+
+  if (!capturer_->AdaptFrame(width, height,
+                             timestamp_ns / rtc::kNumNanosecsPerMicrosec,
+                             rtc::TimeMicros(),
+                             &adapted_width, &adapted_height,
+                             &crop_width, &crop_height, &crop_x, &crop_y,
+                             &translated_camera_time_us)) {
+    return;
+  }
+
+  int rotated_width = crop_width;
+  int rotated_height = crop_height;
+
+  if (capturer_->apply_rotation() && (rotation == 90 || rotation == 270)) {
+    std::swap(adapted_width, adapted_height);
+    std::swap(rotated_width, rotated_height);
+  }
 
   rtc::scoped_refptr<webrtc::VideoFrameBuffer> buffer =
-      buffer_pool_.CreateBuffer(width, height);
-  libyuv::NV21ToI420(
-      y_plane, width,
-      vu_plane, width,
-      buffer->MutableData(webrtc::kYPlane), buffer->stride(webrtc::kYPlane),
-      buffer->MutableData(webrtc::kUPlane), buffer->stride(webrtc::kUPlane),
-      buffer->MutableData(webrtc::kVPlane), buffer->stride(webrtc::kVPlane),
-      width, height);
-  AsyncCapturerInvoke("OnIncomingFrame",
-                      &webrtc::AndroidVideoCapturer::OnIncomingFrame,
-                      buffer, rotation, timestamp_ns);
+      pre_scale_pool_.CreateBuffer(rotated_width, rotated_height);
+
+  const uint8_t* y_plane = static_cast<const uint8_t*>(video_frame);
+  const uint8_t* uv_plane = y_plane + width * height;
+
+  // Can only crop at even pixels.
+  crop_x &= ~1;
+  crop_y &= ~1;
+  int uv_width = (width + 1) / 2;
+
+  libyuv::NV12ToI420Rotate(
+      y_plane + width * crop_y + crop_x, width,
+      uv_plane + uv_width * crop_y + crop_x, width,
+      buffer->MutableDataY(), buffer->StrideY(),
+      // Swap U and V, since we have NV21, not NV12.
+      buffer->MutableDataV(), buffer->StrideV(),
+      buffer->MutableDataU(), buffer->StrideU(),
+      crop_width, crop_height, static_cast<libyuv::RotationMode>(
+          capturer_->apply_rotation() ? rotation : 0));
+
+  if (adapted_width != buffer->width() || adapted_height != buffer->height()) {
+    rtc::scoped_refptr<webrtc::I420Buffer> scaled_buffer(
+        post_scale_pool_.CreateBuffer(adapted_width, adapted_height));
+    scaled_buffer->ScaleFrom(buffer);
+    buffer = scaled_buffer;
+  }
+  capturer_->OnFrame(cricket::WebRtcVideoFrame(
+                         buffer,
+                         capturer_->apply_rotation()
+                             ? webrtc::kVideoRotation_0
+                             : static_cast<webrtc::VideoRotation>(rotation),
+                         translated_camera_time_us),
+                     width, height);
 }
 
 void AndroidVideoCapturerJni::OnTextureFrame(int width,
@@ -191,18 +246,63 @@ void AndroidVideoCapturerJni::OnTextureFrame(int width,
                                              int rotation,
                                              int64_t timestamp_ns,
                                              const NativeHandleImpl& handle) {
-  rtc::scoped_refptr<webrtc::VideoFrameBuffer> buffer(
-      surface_texture_helper_->CreateTextureFrame(width, height, handle));
+  RTC_DCHECK(rotation == 0 || rotation == 90 || rotation == 180 ||
+             rotation == 270);
+  rtc::CritScope cs(&capturer_lock_);
+  if (!capturer_) {
+    LOG(LS_WARNING) << "OnTextureFrame() called for closed capturer.";
+    surface_texture_helper_->ReturnTextureFrame();
+    return;
+  }
+  int adapted_width;
+  int adapted_height;
+  int crop_width;
+  int crop_height;
+  int crop_x;
+  int crop_y;
+  int64_t translated_camera_time_us;
 
-  AsyncCapturerInvoke("OnIncomingFrame",
-                      &webrtc::AndroidVideoCapturer::OnIncomingFrame,
-                      buffer, rotation, timestamp_ns);
+  if (!capturer_->AdaptFrame(width, height,
+                             timestamp_ns / rtc::kNumNanosecsPerMicrosec,
+                             rtc::TimeMicros(),
+                             &adapted_width, &adapted_height,
+                             &crop_width, &crop_height, &crop_x, &crop_y,
+                             &translated_camera_time_us)) {
+    surface_texture_helper_->ReturnTextureFrame();
+    return;
+  }
+
+  Matrix matrix = handle.sampling_matrix;
+
+  matrix.Crop(crop_width / static_cast<float>(width),
+              crop_height / static_cast<float>(height),
+              crop_x / static_cast<float>(width),
+              crop_y / static_cast<float>(height));
+
+  if (capturer_->apply_rotation()) {
+    if (rotation == webrtc::kVideoRotation_90 ||
+        rotation == webrtc::kVideoRotation_270) {
+      std::swap(adapted_width, adapted_height);
+    }
+    matrix.Rotate(static_cast<webrtc::VideoRotation>(rotation));
+  }
+
+  capturer_->OnFrame(
+      cricket::WebRtcVideoFrame(
+          surface_texture_helper_->CreateTextureFrame(
+              adapted_width, adapted_height,
+              NativeHandleImpl(handle.oes_texture_id, matrix)),
+          capturer_->apply_rotation()
+              ? webrtc::kVideoRotation_0
+              : static_cast<webrtc::VideoRotation>(rotation),
+          translated_camera_time_us),
+      width, height);
 }
 
 void AndroidVideoCapturerJni::OnOutputFormatRequest(int width,
                                                     int height,
                                                     int fps) {
-  AsyncCapturerInvoke("OnOutputFormatRequest",
+  AsyncCapturerInvoke(RTC_FROM_HERE,
                       &webrtc::AndroidVideoCapturer::OnOutputFormatRequest,
                       width, height, fps);
 }

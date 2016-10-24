@@ -3,6 +3,7 @@
 # found in the LICENSE file.
 
 from telemetry.internal.util import atexit_with_log
+import json
 import logging
 import os
 import shutil
@@ -173,7 +174,7 @@ class ChromeTracingAgent(tracing_agent.TracingAgent):
     for client in devtools_clients:
       version = client.GetChromeBranchNumber()
       break
-    if int(version) >= 2661:
+    if version and int(version) >= 2661:
       self._RecordClockSyncMarkerDevTools(
           sync_id, record_controller_clock_sync_marker_callback,
           devtools_clients)
@@ -201,12 +202,12 @@ class ChromeTracingAgent(tracing_agent.TracingAgent):
     # lose data if there is a stale client.
     devtools_clients = (chrome_tracing_devtools_manager
         .GetDevToolsClients(self._platform_backend))
-    raised_execption_messages = []
+    raised_exception_messages = []
     for client in devtools_clients:
       try:
         client.StopChromeTracing(trace_data_builder)
       except Exception:
-        raised_execption_messages.append(
+        raised_exception_messages.append(
           'Error when trying to stop Chrome tracing on devtools at port %s:\n%s'
           % (client.remote_port,
              ''.join(traceback.format_exception(*sys.exc_info()))))
@@ -216,15 +217,18 @@ class ChromeTracingAgent(tracing_agent.TracingAgent):
       self._platform_backend.SetGraphicsMemoryTrackingEnabled(False)
 
     self._trace_config = None
-    if raised_execption_messages:
+    if raised_exception_messages:
       raise ChromeTracingStoppedError(
           'Exceptions raised when trying to stop Chrome devtool tracing:\n' +
-          '\n'.join(raised_execption_messages))
+          '\n'.join(raised_exception_messages))
 
   def _CreateTraceConfigFileString(self, config):
     # See src/components/tracing/trace_config_file.h for the format
-    trace_config_str = config.GetChromeTraceConfigJsonString()
-    return '{"trace_config":' + trace_config_str + '}'
+    result = {
+      'trace_config':
+        config.chrome_trace_config.GetChromeTraceConfigForStartupTracing()
+    }
+    return json.dumps(result, sort_keys=True)
 
   def _CreateTraceConfigFile(self, config):
     assert not self._trace_config_file

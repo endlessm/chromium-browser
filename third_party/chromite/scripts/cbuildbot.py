@@ -30,6 +30,7 @@ from chromite.cbuildbot import tee
 from chromite.cbuildbot import topology
 from chromite.cbuildbot import tree_status
 from chromite.cbuildbot import trybot_patch_pool
+from chromite.cbuildbot import failures_lib
 from chromite.cbuildbot.stages import completion_stages
 from chromite.lib import cidb
 from chromite.lib import cgroups
@@ -519,6 +520,10 @@ def _CreateParser():
                                 'to skip verification by the bootstrap code'))
   group.add_remote_option('--buildbot', dest='buildbot', action='store_true',
                           default=False, help='This is running on a buildbot')
+  parser.add_remote_option('--repo-cache', type='path',
+                           help='Directory from which to copy a repo checkout '
+                                'if our build root is empty, to avoid '
+                                'excessive GoB load with a fresh sync.')
   group.add_remote_option('--no-buildbot-tags', action='store_false',
                           dest='enable_buildbot_tags', default=True,
                           help='Suppress buildbot specific tags from log '
@@ -1007,7 +1012,7 @@ def _SetupConnections(options, build_config):
 
   if run_type == _ENVIRONMENT_PROD:
     cidb.CIDBConnectionFactory.SetupProdCidb()
-    ts_mon_config.SetupTsMonGlobalState()
+    ts_mon_config.SetupTsMonGlobalState('cbuildbot')
   elif run_type == _ENVIRONMENT_DEBUG:
     cidb.CIDBConnectionFactory.SetupDebugCidb()
   else:
@@ -1260,8 +1265,11 @@ def main(argv):
           logging.info('Updating slave build timeout to %d seconds enforced '
                        'by the master', slave_timeout)
           options.timeout = slave_timeout
-          timeout_display_message = ('Slave reached the timeout deadline set '
-                                     'by master.')
+          timeout_display_message = (
+              'This build has reached the timeout deadline set by the master. '
+              'Either this stage or a previous one took too long (see stage '
+              'timing historical summary in ReportStage) or the build failed '
+              'to start on time.')
       else:
         logging.warning('Could not get master deadline for master-slave build. '
                         'Can not set slave timeout.')
@@ -1269,5 +1277,8 @@ def main(argv):
     if options.timeout > 0:
       stack.Add(timeout_util.FatalTimeout, options.timeout,
                 timeout_display_message)
-
-    _RunBuildStagesWrapper(options, site_config, build_config)
+    try:
+      _RunBuildStagesWrapper(options, site_config, build_config)
+    except failures_lib.ExitEarlyException as ex:
+      # This build finished successfully. Do not re-raise ExitEarlyException.
+      logging.info('One stage exited early: %s', ex)

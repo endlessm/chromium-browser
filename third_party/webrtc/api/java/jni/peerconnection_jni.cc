@@ -68,7 +68,6 @@
 #include "webrtc/base/ssladapter.h"
 #include "webrtc/base/stringutils.h"
 #include "webrtc/media/base/videocapturer.h"
-#include "webrtc/media/devices/videorendererfactory.h"
 #include "webrtc/media/engine/webrtcvideodecoderfactory.h"
 #include "webrtc/media/engine/webrtcvideoencoderfactory.h"
 #include "webrtc/system_wrappers/include/field_trial_default.h"
@@ -161,6 +160,13 @@ class ConstraintsWrapper;
 // and dispatches C++ callbacks to Java.
 class PCOJava : public PeerConnectionObserver {
  public:
+  // We need these using declarations because there are two versions of each of
+  // the below methods and we only override one of them.
+  // TODO(deadbeef): Remove once there's only one version of the methods.
+  using PeerConnectionObserver::OnAddStream;
+  using PeerConnectionObserver::OnRemoveStream;
+  using PeerConnectionObserver::OnDataChannel;
+
   PCOJava(JNIEnv* jni, jobject j_observer)
       : j_observer_global_(jni, j_observer),
         j_observer_class_(jni, GetObjectClass(jni, *j_observer_global_)),
@@ -257,14 +263,14 @@ class PCOJava : public PeerConnectionObserver {
     CHECK_EXCEPTION(jni()) << "error during CallVoidMethod";
   }
 
-  void OnAddStream(MediaStreamInterface* stream) override {
+  void OnAddStream(rtc::scoped_refptr<MediaStreamInterface> stream) override {
     ScopedLocalRefFrame local_ref_frame(jni());
     // Java MediaStream holds one reference. Corresponding Release() is in
     // MediaStream_free, triggered by MediaStream.dispose().
     stream->AddRef();
     jobject j_stream =
         jni()->NewObject(*j_media_stream_class_, j_media_stream_ctor_,
-                         reinterpret_cast<jlong>(stream));
+                         reinterpret_cast<jlong>(stream.get()));
     CHECK_EXCEPTION(jni()) << "error during NewObject";
 
     for (const auto& track : stream->GetAudioTracks()) {
@@ -320,7 +326,8 @@ class PCOJava : public PeerConnectionObserver {
     CHECK_EXCEPTION(jni()) << "error during CallVoidMethod";
   }
 
-  void OnRemoveStream(MediaStreamInterface* stream) override {
+  void OnRemoveStream(
+      rtc::scoped_refptr<MediaStreamInterface> stream) override {
     ScopedLocalRefFrame local_ref_frame(jni());
     NativeToJavaStreamsMap::iterator it = remote_streams_.find(stream);
     RTC_CHECK(it != remote_streams_.end()) << "unexpected stream: " << std::hex
@@ -330,13 +337,17 @@ class PCOJava : public PeerConnectionObserver {
                               "(Lorg/webrtc/MediaStream;)V");
     jni()->CallVoidMethod(*j_observer_global_, m, j_stream);
     CHECK_EXCEPTION(jni()) << "error during CallVoidMethod";
+    // Release the refptr reference so that DisposeRemoteStream can assert
+    // it removes the final reference.
+    stream = nullptr;
     DisposeRemoteStream(it);
   }
 
-  void OnDataChannel(DataChannelInterface* channel) override {
+  void OnDataChannel(
+      rtc::scoped_refptr<DataChannelInterface> channel) override {
     ScopedLocalRefFrame local_ref_frame(jni());
     jobject j_channel = jni()->NewObject(
-        *j_data_channel_class_, j_data_channel_ctor_, (jlong)channel);
+        *j_data_channel_class_, j_data_channel_ctor_, (jlong)channel.get());
     CHECK_EXCEPTION(jni()) << "error during NewObject";
 
     jmethodID m = GetMethodID(jni(), *j_observer_class_, "onDataChannel",
@@ -742,9 +753,10 @@ class JavaVideoRendererWrapper
 
   void OnFrame(const cricket::VideoFrame& video_frame) override {
     ScopedLocalRefFrame local_ref_frame(jni());
-    jobject j_frame = (video_frame.GetNativeHandle() != nullptr)
-                          ? CricketToJavaTextureFrame(&video_frame)
-                          : CricketToJavaI420Frame(&video_frame);
+    jobject j_frame =
+        (video_frame.video_frame_buffer()->native_handle() != nullptr)
+            ? CricketToJavaTextureFrame(&video_frame)
+            : CricketToJavaI420Frame(&video_frame);
     // |j_callbacks_| is responsible for releasing |j_frame| with
     // VideoRenderer.renderFrameDone().
     jni()->CallVoidMethod(*j_callbacks_, j_render_frame_id_, j_frame);
@@ -792,10 +804,10 @@ class JavaVideoRendererWrapper
 
   // Return a VideoRenderer.I420Frame referring texture object in |frame|.
   jobject CricketToJavaTextureFrame(const cricket::VideoFrame* frame) {
-    NativeHandleImpl* handle =
-        reinterpret_cast<NativeHandleImpl*>(frame->GetNativeHandle());
-    jfloatArray sampling_matrix = jni()->NewFloatArray(16);
-    jni()->SetFloatArrayRegion(sampling_matrix, 0, 16, handle->sampling_matrix);
+    NativeHandleImpl* handle = reinterpret_cast<NativeHandleImpl*>(
+        frame->video_frame_buffer()->native_handle());
+    jfloatArray sampling_matrix = handle->sampling_matrix.ToJava(jni());
+
     return jni()->NewObject(
         *j_frame_class_, j_texture_frame_ctor_id_,
         frame->width(), frame->height(),
@@ -1107,9 +1119,12 @@ void OwnedFactoryAndThreads::JavaCallbackOnFactoryThreads() {
 
 void OwnedFactoryAndThreads::InvokeJavaCallbacksOnFactoryThreads() {
   LOG(LS_INFO) << "InvokeJavaCallbacksOnFactoryThreads.";
-  network_thread_->Invoke<void>([this] { JavaCallbackOnFactoryThreads(); });
-  worker_thread_->Invoke<void>([this] { JavaCallbackOnFactoryThreads(); });
-  signaling_thread_->Invoke<void>([this] { JavaCallbackOnFactoryThreads(); });
+  network_thread_->Invoke<void>(RTC_FROM_HERE,
+                                [this] { JavaCallbackOnFactoryThreads(); });
+  worker_thread_->Invoke<void>(RTC_FROM_HERE,
+                               [this] { JavaCallbackOnFactoryThreads(); });
+  signaling_thread_->Invoke<void>(RTC_FROM_HERE,
+                                  [this] { JavaCallbackOnFactoryThreads(); });
 }
 
 PeerConnectionFactoryInterface::Options ParseOptionsFromJava(JNIEnv* jni,
@@ -1439,6 +1454,24 @@ JavaTcpCandidatePolicyToNativeType(
   return PeerConnectionInterface::kTcpCandidatePolicyEnabled;
 }
 
+static PeerConnectionInterface::CandidateNetworkPolicy
+JavaCandidateNetworkPolicyToNativeType(JNIEnv* jni,
+                                       jobject j_candidate_network_policy) {
+  std::string enum_name =
+      GetJavaEnumName(jni, "org/webrtc/PeerConnection$CandidateNetworkPolicy",
+                      j_candidate_network_policy);
+
+  if (enum_name == "ALL")
+    return PeerConnectionInterface::kCandidateNetworkPolicyAll;
+
+  if (enum_name == "LOW_COST")
+    return PeerConnectionInterface::kCandidateNetworkPolicyLowCost;
+
+  RTC_CHECK(false) << "Unexpected CandidateNetworkPolicy enum_name "
+                   << enum_name;
+  return PeerConnectionInterface::kCandidateNetworkPolicyAll;
+}
+
 static rtc::KeyType JavaKeyTypeToNativeType(JNIEnv* jni, jobject j_key_type) {
   std::string enum_name = GetJavaEnumName(
       jni, "org/webrtc/PeerConnection$KeyType", j_key_type);
@@ -1524,6 +1557,12 @@ static void JavaRTCConfigurationToJsepRTCConfiguration(
   jobject j_tcp_candidate_policy = GetObjectField(
       jni, j_rtc_config, j_tcp_candidate_policy_id);
 
+  jfieldID j_candidate_network_policy_id = GetFieldID(
+      jni, j_rtc_config_class, "candidateNetworkPolicy",
+      "Lorg/webrtc/PeerConnection$CandidateNetworkPolicy;");
+  jobject j_candidate_network_policy = GetObjectField(
+      jni, j_rtc_config, j_candidate_network_policy_id);
+
   jfieldID j_ice_servers_id = GetFieldID(
       jni, j_rtc_config_class, "iceServers", "Ljava/util/List;");
   jobject j_ice_servers = GetObjectField(jni, j_rtc_config, j_ice_servers_id);
@@ -1545,6 +1584,9 @@ static void JavaRTCConfigurationToJsepRTCConfiguration(
   jobject j_continual_gathering_policy =
       GetObjectField(jni, j_rtc_config, j_continual_gathering_policy_id);
 
+  jfieldID j_ice_candidate_pool_size_id =
+      GetFieldID(jni, j_rtc_config_class, "iceCandidatePoolSize", "I");
+
   rtc_config->type =
       JavaIceTransportsTypeToNativeType(jni, j_ice_transports_type);
   rtc_config->bundle_policy =
@@ -1553,6 +1595,8 @@ static void JavaRTCConfigurationToJsepRTCConfiguration(
       JavaRtcpMuxPolicyToNativeType(jni, j_rtcp_mux_policy);
   rtc_config->tcp_candidate_policy =
       JavaTcpCandidatePolicyToNativeType(jni, j_tcp_candidate_policy);
+  rtc_config->candidate_network_policy =
+      JavaCandidateNetworkPolicyToNativeType(jni, j_candidate_network_policy);
   JavaIceServersToJsepIceServers(jni, j_ice_servers, &rtc_config->servers);
   rtc_config->audio_jitter_buffer_max_packets =
       GetIntField(jni, j_rtc_config, j_audio_jitter_buffer_max_packets_id);
@@ -1565,6 +1609,8 @@ static void JavaRTCConfigurationToJsepRTCConfiguration(
   rtc_config->continual_gathering_policy =
       JavaContinualGatheringPolicyToNativeType(
           jni, j_continual_gathering_policy);
+  rtc_config->ice_candidate_pool_size =
+      GetIntField(jni, j_rtc_config, j_ice_candidate_pool_size_id);
 }
 
 JOW(jlong, PeerConnectionFactory_nativeCreatePeerConnection)(

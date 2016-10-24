@@ -49,24 +49,25 @@ class BrowserTestRunnerTest(unittest.TestCase):
   def testJsonOutputFormatNegativeFilter(self, mockInitDependencyManager):
     self.baseTest(
       mockInitDependencyManager, '^(add|multiplier).*',
-      ['browser_tests.simple_numeric_test.SimpleTest.add_1_and_2',
-       'browser_tests.simple_numeric_test.SimpleTest.add_7_and_3',
-       'browser_tests.simple_numeric_test.SimpleTest.multiplier_simple_2'],
-      ['browser_tests.simple_numeric_test.SimpleTest.add_2_and_3',
-       'browser_tests.simple_numeric_test.SimpleTest.multiplier_simple',
-       'browser_tests.simple_numeric_test.SimpleTest.multiplier_simple_3'])
+      ['add_1_and_2',
+       'add_7_and_3',
+       'multiplier_simple_2'],
+      ['add_2_and_3',
+       'multiplier_simple',
+       'multiplier_simple_3'])
 
   @mock.patch('telemetry.internal.util.binary_manager.InitDependencyManager')
   def testJsonOutputFormatPositiveFilter(self, mockInitDependencyManager):
     self.baseTest(
-      mockInitDependencyManager, 'TestSimple',
-      ['browser_tests.simple_numeric_test.SimpleTest.TestSimple'],
+      mockInitDependencyManager, '(TestSimple|TestException).*',
+      ['TestException',
+       'TestSimple'],
       [])
 
   @mock.patch('telemetry.internal.util.binary_manager.InitDependencyManager')
   def testExecutingTestsInSortedOrder(self, mockInitDependencyManager):
     alphabetical_tests = []
-    prefix = 'browser_tests.simple_numeric_test.SimpleTest.Alphabetical_'
+    prefix = 'Alphabetical_'
     for i in xrange(20):
       alphabetical_tests.append(prefix + str(i))
     for c in string.uppercase[:26]:
@@ -76,3 +77,172 @@ class BrowserTestRunnerTest(unittest.TestCase):
     alphabetical_tests.sort()
     self.baseTest(
         mockInitDependencyManager, 'Alphabetical', [], alphabetical_tests)
+
+  def shardingRangeTestHelper(self, total_shards, num_tests):
+    shard_ranges = []
+    for shard_index in xrange(0, total_shards):
+      shard_ranges.append(browser_test_runner._TestRangeForShard(
+        total_shards, shard_index, num_tests))
+    # Make assertions about ranges
+    num_tests_run = 0
+    for i in xrange(0, len(shard_ranges)):
+      cur_range = shard_ranges[i]
+      if i < num_tests:
+        self.assertGreater(cur_range[1], cur_range[0])
+        num_tests_run += (cur_range[1] - cur_range[0])
+      else:
+        # Not enough tests to go around all of the shards.
+        self.assertEquals(cur_range[0], cur_range[1])
+    # Make assertions about non-overlapping ranges
+    for i in xrange(1, len(shard_ranges)):
+      prev_range = shard_ranges[i - 1]
+      cur_range = shard_ranges[i]
+      self.assertEquals(prev_range[1], cur_range[0])
+    # Assert that we run all of the tests (very important)
+    self.assertEquals(num_tests_run, num_tests)
+
+  @mock.patch('telemetry.internal.util.binary_manager.InitDependencyManager')
+  def testShardsWithPrimeNumTests(self, _):
+    for total_shards in xrange(1, 20):
+      # Nice non-prime number
+      self.shardingRangeTestHelper(total_shards, 101)
+
+  @mock.patch('telemetry.internal.util.binary_manager.InitDependencyManager')
+  def testShardsWithDivisibleNumTests(self, _):
+    for total_shards in xrange(1, 6):
+      self.shardingRangeTestHelper(total_shards, 8)
+
+  @mock.patch('telemetry.internal.util.binary_manager.InitDependencyManager')
+  def testShardBoundaryConditions(self, _):
+    self.shardingRangeTestHelper(1, 0)
+    self.shardingRangeTestHelper(1, 1)
+    self.shardingRangeTestHelper(2, 1)
+
+  def baseShardingTest(self, total_shards, shard_index, failures, successes,
+                       opt_abbr_input_json_file=None):
+    options = browser_test_runner.TestRunOptions()
+    options.verbosity = 0
+    config = project_config.ProjectConfig(
+        top_level_dir=os.path.join(util.GetTelemetryDir(), 'examples'),
+        client_configs=['a', 'b', 'c'],
+        benchmark_dirs=[
+            os.path.join(util.GetTelemetryDir(), 'examples', 'browser_tests')]
+    )
+    temp_file = tempfile.NamedTemporaryFile(delete=False)
+    temp_file.close()
+    temp_file_name = temp_file.name
+    abbr_input_json_arg = []
+    if opt_abbr_input_json_file:
+      abbr_input_json_arg = [
+        '--read-abbreviated-json-results-from=%s' % opt_abbr_input_json_file]
+    try:
+      browser_test_runner.Run(
+          config, options,
+          ['SimpleShardingTest',
+           '--write-abbreviated-json-results-to=%s' % temp_file_name,
+           '--total-shards=%d' % total_shards,
+           '--shard-index=%d' % shard_index] + abbr_input_json_arg)
+      with open(temp_file_name) as f:
+        test_result = json.load(f)
+      self.assertEquals(test_result['failures'], failures)
+      self.assertEquals(test_result['successes'], successes)
+      self.assertEquals(test_result['valid'], True)
+    finally:
+      os.remove(temp_file_name)
+
+  @mock.patch('telemetry.internal.util.binary_manager.InitDependencyManager')
+  def testShardedTestRun(self, _):
+    self.baseShardingTest(3, 0, [], [
+      'Test1',
+      'Test2',
+      'Test3',
+      'passing_test_0',
+      'passing_test_1',
+    ])
+    self.baseShardingTest(3, 1, [], [
+      'passing_test_2',
+      'passing_test_3',
+      'passing_test_4',
+      'passing_test_5',
+    ])
+    self.baseShardingTest(3, 2, [], [
+      'passing_test_6',
+      'passing_test_7',
+      'passing_test_8',
+      'passing_test_9',
+    ])
+
+  @mock.patch('telemetry.internal.util.binary_manager.InitDependencyManager')
+  def testSplittingShardsByTimes(self, _):
+    mock_test_results = {
+      'passes': [
+        'Test1',
+        'Test2',
+        'Test3',
+        'passing_test_0',
+        'passing_test_1',
+        'passing_test_2',
+        'passing_test_3',
+        'passing_test_4',
+        'passing_test_5',
+        'passing_test_6',
+        'passing_test_7',
+        'passing_test_8',
+        'passing_test_9',
+      ],
+      'failures': [],
+      'valid': True,
+      'times': {
+        'Test1': 3.0,
+        'Test2': 3.0,
+        'Test3': 3.0,
+        'passing_test_0': 3.0,
+        'passing_test_1': 2.0,
+        'passing_test_2': 2.0,
+        'passing_test_3': 2.0,
+        'passing_test_4': 2.0,
+        'passing_test_5': 1.0,
+        'passing_test_6': 1.0,
+        'passing_test_7': 1.0,
+        'passing_test_8': 1.0,
+        'passing_test_9': 0.5,
+      }
+    }
+    temp_file = tempfile.NamedTemporaryFile(delete=False)
+    temp_file.close()
+    temp_file_name = temp_file.name
+    with open(temp_file_name, 'w') as f:
+      json.dump(mock_test_results, f)
+    # It seems that the sorting order of the first four tests above is:
+    #   passing_test_0, Test1, Test2, Test3
+    # This is probably because the relative order of the "fixed" tests
+    # (starting with "Test") and the generated ones ("passing_") is
+    # not well defined, and the sorting is stable afterward.  The
+    # expectations have been adjusted for this fact.
+    self.baseShardingTest(
+      4, 0, [],
+      ['passing_test_0', 'passing_test_1', 'passing_test_5', 'passing_test_9'],
+      temp_file_name)
+    self.baseShardingTest(
+      4, 1, [],
+      ['Test1', 'passing_test_2', 'passing_test_6'],
+      temp_file_name)
+    self.baseShardingTest(
+      4, 2, [],
+      ['Test2', 'passing_test_3', 'passing_test_7'],
+      temp_file_name)
+    self.baseShardingTest(
+      4, 3, [],
+      ['Test3', 'passing_test_4', 'passing_test_8'],
+      temp_file_name)
+
+  @mock.patch('telemetry.internal.util.binary_manager.InitDependencyManager')
+  def testMedianComputation(self, _):
+    self.assertEquals(2.0, browser_test_runner._MedianTestTime(
+      {'test1': 2.0, 'test2': 7.0, 'test3': 1.0}))
+    self.assertEquals(2.0, browser_test_runner._MedianTestTime(
+      {'test1': 2.0}))
+    self.assertEquals(0.0, browser_test_runner._MedianTestTime({}))
+    self.assertEqual(4.0, browser_test_runner._MedianTestTime(
+      {'test1': 2.0, 'test2': 6.0, 'test3': 1.0, 'test4': 8.0}))
+

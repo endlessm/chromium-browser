@@ -14,10 +14,12 @@
 #include "chrome/browser/app_mode/app_mode_utils.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/views/extensions/extension_keybinding_registry_views.h"
-#include "chrome/browser/ui/views/frame/taskbar_decorator.h"
+#include "chrome/common/extensions/extension_constants.h"
 #include "components/favicon/content/content_favicon_driver.h"
-#include "components/ui/zoom/page_zoom.h"
-#include "components/ui/zoom/zoom_controller.h"
+#include "components/zoom/page_zoom.h"
+#include "components/zoom/zoom_controller.h"
+#include "ui/aura/client/aura_constants.h"
+#include "ui/aura/window.h"
 #include "ui/views/controls/webview/webview.h"
 #include "ui/views/widget/widget.h"
 
@@ -182,7 +184,7 @@ void ChromeNativeAppWindowViews::InitializeDefaultWindow(
   // of the accelerators will cause a crash. Note CHECK here because DCHECK
   // will not be noticed, as this could only be relevant on real hardware.
   CHECK(!is_kiosk_app_mode ||
-        ui_zoom::ZoomController::FromWebContents(web_view()->GetWebContents()));
+        zoom::ZoomController::FromWebContents(web_view()->GetWebContents()));
 
   for (std::map<ui::Accelerator, int>::const_iterator iter =
            accelerator_table.begin();
@@ -228,6 +230,14 @@ void ChromeNativeAppWindowViews::InitializePanelWindow(
   OnBeforePanelWidgetInit(use_default_bounds, &params, widget());
   widget()->Init(params);
   widget()->set_focus_on_creation(create_params.focused);
+#if defined(OS_CHROMEOS)
+  if (extension_misc::IsImeMenuExtensionId(app_window()->extension_id())) {
+    if (widget()->GetNativeView()) {
+      widget()->GetNativeView()->SetProperty(aura::client::kExcludeFromMruKey,
+                                             true);
+    }
+  }
+#endif
 }
 
 views::NonClientFrameView*
@@ -312,16 +322,15 @@ bool ChromeNativeAppWindowViews::AcceleratorPressed(
       Close();
       return true;
     case IDC_ZOOM_MINUS:
-      ui_zoom::PageZoom::Zoom(web_view()->GetWebContents(),
-                              content::PAGE_ZOOM_OUT);
+      zoom::PageZoom::Zoom(web_view()->GetWebContents(),
+                           content::PAGE_ZOOM_OUT);
       return true;
     case IDC_ZOOM_NORMAL:
-      ui_zoom::PageZoom::Zoom(web_view()->GetWebContents(),
-                              content::PAGE_ZOOM_RESET);
+      zoom::PageZoom::Zoom(web_view()->GetWebContents(),
+                           content::PAGE_ZOOM_RESET);
       return true;
     case IDC_ZOOM_PLUS:
-      ui_zoom::PageZoom::Zoom(web_view()->GetWebContents(),
-                              content::PAGE_ZOOM_IN);
+      zoom::PageZoom::Zoom(web_view()->GetWebContents(), content::PAGE_ZOOM_IN);
       return true;
     default:
       NOTREACHED() << "Unknown accelerator sent to app window.";

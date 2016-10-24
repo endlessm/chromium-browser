@@ -232,8 +232,7 @@ def GetExpectedDevices(known_devices_files):
   return expected_devices
 
 
-def main():
-  parser = argparse.ArgumentParser()
+def AddArguments(parser):
   parser.add_argument('--json-output',
                       help='Output JSON information into a specified file.')
   parser.add_argument('--adb-path',
@@ -252,18 +251,30 @@ def main():
                       help='If set, overwrites known devices files wiht new '
                            'values.')
 
+def main():
+  parser = argparse.ArgumentParser()
+  AddArguments(parser)
   args = parser.parse_args()
 
   run_tests_helper.SetLogLevel(args.verbose)
 
-  devil_custom_deps = None
+
+  devil_dynamic_config = {
+    'config_type': 'BaseConfig',
+    'dependencies': {},
+  }
+
   if args.adb_path:
-    devil_custom_deps = {
-      'adb': {
-        devil_env.GetPlatform(): [args.adb_path],
-      },
-    }
-  devil_env.config.Initialize(configs=devil_custom_deps)
+    devil_dynamic_config['dependencies'].update({
+        'adb': {
+          'file_info': {
+            devil_env.GetPlatform(): {
+              'local_paths': [args.adb_path]
+            }
+          }
+        }
+    })
+  devil_env.config.Initialize(configs=[devil_dynamic_config])
 
   blacklist = (device_blacklist.Blacklist(args.blacklist_file)
                if args.blacklist_file

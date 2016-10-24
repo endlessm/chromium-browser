@@ -307,6 +307,7 @@ int32_t MediaCodecVideoDecoder::InitDecode(const VideoCodec* inst,
 
   // Call Java init.
   return codec_thread_->Invoke<int32_t>(
+      RTC_FROM_HERE,
       Bind(&MediaCodecVideoDecoder::InitDecodeOnCodecThread, this));
 }
 
@@ -399,7 +400,7 @@ int32_t MediaCodecVideoDecoder::InitDecodeOnCodecThread() {
     }
   }
 
-  codec_thread_->PostDelayed(kMediaCodecPollMs, this);
+  codec_thread_->PostDelayed(RTC_FROM_HERE, kMediaCodecPollMs, this);
 
   return WEBRTC_VIDEO_CODEC_OK;
 }
@@ -430,7 +431,7 @@ int32_t MediaCodecVideoDecoder::ResetDecodeOnCodecThread() {
   }
   inited_ = true;
 
-  codec_thread_->PostDelayed(kMediaCodecPollMs, this);
+  codec_thread_->PostDelayed(RTC_FROM_HERE, kMediaCodecPollMs, this);
 
   return WEBRTC_VIDEO_CODEC_OK;
 }
@@ -438,7 +439,7 @@ int32_t MediaCodecVideoDecoder::ResetDecodeOnCodecThread() {
 int32_t MediaCodecVideoDecoder::Release() {
   ALOGD << "DecoderRelease request";
   return codec_thread_->Invoke<int32_t>(
-        Bind(&MediaCodecVideoDecoder::ReleaseOnCodecThread, this));
+      RTC_FROM_HERE, Bind(&MediaCodecVideoDecoder::ReleaseOnCodecThread, this));
 }
 
 int32_t MediaCodecVideoDecoder::ReleaseOnCodecThread() {
@@ -539,8 +540,9 @@ int32_t MediaCodecVideoDecoder::Decode(
     if (use_surface_ &&
         (codecType_ == kVideoCodecVP8 || codecType_ == kVideoCodecH264)) {
       // Soft codec reset - only for surface decoding.
-      ret = codec_thread_->Invoke<int32_t>(Bind(
-          &MediaCodecVideoDecoder::ResetDecodeOnCodecThread, this));
+      ret = codec_thread_->Invoke<int32_t>(
+          RTC_FROM_HERE,
+          Bind(&MediaCodecVideoDecoder::ResetDecodeOnCodecThread, this));
     } else {
       // Hard codec reset.
       ret = InitDecode(&codec_, 1);
@@ -568,8 +570,9 @@ int32_t MediaCodecVideoDecoder::Decode(
     return WEBRTC_VIDEO_CODEC_ERROR;
   }
 
-  return codec_thread_->Invoke<int32_t>(Bind(
-      &MediaCodecVideoDecoder::DecodeOnCodecThread, this, inputImage));
+  return codec_thread_->Invoke<int32_t>(
+      RTC_FROM_HERE,
+      Bind(&MediaCodecVideoDecoder::DecodeOnCodecThread, this, inputImage));
 }
 
 int32_t MediaCodecVideoDecoder::DecodeOnCodecThread(
@@ -791,12 +794,12 @@ bool MediaCodecVideoDecoder::DeliverPendingOutputs(
       libyuv::I420Copy(y_ptr, stride,
                        u_ptr, uv_stride,
                        v_ptr, uv_stride,
-                       frame_buffer->MutableData(webrtc::kYPlane),
-                       frame_buffer->stride(webrtc::kYPlane),
-                       frame_buffer->MutableData(webrtc::kUPlane),
-                       frame_buffer->stride(webrtc::kUPlane),
-                       frame_buffer->MutableData(webrtc::kVPlane),
-                       frame_buffer->stride(webrtc::kVPlane),
+                       frame_buffer->MutableDataY(),
+                       frame_buffer->StrideY(),
+                       frame_buffer->MutableDataU(),
+                       frame_buffer->StrideU(),
+                       frame_buffer->MutableDataV(),
+                       frame_buffer->StrideV(),
                        width, height);
     } else {
       // All other supported formats are nv12.
@@ -805,12 +808,12 @@ bool MediaCodecVideoDecoder::DeliverPendingOutputs(
       libyuv::NV12ToI420(
           y_ptr, stride,
           uv_ptr, stride,
-          frame_buffer->MutableData(webrtc::kYPlane),
-          frame_buffer->stride(webrtc::kYPlane),
-          frame_buffer->MutableData(webrtc::kUPlane),
-          frame_buffer->stride(webrtc::kUPlane),
-          frame_buffer->MutableData(webrtc::kVPlane),
-          frame_buffer->stride(webrtc::kVPlane),
+          frame_buffer->MutableDataY(),
+          frame_buffer->StrideY(),
+          frame_buffer->MutableDataU(),
+          frame_buffer->StrideU(),
+          frame_buffer->MutableDataV(),
+          frame_buffer->StrideV(),
           width, height);
     }
     // Return output byte buffer back to codec.
@@ -823,10 +826,6 @@ bool MediaCodecVideoDecoder::DeliverPendingOutputs(
       return false;
     }
   }
-  VideoFrame decoded_frame(frame_buffer, 0, 0, webrtc::kVideoRotation_0);
-  decoded_frame.set_timestamp(output_timestamps_ms);
-  decoded_frame.set_ntp_time_ms(output_ntp_timestamps_ms);
-
   if (frames_decoded_ < frames_decoded_logged_) {
     ALOGD << "Decoder frame out # " << frames_decoded_ <<
         ". " << width << " x " << height <<
@@ -862,9 +861,12 @@ bool MediaCodecVideoDecoder::DeliverPendingOutputs(
     current_delay_time_ms_ = 0;
   }
 
-  // |.IsZeroSize())| returns true when a frame has been dropped.
-  if (!decoded_frame.IsZeroSize()) {
-    // Callback - output decoded frame.
+  // If the frame was dropped, frame_buffer is left as nullptr.
+  if (frame_buffer) {
+    VideoFrame decoded_frame(frame_buffer, 0, 0, webrtc::kVideoRotation_0);
+    decoded_frame.set_timestamp(output_timestamps_ms);
+    decoded_frame.set_ntp_time_ms(output_ntp_timestamps_ms);
+
     const int32_t callback_status =
         callback_->Decoded(decoded_frame, decode_time_ms);
     if (callback_status > 0) {
@@ -897,7 +899,7 @@ void MediaCodecVideoDecoder::OnMessage(rtc::Message* msg) {
     ProcessHWErrorOnCodecThread();
     return;
   }
-  codec_thread_->PostDelayed(kMediaCodecPollMs, this);
+  codec_thread_->PostDelayed(RTC_FROM_HERE, kMediaCodecPollMs, this);
 }
 
 MediaCodecVideoDecoderFactory::MediaCodecVideoDecoderFactory()

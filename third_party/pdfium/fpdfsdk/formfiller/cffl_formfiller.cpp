@@ -88,7 +88,8 @@ void CFFL_FormFiller::OnDraw(CPDFSDK_PageView* pPageView,
   } else {
     CPDFSDK_Widget* pWidget = (CPDFSDK_Widget*)pAnnot;
     if (CFFL_IFormFiller::IsVisible(pWidget))
-      pWidget->DrawAppearance(pDevice, pUser2Device, CPDF_Annot::Normal, NULL);
+      pWidget->DrawAppearance(pDevice, pUser2Device, CPDF_Annot::Normal,
+                              nullptr);
   }
 }
 
@@ -98,7 +99,7 @@ void CFFL_FormFiller::OnDrawDeactive(CPDFSDK_PageView* pPageView,
                                      CFX_Matrix* pUser2Device,
                                      uint32_t dwFlags) {
   CPDFSDK_Widget* pWidget = (CPDFSDK_Widget*)pAnnot;
-  pWidget->DrawAppearance(pDevice, pUser2Device, CPDF_Annot::Normal, NULL);
+  pWidget->DrawAppearance(pDevice, pUser2Device, CPDF_Annot::Normal, nullptr);
 }
 
 void CFFL_FormFiller::OnCreate(CPDFSDK_Annot* pAnnot) {}
@@ -219,7 +220,7 @@ FX_BOOL CFFL_FormFiller::OnKeyDown(CPDFSDK_Annot* pAnnot,
                                    FX_UINT nKeyCode,
                                    FX_UINT nFlags) {
   if (IsValid()) {
-    CPDFSDK_PageView* pPageView = GetCurPageView();
+    CPDFSDK_PageView* pPageView = GetCurPageView(true);
     ASSERT(pPageView);
 
     if (CPWL_Wnd* pWnd = GetPDFWindow(pPageView, FALSE)) {
@@ -234,7 +235,7 @@ FX_BOOL CFFL_FormFiller::OnChar(CPDFSDK_Annot* pAnnot,
                                 FX_UINT nChar,
                                 FX_UINT nFlags) {
   if (IsValid()) {
-    CPDFSDK_PageView* pPageView = GetCurPageView();
+    CPDFSDK_PageView* pPageView = GetCurPageView(true);
     ASSERT(pPageView);
 
     if (CPWL_Wnd* pWnd = GetPDFWindow(pPageView, FALSE)) {
@@ -249,7 +250,7 @@ void CFFL_FormFiller::SetFocusForAnnot(CPDFSDK_Annot* pAnnot, FX_UINT nFlag) {
   CPDFSDK_Widget* pWidget = (CPDFSDK_Widget*)pAnnot;
   UnderlyingPageType* pPage = pWidget->GetUnderlyingPage();
   CPDFSDK_Document* pDoc = m_pApp->GetSDKDocument();
-  CPDFSDK_PageView* pPageView = pDoc->GetPageView(pPage);
+  CPDFSDK_PageView* pPageView = pDoc->GetPageView(pPage, true);
   if (CPWL_Wnd* pWnd = GetPDFWindow(pPageView, TRUE))
     pWnd->SetFocus();
 
@@ -262,7 +263,7 @@ void CFFL_FormFiller::KillFocusForAnnot(CPDFSDK_Annot* pAnnot, FX_UINT nFlag) {
   if (!IsValid())
     return;
 
-  CPDFSDK_PageView* pPageView = GetCurPageView();
+  CPDFSDK_PageView* pPageView = GetCurPageView(false);
   if (!pPageView)
     return;
 
@@ -293,7 +294,7 @@ PWL_CREATEPARAM CFFL_FormFiller::GetCreateParam() {
   ASSERT(m_pApp);
 
   PWL_CREATEPARAM cp;
-  cp.pParentWnd = NULL;
+  cp.pParentWnd = nullptr;
   cp.pProvider = this;
   cp.rcRectWnd = GetPDFWindowRect();
 
@@ -455,10 +456,10 @@ CFX_FloatRect CFFL_FormFiller::GetPDFWindowRect() const {
   return CFX_FloatRect(0, 0, fWidth, fHeight);
 }
 
-CPDFSDK_PageView* CFFL_FormFiller::GetCurPageView() {
+CPDFSDK_PageView* CFFL_FormFiller::GetCurPageView(bool renew) {
   UnderlyingPageType* pPage = m_pAnnot->GetUnderlyingPage();
   CPDFSDK_Document* pSDKDoc = m_pApp->GetSDKDocument();
-  return pSDKDoc ? pSDKDoc->GetPageView(pPage) : nullptr;
+  return pSDKDoc ? pSDKDoc->GetPageView(pPage, renew) : nullptr;
 }
 
 CFX_FloatRect CFFL_FormFiller::GetFocusBox(CPDFSDK_PageView* pPageView) {
@@ -690,23 +691,25 @@ void CFFL_Button::OnDraw(CPDFSDK_PageView* pPageView,
   CPDF_FormControl::HighlightingMode eHM = pCtrl->GetHighlightingMode();
 
   if (eHM != CPDF_FormControl::Push) {
-    pWidget->DrawAppearance(pDevice, pUser2Device, CPDF_Annot::Normal, NULL);
+    pWidget->DrawAppearance(pDevice, pUser2Device, CPDF_Annot::Normal, nullptr);
     return;
   }
 
   if (m_bMouseDown) {
     if (pWidget->IsWidgetAppearanceValid(CPDF_Annot::Down))
-      pWidget->DrawAppearance(pDevice, pUser2Device, CPDF_Annot::Down, NULL);
+      pWidget->DrawAppearance(pDevice, pUser2Device, CPDF_Annot::Down, nullptr);
     else
-      pWidget->DrawAppearance(pDevice, pUser2Device, CPDF_Annot::Normal, NULL);
+      pWidget->DrawAppearance(pDevice, pUser2Device, CPDF_Annot::Normal,
+                              nullptr);
   } else if (m_bMouseIn) {
     if (pWidget->IsWidgetAppearanceValid(CPDF_Annot::Rollover))
       pWidget->DrawAppearance(pDevice, pUser2Device, CPDF_Annot::Rollover,
-                              NULL);
+                              nullptr);
     else
-      pWidget->DrawAppearance(pDevice, pUser2Device, CPDF_Annot::Normal, NULL);
+      pWidget->DrawAppearance(pDevice, pUser2Device, CPDF_Annot::Normal,
+                              nullptr);
   } else {
-    pWidget->DrawAppearance(pDevice, pUser2Device, CPDF_Annot::Normal, NULL);
+    pWidget->DrawAppearance(pDevice, pUser2Device, CPDF_Annot::Normal, nullptr);
   }
 }
 

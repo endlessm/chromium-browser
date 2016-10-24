@@ -7,6 +7,7 @@ found in the LICENSE file.
 
 <link rel="import" href="/tracing/base/statistics.html">
 <link rel="import" href="/tracing/metrics/metric_registry.html">
+<link rel="import" href="/tracing/metrics/system_health/clock_sync_latency_metric.html">
 <link rel="import" href="/tracing/value/numeric.html">
 <link rel="import" href="/tracing/value/value.html">
 
@@ -18,7 +19,7 @@ tr.exportTo('tr.metrics.sh', function() {
   var IDEAL_FRAME_RATE = 60;
   var IDEAL_FRAME_DURATION = 1000 / IDEAL_FRAME_RATE;
 
-  function energyPerFrame(valueList, model) {
+  function energyConsumedPerFrame(valueList, model) {
     var frameEnergyConsumed = tr.v.NumericBuilder.createLinear(
         tr.v.Unit.byName.energyInJoules_smallerIsBetter,
         tr.b.Range.fromExplicitRange(0, .5), 20).build();
@@ -32,27 +33,25 @@ tr.exportTo('tr.metrics.sh', function() {
     }
 
     valueList.addValue(new tr.v.NumericValue(
-        model.canonicalUrl,
-        'power_energy',
-        frameEnergyConsumed,
-        {description: 'Energy consumption in joules'},
-        {}));
+        'energy_consumed_per_frame', frameEnergyConsumed,
+        {description: 'Energy consumption per frame in joules'}));
   }
 
-  function PowerMetric(valueList, model) {
+  function powerMetric(valueList, model) {
+    // TODO(alexandermont): Once it's possible to specify multiple metrics
+    // in a Telemetry benchmark, separate out this metric from the power
+    // metric and have the benchmark use both.
+    // (See: https://github.com/catapult-project/catapult/issues/2430.)
+    tr.metrics.sh.clockSyncLatencyMetric(valueList, model);
     if (!model.device.powerSeries)
       return;
-    energyPerFrame(valueList, model);
+    energyConsumedPerFrame(valueList, model);
   }
 
-  PowerMetric.prototype = {
-    __proto__: Function.prototype
-  };
-
-  tr.metrics.MetricRegistry.register(PowerMetric);
+  tr.metrics.MetricRegistry.register(powerMetric);
 
   return {
-    PowerMetric: PowerMetric
+    powerMetric: powerMetric
   };
 });
 </script>

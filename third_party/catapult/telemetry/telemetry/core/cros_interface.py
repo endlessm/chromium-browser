@@ -306,7 +306,9 @@ class CrOSInterface(object):
     if self.local:
       if destfile is not None and destfile != filename:
         shutil.copyfile(filename, destfile)
-      return
+        return
+      else:
+        raise OSError('No such file or directory %s' % filename)
 
     if destfile is None:
       destfile = os.path.basename(filename)
@@ -505,6 +507,19 @@ class CrOSInterface(object):
 
   def IsRunningOnVM(self):
     return self.SysVendor() == 'QEMU'
+
+  def LsbReleaseValue(self, key, default):
+    """/etc/lsb-release is a file with key=value pairs."""
+    lines = self.GetFileContents('/etc/lsb-release').split('\n')
+    for l in lines:
+      m = re.match(r'([^=]*)=(.*)', l)
+      if m and m.group(1) == key:
+        return m.group(2)
+    return default
+
+  def GetDeviceTypeName(self):
+    """DEVICETYPE in /etc/lsb-release is CHROMEBOOK, CHROMEBIT, etc."""
+    return self.LsbReleaseValue(key='DEVICETYPE', default='CHROMEBOOK')
 
   def RestartUI(self, clear_enterprise_policy):
     logging.info('(Re)starting the ui (logs the user out)')

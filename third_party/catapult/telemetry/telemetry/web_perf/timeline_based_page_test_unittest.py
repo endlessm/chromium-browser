@@ -7,9 +7,11 @@ from telemetry.page import page as page_module
 from telemetry.testing import browser_test_case
 from telemetry.testing import options_for_unittests
 from telemetry.testing import page_test_test_case
-from telemetry.timeline import tracing_category_filter
+from telemetry.timeline import chrome_trace_category_filter
 from telemetry.util import wpr_modes
 from telemetry.web_perf import timeline_based_measurement as tbm_module
+from telemetry.web_perf.metrics import gpu_timeline
+from telemetry.web_perf.metrics import smoothness
 
 class TestTimelinebasedMeasurementPage(page_module.Page):
 
@@ -55,7 +57,9 @@ class TimelineBasedPageTestTest(page_test_test_case.PageTestTestCase):
     ps.AddStory(TestTimelinebasedMeasurementPage(
         ps, ps.base_dir, trigger_animation=True))
 
-    tbm = tbm_module.TimelineBasedMeasurement(tbm_module.Options())
+    options = tbm_module.Options()
+    options.SetLegacyTimelineBasedMetrics([smoothness.SmoothnessMetric()])
+    tbm = tbm_module.TimelineBasedMeasurement(options)
     results = self.RunMeasurement(tbm, ps, options=self._options)
 
     self.assertEquals(0, len(results.failures))
@@ -74,9 +78,10 @@ class TimelineBasedPageTestTest(page_test_test_case.PageTestTestCase):
     ps.AddStory(TestTimelinebasedMeasurementPage(
         ps, ps.base_dir, trigger_animation=True))
 
-    cat_filter = tracing_category_filter.TracingCategoryFilter(
+    cat_filter = chrome_trace_category_filter.ChromeTraceCategoryFilter(
         'disabled-by-default-gpu.service')
     tbm_option = tbm_module.Options(overhead_level=cat_filter)
+    tbm_option.SetLegacyTimelineBasedMetrics([gpu_timeline.GPUTimelineMetric()])
     tbm = tbm_module.TimelineBasedMeasurement(tbm_option)
     results = self.RunMeasurement(tbm, ps, options=self._options)
 
@@ -98,7 +103,9 @@ class TimelineBasedPageTestTest(page_test_test_case.PageTestTestCase):
     ps.AddStory(TestTimelinebasedMeasurementPage(
         ps, ps.base_dir, trigger_scroll_gesture=True))
 
-    tbm = tbm_module.TimelineBasedMeasurement(tbm_module.Options())
+    options = tbm_module.Options()
+    options.SetLegacyTimelineBasedMetrics([smoothness.SmoothnessMetric()])
+    tbm = tbm_module.TimelineBasedMeasurement(options)
     results = self.RunMeasurement(tbm, ps, options=self._options)
 
     self.assertEquals(0, len(results.failures))
@@ -113,12 +120,25 @@ class TimelineBasedPageTestTest(page_test_test_case.PageTestTestCase):
     ps.AddStory(TestTimelinebasedMeasurementPage(ps, ps.base_dir))
 
     options = tbm_module.Options()
+    options.config.enable_chrome_trace = True
     options.SetTimelineBasedMetric('sampleMetric')
 
     tbm = tbm_module.TimelineBasedMeasurement(options)
     results = self.RunMeasurement(tbm, ps, self._options)
 
     self.assertEquals(0, len(results.failures))
+    self.assertEquals(9, len(results.value_set))
+    self.assertEquals(1, len(results.value_set[0]['diagnostics']))
+    iter_info = results.value_set[0]['diagnostics']['iteration']
+    self.assertEqual('IterationInfo', iter_info['type'])
+    self.assertEqual('', iter_info['benchmarkName'])
+    self.assertEqual('interaction_enabled_page.html',
+                     iter_info['storyDisplayName'])
+    self.assertEqual({}, iter_info['storyGroupingKeys'])
+    self.assertEqual(0, iter_info['storyRepeatCounter'])
+    self.assertEqual(0, iter_info['storysetRepeatCounter'])
+    self.assertEqual('file://interaction_enabled_page.html',
+                     iter_info['storyUrl'])
     v_foo = results.FindAllPageSpecificValuesNamed('foo')
     v_bar = results.FindAllPageSpecificValuesNamed('bar')
     v_baz_avg = results.FindAllPageSpecificValuesNamed('baz_avg')
@@ -133,3 +153,35 @@ class TimelineBasedPageTestTest(page_test_test_case.PageTestTestCase):
     self.assertEquals(len(v_baz_avg), 1)
     self.assertEquals(len(v_baz_sum), 1)
     self.assertEquals(len(v_baz_count), 1)
+
+
+  @decorators.Disabled('chromeos')
+  def testFirstPaintMetricSmoke(self):
+    ps = self.CreateEmptyPageSet()
+    ps.AddStory(TestTimelinebasedMeasurementPage(ps, ps.base_dir))
+
+    cat_filter = chrome_trace_category_filter.ChromeTraceCategoryFilter(
+        filter_string='*,blink.console,navigation,blink.user_timing,loading,' +
+        'devtools.timeline,disabled-by-default-blink.debug.layout')
+
+    options = tbm_module.Options(overhead_level=cat_filter)
+    options.SetTimelineBasedMetric('firstPaintMetric')
+
+    tbm = tbm_module.TimelineBasedMeasurement(options)
+    results = self.RunMeasurement(tbm, ps, self._options)
+
+    self.assertEquals(0, len(results.failures), results.failures)
+    v_fcp_max = results.FindAllPageSpecificValuesNamed(
+        'firstContentfulPaint_max')
+    self.assertEquals(len(v_fcp_max), 1)
+    self.assertIsNotNone(v_fcp_max[0].page)
+    # TODO(kouhei): enable this once the reference build of telemetry is
+    # updated.
+    #  self.assertGreater(v_fcp_max[0].value, 0)
+
+    v_fmp_max = results.FindAllPageSpecificValuesNamed(
+       'firstMeaningfulPaint_max')
+    self.assertEquals(len(v_fmp_max), 1)
+    # TODO(ksakamoto): enable this once the reference build of telemetry is
+    # updated.
+    # self.assertIsNotNone(v_fmp_max[0].page)

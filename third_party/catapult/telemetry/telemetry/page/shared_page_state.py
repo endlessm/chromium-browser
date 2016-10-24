@@ -93,6 +93,8 @@ class SharedPageState(story.SharedState):
     else:
       wpr_mode = wpr_modes.WPR_REPLAY
 
+    if self.platform.network_controller.is_open:
+      self.platform.network_controller.Close()
     self.platform.network_controller.Open(wpr_mode,
                                           browser_options.extra_wpr_args)
 
@@ -127,6 +129,19 @@ class SharedPageState(story.SharedState):
       possible_browser.RunRemote()
       sys.exit(0)
     return possible_browser
+
+  def DumpStateUponFailure(self, page, results):
+    # Dump browser standard output and log.
+    if self._browser:
+      self._browser.DumpStateUponFailure()
+    else:
+      logging.warning('Cannot dump browser state: No browser.')
+
+    # Capture a screenshot
+    if self._finder_options.browser_options.take_screenshot_for_failed_page:
+      self._TryCaptureScreenShot(page, self._current_tab, results)
+    else:
+      logging.warning('Taking screenshots upon failures disabled.')
 
   def _TryCaptureScreenShot(self, page, tab, results):
     try:
@@ -190,32 +205,6 @@ class SharedPageState(story.SharedState):
     if self._first_browser:
       self._first_browser = False
       self.browser.credentials.WarnIfMissingCredentials(page)
-      logging.info('OS: %s %s',
-                   self.platform.GetOSName(),
-                   self.platform.GetOSVersionName())
-      if self.browser.supports_system_info:
-        system_info = self.browser.GetSystemInfo()
-        if system_info.model_name:
-          logging.info('Model: %s', system_info.model_name)
-        if system_info.gpu:
-          for i, device in enumerate(system_info.gpu.devices):
-            logging.info('GPU device %d: %s', i, device)
-          if system_info.gpu.aux_attributes:
-            logging.info('GPU Attributes:')
-            for k, v in sorted(system_info.gpu.aux_attributes.iteritems()):
-              logging.info('  %-20s: %s', k, v)
-          if system_info.gpu.feature_status:
-            logging.info('Feature Status:')
-            for k, v in sorted(system_info.gpu.feature_status.iteritems()):
-              logging.info('  %-20s: %s', k, v)
-          if system_info.gpu.driver_bug_workarounds:
-            logging.info('Driver Bug Workarounds:')
-            for workaround in system_info.gpu.driver_bug_workarounds:
-              logging.info('  %s', workaround)
-        else:
-          logging.info('No GPU devices')
-      else:
-        logging.warning('System info not supported')
 
   def WillRunStory(self, page):
     if not self.platform.tracing_controller.is_tracing_running:
@@ -331,19 +320,11 @@ class SharedPageState(story.SharedState):
       self._test.ValidateAndMeasurePage(
           self._current_page, self._current_tab, results)
     except exceptions.Error:
-      if self._finder_options.browser_options.take_screenshot_for_failed_page:
-        self._TryCaptureScreenShot(self._current_page, self._current_tab,
-                                   results)
       if self._test.is_multi_tab_test:
         # Avoid trying to recover from an unknown multi-tab state.
         exception_formatter.PrintFormattedException(
             msg='Telemetry Error during multi tab test:')
         raise legacy_page_test.MultiTabTestAppCrashError
-      raise
-    except Exception:
-      if self._finder_options.browser_options.take_screenshot_for_failed_page:
-        self._TryCaptureScreenShot(self._current_page, self._current_tab,
-                                   results)
       raise
 
   def TearDownState(self):

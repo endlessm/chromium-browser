@@ -3,6 +3,7 @@
 # found in the LICENSE file.
 
 import os
+import logging
 import platform
 import subprocess
 import sys
@@ -44,9 +45,11 @@ def IsBattOrConnected(test_platform, android_device=None,
     return str(android_device) in android_device_map
 
   elif test_platform == 'win':
-    for (_, desc, _) in serial.tools.list_ports.comports():
+    for (_1, desc, _2) in serial.tools.list_ports.comports():
       if 'USB Serial Port' in desc:
         return True
+    logging.info('No usb serial port discovered. Available ones are: %s' %
+                 list(serial.tools.list_ports.comports()))
     return False
 
   elif test_platform == 'mac':
@@ -154,7 +157,7 @@ class BattorWrapper(object):
     with open(self._trace_results_path) as results:
       self._trace_results = results.read()
     self._battor_shell = None
-    return self._trace_results.splitlines()
+    return self._trace_results
 
   def SupportsExplicitClockSync(self):
     """Returns if BattOr supports Clock Sync events."""
@@ -212,6 +215,7 @@ class BattorWrapper(object):
   def _SendBattorCommandImpl(self, cmd):
     """Sends command to the BattOr."""
     self._battor_shell.stdin.write('%s\n' % cmd)
+    self._battor_shell.stdin.flush()
     return self._battor_shell.stdout.readline()
 
   def _SendBattorCommand(self, cmd, check_return=True):
@@ -224,4 +228,5 @@ class BattorWrapper(object):
 
   def _StartShellImpl(self, battor_cmd):
     return subprocess.Popen(
-        battor_cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, shell=False)
+        battor_cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT, shell=False)

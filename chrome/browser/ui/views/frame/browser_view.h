@@ -202,9 +202,6 @@ class BrowserView : public BrowserWindow,
   // not off the record or a guest session.
   bool IsRegularOrGuestSession() const;
 
-  // Returns true if the non-client view should render an avatar icon.
-  bool ShouldShowAvatar() const;
-
   // Provides the containing frame with the accelerator for the specified
   // command id. This can be used to provide menu item shortcut hints etc.
   // Returns true if an accelerator was found for the specified |cmd_id|, false
@@ -281,8 +278,7 @@ class BrowserView : public BrowserWindow,
   void Minimize() override;
   void Restore() override;
   void EnterFullscreen(const GURL& url,
-                       ExclusiveAccessBubbleType bubble_type,
-                       bool with_toolbar) override;
+                       ExclusiveAccessBubbleType bubble_type) override;
   void ExitFullscreen() override;
   void UpdateExclusiveAccessExitBubbleContent(
       const GURL& url,
@@ -342,7 +338,7 @@ class BrowserView : public BrowserWindow,
   void ShowWebsiteSettings(
       Profile* profile,
       content::WebContents* web_contents,
-      const GURL& url,
+      const GURL& virtual_url,
       const security_state::SecurityStateModel::SecurityInfo& security_info)
       override;
   void ShowAppMenu() override;
@@ -417,6 +413,7 @@ class BrowserView : public BrowserWindow,
   void GetAccessiblePanes(std::vector<View*>* panes) override;
 
   // Overridden from views::WidgetObserver:
+  void OnWidgetDestroying(views::Widget* widget) override;
   void OnWidgetActivationChanged(views::Widget* widget, bool active) override;
 
   // Overridden from views::ClientView:

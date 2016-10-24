@@ -30,6 +30,10 @@ from chromite.lib import timeout_util
 
 PUBLIC_BASE_HTTPS_URL = 'https://commondatastorage.googleapis.com/'
 PRIVATE_BASE_HTTPS_URL = 'https://storage.cloud.google.com/'
+# TODO(akeshet): this is a workaround for b/27653354. If that is ultimately
+# fixed, revisit this workaround.
+PRIVATE_BASE_HTTPS_DOWNLOAD_URL = (
+    'https://pantheon.corp.google.com/storage/browser/')
 BASE_GS_URL = 'gs://'
 
 # Format used by "gsutil ls -l" when reporting modified time.
@@ -253,7 +257,7 @@ class GSContext(object):
   # (1*sleep) the first time, then (2*sleep), continuing via attempt * sleep.
   DEFAULT_SLEEP_TIME = 60
 
-  GSUTIL_VERSION = '4.18'
+  GSUTIL_VERSION = '4.19'
   GSUTIL_TAR = 'gsutil_%s.tar.gz' % GSUTIL_VERSION
   GSUTIL_URL = (PUBLIC_BASE_HTTPS_URL +
                 'chromeos-mirror/gentoo/distfiles/%s' % GSUTIL_TAR)

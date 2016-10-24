@@ -11,11 +11,13 @@ import datetime
 import itertools
 import mock
 import os
+import shutil
 import time
 import tempfile
 
 from chromite.cbuildbot import chromeos_config
 from chromite.cbuildbot import constants
+from chromite.cbuildbot import failures_lib
 from chromite.cbuildbot import lkgm_manager
 from chromite.cbuildbot import manifest_version
 from chromite.cbuildbot import manifest_version_unittest
@@ -139,6 +141,96 @@ class BootstrapStageTest(
     ])
 
 
+class SyncStageRepoCacheTest(
+    generic_stages_unittest.AbstractStageTestCase):
+  """Tests the SyncStage base class."""
+  # pylint: disable=abstract-method
+
+  def setUp(self):
+    self.cache_dir = os.path.join(self.tempdir, 'cache')
+    self.sync_stage = None
+
+  def _Prepare(self, root_populated, cache_arg, cache_populated, **kwargs):
+    cmd_args = ['-r', self.build_root]
+
+    if not root_populated:
+      shutil.rmtree(os.path.join(self.build_root, '.repo'))
+
+    if cache_arg:
+      cmd_args += ['--repo-cache', self.cache_dir]
+
+    if cache_populated:
+      osutils.Touch(
+          os.path.join(self.cache_dir, '.repo', 'contents'),
+          makedirs=True)
+      osutils.Touch(
+          os.path.join(self.cache_dir, '.repo', 'nested', 'contents'),
+          makedirs=True)
+      os.symlink(
+          'contents',
+          os.path.join(self.cache_dir, '.repo', 'relative_symlink'))
+      os.symlink(
+          '/nonexistent',
+          os.path.join(self.cache_dir, '.repo', 'broken_symlink'))
+
+    super(SyncStageRepoCacheTest, self)._Prepare(cmd_args=cmd_args, **kwargs)
+    self.sync_stage = sync_stages.SyncStage(self._run)
+
+  def validateNoCache(self):
+    # This file exists only we copied from the repo cache.
+    self.assertFalse(os.path.exists(
+        os.path.join(self.build_root, '.repo', 'contents')))
+
+  def validateCache(self):
+    # This file exists only we copied from the repo cache.
+    contents = os.path.join(self.cache_dir, '.repo', 'contents')
+    nested = os.path.join(self.cache_dir, '.repo', 'nested', 'contents')
+    relative = os.path.join(self.cache_dir, '.repo', 'relative_symlink')
+    broken = os.path.join(self.cache_dir, '.repo', 'broken_symlink')
+
+    # Assert expected files exist.
+    self.assertTrue(os.path.exists(contents))
+    self.assertTrue(os.path.exists(nested))
+    self.assertTrue(os.path.exists(relative))
+    self.assertFalse(os.path.exists(broken))
+
+    # Assert symlinks are still links.
+    self.assertTrue(os.path.islink(relative))
+    self.assertTrue(os.path.islink(broken))
+
+    # Assert relative symlink is relative to the new location.
+    self.assertEqual(os.path.realpath(relative), contents)
+
+  def testInitializeRepoPopulatedNoCache(self):
+    """Tests basic SyncStage repo cache initialization code."""
+    self._Prepare(root_populated=True, cache_arg=False, cache_populated=False)
+    self.sync_stage._InitializeRepo()
+    self.validateNoCache()
+
+  def testInitializeRepoNotPopulatedNoCache(self):
+    """Tests basic SyncStage repo cache initialization code."""
+    self._Prepare(root_populated=False, cache_arg=False, cache_populated=False)
+    self.sync_stage._InitializeRepo()
+    self.validateNoCache()
+
+  def testInitializeRepoPopulatedCache(self):
+    """Tests basic SyncStage repo cache initialization code."""
+    self._Prepare(root_populated=True, cache_arg=True, cache_populated=True)
+    self.sync_stage._InitializeRepo()
+    self.validateNoCache()
+
+  def testInitializeRepoNotPopulatedCache(self):
+    """Tests basic SyncStage repo cache initialization code."""
+    self._Prepare(root_populated=False, cache_arg=True, cache_populated=True)
+    self.sync_stage._InitializeRepo()
+    self.validateCache()
+
+  def testInitializeRepoNotPopulatedEmptyCache(self):
+    """Tests basic SyncStage repo cache initialization code."""
+    self._Prepare(root_populated=False, cache_arg=True, cache_populated=False)
+    self.sync_stage._InitializeRepo()
+    self.validateNoCache()
+
 class ManifestVersionedSyncStageTest(
     generic_stages_unittest.AbstractStageTestCase):
   """Tests the ManifestVersionedSync stage."""
@@ -185,8 +277,6 @@ class ManifestVersionedSyncStageTest(
     self.PatchObject(sync_stages.ManifestVersionedSyncStage,
                      '_GetMasterVersion', return_value='foo',
                      autospec=True)
-    self.PatchObject(sync_stages.ManifestVersionedSyncStage,
-                     '_VerifyMasterId', autospec=True)
     self.PatchObject(manifest_version.BuildSpecsManager, 'BootstrapFromVersion',
                      autospec=True)
     self.PatchObject(repository.RepoRepository, 'Sync', autospec=True)
@@ -450,14 +540,17 @@ class BaseCQTestCase(generic_stages_unittest.StageTestCase):
 class SlaveCQSyncTest(BaseCQTestCase):
   """Tests the CommitQueueSync stage for the paladin slaves."""
   BOT_ID = 'x86-alex-paladin'
+  MILESTONE_VERSION = '10'
 
   def setUp(self):
-    self._run.options.master_build_id = 1234
+    self._run.options.master_build_id = self.fake_db.InsertBuild(
+        'master builder name', 'waterfall', 1, 'master-paladin', 'bot hostname')
+    self.fake_db.UpdateMetadata(
+        self._run.options.master_build_id,
+        {'version': {'milestone': self.MILESTONE_VERSION}})
     self.PatchObject(sync_stages.ManifestVersionedSyncStage,
                      '_GetMasterVersion', return_value='foo',
                      autospec=True)
-    self.PatchObject(sync_stages.MasterSlaveLKGMSyncStage,
-                     '_VerifyMasterId', autospec=True)
     self.PatchObject(lkgm_manager.LKGMManager, 'BootstrapFromVersion',
                      return_value=self.manifest_path, autospec=True)
     self.PatchObject(repository.RepoRepository, 'Sync', autospec=True)
@@ -466,6 +559,29 @@ class SlaveCQSyncTest(BaseCQTestCase):
     """Test basic ability to sync and reload the patches from disk."""
     self.sync_stage.PerformStage()
     self.ReloadPool()
+
+  def testSupplantedMaster(self):
+    """Test that stage fails if master has been supplanted."""
+    new_master_build_id = self.fake_db.InsertBuild(
+        'master builder name', 'waterfall', 2, 'master-paladin', 'bot hostname')
+    self.fake_db.UpdateMetadata(
+        new_master_build_id,
+        {'version': {'milestone': self.MILESTONE_VERSION}})
+    with self.assertRaises(failures_lib.MasterSlaveVersionMismatchFailure):
+      self.sync_stage.PerformStage()
+
+  def testSupplantedMasterDifferentMilestone(self):
+    """Test that master supplanting logic respects milestone.
+
+    The master-was-supplanted logic should ignore masters for different
+    milestone version.
+    """
+    new_master_build_id = self.fake_db.InsertBuild(
+        'master builder name', 'waterfall', 2, 'master-paladin', 'bot hostname')
+    self.fake_db.UpdateMetadata(
+        new_master_build_id,
+        {'version': {'milestone': 'foo'}})
+    self.sync_stage.PerformStage()
 
 
 class MasterCQSyncTestCase(BaseCQTestCase):
@@ -572,7 +688,8 @@ class MasterCQSyncTest(MasterCQSyncTestCase):
 
   def testTreeClosureBlocksCommit(self):
     """Test that tree closures block commits."""
-    self.assertRaises(SystemExit, self._testCommitNonManifestChange,
+    self.assertRaises(failures_lib.ExitEarlyException,
+                      self._testCommitNonManifestChange,
                       tree_open=False)
 
   def testTreeThrottleUsesAlternateGerritQuery(self):
@@ -1169,8 +1286,8 @@ class MasterSlaveLKGMSyncTest(generic_stages_unittest.StageTestCase):
         {'version': {'full': 'R43-7141.0.0-rc1'}})
     self._run.attrs.metadata.UpdateWithDict(
         {'version': {'full': 'R44-7142.0.0-rc1'}})
-    self.fake_db.UpdateMetadata(id1 + 1, metadata_1)
-    self.fake_db.UpdateMetadata(id2 + 1, metadata_2)
+    self.fake_db.UpdateMetadata(id1, metadata_1)
+    self.fake_db.UpdateMetadata(id2, metadata_2)
     v = self.sync_stage.GetLastChromeOSVersion()
     self.assertEqual(v.milestone, '43')
     self.assertEqual(v.platform, '7141.0.0-rc1')

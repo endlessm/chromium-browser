@@ -523,7 +523,7 @@ CJBig2_SymbolDict* CJBig2_SDDProc::decode_Huffman(
         if (pStream->getByteLeft() >= stride * HCHEIGHT) {
           BHC = new CJBig2_Image(TOTWIDTH, HCHEIGHT);
           for (I = 0; I < HCHEIGHT; I++) {
-            JBIG2_memcpy(BHC->m_pData + I * BHC->m_nStride,
+            JBIG2_memcpy(BHC->m_pData + I * BHC->stride(),
                          pStream->getPointer(), stride);
             pStream->offset(stride);
           }
@@ -535,10 +535,7 @@ CJBig2_SymbolDict* CJBig2_SDDProc::decode_Huffman(
         pGRD->MMR = 1;
         pGRD->GBW = TOTWIDTH;
         pGRD->GBH = HCHEIGHT;
-        FXCODEC_STATUS status = pGRD->Start_decode_MMR(&BHC, pStream, nullptr);
-        while (status == FXCODEC_STATUS_DECODE_TOBECONTINUE) {
-          pGRD->Continue_decode(pPause);
-        }
+        pGRD->Start_decode_MMR(&BHC, pStream, nullptr);
         pStream->alignByte();
       }
       nTmp = 0;

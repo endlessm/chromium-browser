@@ -3,11 +3,12 @@
 # found in the LICENSE file.
 
 import datetime
+import json
 import logging
 import os
 import random
 import shutil
-import StringIO
+import subprocess
 import sys
 import tempfile
 
@@ -17,7 +18,8 @@ from telemetry.internal.util import file_handle
 from telemetry.timeline import trace_data as trace_data_module
 from telemetry import value as value_module
 
-from tracing_build import trace2html
+_TRACE2HTML_PATH = os.path.join(os.path.dirname(__file__), '..', '..', '..',
+                                'tracing', 'bin', 'trace2html')
 
 
 class TraceValue(value_module.Value):
@@ -36,20 +38,47 @@ class TraceValue(value_module.Value):
     self._cloud_url = None
     self._serialized_file_handle = None
 
+  def _GetTraceParts(self, trace_data):
+    return [(trace_data.GetTraceFor(p), p)
+            for p in trace_data_module.ALL_TRACE_PARTS
+            if trace_data.HasTraceFor(p)]
+
+  @staticmethod
+  def _DumpTraceToFile(trace, path):
+    with open(path, 'w') as fp:
+      if isinstance(trace, basestring):
+        fp.write(trace)
+      elif isinstance(trace, dict) or isinstance(trace, list):
+        json.dump(trace, fp)
+      else:
+        raise TypeError('Trace is of unknown type.')
+
   def _GetTempFileHandle(self, trace_data):
-    if self.page:
-      title = self.page.display_name
-    else:
-      title = ''
-    content = StringIO.StringIO()
-    trace2html.WriteHTMLForTraceDataToFile(
-        [trace_data.GetEventsFor(trace_data_module.CHROME_TRACE_PART)],
-        title,
-        content)
-    tf = tempfile.NamedTemporaryFile(delete=False, suffix='.html')
-    tf.write(content.getvalue().encode('utf-8'))
-    tf.close()
-    return file_handle.FromTempFile(tf)
+    temp_dir = tempfile.mkdtemp()
+    trace_files = []
+    counter = 0
+    try:
+      for trace, part in self._GetTraceParts(trace_data):
+        file_path = os.path.join(temp_dir, '%s.trace' % counter)
+        self._DumpTraceToFile(trace, file_path)
+        logging.info('Trace (%s) of size %d bytes saved.',
+                     part, os.path.getsize(file_path))
+        trace_files.append(file_path)
+        counter += 1
+      tf = tempfile.NamedTemporaryFile(delete=False, suffix='.html')
+      tf.close()
+      if trace_files:
+        title = ''
+        if self.page:
+          title = self.page.display_name
+        cmd = (['python', _TRACE2HTML_PATH] + trace_files +
+               ['--output', tf.name] + ['--title', title])
+        subprocess.check_call(cmd)
+      else:
+        logging.warning('No traces to convert to html.')
+      return file_handle.FromTempFile(tf)
+    finally:
+      shutil.rmtree(temp_dir)
 
   def __repr__(self):
     if self.page:
@@ -121,7 +150,11 @@ class TraceValue(value_module.Value):
   def Serialize(self, dir_path):
     if self._temp_file is None:
       raise ValueError('Tried to serialize nonexistent trace.')
-    file_name = str(self._temp_file.id) + self._temp_file.extension
+    if self.page:
+      file_name = self.page.file_safe_name
+    else:
+      file_name = ''
+    file_name += str(self._temp_file.id) + self._temp_file.extension
     file_path = os.path.abspath(os.path.join(dir_path, file_name))
     shutil.copy(self._temp_file.GetAbsPath(), file_path)
     self._serialized_file_handle = file_handle.FromFilePath(file_path)

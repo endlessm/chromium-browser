@@ -409,6 +409,7 @@ class ChromeSDKCommand(command.CliCommand):
                'download/goma_ctl.py')
 
   _CLANG_DIR = 'third_party/llvm-build/Release+Asserts/bin'
+  _HOST_BINUTILS_DIR = 'third_party/binutils/Linux_x64/Release/bin/'
 
   EBUILD_ENV = (
       # Compiler tools.
@@ -621,6 +622,10 @@ class ChromeSDKCommand(command.CliCommand):
     # without a special rpath.
     env['CC_host'] = os.path.join(clang_path, 'clang')
     env['CXX_host'] = os.path.join(clang_path, 'clang++')
+    env['LD_host'] = env['CXX_host']
+
+    binutils_path = os.path.join(options.chrome_src, self._HOST_BINUTILS_DIR)
+    env['AR_host'] = os.path.join(binutils_path, 'ar')
 
     if not options.fastbuild:
       # Enable debug fission for GYP. linux_use_debug_fission cannot be used
@@ -699,7 +704,6 @@ class ChromeSDKCommand(command.CliCommand):
     gn_args['target_sysroot'] = sysroot
     gyp_dict.pop('pkg-config', None)
     gn_args.pop('pkg_config', None)
-    gyp_dict['host_clang'] = 1  # GN doesn't support this. crbug.com/588080
     if options.clang:
       gyp_dict['clang'] = 1
       gn_args['is_clang'] = True
@@ -727,6 +731,33 @@ class ChromeSDKCommand(command.CliCommand):
       # Enable debug fission for GN.
       gn_args['use_debug_fission'] = True
 
+    # For SimpleChrome, we use the binutils that comes bundled within Chrome.
+    # We should not use the binutils from the host system.
+    gn_args['linux_use_bundled_binutils'] = True
+
+    gyp_dict['host_clang'] = 1
+    # Need to reset these after the env vars have been fixed by
+    # _SetupTCEnvironment.
+    gn_args['cros_host_is_clang'] = True
+    gn_args['cros_target_cc'] = env['CC']
+    gn_args['cros_target_cxx'] = env['CXX']
+    gn_args['cros_target_ld'] = env['LD']
+    # We need to reset extra C/CXX flags to remove references to
+    # EBUILD_CFLAGS, EBUILD_CXXFLAGS
+    gn_args['cros_target_extra_cflags'] = env['CFLAGS']
+    gn_args['cros_target_extra_cxxflags'] = env['CXXFLAGS']
+    gn_args['cros_host_cc'] = env['CC_host']
+    gn_args['cros_host_cxx'] = env['CXX_host']
+    gn_args['cros_host_ld'] = env['LD_host']
+    gn_args['cros_host_ar'] = env['AR_host']
+    gn_args['cros_v8_snapshot_cc'] = env['CC_host']
+    gn_args['cros_v8_snapshot_cxx'] = env['CXX_host']
+    gn_args['cros_v8_snapshot_ld'] = env['LD_host']
+    gn_args['cros_v8_snapshot_ar'] = env['AR_host']
+    # No need to adjust CFLAGS and CXXFLAGS for GN since the only
+    # adjustment made in _SetupTCEnvironment is for split debug which
+    # is done with 'use_debug_fission'.
+
     # Enable goma if requested.
     if goma_dir:
       gyp_dict['use_goma'] = 1
@@ -734,8 +765,6 @@ class ChromeSDKCommand(command.CliCommand):
       gyp_dict['gomadir'] = goma_dir
       gn_args['goma_dir'] = goma_dir
 
-    gn_args['cros_target_cc'] = env['CC']
-    gn_args['cros_target_cxx'] = env['CXX']
     gn_args.pop('internal_khronos_glcts_tests', None)  # crbug.com/588080
 
     env['GYP_DEFINES'] = chrome_util.DictToGypDefines(gyp_dict)

@@ -5,6 +5,7 @@
 import timeit
 import unittest
 
+from telemetry import decorators
 from telemetry.internal.backends.chrome_inspector import tracing_backend
 from telemetry.internal.backends.chrome_inspector.tracing_backend import _DevToolsStreamReader
 from telemetry.testing import fakes
@@ -22,6 +23,7 @@ class TracingBackendTest(tab_test_case.TabTestCase):
 
   @classmethod
   def CustomizeBrowserOptions(cls, options):
+    options.logging_verbosity = options.VERBOSE_LOGGING
     options.AppendExtraBrowserArgs([
         # Memory maps currently cannot be retrieved on sandboxed processes.
         # See crbug.com/461788.
@@ -39,13 +41,15 @@ class TracingBackendTest(tab_test_case.TabTestCase):
     if not self._browser.supports_memory_dumping:
       self.skipTest('Browser does not support memory dumping, skipping test.')
 
+  # See https://github.com/catapult-project/catapult/issues/2409.
+  @decorators.Disabled('win-reference')
   def testDumpMemorySuccess(self):
     # Check that dumping memory before tracing starts raises an exception.
     self.assertRaises(Exception, self._browser.DumpMemory)
 
     # Start tracing with memory dumps enabled.
     config = tracing_config.TracingConfig()
-    config.tracing_category_filter.AddDisabledByDefault(
+    config.chrome_trace_config.category_filter.AddDisabledByDefault(
         'disabled-by-default-memory-infra')
     config.enable_chrome_trace = True
     self._tracing_controller.StartTracing(config)
@@ -63,7 +67,7 @@ class TracingBackendTest(tab_test_case.TabTestCase):
 
     # Check that clock sync data is in tracing data.
     clock_sync_found = False
-    for event in tracing_data.GetEventsFor(trace_data.CHROME_TRACE_PART):
+    for event in tracing_data.GetTraceFor(trace_data.CHROME_TRACE_PART):
       if event['name'] == 'clock_sync' or 'ClockSyncEvent' in event['name']:
         clock_sync_found = True
         break
@@ -178,10 +182,11 @@ class TracingBackendUnitTest(unittest.TestCase):
     self._inspector_socket.AddResponseHandler(
         'Tracing.hasCompleted', lambda req: {})
     backend = tracing_backend.TracingBackend(self._inspector_socket)
+    config = tracing_config.TracingConfig()
     self.assertRaisesRegexp(
         tracing_backend.TracingUnexpectedResponseException,
         'Tracing is already started',
-        backend.StartTracing, tracing_config.TracingConfig())
+        backend.StartTracing, config.chrome_trace_config)
 
 
 class DevToolsStreamPerformanceTest(unittest.TestCase):

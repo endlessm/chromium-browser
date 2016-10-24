@@ -110,9 +110,6 @@
 #include "chrome/browser/apps/app_launch_for_metro_restart_win.h"
 #include "chrome/browser/search_engines/template_url_service_factory.h"
 #include "chrome/browser/shell_integration_win.h"
-#include "components/search_engines/desktop_search_redirection_infobar_delegate.h"
-#include "components/search_engines/template_url.h"
-#include "components/search_engines/template_url_service.h"
 #endif
 
 #if defined(ENABLE_RLZ)
@@ -589,7 +586,9 @@ bool StartupBrowserCreatorImpl::ProcessStartupURLs(
         StartupBrowserCreator::WasRestarted()));
   }
 
-  if (pref.type == SessionStartupPref::LAST) {
+  // Only activate the session restore logic if it is not the first run. It
+  // makes really no sense to "restore" missing session.
+  if (pref.type == SessionStartupPref::LAST && !is_first_run_) {
     if (profile_->GetLastSessionExitType() == Profile::EXIT_CRASHED &&
         !command_line_.HasSwitch(switches::kRestoreLastSession)) {
       // The last session crashed. It's possible automatically loading the
@@ -822,21 +821,6 @@ void StartupBrowserCreatorImpl::AddInfoBarsIfNecessary(
       }
     }
 #endif
-
-#if defined(OS_WIN)
-    if (browser_creator_ &&
-        browser_creator_->show_desktop_search_redirection_infobar()) {
-      DesktopSearchRedirectionInfobarDelegate::Show(
-          InfoBarService::FromWebContents(
-              browser->tab_strip_model()->GetActiveWebContents()),
-          TemplateURLServiceFactory::GetForProfile(profile_)
-              ->GetDefaultSearchProvider()
-              ->AdjustedShortNameForLocaleDirection(),
-          base::Bind(&chrome::ShowSettingsSubPage, base::Unretained(browser),
-                     chrome::kSearchEnginesSubPage),
-          profile_->GetPrefs());
-    }
-#endif  // defined(OS_WIN)
   }
 }
 

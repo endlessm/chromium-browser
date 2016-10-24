@@ -68,7 +68,7 @@ class AndroidVideoCapturerJni : public webrtc::AndroidVideoCapturerDelegate {
   // are not guaranteed to be delivered.
   template <typename... Args>
   void AsyncCapturerInvoke(
-      const char* method_name,
+      const rtc::Location& posted_from,
       void (webrtc::AndroidVideoCapturer::*method)(Args...),
       typename Identity<Args>::type... args);
 
@@ -77,7 +77,8 @@ class AndroidVideoCapturerJni : public webrtc::AndroidVideoCapturerDelegate {
   const ScopedGlobalRef<jclass> j_observer_class_;
 
   // Used on the Java thread running the camera.
-  webrtc::I420BufferPool buffer_pool_;
+  webrtc::I420BufferPool pre_scale_pool_;
+  webrtc::I420BufferPool post_scale_pool_;
   rtc::scoped_refptr<SurfaceTextureHelper> surface_texture_helper_;
   rtc::ThreadChecker thread_checker_;
 

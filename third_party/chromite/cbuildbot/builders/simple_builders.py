@@ -13,6 +13,7 @@ from chromite.cbuildbot import config_lib
 from chromite.cbuildbot import constants
 from chromite.cbuildbot import manifest_version
 from chromite.cbuildbot import results_lib
+from chromite.cbuildbot import failures_lib
 from chromite.cbuildbot.builders import generic_builders
 from chromite.cbuildbot.stages import afdo_stages
 from chromite.cbuildbot.stages import android_stages
@@ -405,7 +406,7 @@ class DistributedBuilder(SimpleBuilder):
     Args:
       was_build_successful: Whether the build succeeded.
       build_finished: Whether the build completed. A build can be successful
-        without completing if it exits early with sys.exit(0).
+        without completing if it raises ExitEarlyException.
     """
     completion_stage = self._GetStageInstance(self.completion_stage_class,
                                               self.sync_stage,
@@ -425,12 +426,10 @@ class DistributedBuilder(SimpleBuilder):
     Args:
       was_build_successful: Whether the build succeeded.
       build_finished: Whether the build completed. A build can be successful
-        without completing if it exits early with sys.exit(0).
+        without completing if it raises ExitEarlyException.
       completion_successful: Whether the compeletion_stage succeeded.
     """
-    is_master_chrome_pfq = (self._run.config.master and
-                            self._run.config.build_type ==
-                            constants.CHROME_PFQ_TYPE)
+    is_master_chrome_pfq = config_lib.IsMasterChromePFQ(self._run.config)
 
     updateEbuild_successful = False
     try:
@@ -439,7 +438,7 @@ class DistributedBuilder(SimpleBuilder):
       # prepare for pushing commits to masters;
       # if it's a master_chrome_pfq build and compeletion_stage failed,
       # need to run AFDOUpdateEbuildStage to prepare for pushing commits
-      # to a temporary branch.
+      # to a staging branch.
       if ((completion_successful or is_master_chrome_pfq) and
           self._run.config.afdo_update_ebuild and
           not self._run.config.afdo_generate_min):
@@ -453,15 +452,15 @@ class DistributedBuilder(SimpleBuilder):
                    build_finished)
         # If this build is master chrome pfq, completion_stage failed,
         # AFDOUpdateEbuildStage passed, and the necessary build stages
-        # passed, it means publish is False and we need to push the commits
-        # to a temporary branch.
-        temp_publish = (is_master_chrome_pfq and
-                        not completion_successful and
-                        updateEbuild_successful and
-                        was_build_successful and
-                        build_finished)
+        # passed, it means publish is False and we need to stage the
+        # push to another branch instead of master.
+        stage_push = (is_master_chrome_pfq and
+                      not completion_successful and
+                      updateEbuild_successful and
+                      was_build_successful and
+                      build_finished)
         self._RunStage(completion_stages.PublishUprevChangesStage, publish,
-                       temp_publish)
+                       stage_push)
 
   def RunStages(self):
     """Runs simple builder logic and publishes information to overlays."""
@@ -469,14 +468,15 @@ class DistributedBuilder(SimpleBuilder):
     build_finished = False
     try:
       super(DistributedBuilder, self).RunStages()
-      was_build_successful = results_lib.Results.BuildSucceededSoFar()
+      build_id, db = self._run.GetCIDBHandle()
+      was_build_successful = results_lib.Results.BuildSucceededSoFar(
+          db, build_id)
       build_finished = True
-    except SystemExit as ex:
-      # If a stage calls sys.exit(0), it's exiting with success, so that means
-      # we should mark ourselves as successful.
-      logging.info('Detected sys.exit(%s)', ex.code)
-      if ex.code == 0:
-        was_build_successful = True
+    except failures_lib.ExitEarlyException as ex:
+      # If a stage throws ExitEarlyException, it's exiting with success,
+      # so that means we should mark ourselves as successful.
+      logging.info('Detected exception %s', ex)
+      was_build_successful = True
       raise
     finally:
       self.Complete(was_build_successful, build_finished)

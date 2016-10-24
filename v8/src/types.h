@@ -219,6 +219,8 @@ namespace internal {
   V(BooleanOrNullOrUndefined, kBoolean | kNull | kUndefined) \
   V(NullOrUndefined,          kNull | kUndefined) \
   V(Undetectable,             kNullOrUndefined | kOtherUndetectable) \
+  V(NumberOrOddball,          kNumber | kNullOrUndefined | kBoolean) \
+  V(NumberOrSimdOrString,     kNumber | kSimd | kString) \
   V(NumberOrString,           kNumber | kString) \
   V(NumberOrUndefined,        kNumber | kUndefined) \
   V(PlainPrimitive,           kNumberOrString | kBoolean | kNullOrUndefined) \
@@ -229,6 +231,7 @@ namespace internal {
   V(StringOrReceiver,         kString | kReceiver) \
   V(Unique,                   kBoolean | kUniqueName | kNull | kUndefined | \
                               kReceiver) \
+  V(NonInternal,              kPrimitive | kReceiver) \
   V(NonNumber,                kUnique | kString | kInternal) \
   V(Any,                      0xfffffffeu)
 
@@ -740,8 +743,8 @@ class Type {
   SIMD128_TYPES(CONSTRUCT_SIMD_TYPE)
 #undef CONSTRUCT_SIMD_TYPE
 
-  static Type* Union(Type* type1, Type* type2, Zone* reg);
-  static Type* Intersect(Type* type1, Type* type2, Zone* reg);
+  static Type* Union(Type* type1, Type* type2, Zone* zone);
+  static Type* Intersect(Type* type1, Type* type2, Zone* zone);
 
   static Type* Of(double value, Zone* zone) {
     return BitsetType::New(BitsetType::ExpandInternals(BitsetType::Lub(value)));

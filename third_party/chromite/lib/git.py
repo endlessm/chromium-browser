@@ -1142,7 +1142,8 @@ def RevertPath(git_repo, filename, rev):
   RunGit(git_repo, ['checkout', rev, '--', filename])
 
 
-def Commit(git_repo, message, amend=False, allow_empty=False):
+def Commit(git_repo, message, amend=False, allow_empty=False,
+           reset_author=False):
   """Commit with git.
 
   Args:
@@ -1150,6 +1151,7 @@ def Commit(git_repo, message, amend=False, allow_empty=False):
     message: Commit message to use.
     amend: Whether to 'amend' the CL, default False
     allow_empty: Whether to allow an empty commit. Default False.
+    reset_author: Whether to reset author according to current config.
 
   Returns:
     The Gerrit Change-ID assigned to the CL if it exists.
@@ -1159,6 +1161,8 @@ def Commit(git_repo, message, amend=False, allow_empty=False):
     cmd.append('--amend')
   if allow_empty:
     cmd.append('--allow-empty')
+  if reset_author:
+    cmd.append('--reset-author')
   RunGit(git_repo, cmd)
 
   log = RunGit(git_repo, ['log', '-n', '1', '--format=format:%B']).output
@@ -1205,7 +1209,7 @@ def RawDiff(path, target):
 
 
 def UploadCL(git_repo, remote, branch, local_branch='HEAD', draft=False,
-             **kwargs):
+             reviewers=None, **kwargs):
   """Upload a CL to gerrit. The CL should be checked out currently.
 
   Args:
@@ -1214,17 +1218,21 @@ def UploadCL(git_repo, remote, branch, local_branch='HEAD', draft=False,
     branch: Branch to upload to.
     local_branch: Branch to upload.
     draft: Whether to upload as a draft.
+    reviewers: Add the reviewers to the CL.
     kwargs: Extra options for GitPush. capture_output defaults to False so
       that the URL for new or updated CLs is shown to the user.
   """
   ref = ('refs/drafts/%s' if draft else 'refs/for/%s') % branch
+  if reviewers:
+    reviewer_list = ['r=%s' % i for i in reviewers]
+    ref = ref + '%'+ ','.join(reviewer_list)
   remote_ref = RemoteRef(remote, ref)
   kwargs.setdefault('capture_output', False)
   GitPush(git_repo, local_branch, remote_ref, **kwargs)
 
 
 def GitPush(git_repo, refspec, push_to, force=False, retry=True,
-            capture_output=True, skip=False):
+            capture_output=True, skip=False, **kwargs):
   """Wrapper for pushing to a branch.
 
   Args:
@@ -1247,7 +1255,7 @@ def GitPush(git_repo, refspec, push_to, force=False, retry=True,
     logging.info('Would have run "%s"', cmd)
     return
 
-  RunGit(git_repo, cmd, retry=retry, capture_output=capture_output)
+  RunGit(git_repo, cmd, retry=retry, capture_output=capture_output, **kwargs)
 
 
 # TODO(build): Switch callers of this function to use CreateBranch instead.
@@ -1302,7 +1310,8 @@ def SyncPushBranch(git_repo, remote, rebase_target):
 
 
 # TODO(build): Switch this to use the GitPush function.
-def PushWithRetry(branch, git_repo, dryrun=False, retries=5):
+def PushWithRetry(branch, git_repo, dryrun=False, retries=5,
+                  staging_branch=None):
   """General method to push local git changes.
 
   This method only works with branches created via the CreatePushBranch
@@ -1315,6 +1324,7 @@ def PushWithRetry(branch, git_repo, dryrun=False, retries=5):
     git_repo: Git repository to push from.
     dryrun: Git push --dry-run if set to True.
     retries: The number of times to retry before giving up, default: 5
+    staging_branch: Push change commits to the staging_branch if it's not None
 
   Raises:
     GitPushFailed if push was unsuccessful after retries
@@ -1329,10 +1339,10 @@ def PushWithRetry(branch, git_repo, dryrun=False, retries=5):
     raise Exception('Was asked to push to a non branch namespace: %s' %
                     remote_ref.ref)
 
-  push_command = ['push', remote_ref.remote, '%s:%s' %
-                  (branch, remote_ref.ref)]
+  reference = staging_branch if staging_branch is not None else remote_ref.ref
+  push_command = ['push', remote_ref.remote, '%s:%s' % (branch, reference)]
   logging.debug('Trying to push %s to %s:%s',
-                git_repo, branch, remote_ref.ref)
+                git_repo, branch, reference)
 
   if dryrun:
     push_command.append('--dry-run')
@@ -1350,7 +1360,7 @@ def PushWithRetry(branch, git_repo, dryrun=False, retries=5):
       raise
 
   logging.info('Successfully pushed %s to %s:%s',
-               git_repo, branch, remote_ref.ref)
+               git_repo, branch, reference)
 
 
 def CleanAndDetachHead(git_repo):
@@ -1405,7 +1415,7 @@ def GetChromiteTrackingBranch():
       raise
 
   # Not a manifest checkout.
-  logging.warning(
+  logging.notice(
       "Chromite checkout at %s isn't controlled by repo, nor is it on a "
       'branch (or if it is, the tracking configuration is missing or broken).  '
       'Falling back to assuming the chromite checkout is derived from '

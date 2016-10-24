@@ -436,18 +436,15 @@ class PaygenStage(generic_stages.BoardSpecificBuilderStage):
                                         site_config=self._run.site_config,
                                         dry_run=debug,
                                         run_parallel=True,
-                                        run_on_builder=True,
                                         skip_delta_payloads=skip_delta_payloads,
                                         disable_tests=disable_tests,
                                         skip_duts_check=skip_duts_check)
       except (paygen_build_lib.BuildFinished,
-              paygen_build_lib.BuildLocked,
-              paygen_build_lib.BuildSkip) as e:
-        # These errors are normal if it's possible for another process to
-        # work on the same build. This process could be a Paygen server, or
-        # another builder (perhaps by a trybot generating payloads on request).
+              paygen_build_lib.BuildLocked) as e:
+        # These errors are normal if it's possible that another builder is, or
+        # has processed the same build. (perhaps by a trybot generating payloads
+        # on request).
         #
-        # This means the build was finished by the other process, is already
-        # being processed (so the build is locked), or that it's been marked
-        # to skip (probably done manually).
+        # This means the build was finished by the other process, or is already
+        # being processed (so the build is locked).
         logging.info('Paygen skipped because: %s', e)

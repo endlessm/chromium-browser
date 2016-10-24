@@ -8,8 +8,7 @@ found in the LICENSE file.
 <link rel="import" href="/tracing/core/test_utils.html">
 <link rel="import"
     href="/tracing/metrics/system_health/hazard_metric.html">
-<link rel="import" href="/tracing/metrics/value_set.html">
-<link rel="import" href="/tracing/model/user_model/idle_expectation.html">
+<link rel="import" href="/tracing/value/value_set.html">
 
 <script>
 'use strict';
@@ -17,9 +16,13 @@ found in the LICENSE file.
 tr.b.unittest.testSuite(function() {
   function computeHazardValue(customizeModelCallback) {
     var model = tr.c.TestUtils.newModel(function(model) {
+      model.rendererProcess = model.getOrCreateProcess(2);
+      model.rendererMain = model.rendererProcess.getOrCreateThread(3);
+      model.rendererMain.name = 'CrRendererMain';
+
       customizeModelCallback(model);
     });
-    var values = new tr.metrics.ValueSet();
+    var values = new tr.v.ValueSet();
     tr.metrics.sh.hazardMetric(values, model);
     var valueDicts = values.valueDicts;
     assert.equal(1, valueDicts.length);
@@ -29,10 +32,7 @@ tr.b.unittest.testSuite(function() {
   test('minimalHazard', function() {
     var duration = 50 + 1e-4;
     var value = computeHazardValue(function(model) {
-      var idle = new tr.model.um.IdleExpectation(
-          model, 'test', 0, 10000);
-      model.userModel.expectations.push(idle);
-      idle.associatedEvents.push(tr.c.TestUtils.newSliceEx({
+      model.rendererMain.sliceGroup.pushSlice(tr.c.TestUtils.newSliceEx({
         type: tr.model.ThreadSlice,
         isTopLevel: true,
         start: 0,
@@ -40,78 +40,49 @@ tr.b.unittest.testSuite(function() {
       }));
     });
     assert.notEqual(0, value.numeric.value);
-    assert.closeTo(value.numeric.value, 0, 1e-5);
-    assert.equal(1, value.diagnostics.values.length);
-    assert.equal(1, value.diagnostics.values[0].diagnostics.values.length);
-    assert.equal(duration,
-        value.diagnostics.values[0].diagnostics.values[0].numeric.value);
+    assert.closeTo(value.numeric.value, 0.1611, 1e-5);
   });
 
   test('maximalHazard', function() {
     var value = computeHazardValue(function(model) {
-      var idle = new tr.model.um.IdleExpectation(
-          model, 'test', 0, 10000);
-      model.userModel.expectations.push(idle);
-      idle.associatedEvents.push(tr.c.TestUtils.newSliceEx({
+      model.rendererMain.sliceGroup.pushSlice(tr.c.TestUtils.newSliceEx({
         type: tr.model.ThreadSlice,
         isTopLevel: true,
         start: 0,
         duration: 2200
       }));
     });
-    assert.equal(value.numeric.value, 1);
-    assert.equal(1, value.diagnostics.values.length);
-    assert.equal(1, value.diagnostics.values[0].diagnostics.values.length);
-    assert.equal(2200,
-        value.diagnostics.values[0].diagnostics.values[0].numeric.value);
+    assert.closeTo(value.numeric.value, 1, 1e-5);
   });
 
   test('blendedHazards', function() {
     var value = computeHazardValue(function(model) {
-      var idle = new tr.model.um.IdleExpectation(
-          model, 'test', 0, 10000);
-      model.userModel.expectations.push(idle);
-      idle.associatedEvents.push(tr.c.TestUtils.newSliceEx({
+      model.rendererMain.sliceGroup.pushSlice(tr.c.TestUtils.newSliceEx({
         type: tr.model.ThreadSlice,
         isTopLevel: true,
         start: 0,
         duration: 100
       }));
-      idle.associatedEvents.push(tr.c.TestUtils.newSliceEx({
+      model.rendererMain.sliceGroup.pushSlice(tr.c.TestUtils.newSliceEx({
         type: tr.model.ThreadSlice,
         isTopLevel: true,
         start: 0,
         duration: 200
       }));
-      idle = new tr.model.um.IdleExpectation(
-          model, 'test', 0, 10000);
-      model.userModel.expectations.push(idle);
-      idle.associatedEvents.push(tr.c.TestUtils.newSliceEx({
+      model.rendererMain.sliceGroup.pushSlice(tr.c.TestUtils.newSliceEx({
         type: tr.model.ThreadSlice,
         isTopLevel: true,
         start: 0,
         duration: 300
       }));
-      idle.associatedEvents.push(tr.c.TestUtils.newSliceEx({
+      model.rendererMain.sliceGroup.pushSlice(tr.c.TestUtils.newSliceEx({
         type: tr.model.ThreadSlice,
         isTopLevel: true,
         start: 0,
         duration: 400
       }));
     });
-    assert.closeTo(0.5454, value.numeric.value, 1e-3);
-    assert.equal(2, value.diagnostics.values.length);
-    assert.closeTo(0.279, value.diagnostics.values[0].numeric.value, 1e-3);
-    assert.closeTo(0.717, value.diagnostics.values[1].numeric.value, 1e-3);
-    assert.equal(2, value.diagnostics.values[0].diagnostics.values.length);
-    assert.equal(100,
-        value.diagnostics.values[0].diagnostics.values[0].numeric.value);
-    assert.equal(200,
-        value.diagnostics.values[0].diagnostics.values[1].numeric.value);
-    assert.equal(300,
-        value.diagnostics.values[1].diagnostics.values[0].numeric.value);
-    assert.equal(400,
-        value.diagnostics.values[1].diagnostics.values[1].numeric.value);
+    assert.closeTo(0.92144, value.numeric.value, 1e-4);
   });
 });
 </script>

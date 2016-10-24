@@ -141,7 +141,6 @@ source_set("sel") {
       "osx/mach_thread_map.c",
       "osx/nacl_ldt.c",
       "osx/nacl_thread_nice.c",
-      "osx/outer_sandbox.c",
       "osx/thread_suspension.c",
       "posix/addrspace_teardown.c",
       "posix/sel_memory.c",
@@ -336,6 +335,11 @@ executable("sel_ldr") {
   ]
   deps = [
     ":sel_main",
+
+    # All executables must have the sanitizer deps to properly link in
+    # asan mode (this target will be empty in other cases).
+    "//build/config/sanitizers:deps",
+
     "//build/win:default_exe_manifest",
   ]
   if (is_linux) {

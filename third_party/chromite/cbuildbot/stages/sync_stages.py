@@ -13,6 +13,7 @@ import datetime
 import itertools
 import os
 import re
+import shutil
 import sys
 import time
 from xml.etree import ElementTree
@@ -386,6 +387,22 @@ class SyncStage(generic_stages.BuilderStage):
 
   def _InitializeRepo(self):
     """Set up the RepoRepository object."""
+    # If we have no repository at all, but we have a warm cache path, copy in
+    # the warm cache. This is done so builders can try to avoid doing a sync
+    # from scratch on a new builder (especially GCE instances).
+    if (not repository.IsARepoRoot(self._build_root) and
+        self._run.options.repo_cache and
+        repository.IsARepoRoot(self._run.options.repo_cache)):
+      # If the warm cache is invalid, the wrong branch, or from the wrong
+      # manifest, Repository will repair it.
+      logging.info('Using warm cache "%s" to populate buildroot "%s"',
+                   self._run.options.repo_cache,
+                   self._build_root)
+
+      shutil.copytree(os.path.join(self._run.options.repo_cache, '.repo'),
+                      os.path.join(self._build_root, '.repo'),
+                      symlinks=True)
+
     self.repo = self.GetRepoRepository()
 
   def GetNextManifest(self):
@@ -625,8 +642,8 @@ class ManifestVersionedSyncStage(SyncStage):
     target_version = self.manifest_manager.current_version
 
     # Print the Blamelist here.
-    url_prefix = 'http://chromeos-images.corp.google.com/diff/report?'
-    url = url_prefix + 'from=%s&to=%s' % (previous_version, target_version)
+    url_prefix = 'https://crosland.corp.google.com/log/'
+    url = url_prefix + '%s..%s' % (previous_version, target_version)
     logging.PrintBuildbotLink('Blamelist', url)
     # The testManifestVersionedSyncOnePartBranch interacts badly with this
     # function.  It doesn't fully initialize self.manifest_manager which
@@ -699,7 +716,9 @@ class ManifestVersionedSyncStage(SyncStage):
     if db and master_id:
       assert not self._run.options.force_version
       master_build_status = db.GetBuildStatus(master_id)
-      latest = db.GetBuildHistory(master_build_status['build_config'], 1)
+      latest = db.GetBuildHistory(
+          master_build_status['build_config'], 1,
+          milestone_version=master_build_status['milestone_version'])
       if latest and latest[0]['id'] != master_id:
         raise failures_lib.MasterSlaveVersionMismatchFailure(
             'This slave\'s master (id=%s) has been supplanted by a newer '
@@ -729,7 +748,8 @@ class ManifestVersionedSyncStage(SyncStage):
       if self._run.attrs.manifest_manager.DidLastBuildFail():
         raise failures_lib.StepFailure('The previous build failed.')
       else:
-        sys.exit(0)
+        raise failures_lib.ExitEarlyException(
+            'ManifestVersionedSyncStage finished and exited early.')
 
     # Log this early on for the release team to grep out before we finish.
     if self.manifest_manager:
@@ -1050,24 +1070,20 @@ class CommitQueueSyncStage(MasterSlaveLKGMSyncStage):
 
   def ManifestCheckout(self, next_manifest):
     """Checks out the repository to the given manifest."""
+    lkgm_version = self._GetLGKMVersionFromManifest(next_manifest)
+    chroot_manager = chroot_lib.ChrootManager(self._build_root)
+    # Make sure the chroot version is valid.
+    chroot_manager.EnsureChrootAtVersion(lkgm_version)
+
+    # Clear the chroot version as we are in the middle of building it.
+    chroot_manager.ClearChrootVersion()
+
     if self._run.config.build_before_patching:
       assert not self._run.config.master
       pre_build_passed = self.RunPrePatchBuild()
       logging.PrintBuildbotStepName('CommitQueueSync : Apply Patches')
       if not pre_build_passed:
         logging.PrintBuildbotStepText('Pre-patch build failed.')
-
-    lkgm_version = self._GetLGKMVersionFromManifest(next_manifest)
-    chroot_manager = chroot_lib.ChrootManager(self._build_root)
-    # Make sure the chroot version is valid only on non-incremental builders.
-    # What was happening was by ensuring the chroot was at a specific version,
-    # on incremental builders it was actually clearing the chroot, hence we
-    # check for that now.
-    if not self._run.config.build_before_patching:
-      chroot_manager.EnsureChrootAtVersion(lkgm_version)
-
-    # Clear the chroot version as we are in the middle of building it.
-    chroot_manager.ClearChrootVersion()
 
     # Syncing to a pinned manifest ensures that we have the specified
     # revisions, but, unfortunately, repo won't bother to update branches.
@@ -1353,9 +1369,11 @@ class PreCQLauncherStage(SyncStage):
 
     # Create a list of disjoint transactions to test.
     manifest = git.ManifestCheckout.Cached(self._build_root)
+    logging.info('Creating disjoint transactions.')
     plans = pool.CreateDisjointTransactions(
         manifest, screened_changes,
         max_txn_length=self.MAX_PATCHES_PER_TRYBOT_RUN)
+    logging.info('Created %s disjoint transactions.', len(plans))
     for plan in plans:
       # If any of the CLs in the plan is not yet screened, wait for them to
       # be screened.
@@ -1546,27 +1564,12 @@ class PreCQLauncherStage(SyncStage):
     can_submit = set(c for c in (verified.intersection(to_process)) if
                      c.IsMergeable() and self.CanSubmitChangeInPreCQ(c))
 
+    self.SendChangeCountStats(status_map)
+
     # Changes that will be submitted.
     will_submit = set()
     # Changes that will be passed.
     will_pass = set()
-
-    # Separately count and log the number of mergable and speculative changes in
-    # each of the possible pre-cq statuses (or in status None).
-    POSSIBLE_STATUSES = clactions.PRE_CQ_CL_STATUSES | {None}
-    status_counts = {}
-    for count_bin in itertools.product((True, False), POSSIBLE_STATUSES):
-      status_counts[count_bin] = 0
-    for c, status in status_map.iteritems():
-      count_bin = (c.IsMergeable(), status)
-      status_counts[count_bin] = status_counts[count_bin] + 1
-    for count_bin, count in sorted(status_counts.items()):
-      subtype = 'mergeable' if count_bin[0] else 'speculative'
-      status = count_bin[1]
-      name = '.'.join(['pre-cq-status', status if status else 'None'])
-      logging.info('Sending stat (name, subtype, count): (%s, %s, %s)',
-                   name, subtype, count)
-      graphite.StatsFactory.GetInstance().Gauge(name).send(subtype, count)
 
     for change in inflight:
       if status_map[change] != constants.CL_STATUS_INFLIGHT:
@@ -1665,6 +1668,32 @@ class PreCQLauncherStage(SyncStage):
     # Tell ValidationPool to keep waiting for more changes until we hit
     # its internal timeout.
     return [], []
+
+  def SendChangeCountStats(self, status_map):
+    """Sends metrics of the CL counts to Monarch and statsd.
+
+    Args:
+      status_map: A map from CLs to statuses.
+    """
+    # Separately count and log the number of mergable and speculative changes in
+    # each of the possible pre-cq statuses (or in status None).
+    POSSIBLE_STATUSES = clactions.PRE_CQ_CL_STATUSES | {None}
+    status_counts = {}
+    for count_bin in itertools.product((True, False), POSSIBLE_STATUSES):
+      status_counts[count_bin] = 0
+    for c, status in status_map.iteritems():
+      count_bin = (c.IsMergeable(), status)
+      status_counts[count_bin] += 1
+    for (is_mergable, status), count in sorted(status_counts.items()):
+      subtype = 'mergeable' if is_mergable else 'speculative'
+      name = '.'.join(['pre-cq-status', status if status else 'None'])
+      logging.info('Sending stat (name, subtype, count): (%s, %s, %s)',
+                   name, subtype, count)
+      graphite.StatsFactory.GetInstance().Gauge(name).send(subtype, count)
+      metrics.GaugeMetric('chromeos/cbuildbot/pre-cq/cl-count').set(
+          count,
+          {'status': str(status),
+           'subtype': subtype})
 
   @failures_lib.SetFailureType(failures_lib.InfrastructureFailure)
   def PerformStage(self):

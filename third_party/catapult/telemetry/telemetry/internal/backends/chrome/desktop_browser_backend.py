@@ -67,7 +67,8 @@ def GetSymbolBinaries(minidump, arch_name, os_name):
       # Filter out other binary file types which have no symbols.
       if (binary_path.endswith('.pak') or
           binary_path.endswith('.bin') or
-          binary_path.endswith('.dat')):
+          binary_path.endswith('.dat') or
+          binary_path.endswith('.ttf')):
         continue
 
       symbol_binaries.append(binary_path)
@@ -132,12 +133,18 @@ class DesktopBrowserBackend(chrome_browser_backend.ChromeBrowserBackend):
     self._browser_directory = browser_directory
     self._port = None
     self._tmp_minidump_dir = tempfile.mkdtemp()
-    if self.browser_options.enable_logging:
+    if self.is_logging_enabled:
       self._log_file_path = os.path.join(tempfile.mkdtemp(), 'chrome.log')
     else:
       self._log_file_path = None
 
     self._SetupProfile()
+
+  @property
+  def is_logging_enabled(self):
+    return self.browser_options.logging_verbosity in [
+        self.browser_options.NON_VERBOSE_LOGGING,
+        self.browser_options.VERBOSE_LOGGING]
 
   @property
   def log_file_path(self):
@@ -267,7 +274,7 @@ class DesktopBrowserBackend(chrome_browser_backend.ChromeBrowserBackend):
     env = os.environ.copy()
     env['CHROME_HEADLESS'] = '1'  # Don't upload minidumps.
     env['BREAKPAD_DUMP_LOCATION'] = self._tmp_minidump_dir
-    if self.browser_options.enable_logging:
+    if self.is_logging_enabled:
       sys.stderr.write(
         'Chrome log file will be saved in %s\n' % self.log_file_path)
       env['CHROME_LOG_FILE'] = self.log_file_path
@@ -332,9 +339,13 @@ class DesktopBrowserBackend(chrome_browser_backend.ChromeBrowserBackend):
       crashpad_database_util = binary_manager.FetchPath(
           'crashpad_database_util', arch_name, os_name)
       if not crashpad_database_util:
+        logging.warning('No crashpad_database_util found')
         return None
     except dependency_manager.NoPathFoundError:
+      logging.warning('No path to crashpad_database_util found')
       return None
+
+    logging.info('Found crashpad_database_util')
 
     report_output = subprocess.check_output([
         crashpad_database_util, '--database=' + self._tmp_minidump_dir,
@@ -392,9 +403,12 @@ class DesktopBrowserBackend(chrome_browser_backend.ChromeBrowserBackend):
 
     # Typical breakpad format is simply dump files in a folder.
     if not most_recent_dump:
+      logging.info('No minidump found via crashpad_database_util')
       dumps = glob.glob(os.path.join(self._tmp_minidump_dir, '*.dmp'))
       if dumps:
         most_recent_dump = heapq.nlargest(1, dumps, os.path.getmtime)[0]
+        if most_recent_dump:
+          logging.info('Found minidump via globbing in minidump dir')
 
     # As a sanity check, make sure the crash dump is recent.
     if (most_recent_dump and
@@ -427,8 +441,14 @@ class DesktopBrowserBackend(chrome_browser_backend.ChromeBrowserBackend):
       if not cdb:
         logging.warning('cdb.exe not found.')
         return None
+      # Include all the threads' stacks ("~*k30") in addition to the
+      # ostensibly crashed stack associated with the exception context
+      # record (".ecxr;k30"). Note that stack dumps, including that
+      # for the crashed thread, may not be as precise as the one
+      # starting from the exception context record.
       output = subprocess.check_output([cdb, '-y', self._browser_directory,
-                                        '-c', '.ecxr;k30;q', '-z', minidump])
+                                        '-c', '.ecxr;k30;~*k30;q',
+                                        '-z', minidump])
       # cdb output can start the stack with "ChildEBP", "Child-SP", and possibly
       # other things we haven't seen yet. If we can't find the start of the
       # stack, include output from the beginning.

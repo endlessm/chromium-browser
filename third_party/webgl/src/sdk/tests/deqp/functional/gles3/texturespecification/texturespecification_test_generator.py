@@ -55,49 +55,105 @@ _HTML_TEMPLATE = """<html>
 <canvas id="canvas" width="256" height="256"> </canvas>
 <script>
 var wtu = WebGLTestUtils;
-var gl = wtu.create3DContextWithWrapperThatThrowsOnGLError('canvas', null, 2);
+var gl = wtu.create3DContext('canvas', null, 2);
 
-
-    try {
-        functional.gles3.es3fTextureSpecificationTests.run(gl, [%(start)s, %(end)s]);
-    }
-    catch(err)
-    {
-        bufferedLogToConsole(err);
-    }
-
+functional.gles3.es3fTextureSpecificationTests.run(gl, [%(start)s, %(end)s]);
 </script>
 </body>
 </html>
 """
 
 _GROUPS = [
-    'basic_teximage2d',
-    'random_teximage2d',
+    'basic_teximage2d_2d_00',
+    'basic_teximage2d_2d_01',
+    'basic_teximage2d_cube_00',
+    'basic_teximage2d_cube_01',
+    'basic_teximage2d_cube_02',
+    'basic_teximage2d_cube_03',
+    'basic_teximage2d_cube_04',
+    'random_teximage2d_2d',
+    'random_teximage2d_cube',
     'teximage2d_align',
     'teximage2d_unpack_params',
-    'teximage2d_pbo',
+    'teximage2d_pbo_2d_00',
+    'teximage2d_pbo_2d_01',
+    'teximage2d_pbo_cube_00',
+    'teximage2d_pbo_cube_01',
+    'teximage2d_pbo_cube_02',
+    'teximage2d_pbo_cube_03',
+    'teximage2d_pbo_cube_04',
+    'teximage2d_pbo_params',
     'teximage2d_depth',
     'teximage2d_depth_pbo',
-    'basic_texsubimage2d',
+    'basic_texsubimage2d_2d_00',
+    'basic_texsubimage2d_2d_01',
+    'basic_texsubimage2d_2d_02',
+    'basic_texsubimage2d_cube_00',
+    'basic_texsubimage2d_cube_01',
+    'basic_texsubimage2d_cube_02',
+    'basic_texsubimage2d_cube_03',
+    'basic_texsubimage2d_cube_04',
     'texsubimage2d_empty_tex',
     'texsubimage2d_align',
     'texsubimage2d_unpack_params',
-    'texsubimage2d_pbo',
+    'texsubimage2d_pbo_2d_00',
+    'texsubimage2d_pbo_2d_01',
+    'texsubimage2d_pbo_cube_00',
+    'texsubimage2d_pbo_cube_01',
+    'texsubimage2d_pbo_cube_02',
+    'texsubimage2d_pbo_cube_03',
+    'texsubimage2d_pbo_cube_04',
+    'texsubimage2d_pbo_params',
     'texsubimage2d_depth',
     'basic_copyteximage2d',
     'basic_copytexsubimage2d',
-    'basic_teximage3d',
+    'basic_teximage3d_2d_array_00',
+    'basic_teximage3d_2d_array_01',
+    'basic_teximage3d_2d_array_02',
+    'basic_teximage3d_3d_00',
+    'basic_teximage3d_3d_01',
+    'basic_teximage3d_3d_02',
+    'basic_teximage3d_3d_03',
+    'basic_teximage3d_3d_04',
     'teximage3d_unpack_params',
-    'teximage3d_pbo',
+    'teximage3d_pbo_2d_array_00',
+    'teximage3d_pbo_2d_array_01',
+    'teximage3d_pbo_3d_00',
+    'teximage3d_pbo_3d_01',
+    'teximage3d_pbo_params',
     'teximage3d_depth',
     'teximage3d_depth_pbo',
-    'basic_texsubimage3d',
+    'basic_texsubimage3d_00',
+    'basic_texsubimage3d_01',
+    'basic_texsubimage3d_02',
+    'basic_texsubimage3d_03',
+    'basic_texsubimage3d_04',
     'texsubimage3d_unpack_params',
-    'texsubimage3d_pbo',
+    'texsubimage3d_pbo_2d_array_00',
+    'texsubimage3d_pbo_2d_array_01',
+    'texsubimage3d_pbo_3d_00',
+    'texsubimage3d_pbo_3d_01',
+    'texsubimage3d_pbo_params',
     'texsubimage3d_depth',
-    'texstorage2d',
-    'texstorage3d'
+    'texstorage2d_format_2d_00',
+    'texstorage2d_format_2d_01',
+    'texstorage2d_format_2d_02',
+    'texstorage2d_format_cube_00',
+    'texstorage2d_format_cube_01',
+    'texstorage2d_format_cube_02',
+    'texstorage2d_format_cube_03',
+    'texstorage2d_format_cube_04',
+    'texstorage2d_format_depth_stencil',
+    'texstorage2d_format_size',
+    'texstorage3d_format_2d_array_00',
+    'texstorage3d_format_2d_array_01',
+    'texstorage3d_format_2d_array_02',
+    'texstorage3d_format_3d_00',
+    'texstorage3d_format_3d_01',
+    'texstorage3d_format_3d_02',
+    'texstorage3d_format_3d_03',
+    'texstorage3d_format_depth_stencil',
+    'texstorage3d_format_size',
 ]
 
 def GenerateFilename(group):

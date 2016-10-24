@@ -149,6 +149,7 @@ class ReplayServer(object):
               (self._use_dns_server and 'dns' not in self._started_ports))
     if HasIncompleteStartedPorts():
       self._started_ports = self._ParseLogFilePorts(self._LogLines())
+      logging.info('WPR ports: %s' % self._started_ports)
     if HasIncompleteStartedPorts():
       return False
     try:
@@ -196,7 +197,7 @@ class ReplayServer(object):
       ReplayNotStartedError: if Replay start-up fails.
     """
     is_posix = sys.platform.startswith('linux') or sys.platform == 'darwin'
-    logging.debug('Starting Web-Page-Replay: %s', self._cmd_line)
+    logging.info('Starting Web-Page-Replay: %s', self._cmd_line)
     self._CreateTempLogFilePath()
     with self._OpenLogFile() as log_fh:
       self.replay_process = subprocess.Popen(

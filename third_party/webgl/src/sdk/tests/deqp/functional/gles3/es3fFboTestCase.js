@@ -205,23 +205,6 @@ var DE_ASSERT = function(x) {
         if (this.preCheck)
             this.preCheck();
 
-        // clear some GL state variables
-        // TODO: maybe we should place in tuTestCase.js
-        gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-        gl.bindRenderbuffer(gl.RENDERBUFFER, null);
-        gl.bindTexture(gl.TEXTURE_2D, null);
-        gl.depthFunc(gl.LESS);
-        gl.disable(gl.DEPTH_TEST);
-        gl.stencilOp(gl.KEEP, gl.KEEP, gl.REPLACE);
-        gl.stencilFunc(gl.ALWAYS, 0, 0xffff);
-        gl.disable(gl.STENCIL_TEST);
-        gl.blendFunc(gl.ONE, gl.ZERO);
-        gl.blendEquation(gl.FUNC_ADD);
-        gl.disable(gl.BLEND);
-        gl.clearColor(0, 0, 0, 0);
-        gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT | gl.STENCIL_BUFFER_BIT);
-        gl.scissor(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight);
-
         // Render using GLES3.
         try {
             /** @type {sglrGLContext.GLContext} */ var context = new sglrGLContext.GLContext(
@@ -275,6 +258,42 @@ var DE_ASSERT = function(x) {
         assertMsgOptions(isOk, '', true, false);
 
         return tcuTestCase.IterateResult.STOP;
+    };
+
+    /**
+    * Deinit. Clear some GL state variables
+    */
+    es3fFboTestCase.FboTestCase.prototype.deinit = function () {
+        // Pixel operations
+        {
+            gl.disable(gl.SCISSOR_TEST);
+
+            gl.disable(gl.STENCIL_TEST);
+            gl.stencilFunc(gl.ALWAYS, 0, 0xffff);
+            gl.stencilOp(gl.KEEP, gl.KEEP, gl.KEEP);
+
+            gl.disable(gl.DEPTH_TEST);
+            gl.depthFunc(gl.LESS);
+
+            gl.disable(gl.BLEND);
+            gl.blendFunc(gl.ONE, gl.ZERO);
+            gl.blendEquation(gl.FUNC_ADD);
+            gl.blendColor(0.0, 0.0, 0.0, 0.0);
+
+            gl.enable(gl.DITHER);
+        }
+
+        // Framebuffer control
+        {
+            gl.colorMask(true, true, true, true);
+            gl.depthMask(true);
+            gl.stencilMask(0xffff);
+
+            gl.clearColor(0.0, 0.0, 0.0, 0.0);
+            gl.clearDepth(1.0);
+            gl.clearStencil(0.0);
+            gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT | gl.STENCIL_BUFFER_BIT);
+        }
     };
 
     /**
@@ -344,22 +363,19 @@ var DE_ASSERT = function(x) {
         DE_ASSERT(!es3fFboTestCase.isRequiredFormat(format));
 
         switch (format) {
-            case gl.RGB16F:
-                out.push('gl.EXT_color_buffer_half_float');
-                break;
-
             case gl.RGBA16F:
             case gl.RG16F:
             case gl.R16F:
-                out.push('gl.EXT_color_buffer_half_float');
-
             case gl.RGBA32F:
             case gl.RGB32F:
             case gl.R11F_G11F_B10F:
             case gl.RG32F:
             case gl.R32F:
-                out.push('gl.EXT_color_buffer_float');
-
+                out.push('EXT_color_buffer_float');
+                break;
+            case gl.RGB16F:
+                // EXT_color_buffer_half_float is not exposed in WebGL 2.0.
+                break;
             default:
                 break;
         }
@@ -374,10 +390,13 @@ var DE_ASSERT = function(x) {
     */
     es3fFboTestCase.isAnyExtensionSupported = function(context, requiredExts) {
         for (var iter in requiredExts) {
-            /** @const @type {string} */ var extension = iter;
+            /** @const @type {string} */ var extension = requiredExts[iter];
 
-            if (sglrGLContext.isExtensionSupported(gl, extension))
+            if (sglrGLContext.isExtensionSupported(gl, extension)) {
+                // enable the extension
+                gl.getExtension(extension);
                 return true;
+            }
         }
 
         return false;

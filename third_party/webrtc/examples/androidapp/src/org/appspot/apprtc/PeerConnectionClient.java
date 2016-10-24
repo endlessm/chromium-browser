@@ -16,7 +16,6 @@ import android.os.Environment;
 import android.util.Log;
 
 import org.appspot.apprtc.AppRTCClient.SignalingParameters;
-import org.appspot.apprtc.util.LooperExecutor;
 import org.webrtc.AudioTrack;
 import org.webrtc.CameraEnumerationAndroid;
 import org.webrtc.DataChannel;
@@ -39,6 +38,7 @@ import org.webrtc.VideoRenderer;
 import org.webrtc.VideoSource;
 import org.webrtc.VideoTrack;
 import org.webrtc.voiceengine.WebRtcAudioManager;
+import org.webrtc.voiceengine.WebRtcAudioUtils;
 
 import java.io.File;
 import java.io.IOException;
@@ -46,6 +46,9 @@ import java.util.EnumSet;
 import java.util.LinkedList;
 import java.util.Timer;
 import java.util.TimerTask;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -88,7 +91,7 @@ public class PeerConnectionClient {
   private static final PeerConnectionClient instance = new PeerConnectionClient();
   private final PCObserver pcObserver = new PCObserver();
   private final SDPObserver sdpObserver = new SDPObserver();
-  private final LooperExecutor executor;
+  private final ScheduledExecutorService executor;
 
   private PeerConnectionFactory factory;
   private PeerConnection peerConnection;
@@ -146,13 +149,15 @@ public class PeerConnectionClient {
     public final boolean noAudioProcessing;
     public final boolean aecDump;
     public final boolean useOpenSLES;
+    public final boolean disableBuiltInAEC;
 
     public PeerConnectionParameters(
         boolean videoCallEnabled, boolean loopback, boolean tracing,
         int videoWidth, int videoHeight, int videoFps, int videoStartBitrate,
         String videoCodec, boolean videoCodecHwAcceleration, boolean captureToTexture,
         int audioStartBitrate, String audioCodec,
-        boolean noAudioProcessing, boolean aecDump, boolean useOpenSLES) {
+        boolean noAudioProcessing, boolean aecDump, boolean useOpenSLES,
+        boolean disableBuiltInAEC) {
       this.videoCallEnabled = videoCallEnabled;
       this.loopback = loopback;
       this.tracing = tracing;
@@ -168,62 +173,62 @@ public class PeerConnectionClient {
       this.noAudioProcessing = noAudioProcessing;
       this.aecDump = aecDump;
       this.useOpenSLES = useOpenSLES;
+      this.disableBuiltInAEC = disableBuiltInAEC;
     }
   }
 
   /**
    * Peer connection events.
    */
-  public static interface PeerConnectionEvents {
+  public interface PeerConnectionEvents {
     /**
      * Callback fired once local SDP is created and set.
      */
-    public void onLocalDescription(final SessionDescription sdp);
+    void onLocalDescription(final SessionDescription sdp);
 
     /**
      * Callback fired once local Ice candidate is generated.
      */
-    public void onIceCandidate(final IceCandidate candidate);
+    void onIceCandidate(final IceCandidate candidate);
 
     /**
      * Callback fired once local ICE candidates are removed.
      */
-    public void onIceCandidatesRemoved(final IceCandidate[] candidates);
+    void onIceCandidatesRemoved(final IceCandidate[] candidates);
 
     /**
      * Callback fired once connection is established (IceConnectionState is
      * CONNECTED).
      */
-    public void onIceConnected();
+    void onIceConnected();
 
     /**
      * Callback fired once connection is closed (IceConnectionState is
      * DISCONNECTED).
      */
-    public void onIceDisconnected();
+    void onIceDisconnected();
 
     /**
      * Callback fired once peer connection is closed.
      */
-    public void onPeerConnectionClosed();
+    void onPeerConnectionClosed();
 
     /**
      * Callback fired once peer connection statistics is ready.
      */
-    public void onPeerConnectionStatsReady(final StatsReport[] reports);
+    void onPeerConnectionStatsReady(final StatsReport[] reports);
 
     /**
      * Callback fired once peer connection error happened.
      */
-    public void onPeerConnectionError(final String description);
+    void onPeerConnectionError(final String description);
   }
 
   private PeerConnectionClient() {
-    executor = new LooperExecutor();
-    // Looper thread is started once in private ctor and is used for all
+    // Executor thread is started once in private ctor and is used for all
     // peer connection API calls to ensure new peer connection factory is
     // created on the same thread as previously destroyed factory.
-    executor.requestStart();
+    executor = Executors.newSingleThreadScheduledExecutor();
   }
 
   public static PeerConnectionClient getInstance() {
@@ -281,8 +286,13 @@ public class PeerConnectionClient {
     executor.execute(new Runnable() {
       @Override
       public void run() {
-        createMediaConstraintsInternal();
-        createPeerConnectionInternal(renderEGLContext);
+        try {
+          createMediaConstraintsInternal();
+          createPeerConnectionInternal(renderEGLContext);
+        } catch (Exception e) {
+          reportError("Failed to create peer connection: " + e.getMessage());
+          throw e;
+        }
       }
     });
   }
@@ -326,11 +336,8 @@ public class PeerConnectionClient {
     Log.d(TAG, "Pereferred video codec: " + preferredVideoCodec);
 
     // Check if ISAC is used by default.
-    preferIsac = false;
-    if (peerConnectionParameters.audioCodec != null
-        && peerConnectionParameters.audioCodec.equals(AUDIO_CODEC_ISAC)) {
-      preferIsac = true;
-    }
+    preferIsac = peerConnectionParameters.audioCodec != null
+        && peerConnectionParameters.audioCodec.equals(AUDIO_CODEC_ISAC);
 
     // Enable/disable OpenSL ES playback.
     if (!peerConnectionParameters.useOpenSLES) {
@@ -339,6 +346,14 @@ public class PeerConnectionClient {
     } else {
       Log.d(TAG, "Allow OpenSL ES audio if device supports it");
       WebRtcAudioManager.setBlacklistDeviceForOpenSLESUsage(false);
+    }
+
+    if (peerConnectionParameters.disableBuiltInAEC) {
+      Log.d(TAG, "Disable built-in AEC even if device supports it");
+      WebRtcAudioUtils.setWebRtcBasedAcousticEchoCanceler(true);
+    } else {
+      Log.d(TAG, "Enable built-in AEC if device supports it");
+      WebRtcAudioUtils.setWebRtcBasedAcousticEchoCanceler(false);
     }
 
     // Create peer connection factory.
@@ -502,7 +517,9 @@ public class PeerConnectionClient {
     if (peerConnectionParameters.aecDump) {
       try {
         aecDumpFileDescriptor = ParcelFileDescriptor.open(
-            new File("/sdcard/Download/audio.aecdump"),
+            new File(Environment.getExternalStorageDirectory().getPath()
+                + File.separator
+                + "Download/audio.aecdump"),
                 ParcelFileDescriptor.MODE_READ_WRITE |
                 ParcelFileDescriptor.MODE_CREATE |
                 ParcelFileDescriptor.MODE_TRUNCATE);
@@ -563,11 +580,7 @@ public class PeerConnectionClient {
         }
       }
     }
-    if (minWidth * minHeight >= 1280 * 720) {
-      return true;
-    } else {
-      return false;
-    }
+    return minWidth * minHeight >= 1280 * 720;
   }
 
   private void getStats() {
@@ -868,7 +881,6 @@ public class PeerConnectionClient {
       Matcher codecMatcher = codecPattern.matcher(lines[i]);
       if (codecMatcher.matches()) {
         codecRtpMap = codecMatcher.group(1);
-        continue;
       }
     }
     if (mLineIndex == -1) {

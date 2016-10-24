@@ -39,6 +39,12 @@ class BrowserBackend(app_backend.AppBackend):
     # Specific browser backend is responsible for overriding this properly.
     raise NotImplementedError
 
+  def GetLogFileContents(self):
+    if not self.log_file_path:
+      return 'No log file'
+    with file(self.log_file_path) as f:
+      return f.read()
+
   def UploadLogsToCloudStorage(self):
     """ Uploading log files produce by this browser instance to cloud storage.
 

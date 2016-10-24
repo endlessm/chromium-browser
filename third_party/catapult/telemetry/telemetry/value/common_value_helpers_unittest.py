@@ -5,7 +5,7 @@
 import unittest
 import os
 
-from perf_insights import function_handle
+from perf_insights.mre import function_handle
 from perf_insights.mre import failure
 from perf_insights.mre import job as job_module
 
@@ -46,9 +46,7 @@ class TranslateCommonValuesTest(unittest.TestCase):
             'unit': 'timeInMs_smallerIsBetter',
             'value': 42
         },
-        'grouping_keys': {
-            'name': 'foo'
-        },
+        'name': 'foo',
         'options': {
             'description': 'desc'
         }
@@ -75,9 +73,7 @@ class TranslateCommonValuesTest(unittest.TestCase):
             'unit': 'timeInMs_smallerIsBetter',
             'value': None
         },
-        'grouping_keys': {
-            'name': 'foo'
-        }
+        'name': 'foo'
     }
 
     v = common_value_helpers.TranslateScalarValue(scalar_value, p)

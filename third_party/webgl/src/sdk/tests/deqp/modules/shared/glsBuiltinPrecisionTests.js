@@ -1621,7 +1621,7 @@ var setParentClass = function(child, parent) {
     };
 
     glsBuiltinPrecisionTests.InverseSqrt.prototype.precision = function(ctx, ret, x) {
-        if (x < 0)
+        if (x <= 0)
             return NaN;
         return ctx.format.ulp(ret, 2.0);
     };
@@ -2322,7 +2322,17 @@ var setParentClass = function(child, parent) {
     };
 
     glsBuiltinPrecisionTests.Div.prototype.applyPoint = function(ctx, x, y) {
-        return glsBuiltinPrecisionTests.FloatFunc2.prototype.applyPoint.call(this, ctx, x, y);
+        var ret = glsBuiltinPrecisionTests.FloatFunc2.prototype.applyPoint.call(this, ctx, x, y);
+        if (isFinite(x) && isFinite(y) && y != 0) {
+            var dst = ctx.format.convert(ret);
+            if (dst.contains(tcuInterval.NEGATIVE_INFINITY)) {
+                ret.operatorOrAssignBinary(-ctx.format.getMaxValue());
+            }
+            if (dst.contains(tcuInterval.POSITIVE_INFINITY)) {
+                ret.operatorOrAssignBinary(+ctx.format.getMaxValue());
+            }
+        }
+        return ret;
     };
 
     /**
@@ -2986,7 +2996,7 @@ var setParentClass = function(child, parent) {
             var size = reference.rows * reference.cols;
             for (var i = 0; i < reference.rows; i++)
                 for (var j = 0; j < reference.cols; j++)
-                    ret.set(i, j, output[size * index + j * reference.cols + i]);
+                    ret.set(i, j, output[size * index + j * reference.rows + i]);
             return ret;
         }
 
@@ -4287,7 +4297,9 @@ var setParentClass = function(child, parent) {
     };
 
     glsBuiltinPrecisionTests.Radians.prototype.doExpand = function(ctx, args) {
-        var val = new glsBuiltinPrecisionTests.Constant(Math.PI / 180);
+        var val = app(new glsBuiltinPrecisionTests.Div(),
+                                                      new glsBuiltinPrecisionTests.Constant(Math.PI),
+                                                      new glsBuiltinPrecisionTests.Constant(180));
         return new glsBuiltinPrecisionTests.Apply('float',
                                                   new glsBuiltinPrecisionTests.Mul(),
                                                   val,
@@ -4311,7 +4323,9 @@ var setParentClass = function(child, parent) {
     };
 
     glsBuiltinPrecisionTests.Degrees.prototype.doExpand = function(ctx, args) {
-        var val = new glsBuiltinPrecisionTests.Constant(180 / Math.PI);
+        var val = app(new glsBuiltinPrecisionTests.Div(),
+                                                      new glsBuiltinPrecisionTests.Constant(180),
+                                                      new glsBuiltinPrecisionTests.Constant(Math.PI));
         return new glsBuiltinPrecisionTests.Apply('float',
                                                   new glsBuiltinPrecisionTests.Mul(),
                                                   val,
@@ -4579,6 +4593,12 @@ var setParentClass = function(child, parent) {
 
         var fracIV = tcuInterval.applyMonotone1p(func1, iargs.a);
         var wholeIV = tcuInterval.applyMonotone1p(func2, iargs.a);
+
+        if (!iargs.a.isFinite()) {
+            // Behavior on modf(Inf) not well-defined, allow anything as a fractional part
+            // See Khronos bug 13907
+            fracIV.operatorOrAssignBinary(tcuInterval.NAN);
+        }
 
         ctx.env.m_map[variablenames[1]] = wholeIV;
         return fracIV;
@@ -4959,6 +4979,14 @@ var setParentClass = function(child, parent) {
                 // 2^-11 at x == pi.
                 return deMath.deLdExp(Math.abs(arg), -12);
             }
+        } else if (ctx.floatPrecision == gluShaderUtil.precision.PRECISION_MEDIUMP) {
+            if (-Math.PI <= arg && arg <= Math.PI) {
+                // from OpenCL half-float extension specification
+                return ctx.format.ulp(ret, 2.0);
+            } else {
+                // |x| * 2^-10 , slightly larger than 2 ULP at x == pi
+                return deMath.deLdExp(Math.abs(arg), -10);
+            }
         } else {
             // from OpenCL half-float extension specification
             return ctx.format.ulp(ret, 2.0);
@@ -5035,6 +5063,29 @@ var setParentClass = function(child, parent) {
      * @constructor
      * @extends {glsBuiltinPrecisionTests.CFloatFunc1}
      */
+    glsBuiltinPrecisionTests.ASin = function() {
+        glsBuiltinPrecisionTests.CFloatFunc1.call(this, 'asin', Math.asin);
+    };
+
+    setParentClass(glsBuiltinPrecisionTests.ASin, glsBuiltinPrecisionTests.CFloatFunc1);
+
+    glsBuiltinPrecisionTests.ASin.prototype.precision = function(ctx, ret, x) {
+        if (!deMath.deInBounds32(x, -1.0, 1.0))
+            return NaN;
+
+        if (ctx.floatPrecision == gluShaderUtil.precision.PRECISION_HIGHP) {
+            // Absolute error of 2^-11
+            return deMath.deLdExp(1.0, -11);
+        } else {
+            // Absolute error of 2^-8
+            return deMath.deLdExp(1.0, -8);
+        }
+    };
+
+    /**
+     * @constructor
+     * @extends {glsBuiltinPrecisionTests.CFloatFunc1}
+     */
     glsBuiltinPrecisionTests.ArcTrigFunc = function(name, func, precisionULPs, domain, coddomain) {
         glsBuiltinPrecisionTests.CFloatFunc1.call(this, name, func);
         this.m_precision = precisionULPs;
@@ -5061,20 +5112,8 @@ var setParentClass = function(child, parent) {
      * @constructor
      * @extends {glsBuiltinPrecisionTests.ArcTrigFunc}
      */
-    glsBuiltinPrecisionTests.ASin = function() {
-        glsBuiltinPrecisionTests.ArcTrigFunc.call(this, 'asin', Math.asin, 4,
-                                                tcuInterval.withNumbers(-1, 1),
-                                                tcuInterval.withNumbers(-Math.PI * 0.5, Math.PI * 0.5));
-    };
-
-    setParentClass(glsBuiltinPrecisionTests.ASin, glsBuiltinPrecisionTests.ArcTrigFunc);
-
-    /**
-     * @constructor
-     * @extends {glsBuiltinPrecisionTests.ArcTrigFunc}
-     */
     glsBuiltinPrecisionTests.ACos = function() {
-        glsBuiltinPrecisionTests.ArcTrigFunc.call(this, 'acos', Math.acos, 4,
+        glsBuiltinPrecisionTests.ArcTrigFunc.call(this, 'acos', Math.acos, 4096.0,
                                                 tcuInterval.withNumbers(-1, 1),
                                                 tcuInterval.withNumbers(0, Math.PI));
     };
@@ -5086,7 +5125,7 @@ var setParentClass = function(child, parent) {
      * @extends {glsBuiltinPrecisionTests.ArcTrigFunc}
      */
     glsBuiltinPrecisionTests.ATan = function() {
-        glsBuiltinPrecisionTests.ArcTrigFunc.call(this, 'atan', Math.atan, 5,
+        glsBuiltinPrecisionTests.ArcTrigFunc.call(this, 'atan', Math.atan, 4096.0,
                                                 tcuInterval.unbounded(),
                                                 tcuInterval.withNumbers(-Math.PI * 0.5, Math.PI * 0.5));
     };
@@ -5113,12 +5152,17 @@ var setParentClass = function(child, parent) {
                 ret.operatorOrAssignBinary(tcuInterval.withNumbers(-Math.PI, Math.PI));
         }
 
+        if (ctx.format.hasInf() != tcuFloatFormat.YesNoMaybe.YES && (!yi.isFinite() || !xi.isFinite())) {
+            // Infinities may not be supported, allow anything, including NaN
+            ret.operatorOrAssignBinary(tcuInterval.NAN);
+        }
+
         return ret;
     };
 
     glsBuiltinPrecisionTests.ATan2.prototype.precision = function(ctx, ret, x, y) {
         if (ctx.floatPrecision == gluShaderUtil.precision.PRECISION_HIGHP)
-            return ctx.format.ulp(ret, 6.0);
+            return ctx.format.ulp(ret, 4096.0);
         else
             return ctx.format.ulp(ret, 2.0);
     };

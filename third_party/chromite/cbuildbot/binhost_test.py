@@ -38,7 +38,7 @@ class PrebuiltCompatibilityTest(cros_test_lib.TestCase):
 
   # Boards that don't have Chromium PFQs.
   # TODO(davidjames): Empty this list.
-  BOARDS_WITHOUT_CHROMIUM_PFQS = ['rush_ryu', 'smaug']
+  BOARDS_WITHOUT_CHROMIUM_PFQS = ['rush_ryu', 'smaug', 'veyron_rialto']
 
   site_config = config_lib.GetConfig()
 
@@ -106,10 +106,11 @@ class PrebuiltCompatibilityTest(cros_test_lib.TestCase):
     """
     # Skip over useflags from the useflag if needed.
     msg_prefix = ''
-    if skip_useflags:
+    if skip_useflags and config.useflags:
+      msg_prefix = 'When we take out config-requested useflags (%s), ' % (
+          config.useflags)
       config = config.deepcopy()
       config.useflags = []
-      msg_prefix = 'When we take out extra useflags, '
 
     compat_id = self.GetCompatId(config)
     pfqs = pfq_configs.by_compat_id.get(compat_id, set())

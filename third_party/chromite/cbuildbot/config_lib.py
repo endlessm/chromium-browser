@@ -47,6 +47,7 @@ CONFIG_TYPE_DUMP_ORDER = (
     'chromium-pfq-informational-gn',
     'chrome-perf',
     'chrome-pfq',
+    'chrome-pfq-cheets-informational',
     'chrome-pfq-informational',
     'android-pfq',
     'pre-flight-branch',
@@ -54,6 +55,7 @@ CONFIG_TYPE_DUMP_ORDER = (
     CONFIG_TYPE_FIRMWARE,
     'master-toolchain',
     'llvm-toolchain-group',
+    'llvm-next-toolchain-group',
     'gcc-toolchain-group',
     'llvm',
     'gcc',
@@ -91,6 +93,9 @@ def IsCanaryType(b_type):
   """Returns True if this build type is a Canary."""
   return b_type == constants.CANARY_TYPE
 
+def IsMasterChromePFQ(config):
+  """Returns True if this build is master chrome PFQ type."""
+  return config.build_type == constants.CHROME_PFQ_TYPE and config.master
 
 def OverrideConfigForTrybot(build_config, options):
   """Apply trybot-specific configuration settings.
@@ -920,7 +925,7 @@ def DefaultSiteParameters():
       # dictionary, all projects on that remote are considered to not be
       # branchable.
       BRANCHABLE_PROJECTS={
-          external_remote: r'chromiumos/(.+)',
+          external_remote: r'(chromiumos|aosp)/(.+)',
           internal_remote: r'chromeos/(.+)'
       },
 

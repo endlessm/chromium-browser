@@ -2,7 +2,11 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+from functools import wraps
+import logging
 import os
+import sys
+import types
 import unittest
 
 from telemetry.internal.browser import browser_finder
@@ -11,6 +15,43 @@ from telemetry.testing import options_for_unittests
 
 current_browser_options = None
 current_browser = None
+
+
+class _MetaBrowserTestCase(type):
+  """Metaclass for BrowserTestCase.
+
+  The metaclass wraps all test* methods of all subclasses of BrowserTestCase to
+  print browser standard output and log upon failure.
+  """
+
+  def __new__(mcs, name, bases, dct):
+    new_dct = {}
+    for attributeName, attribute in dct.iteritems():
+      if (isinstance(attribute, types.FunctionType) and
+          attributeName.startswith('test')):
+        attribute = mcs._PrintBrowserStandardOutputAndLogOnFailure(attribute)
+      new_dct[attributeName] = attribute
+    return type.__new__(mcs, name, bases, new_dct)
+
+  @staticmethod
+  def _PrintBrowserStandardOutputAndLogOnFailure(method):
+    @wraps(method)
+    def WrappedMethod(self):
+      try:  # pylint: disable=broad-except
+        method(self)
+      except Exception:
+        exc_info = sys.exc_info()
+
+        if self._browser:
+          self._browser.DumpStateUponFailure()
+        else:
+          logging.warning('Cannot dump browser state: No browser.')
+
+        # Re-raise the original exception. Note that we can't just use 'raise'
+        # without any arguments because an exception might have been thrown when
+        # dumping the state of the browser.
+        raise exc_info[0], exc_info[1], exc_info[2]
+    return WrappedMethod
 
 
 def teardown_browser():
@@ -24,6 +65,8 @@ def teardown_browser():
 
 
 class BrowserTestCase(unittest.TestCase):
+  __metaclass__ = _MetaBrowserTestCase
+
   @classmethod
   def setUpClass(cls):
     cls._platform = None

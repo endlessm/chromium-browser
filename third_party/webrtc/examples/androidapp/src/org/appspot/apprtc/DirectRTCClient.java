@@ -12,7 +12,6 @@ package org.appspot.apprtc;
 
 import android.util.Log;
 
-import org.appspot.apprtc.util.LooperExecutor;
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -21,6 +20,8 @@ import org.webrtc.PeerConnection;
 import org.webrtc.SessionDescription;
 
 import java.util.LinkedList;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -41,10 +42,10 @@ public class DirectRTCClient implements AppRTCClient, TCPChannelClient.TCPChanne
         // IPv6
         + "\\[((([0-9a-fA-F]{1,4}:)*[0-9a-fA-F]{1,4})?::"
               + "(([0-9a-fA-F]{1,4}:)*[0-9a-fA-F]{1,4})?)\\]|"
-        + "\\[(([0-9a-fA-F]{1,4}:)*[0-9a-fA-F]{1,4})\\]|"
+        + "\\[(([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4})\\]|"
         // IPv6 without []
         + "((([0-9a-fA-F]{1,4}:)*[0-9a-fA-F]{1,4})?::(([0-9a-fA-F]{1,4}:)*[0-9a-fA-F]{1,4})?)|"
-        + "(([0-9a-fA-F]{1,4}:)*[0-9a-fA-F]{1,4})|"
+        + "(([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4})|"
         // Literals
         + "localhost"
       + ")"
@@ -52,7 +53,7 @@ public class DirectRTCClient implements AppRTCClient, TCPChannelClient.TCPChanne
       + "(:(\\d+))?"
   );
 
-  private final LooperExecutor executor;
+  private final ExecutorService executor;
   private final SignalingEvents events;
   private TCPChannelClient tcpClient;
   private RoomConnectionParameters connectionParameters;
@@ -66,9 +67,8 @@ public class DirectRTCClient implements AppRTCClient, TCPChannelClient.TCPChanne
 
   public DirectRTCClient(SignalingEvents events) {
     this.events = events;
-    executor = new LooperExecutor();
 
-    executor.requestStart();
+    executor = Executors.newSingleThreadExecutor();
     roomState = ConnectionState.NEW;
   }
 
@@ -100,7 +100,6 @@ public class DirectRTCClient implements AppRTCClient, TCPChannelClient.TCPChanne
         disconnectFromRoomInternal();
       }
     });
-    executor.requestStop();
   }
 
   /**
@@ -149,6 +148,7 @@ public class DirectRTCClient implements AppRTCClient, TCPChannelClient.TCPChanne
       tcpClient.disconnect();
       tcpClient = null;
     }
+    executor.shutdown();
   }
 
   @Override

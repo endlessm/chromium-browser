@@ -39,10 +39,6 @@ Replay
 # Requires manual intervention.
 Bindings/event-target-wrapper.html
 
-# Crashy, crbug.com/245702
-Parser/query-selector-deep.html
-Parser/query-selector-id-deep.html
-
 # Microbenchmark that we aren't interested in monitoring.
 Bindings/gc-forest.html
 Bindings/gc-mini-tree.html
@@ -58,3 +54,5 @@ DOM/click_webkit_user_select_none.html
 # Times out on reference build - crbug.com/579107
 ShadowDOM/SlotDistibutedNextPrevious.html
 ShadowDOM/v1-distribution.html
+ShadowDOM/v1-host-child-append.html
+ShadowDOM/v1-slot-append.html

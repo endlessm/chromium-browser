@@ -119,12 +119,10 @@ found in the LICENSE file.
       // Based on the brushed range, update the selection of LatencyInfo in
       // the timeline view by sending a selectionChange event.
       var latencySlices = [];
-      this.model_.getAllThreads().forEach(function(thread) {
-        thread.iterateAllEvents(function(event) {
+      for (var thread of this.model_.getAllThreads())
+        for (var event of thread.getDescendantEvents())
           if (event.title.indexOf('InputLatency:') === 0)
             latencySlices.push(event);
-        });
-      });
       latencySlices = tr.model.helpers.getSlicesIntersectingRange(
           r, latencySlices);
 
@@ -277,7 +275,6 @@ found in the LICENSE file.
       if (frametimeData.length != 0) {
         this.frametimeChart_ = this.createLatencyLineChart(
             frametimeData, 'Frame Times');
-        this.frametimeChart_.style.display = 'block';
         resultArea.appendChild(this.frametimeChart_);
       }
     },

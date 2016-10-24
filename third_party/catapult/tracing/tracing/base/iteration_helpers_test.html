@@ -11,7 +11,23 @@ found in the LICENSE file.
 tr.b.unittest.testSuite(function() {
   var comparePossiblyUndefinedValues = tr.b.comparePossiblyUndefinedValues;
   var compareArrays = tr.b.compareArrays;
+  var asArray = tr.b.asArray;
   var getOnlyElement = tr.b.getOnlyElement;
+  var every = tr.b.every;
+  var getFirstElement = tr.b.getFirstElement;
+
+  test('asArray_indexed', function() {
+    assert.deepEqual(asArray({'0': 2, '1': 4, '2': 6, 'length': 3}), [2, 4, 6]);
+  });
+
+  test('asArray_iterable', function() {
+    function *iterfunc() {
+      yield 2;
+      yield 4;
+      yield 6;
+    }
+    assert.deepEqual(asArray({[Symbol.iterator]: iterfunc}), [2, 4, 6]);
+  });
 
   test('comparePossiblyUndefinedValues', function() {
     function cmp(x, y) {
@@ -51,7 +67,19 @@ tr.b.unittest.testSuite(function() {
     assert.equal(compareArrays([1], [1], cmp), 0);
   });
 
-  test('getOnlyElement_empty', function() {
+  test('every_empty', function() {
+    assert.isTrue(every([], x => false));
+  });
+
+  test('every_true', function() {
+    assert.isTrue(every([2, 4, 6], x => x % 2 === 0));
+  });
+
+  test('every_false', function() {
+    assert.isTrue(!every([2, 3, 4], x => x % 2 === 0));
+  });
+
+  test('getOnlyElement_throwsIfEmpty', function() {
     assert.throws(() => getOnlyElement([]),
         'getOnlyElement was passed an empty iterable.');
   });
@@ -63,6 +91,19 @@ tr.b.unittest.testSuite(function() {
   test('getOnlyElement_twoItems', function() {
     assert.throws(() => getOnlyElement([1, 2]),
         'getOnlyElement was passed an iterable with multiple elements.');
+  });
+
+  test('getFirstElement_throwsIfEmpty', function() {
+    assert.throws(() => getFirstElement([]),
+        'getFirstElement was passed an empty iterable.');
+  });
+
+  test('getFirstElement_oneItem', function() {
+    assert.equal(getFirstElement([1]), 1);
+  });
+
+  test('getFirstElement_twoItems', function() {
+    assert.equal(getFirstElement([1, 2]), 1);
   });
 
   test('group', function() {

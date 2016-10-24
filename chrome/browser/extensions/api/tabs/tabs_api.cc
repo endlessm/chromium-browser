@@ -7,6 +7,7 @@
 #include <stddef.h>
 #include <algorithm>
 #include <limits>
+#include <memory>
 #include <utility>
 #include <vector>
 
@@ -14,6 +15,7 @@
 #include "base/command_line.h"
 #include "base/location.h"
 #include "base/logging.h"
+#include "base/memory/ptr_util.h"
 #include "base/memory/ref_counted_memory.h"
 #include "base/single_thread_task_runner.h"
 #include "base/stl_util.h"
@@ -59,7 +61,7 @@
 #include "components/prefs/pref_service.h"
 #include "components/translate/core/browser/language_state.h"
 #include "components/translate/core/common/language_detection_details.h"
-#include "components/ui/zoom/zoom_controller.h"
+#include "components/zoom/zoom_controller.h"
 #include "content/public/browser/navigation_controller.h"
 #include "content/public/browser/navigation_entry.h"
 #include "content/public/browser/notification_details.h"
@@ -93,7 +95,7 @@
 #include "ui/base/ui_base_types.h"
 
 #if defined(USE_ASH)
-#include "ash/ash_switches.h"
+#include "ash/common/ash_switches.h"
 #include "chrome/browser/extensions/api/tabs/ash_panel_contents.h"
 #include "extensions/browser/app_window/app_window_registry.h"
 #endif
@@ -104,7 +106,7 @@ using content::NavigationEntry;
 using content::OpenURLParams;
 using content::Referrer;
 using content::WebContents;
-using ui_zoom::ZoomController;
+using zoom::ZoomController;
 
 namespace extensions {
 
@@ -357,7 +359,7 @@ bool WindowsGetAllFunction::RunSync() {
   EXTENSION_FUNCTION_VALIDATE(params.get());
 
   ApiParameterExtractor<windows::GetAll::Params> extractor(params.get());
-  base::ListValue* window_list = new base::ListValue();
+  std::unique_ptr<base::ListValue> window_list(new base::ListValue());
   const WindowControllerList::ControllerList& windows =
       WindowControllerList::GetInstance()->windows();
   for (WindowControllerList::ControllerList::const_iterator iter =
@@ -371,7 +373,7 @@ bool WindowsGetAllFunction::RunSync() {
     else
       window_list->Append((*iter)->CreateWindowValue());
   }
-  SetResult(window_list);
+  SetResult(std::move(window_list));
   return true;
 }
 
@@ -918,7 +920,7 @@ bool TabsQueryFunction::RunSync() {
   if (params->query_info.window_type != tabs::WINDOW_TYPE_NONE)
     window_type = tabs::ToString(params->query_info.window_type);
 
-  base::ListValue* result = new base::ListValue();
+  std::unique_ptr<base::ListValue> result(new base::ListValue());
   Browser* last_active_browser =
       chrome::FindAnyBrowser(GetProfile(), include_incognito());
   Browser* current_browser = GetCurrentBrowser();
@@ -1023,12 +1025,11 @@ bool TabsQueryFunction::RunSync() {
 
       result->Append(ExtensionTabUtil::CreateTabObject(web_contents, tab_strip,
                                                        i, extension())
-                         ->ToValue()
-                         .release());
+                         ->ToValue());
     }
   }
 
-  SetResult(result);
+  SetResult(std::move(result));
   return true;
 }
 
@@ -1058,7 +1059,7 @@ bool TabsCreateFunction::RunSync() {
 
   // Return data about the newly created tab.
   if (has_callback()) {
-    SetResult(result.release());
+    SetResult(std::move(result));
   }
   return true;
 }
@@ -1451,10 +1452,10 @@ bool TabsMoveFunction::RunSync() {
   } else if (num_tabs == 1) {
     std::unique_ptr<base::Value> value;
     CHECK(tab_values.get()->Remove(0, &value));
-    SetResult(value.release());
+    SetResult(std::move(value));
   } else {
     // Only return the results as an array if there are multiple tabs.
-    SetResult(tab_values.release());
+    SetResult(std::move(tab_values));
   }
 
   return true;
@@ -1535,8 +1536,7 @@ bool TabsMoveFunction::MoveTab(int tab_id,
         tab_values->Append(
             ExtensionTabUtil::CreateTabObject(web_contents, target_tab_strip,
                                               *new_index, extension())
-                ->ToValue()
-                .release());
+                ->ToValue());
       }
 
       return true;
@@ -1556,8 +1556,7 @@ bool TabsMoveFunction::MoveTab(int tab_id,
   if (has_callback()) {
     tab_values->Append(ExtensionTabUtil::CreateTabObject(
                            contents, source_tab_strip, *new_index, extension())
-                           ->ToValue()
-                           .release());
+                           ->ToValue());
   }
 
   return true;
@@ -1734,7 +1733,7 @@ void TabsCaptureVisibleTabFunction::OnCaptureSuccess(const SkBitmap& bitmap) {
     return;
   }
 
-  SetResult(new base::StringValue(base64_result));
+  SetResult(base::MakeUnique<base::StringValue>(base64_result));
   SendResponse(true);
 }
 
@@ -1850,7 +1849,7 @@ void TabsDetectLanguageFunction::Observe(
 }
 
 void TabsDetectLanguageFunction::GotLanguage(const std::string& language) {
-  SetResult(new base::StringValue(language.c_str()));
+  SetResult(base::MakeUnique<base::StringValue>(language.c_str()));
   SendResponse(true);
 
   Release();  // Balanced in Run()
@@ -2006,7 +2005,7 @@ void TabsExecuteScriptFunction::OnExecuteCodeFinished(
     const GURL& on_url,
     const base::ListValue& result) {
   if (error.empty())
-    SetResult(result.DeepCopy());
+    SetResult(result.CreateDeepCopy());
   ExecuteCodeInTabFunction::OnExecuteCodeFinished(error, on_url, result);
 }
 

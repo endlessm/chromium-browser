@@ -192,6 +192,8 @@ def CreateBrowserFinderOptions(browser_type=None):
 class _FakeBrowser(object):
   def __init__(self, platform):
     self._tabs = _FakeTabList(self)
+    # Fake the creation of the first tab.
+    self._tabs.New()
     self._returned_system_info = FakeSystemInfo()
     self._platform = platform
     self._browser_type = 'release'
@@ -250,6 +252,9 @@ class _FakeBrowser(object):
   @property
   def tabs(self):
     return self._tabs
+
+  def DumpStateUponFailure(self):
+    pass
 
 
 class _FakeCredentials(object):

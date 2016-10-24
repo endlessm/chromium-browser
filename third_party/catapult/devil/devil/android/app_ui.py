@@ -4,6 +4,7 @@
 
 """Provides functionality to interact with UI elements of an Android app."""
 
+import collections
 import re
 from xml.etree import ElementTree as element_tree
 
@@ -74,6 +75,27 @@ class _UiNode(object):
 
     x, y = (str(int(v)) for v in point)
     self._device.RunShellCommand(['input', 'tap', x, y], check_return=True)
+
+  def Dump(self):
+    """Get a brief summary of the child nodes that can be found on this node.
+
+    Returns:
+      A list of lines that can be logged or otherwise printed.
+    """
+    summary = collections.defaultdict(set)
+    for node in self._xml_node.iter():
+      package = node.get('package') or '(no package)'
+      label = node.get('resource-id') or '(no id)'
+      text = node.get('text')
+      if text:
+        label = '%s[%r]' % (label, text)
+      summary[package].add(label)
+    lines = []
+    for package, labels in sorted(summary.iteritems()):
+      lines.append('- %s:' % package)
+      for label in sorted(labels):
+        lines.append('  - %s' % label)
+    return lines
 
   def __getitem__(self, key):
     """Retrieve a child of this node by its index.
@@ -180,6 +202,14 @@ class AppUi(object):
       xml_node = element_tree.fromstring(
           self._device.ReadFile(dtemp.name, force_pull=True))
     return _UiNode(self._device, xml_node, package=self._package)
+
+  def ScreenDump(self):
+    """Get a brief summary of the nodes that can be found on the screen.
+
+    Returns:
+      A list of lines that can be logged or otherwise printed.
+    """
+    return self._GetRootUiNode().Dump()
 
   def GetUiNode(self, **kwargs):
     """Get the first node found matching a specified criteria.

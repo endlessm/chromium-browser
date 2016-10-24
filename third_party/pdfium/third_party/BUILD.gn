@@ -12,11 +12,15 @@ group("third_party") {
   ]
 }
 
+config("pdfium_third_party_config") {
+  configs = [ "..:pdfium_common_config" ]
+}
+
 source_set("bigint") {
   configs -= [ "//build/config/compiler:chromium_code" ]
   configs += [
     "//build/config/compiler:no_chromium_code",
-    "../:pdfium_config",
+    ":pdfium_third_party_config",
   ]
   sources = [
     "bigint/BigInteger.cc",
@@ -47,7 +51,7 @@ static_library("fx_freetype") {
   configs -= [ "//build/config/compiler:chromium_code" ]
   configs += [
     "//build/config/compiler:no_chromium_code",
-    "../:pdfium_config",
+    ":pdfium_third_party_config",
 
     # Must be after no_chromium_code for warning flags to be ordered correctly.
     ":fx_freetype_warnings",
@@ -84,42 +88,51 @@ static_library("fx_freetype") {
     "freetype/src/truetype/truetype.c",
     "freetype/src/type1/type1.c",
   ]
-}
-
-config("fx_agg_warnings") {
-  visibility = [ ":*" ]
-  if (is_clang) {
-    # calc_butt_cap() in agg_vcgen_stroke.cpp is unused.
-    cflags = [ "-Wno-unused-function" ]
+  if (pdf_use_skia) {
+    sources += [
+      "freetype/src/base/ftfntfmt.c",
+      "freetype/src/base/ftfstype.c",
+      "freetype/src/base/fttype1.c",
+    ]
   }
 }
 
-source_set("fx_agg") {
-  configs -= [ "//build/config/compiler:chromium_code" ]
-  configs += [
-    "//build/config/compiler:no_chromium_code",
-    "../:pdfium_config",
+if (!pdf_use_skia) {
+  config("fx_agg_warnings") {
+    visibility = [ ":*" ]
+    if (is_clang) {
+      # calc_butt_cap() in agg_vcgen_stroke.cpp is unused.
+      cflags = [ "-Wno-unused-function" ]
+    }
+  }
 
-    # Must be after no_chromium_code for warning flags to be ordered correctly.
-    ":fx_agg_warnings",
-  ]
-  sources = [
-    "agg23/agg_basics.h",
-    "agg23/agg_clip_liang_barsky.h",
-    "agg23/agg_conv_dash.h",
-    "agg23/agg_conv_stroke.h",
-    "agg23/agg_curves.cpp",
-    "agg23/agg_curves.h",
-    "agg23/agg_path_storage.cpp",
-    "agg23/agg_path_storage.h",
-    "agg23/agg_rasterizer_scanline_aa.cpp",
-    "agg23/agg_rasterizer_scanline_aa.h",
-    "agg23/agg_renderer_scanline.h",
-    "agg23/agg_rendering_buffer.h",
-    "agg23/agg_scanline_u.h",
-    "agg23/agg_vcgen_dash.cpp",
-    "agg23/agg_vcgen_stroke.cpp",
-  ]
+  source_set("fx_agg") {
+    configs -= [ "//build/config/compiler:chromium_code" ]
+    configs += [
+      "//build/config/compiler:no_chromium_code",
+      ":pdfium_third_party_config",
+
+      # Must be after no_chromium_code for warning flags to be ordered correctly.
+      ":fx_agg_warnings",
+    ]
+    sources = [
+      "agg23/agg_basics.h",
+      "agg23/agg_clip_liang_barsky.h",
+      "agg23/agg_conv_dash.h",
+      "agg23/agg_conv_stroke.h",
+      "agg23/agg_curves.cpp",
+      "agg23/agg_curves.h",
+      "agg23/agg_path_storage.cpp",
+      "agg23/agg_path_storage.h",
+      "agg23/agg_rasterizer_scanline_aa.cpp",
+      "agg23/agg_rasterizer_scanline_aa.h",
+      "agg23/agg_renderer_scanline.h",
+      "agg23/agg_rendering_buffer.h",
+      "agg23/agg_scanline_u.h",
+      "agg23/agg_vcgen_dash.cpp",
+      "agg23/agg_vcgen_stroke.cpp",
+    ]
+  }
 }
 
 config("fx_lcms2_warnings") {
@@ -140,7 +153,7 @@ source_set("fx_lcms2") {
   configs -= [ "//build/config/compiler:chromium_code" ]
   configs += [
     "//build/config/compiler:no_chromium_code",
-    "../:pdfium_config",
+    ":pdfium_third_party_config",
 
     # Must be after no_chromium_code for warning flags to be ordered correctly.
     ":fx_lcms2_warnings",
@@ -188,7 +201,7 @@ source_set("jpeg") {
   configs -= [ "//build/config/compiler:chromium_code" ]
   configs += [
     "//build/config/compiler:no_chromium_code",
-    "../:pdfium_config",
+    ":pdfium_third_party_config",
 
     # Must be after no_chromium_code for warning flags to be ordered correctly.
     ":jpeg_warnings",
@@ -266,7 +279,7 @@ source_set("fx_libopenjpeg") {
   configs -= [ "//build/config/compiler:chromium_code" ]
   configs += [
     "//build/config/compiler:no_chromium_code",
-    "../:pdfium_config",
+    ":pdfium_third_party_config",
 
     # Must be after no_chromium_code for warning flags to be ordered correctly.
     ":fx_libopenjpeg_warnings",
@@ -298,7 +311,7 @@ source_set("fx_lpng") {
   configs -= [ "//build/config/compiler:chromium_code" ]
   configs += [
     "//build/config/compiler:no_chromium_code",
-    "../:pdfium_config",
+    ":pdfium_third_party_config",
   ]
   sources = [
     "libpng16/png.c",
@@ -332,7 +345,7 @@ if (pdf_enable_xfa) {
     configs -= [ "//build/config/compiler:chromium_code" ]
     configs += [
       "//build/config/compiler:no_chromium_code",
-      "../:pdfium_config",
+      ":pdfium_third_party_config",
     ]
     if (is_win) {
       # Need to undefine the macro since it is redefined in
@@ -396,7 +409,7 @@ source_set("fx_zlib") {
   configs -= [ "//build/config/compiler:chromium_code" ]
   configs += [
     "//build/config/compiler:no_chromium_code",
-    "../:pdfium_config",
+    ":pdfium_third_party_config",
 
     # Must be after no_chromium_code for warning flags to be ordered correctly.
     ":fx_zlib_warnings",
@@ -424,7 +437,7 @@ source_set("pdfium_base") {
   configs -= [ "//build/config/compiler:chromium_code" ]
   configs += [
     "//build/config/compiler:no_chromium_code",
-    "../:pdfium_config",
+    ":pdfium_third_party_config",
   ]
   sources = [
     "base/logging.h",

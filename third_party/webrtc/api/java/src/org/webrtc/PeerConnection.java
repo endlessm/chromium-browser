@@ -116,6 +116,11 @@ public class PeerConnection {
     ENABLED, DISABLED
   };
 
+  /** Java version of PeerConnectionInterface.CandidateNetworkPolicy */
+  public enum CandidateNetworkPolicy {
+    ALL, LOW_COST
+  };
+
   /** Java version of rtc::KeyType */
   public enum KeyType {
     RSA, ECDSA
@@ -133,18 +138,21 @@ public class PeerConnection {
     public BundlePolicy bundlePolicy;
     public RtcpMuxPolicy rtcpMuxPolicy;
     public TcpCandidatePolicy tcpCandidatePolicy;
+    public CandidateNetworkPolicy candidateNetworkPolicy;
     public int audioJitterBufferMaxPackets;
     public boolean audioJitterBufferFastAccelerate;
     public int iceConnectionReceivingTimeout;
     public int iceBackupCandidatePairPingInterval;
     public KeyType keyType;
     public ContinualGatheringPolicy continualGatheringPolicy;
+    public int iceCandidatePoolSize;
 
     public RTCConfiguration(List<IceServer> iceServers) {
       iceTransportsType = IceTransportsType.ALL;
       bundlePolicy = BundlePolicy.BALANCED;
       rtcpMuxPolicy = RtcpMuxPolicy.NEGOTIATE;
       tcpCandidatePolicy = TcpCandidatePolicy.ENABLED;
+      candidateNetworkPolicy = candidateNetworkPolicy.ALL;
       this.iceServers = iceServers;
       audioJitterBufferMaxPackets = 50;
       audioJitterBufferFastAccelerate = false;
@@ -152,6 +160,7 @@ public class PeerConnection {
       iceBackupCandidatePairPingInterval = -1;
       keyType = KeyType.ECDSA;
       continualGatheringPolicy = ContinualGatheringPolicy.GATHER_ONCE;
+      iceCandidatePoolSize = 0;
     }
   };
 

@@ -706,9 +706,16 @@ static INLINE OPJ_BOOL opj_tcd_init_tile(opj_tcd_t *p_tcd, OPJ_UINT32 p_tile_no,
 	l_tx0 = l_cp->tx0 + p * l_cp->tdx; /* can't be greater than l_image->x1 so won't overflow */
 	l_tile->x0 = (OPJ_INT32)opj_uint_max(l_tx0, l_image->x0);
 	l_tile->x1 = (OPJ_INT32)opj_uint_min(opj_uint_adds(l_tx0, l_cp->tdx), l_image->x1);
+	if (l_tile->x0 < 0 || l_tile->x1 < 0) {
+		return OPJ_FALSE;
+	}
+
 	l_ty0 = l_cp->ty0 + q * l_cp->tdy; /* can't be greater than l_image->y1 so won't overflow */
 	l_tile->y0 = (OPJ_INT32)opj_uint_max(l_ty0, l_image->y0);
 	l_tile->y1 = (OPJ_INT32)opj_uint_min(opj_uint_adds(l_ty0, l_cp->tdy), l_image->y1);
+	if (l_tile->y0 < 0 || l_tile->y1 < 0) {
+		return OPJ_FALSE;
+	}
 
 	/* testcase 1888.pdf.asan.35.988 */
 	if (l_tccp->numresolutions == 0) {
@@ -939,8 +946,15 @@ static INLINE OPJ_BOOL opj_tcd_init_tile(opj_tcd_t *p_tcd, OPJ_UINT32 p_tile_no,
 					l_current_precinct->cw = (OPJ_UINT32)((brcblkxend - tlcblkxstart) >> cblkwidthexpn);
 					l_current_precinct->ch = (OPJ_UINT32)((brcblkyend - tlcblkystart) >> cblkheightexpn);
 					
+					if (l_current_precinct->cw && ((OPJ_UINT32)-1) / l_current_precinct->cw < l_current_precinct->ch) {
+						return OPJ_FALSE;
+					}
 					l_nb_code_blocks = l_current_precinct->cw * l_current_precinct->ch;
 					/*fprintf(stderr, "\t\t\t\t precinct_cw = %d x recinct_ch = %d\n",l_current_precinct->cw, l_current_precinct->ch);      */
+					
+					if (((OPJ_UINT32)-1) / (OPJ_UINT32)sizeof_block < l_nb_code_blocks) {
+						return OPJ_FALSE;
+					}
 					l_nb_code_blocks_size = l_nb_code_blocks * (OPJ_UINT32)sizeof_block;
 					
 					if (! l_current_precinct->cblks.blocks) {
@@ -1150,6 +1164,7 @@ OPJ_UINT32 opj_tcd_get_decoded_tile_size ( opj_tcd_t *p_tcd )
         opj_tcd_tilecomp_t * l_tile_comp = 00;
         opj_tcd_resolution_t * l_res = 00;
         OPJ_UINT32 l_size_comp, l_remaining;
+        OPJ_UINT32 l_temp;
 
         l_tile_comp = p_tcd->tcd_image->tiles->comps;
         l_img_comp = p_tcd->image->comps;
@@ -1167,7 +1182,18 @@ OPJ_UINT32 opj_tcd_get_decoded_tile_size ( opj_tcd_t *p_tcd )
                 }
 
                 l_res = l_tile_comp->resolutions + l_tile_comp->minimum_num_resolutions - 1;
-                l_data_size += l_size_comp * (OPJ_UINT32)((l_res->x1 - l_res->x0) * (l_res->y1 - l_res->y0));
+                l_temp = (OPJ_UINT32)((l_res->x1 - l_res->x0) * (l_res->y1 - l_res->y0)); /* x1*y1 can't overflow */
+
+                if (l_size_comp && ((OPJ_UINT32)-1) / l_size_comp < l_temp) {
+                        return (OPJ_UINT32)-1;
+                }
+                l_temp *= l_size_comp;
+
+                if (l_temp > ((OPJ_UINT32)-1) - l_data_size) {
+                        return (OPJ_UINT32)-1;
+                }
+                l_data_size += l_temp;
+
                 ++l_img_comp;
                 ++l_tile_comp;
         }
@@ -1362,7 +1388,7 @@ OPJ_BOOL opj_tcd_update_tile_data ( opj_tcd_t *p_tcd,
         OPJ_UINT32 l_stride, l_width,l_height;
 
         l_data_size = opj_tcd_get_decoded_tile_size(p_tcd);
-        if (l_data_size > p_dest_length) {
+        if (l_data_size == (OPJ_UINT32)-1 || l_data_size > p_dest_length) {
                 return OPJ_FALSE;
         }
 

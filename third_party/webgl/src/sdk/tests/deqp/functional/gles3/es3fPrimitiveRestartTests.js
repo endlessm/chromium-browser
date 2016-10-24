@@ -209,24 +209,15 @@ var gluTextureUtil = framework.opengl.gluTextureUtil;
     };
 
     es3fPrimitiveRestartTests.PrimitiveRestartCase.prototype.renderWithRestart = function() {
-        bufferedLogToConsole('renderWithRestart() begin');
-
         // Primitive Restart is always on in WebGL2
         //gl.enable(gl.PRIMITIVE_RESTART_FIXED_INDEX);
-        //bufferedLogToConsole('Enable primitive restart');
 
         gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT | gl.STENCIL_BUFFER_BIT);
-        bufferedLogToConsole('Clear in renderWithRestart()');
 
         this.draw(0, this.getNumIndices());
-        bufferedLogToConsole('Draw in renderWithRestart()');
-
-        bufferedLogToConsole('renderWithRestart() end');
     };
 
     es3fPrimitiveRestartTests.PrimitiveRestartCase.prototype.renderWithoutRestart = function() {
-        bufferedLogToConsole('renderWithoutRestart() begin');
-
         /** @type {number} */ var restartIndex = this.m_indexType == es3fPrimitiveRestartTests.IndexType.INDEX_UNSIGNED_BYTE ? es3fPrimitiveRestartTests.RESTART_INDEX_UNSIGNED_BYTE :
                                                  this.m_indexType == es3fPrimitiveRestartTests.IndexType.INDEX_UNSIGNED_SHORT ? es3fPrimitiveRestartTests.RESTART_INDEX_UNSIGNED_SHORT :
                                                  this.m_indexType == es3fPrimitiveRestartTests.IndexType.INDEX_UNSIGNED_INT ? es3fPrimitiveRestartTests.RESTART_INDEX_UNSIGNED_INT :
@@ -235,10 +226,8 @@ var gluTextureUtil = framework.opengl.gluTextureUtil;
         DE_ASSERT(restartIndex != 0);
         // Primitive Restart is always on in WebGL2
         //gl.disable(gl.PRIMITIVE_RESTART_FIXED_INDEX);
-        //bufferedLogToConsole('Disable primitive restart');
 
         gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT | gl.STENCIL_BUFFER_BIT);
-        bufferedLogToConsole('Clear in renderWithoutRestart()');
 
         // Draw, emulating primitive restart.
 
@@ -254,14 +243,11 @@ var gluTextureUtil = framework.opengl.gluTextureUtil;
                     // Draw from index indexArrayStartNdx to index indexArrayNdx-1 .
 
                     this.draw(indexArrayStartNdx, indexArrayNdx - indexArrayStartNdx);
-                    bufferedLogToConsole('Draw in renderWithoutRestart()');
                 }
 
                 indexArrayStartNdx = indexArrayNdx + 1; // Next draw starts just after this restart index.
             }
         }
-
-        bufferedLogToConsole('renderWithoutRestart() end');
     };
 
     /**
@@ -687,7 +673,7 @@ var gluTextureUtil = framework.opengl.gluTextureUtil;
         }
     };
 
-    es3fPrimitiveRestartTests.run = function(context) {
+    es3fPrimitiveRestartTests.run = function(context, range) {
         gl = context;
         //Set up Test Root parameters
         var testName = 'primitive_restart';
@@ -704,6 +690,8 @@ var gluTextureUtil = framework.opengl.gluTextureUtil;
         try {
             //Create test cases
             es3fPrimitiveRestartTests.init();
+            if (range)
+                state.setRange(range);
             //Run test cases
             tcuTestCase.runTestCases();
         }

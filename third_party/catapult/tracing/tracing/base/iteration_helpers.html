@@ -11,10 +11,19 @@ found in the LICENSE file.
 'use strict';
 
 tr.exportTo('tr.b', function() {
-  function asArray(arrayish) {
+  /**
+   * Converts any object which is either (a) an iterable, or (b) an
+   * "array-ish" obect (has length property and can be indexed into)
+   * into an array.
+   */
+  function asArray(x) {
     var values = [];
-    for (var i = 0; i < arrayish.length; i++)
-      values.push(arrayish[i]);
+    if (x[Symbol.iterator])
+      for (var value of x)
+        values.push(value);
+    else
+      for (var i = 0; i < x.length; i++)
+        values.push(x[i]);
     return values;
   }
 
@@ -35,6 +44,19 @@ tr.exportTo('tr.b', function() {
           'getOnlyElement was passed an iterable with multiple elements.');
 
     return firstIteration.value;
+  }
+
+  /**
+   * Returns the first element in the iterable. If the iterable is empty, an
+   * error is thrown.
+   */
+  function getFirstElement(iterable) {
+    var iterator = iterable[Symbol.iterator]();
+    var result = iterator.next();
+    if (result.done)
+      throw new Error('getFirstElement was passed an empty iterable.');
+
+    return result.value;
   }
 
   function compareArrays(x, y, elementCmp) {
@@ -136,6 +158,16 @@ tr.exportTo('tr.b', function() {
       if (dict[key] === value)
         return true;
     return false;
+  }
+
+  /**
+   * Returns true if all the elements of the iterable pass the predicate.
+   */
+  function every(iterable, predicate) {
+    for (var x of iterable)
+      if (!predicate(x))
+        return false;
+    return true;
   }
 
   /**
@@ -394,7 +426,9 @@ tr.exportTo('tr.b', function() {
     dictionaryKeys: dictionaryKeys,
     dictionaryValues: dictionaryValues,
     dictionaryContainsValue: dictionaryContainsValue,
+    every: every,
     getOnlyElement: getOnlyElement,
+    getFirstElement: getFirstElement,
     group: group,
     iterItems: iterItems,
     mapItems: mapItems,

@@ -11,7 +11,7 @@
 #include "fpdfsdk/include/fsdk_mgr.h"
 
 CFFL_TextField::CFFL_TextField(CPDFDoc_Environment* pApp, CPDFSDK_Annot* pAnnot)
-    : CFFL_FormFiller(pApp, pAnnot), m_pFontMap(NULL) {
+    : CFFL_FormFiller(pApp, pAnnot), m_pFontMap(nullptr) {
   m_State.nStart = m_State.nEnd = 0;
 }
 
@@ -28,9 +28,6 @@ PWL_CREATEPARAM CFFL_TextField::GetCreateParam() {
 
   if (nFlags & FIELDFLAG_PASSWORD) {
     cp.dwFlags |= PES_PASSWORD;
-  }
-
-  if (!(nFlags & FIELDFLAG_DONOTSPELLCHECK)) {
   }
 
   if (nFlags & FIELDFLAG_MULTILINE) {
@@ -109,7 +106,7 @@ FX_BOOL CFFL_TextField::OnChar(CPDFSDK_Annot* pAnnot,
   switch (nChar) {
     case FWL_VKEY_Return:
       if (!(m_pWidget->GetFieldFlags() & FIELDFLAG_MULTILINE)) {
-        CPDFSDK_PageView* pPageView = GetCurPageView();
+        CPDFSDK_PageView* pPageView = GetCurPageView(true);
         ASSERT(pPageView);
         m_bValid = !m_bValid;
         CFX_FloatRect rcAnnot = pAnnot->GetRect();
@@ -129,7 +126,7 @@ FX_BOOL CFFL_TextField::OnChar(CPDFSDK_Annot* pAnnot,
       }
       break;
     case FWL_VKEY_Escape: {
-      CPDFSDK_PageView* pPageView = GetCurPageView();
+      CPDFSDK_PageView* pPageView = GetCurPageView(true);
       ASSERT(pPageView);
       EscapeFiller(pPageView, TRUE);
       return TRUE;
@@ -244,7 +241,7 @@ CPWL_Wnd* CFFL_TextField::ResetPDFWindow(CPDFSDK_PageView* pPageView,
 
   DestroyPDFWindow(pPageView);
 
-  CPWL_Wnd* pRet = NULL;
+  CPWL_Wnd* pRet = nullptr;
 
   if (bRestoreValue) {
     RestoreState(pPageView);
@@ -272,7 +269,7 @@ void CFFL_TextField::OnSetFocus(CPWL_Wnd* pWnd) {
   ASSERT(m_pApp);
   if (pWnd->GetClassName() == PWL_CLASSNAME_EDIT) {
     CPWL_Edit* pEdit = (CPWL_Edit*)pWnd;
-    pEdit->SetCharSet(134);
+    pEdit->SetCharSet(FXFONT_GB2312_CHARSET);
     pEdit->SetCodePage(936);
 
     pEdit->SetReadyToInput();

@@ -17,7 +17,7 @@ import sys
 # uses_sandbox_env (optional): True if CHROME_DEVEL_SANDBOX must be in
 #   environment.
 # disabled (optional): List of platforms the test is disabled on. May contain
-#   'win', 'mac', or 'linux'.
+#   'win', 'mac', 'linux', or 'android'.
 # outputs_presentation_json (optional): If True, pass in --presentation-json
 #   argument to the test executable to allow it to update the buildbot status
 #   page. More details here:
@@ -26,14 +26,17 @@ _CATAPULT_TESTS = [
     {
         'name': 'BattOr Smoke Tests',
         'path': 'common/battor/battor/battor_wrapper_devicetest.py',
+        'disabled': ['android'],
     },
     {
         'name': 'BattOr Unit Tests',
         'path': 'common/battor/bin/run_py_tests',
+        'disabled': ['android'],
     },
     {
         'name': 'Build Python Tests',
         'path': 'catapult_build/bin/run_py_tests',
+        'disabled': ['android'],
     },
     {
         'name': 'Catapult Base Tests',
@@ -48,6 +51,7 @@ _CATAPULT_TESTS = [
             '--channel=canary'
         ],
         'outputs_presentation_json': True,
+        'disabled': ['android'],
     },
     {
         'name': 'Dashboard Dev Server Tests Stable',
@@ -58,16 +62,23 @@ _CATAPULT_TESTS = [
             '--channel=stable',
         ],
         'outputs_presentation_json': True,
+        'disabled': ['android'],
     },
     {
         'name': 'Dashboard Python Tests',
         'path': 'dashboard/bin/run_py_tests',
         'additional_args': ['--no-install-hooks'],
         'uses_app_engine_sdk': True,
+        'disabled': ['android'],
     },
     {
         'name': 'Dependency Manager Tests',
         'path': 'dependency_manager/bin/run_tests',
+    },
+    {
+        'name': 'Devil Device Tests',
+        'path': 'devil/devil/android/device_utils_devicetest.py',
+        'disabled': ['win', 'mac', 'linux']
     },
     {
         'name': 'Devil Python Tests',
@@ -83,6 +94,7 @@ _CATAPULT_TESTS = [
             '--channel=canary'
         ],
         'outputs_presentation_json': True,
+        'disabled': ['android'],
     },
     {
         'name': 'Perf Insights Dev Server Tests Stable',
@@ -94,24 +106,29 @@ _CATAPULT_TESTS = [
         ],
         'uses_sandbox_env': True,
         'outputs_presentation_json': True,
+        'disabled': ['android'],
     },
     {
         'name': 'Perf Insights Python Tests',
         'path': 'perf_insights/bin/run_py_tests',
         'additional_args': ['--no-install-hooks'],
+        'disabled': ['android'],
     },
     {
         'name': 'Perf VINN Insights Tests',
         'path': 'perf_insights/bin/run_vinn_tests',
+        'disabled': ['android'],
     },
     {
         'name': 'Py-vulcanize Tests',
         'path': 'third_party/py_vulcanize/bin/run_py_tests',
         'additional_args': ['--no-install-hooks'],
+        'disabled': ['android'],
     },
     {
         'name': 'Systrace Tests',
         'path': 'systrace/bin/run_tests',
+        'disabled': ['android'],
     },
     {
         'name': 'Telemetry Tests with Stable Browser',
@@ -130,7 +147,7 @@ _CATAPULT_TESTS = [
             '--browser=reference',
         ],
         'uses_sandbox_env': True,
-        'disabled': ['linux'],  # TODO(nedn): enable this on linux
+        'disabled': ['android', 'linux'],  # TODO(nedn): enable this on linux
     },
     {
         'name': 'Tracing Dev Server Tests Canary',
@@ -141,6 +158,7 @@ _CATAPULT_TESTS = [
             '--channel=canary'
         ],
         'outputs_presentation_json': True,
+        'disabled': ['android'],
     },
     {
         'name': 'Tracing Dev Server Tests Stable',
@@ -151,19 +169,23 @@ _CATAPULT_TESTS = [
             '--channel=stable',
         ],
         'outputs_presentation_json': True,
+        'disabled': ['android'],
     },
     {
         'name': 'Tracing D8 Tests',
         'path': 'tracing/bin/run_vinn_tests',
+        'disabled': ['android'],
     },
     {
         'name': 'Tracing Python Tests',
         'path': 'tracing/bin/run_py_tests',
         'additional_args': ['--no-install-hooks'],
+        'disabled': ['android'],
     },
     {
         'name': 'Vinn Tests',
-        'path': 'third_party/vinn/run_test',
+        'path': 'third_party/vinn/bin/run_tests',
+        'disabled': ['android'],
     },
 ]
 
@@ -189,9 +211,28 @@ def main(args=None):
       'name': 'Remove Stale PYC files',
       'cmd': ['python',
               os.path.join(args.api_path_checkout,
-                           'catapult_build/remove_stale_pyc_files.py'),
+                           'catapult_build', 'remove_stale_pyc_files.py'),
               args.api_path_checkout]
   }]
+  if args.platform == 'android':
+    # On Android, we need to prepare the devices a bit before using them in
+    # tests. These steps are not listed as tests above because they aren't
+    # tests and because they must precede all tests.
+    steps.extend([
+        {
+            'name': 'Android: Recover Devices',
+            'cmd': ['python',
+                    os.path.join(args.api_path_checkout, 'devil', 'devil',
+                                 'android', 'tools', 'device_recovery.py')],
+        },
+        {
+            'name': 'Android: Device Status',
+            'cmd': ['python',
+                    os.path.join(args.api_path_checkout, 'devil', 'devil',
+                                 'android', 'tools', 'device_status.py')],
+        },
+    ])
+
   for test in _CATAPULT_TESTS:
     if args.platform in test.get('disabled', []):
       continue

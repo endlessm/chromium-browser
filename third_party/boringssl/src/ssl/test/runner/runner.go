@@ -1,3 +1,17 @@
+// Copyright (c) 2016, Google Inc.
+//
+// Permission to use, copy, modify, and/or distribute this software for any
+// purpose with or without fee is hereby granted, provided that the above
+// copyright notice and this permission notice appear in all copies.
+//
+// THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+// WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+// MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY
+// SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+// WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION
+// OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
+// CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE. */
+
 package runner
 
 import (
@@ -39,7 +53,8 @@ var (
 	resourceDir     = flag.String("resource-dir", ".", "The directory in which to find certificate and key files.")
 	fuzzer          = flag.Bool("fuzzer", false, "If true, tests against a BoringSSL built in fuzzer mode.")
 	transcriptDir   = flag.String("transcript-dir", "", "The directory in which to write transcripts.")
-	timeout         = flag.Int("timeout", 15, "The number of seconds to wait for a read or write to bssl_shim.")
+	idleTimeout     = flag.Duration("idle-timeout", 15*time.Second, "The number of seconds to wait for a read or write to bssl_shim.")
+	deterministic   = flag.Bool("deterministic", false, "If true, uses a deterministic PRNG in the runner.")
 )
 
 const (
@@ -301,7 +316,7 @@ func (t *timeoutConn) Write(b []byte) (int, error) {
 }
 
 func doExchange(test *testCase, config *Config, conn net.Conn, isResume bool) error {
-	conn = &timeoutConn{conn, time.Duration(*timeout) * time.Second}
+	conn = &timeoutConn{conn, *idleTimeout}
 
 	if test.protocol == dtls {
 		config.Bugs.PacketAdaptor = newPacketAdaptor(conn)
@@ -751,6 +766,9 @@ func runTest(test *testCase, shimPath string, mallocNumToFail int64) error {
 	if *fuzzer {
 		config.Bugs.NullAllCiphers = true
 	}
+	if *deterministic {
+		config.Rand = &deterministicRand{}
+	}
 
 	conn, err := acceptOrWait(listener, waitChan)
 	if err == nil {
@@ -781,6 +799,7 @@ func runTest(test *testCase, shimPath string, mallocNumToFail int64) error {
 			if *fuzzer {
 				resumeConfig.Bugs.NullAllCiphers = true
 			}
+			resumeConfig.Rand = config.Rand
 		} else {
 			resumeConfig = config
 		}
@@ -901,11 +920,17 @@ var testCipherSuites = []struct {
 	{"ECDHE-RSA-CHACHA20-POLY1305", TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256},
 	{"ECDHE-RSA-CHACHA20-POLY1305-OLD", TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256_OLD},
 	{"ECDHE-RSA-RC4-SHA", TLS_ECDHE_RSA_WITH_RC4_128_SHA},
+	{"CECPQ1-RSA-CHACHA20-POLY1305-SHA256", TLS_CECPQ1_RSA_WITH_CHACHA20_POLY1305_SHA256},
+	{"CECPQ1-ECDSA-CHACHA20-POLY1305-SHA256", TLS_CECPQ1_ECDSA_WITH_CHACHA20_POLY1305_SHA256},
+	{"CECPQ1-RSA-AES256-GCM-SHA384", TLS_CECPQ1_RSA_WITH_AES_256_GCM_SHA384},
+	{"CECPQ1-ECDSA-AES256-GCM-SHA384", TLS_CECPQ1_ECDSA_WITH_AES_256_GCM_SHA384},
 	{"PSK-AES128-CBC-SHA", TLS_PSK_WITH_AES_128_CBC_SHA},
 	{"PSK-AES256-CBC-SHA", TLS_PSK_WITH_AES_256_CBC_SHA},
 	{"ECDHE-PSK-AES128-CBC-SHA", TLS_ECDHE_PSK_WITH_AES_128_CBC_SHA},
 	{"ECDHE-PSK-AES256-CBC-SHA", TLS_ECDHE_PSK_WITH_AES_256_CBC_SHA},
 	{"ECDHE-PSK-CHACHA20-POLY1305", TLS_ECDHE_PSK_WITH_CHACHA20_POLY1305_SHA256},
+	{"ECDHE-PSK-AES128-GCM-SHA256", TLS_ECDHE_PSK_WITH_AES_128_GCM_SHA256},
+	{"ECDHE-PSK-AES256-GCM-SHA384", TLS_ECDHE_PSK_WITH_AES_256_GCM_SHA384},
 	{"PSK-RC4-SHA", TLS_PSK_WITH_RC4_128_SHA},
 	{"RC4-MD5", TLS_RSA_WITH_RC4_128_MD5},
 	{"RC4-SHA", TLS_RSA_WITH_RC4_128_SHA},
@@ -1391,7 +1416,7 @@ func addBasicTests() {
 		},
 		{
 			name:          "DisableEverything",
-			flags:         []string{"-no-tls12", "-no-tls11", "-no-tls1", "-no-ssl3"},
+			flags:         []string{"-no-tls13", "-no-tls12", "-no-tls11", "-no-tls1", "-no-ssl3"},
 			shouldFail:    true,
 			expectedError: ":WRONG_SSL_VERSION:",
 		},
@@ -1752,7 +1777,7 @@ func addBasicTests() {
 				},
 			},
 			shouldFail:    true,
-			expectedError: ":UNEXPECTED_MESSAGE:",
+			expectedError: ":BAD_HANDSHAKE_RECORD:",
 		},
 		{
 			protocol: dtls,
@@ -1763,7 +1788,7 @@ func addBasicTests() {
 				},
 			},
 			shouldFail:    true,
-			expectedError: ":EXCESSIVE_MESSAGE_SIZE:",
+			expectedError: ":BAD_HANDSHAKE_RECORD:",
 		},
 		{
 			protocol: dtls,
@@ -1774,7 +1799,7 @@ func addBasicTests() {
 				},
 			},
 			shouldFail:    true,
-			expectedError: ":EXCESSIVE_MESSAGE_SIZE:",
+			expectedError: ":BAD_HANDSHAKE_RECORD:",
 		},
 		{
 			protocol: dtls,
@@ -2280,6 +2305,10 @@ func addCipherSuiteTests() {
 		if hasComponent(suite.name, "NULL") {
 			// NULL ciphers must be explicitly enabled.
 			flags = append(flags, "-cipher", "DEFAULT:NULL-SHA")
+		}
+		if hasComponent(suite.name, "CECPQ1") {
+			// CECPQ1 ciphers must be explicitly enabled.
+			flags = append(flags, "-cipher", "DEFAULT:kCECPQ1")
 		}
 
 		for _, ver := range tlsVersions {
@@ -3184,6 +3213,7 @@ func addStateMachineCoverageTests(async, splitHandshake bool, protocol protocol)
 				NextProtos: []string{"foo"},
 			},
 			flags:                 []string{"-select-next-proto", "foo"},
+			resumeSession:         true,
 			expectedNextProto:     "foo",
 			expectedNextProtoType: npn,
 		})
@@ -3197,6 +3227,7 @@ func addStateMachineCoverageTests(async, splitHandshake bool, protocol protocol)
 				"-advertise-npn", "\x03foo\x03bar\x03baz",
 				"-expect-next-proto", "bar",
 			},
+			resumeSession:         true,
 			expectedNextProto:     "bar",
 			expectedNextProtoType: npn,
 		})
@@ -3311,6 +3342,42 @@ func addStateMachineCoverageTests(async, splitHandshake bool, protocol protocol)
 			},
 			resumeSession:   true,
 			expectChannelID: true,
+		})
+
+		// Channel ID and NPN at the same time, to ensure their relative
+		// ordering is correct.
+		tests = append(tests, testCase{
+			name: "ChannelID-NPN-Client",
+			config: Config{
+				RequestChannelID: true,
+				NextProtos:       []string{"foo"},
+			},
+			flags: []string{
+				"-send-channel-id", path.Join(*resourceDir, channelIDKeyFile),
+				"-select-next-proto", "foo",
+			},
+			resumeSession:         true,
+			expectChannelID:       true,
+			expectedNextProto:     "foo",
+			expectedNextProtoType: npn,
+		})
+		tests = append(tests, testCase{
+			testType: serverTest,
+			name:     "ChannelID-NPN-Server",
+			config: Config{
+				ChannelID:  channelIDKey,
+				NextProtos: []string{"bar"},
+			},
+			flags: []string{
+				"-expect-channel-id",
+				base64.StdEncoding.EncodeToString(channelIDBytes),
+				"-advertise-npn", "\x03foo\x03bar\x03baz",
+				"-expect-next-proto", "bar",
+			},
+			resumeSession:         true,
+			expectChannelID:       true,
+			expectedNextProto:     "bar",
+			expectedNextProtoType: npn,
 		})
 
 		// Bidirectional shutdown with the runner initiating.
@@ -4663,106 +4730,137 @@ var shortTimeouts = []time.Duration{
 }
 
 func addDTLSRetransmitTests() {
-	// Test that this is indeed the timeout schedule. Stress all
-	// four patterns of handshake.
-	for i := 1; i < len(timeouts); i++ {
-		number := strconv.Itoa(i)
-		testCases = append(testCases, testCase{
+	// These tests work by coordinating some behavior on both the shim and
+	// the runner.
+	//
+	// TimeoutSchedule configures the runner to send a series of timeout
+	// opcodes to the shim (see packetAdaptor) immediately before reading
+	// each peer handshake flight N. The timeout opcode both simulates a
+	// timeout in the shim and acts as a synchronization point to help the
+	// runner bracket each handshake flight.
+	//
+	// We assume the shim does not read from the channel eagerly. It must
+	// first wait until it has sent flight N and is ready to receive
+	// handshake flight N+1. At this point, it will process the timeout
+	// opcode. It must then immediately respond with a timeout ACK and act
+	// as if the shim was idle for the specified amount of time.
+	//
+	// The runner then drops all packets received before the ACK and
+	// continues waiting for flight N. This ordering results in one attempt
+	// at sending flight N to be dropped. For the test to complete, the
+	// shim must send flight N again, testing that the shim implements DTLS
+	// retransmit on a timeout.
+
+	for _, async := range []bool{true, false} {
+		var tests []testCase
+
+		// Test that this is indeed the timeout schedule. Stress all
+		// four patterns of handshake.
+		for i := 1; i < len(timeouts); i++ {
+			number := strconv.Itoa(i)
+			tests = append(tests, testCase{
+				protocol: dtls,
+				name:     "DTLS-Retransmit-Client-" + number,
+				config: Config{
+					Bugs: ProtocolBugs{
+						TimeoutSchedule: timeouts[:i],
+					},
+				},
+				resumeSession: true,
+			})
+			tests = append(tests, testCase{
+				protocol: dtls,
+				testType: serverTest,
+				name:     "DTLS-Retransmit-Server-" + number,
+				config: Config{
+					Bugs: ProtocolBugs{
+						TimeoutSchedule: timeouts[:i],
+					},
+				},
+				resumeSession: true,
+			})
+		}
+
+		// Test that exceeding the timeout schedule hits a read
+		// timeout.
+		tests = append(tests, testCase{
 			protocol: dtls,
-			name:     "DTLS-Retransmit-Client-" + number,
+			name:     "DTLS-Retransmit-Timeout",
 			config: Config{
 				Bugs: ProtocolBugs{
-					TimeoutSchedule: timeouts[:i],
+					TimeoutSchedule: timeouts,
 				},
 			},
 			resumeSession: true,
-			flags:         []string{"-async"},
+			shouldFail:    true,
+			expectedError: ":READ_TIMEOUT_EXPIRED:",
 		})
-		testCases = append(testCases, testCase{
+
+		if async {
+			// Test that timeout handling has a fudge factor, due to API
+			// problems.
+			tests = append(tests, testCase{
+				protocol: dtls,
+				name:     "DTLS-Retransmit-Fudge",
+				config: Config{
+					Bugs: ProtocolBugs{
+						TimeoutSchedule: []time.Duration{
+							timeouts[0] - 10*time.Millisecond,
+						},
+					},
+				},
+				resumeSession: true,
+			})
+		}
+
+		// Test that the final Finished retransmitting isn't
+		// duplicated if the peer badly fragments everything.
+		tests = append(tests, testCase{
+			testType: serverTest,
+			protocol: dtls,
+			name:     "DTLS-Retransmit-Fragmented",
+			config: Config{
+				Bugs: ProtocolBugs{
+					TimeoutSchedule:          []time.Duration{timeouts[0]},
+					MaxHandshakeRecordLength: 2,
+				},
+			},
+		})
+
+		// Test the timeout schedule when a shorter initial timeout duration is set.
+		tests = append(tests, testCase{
+			protocol: dtls,
+			name:     "DTLS-Retransmit-Short-Client",
+			config: Config{
+				Bugs: ProtocolBugs{
+					TimeoutSchedule: shortTimeouts[:len(shortTimeouts)-1],
+				},
+			},
+			resumeSession: true,
+			flags:         []string{"-initial-timeout-duration-ms", "250"},
+		})
+		tests = append(tests, testCase{
 			protocol: dtls,
 			testType: serverTest,
-			name:     "DTLS-Retransmit-Server-" + number,
+			name:     "DTLS-Retransmit-Short-Server",
 			config: Config{
 				Bugs: ProtocolBugs{
-					TimeoutSchedule: timeouts[:i],
+					TimeoutSchedule: shortTimeouts[:len(shortTimeouts)-1],
 				},
 			},
 			resumeSession: true,
-			flags:         []string{"-async"},
+			flags:         []string{"-initial-timeout-duration-ms", "250"},
 		})
+
+		for _, test := range tests {
+			if async {
+				test.name += "-Async"
+				test.flags = append(test.flags, "-async")
+			}
+
+			testCases = append(testCases, test)
+		}
 	}
-
-	// Test that exceeding the timeout schedule hits a read
-	// timeout.
-	testCases = append(testCases, testCase{
-		protocol: dtls,
-		name:     "DTLS-Retransmit-Timeout",
-		config: Config{
-			Bugs: ProtocolBugs{
-				TimeoutSchedule: timeouts,
-			},
-		},
-		resumeSession: true,
-		flags:         []string{"-async"},
-		shouldFail:    true,
-		expectedError: ":READ_TIMEOUT_EXPIRED:",
-	})
-
-	// Test that timeout handling has a fudge factor, due to API
-	// problems.
-	testCases = append(testCases, testCase{
-		protocol: dtls,
-		name:     "DTLS-Retransmit-Fudge",
-		config: Config{
-			Bugs: ProtocolBugs{
-				TimeoutSchedule: []time.Duration{
-					timeouts[0] - 10*time.Millisecond,
-				},
-			},
-		},
-		resumeSession: true,
-		flags:         []string{"-async"},
-	})
-
-	// Test that the final Finished retransmitting isn't
-	// duplicated if the peer badly fragments everything.
-	testCases = append(testCases, testCase{
-		testType: serverTest,
-		protocol: dtls,
-		name:     "DTLS-Retransmit-Fragmented",
-		config: Config{
-			Bugs: ProtocolBugs{
-				TimeoutSchedule:          []time.Duration{timeouts[0]},
-				MaxHandshakeRecordLength: 2,
-			},
-		},
-		flags: []string{"-async"},
-	})
-
-	// Test the timeout schedule when a shorter initial timeout duration is set.
-	testCases = append(testCases, testCase{
-		protocol: dtls,
-		name:     "DTLS-Retransmit-Short-Client",
-		config: Config{
-			Bugs: ProtocolBugs{
-				TimeoutSchedule: shortTimeouts[:len(shortTimeouts)-1],
-			},
-		},
-		resumeSession: true,
-		flags:         []string{"-async", "-initial-timeout-duration-ms", "250"},
-	})
-	testCases = append(testCases, testCase{
-		protocol: dtls,
-		testType: serverTest,
-		name:     "DTLS-Retransmit-Short-Server",
-		config: Config{
-			Bugs: ProtocolBugs{
-				TimeoutSchedule: shortTimeouts[:len(shortTimeouts)-1],
-			},
-		},
-		resumeSession: true,
-		flags:         []string{"-async", "-initial-timeout-duration-ms", "250"},
-	})
 }
 
 func addExportKeyingMaterialTests() {
@@ -5041,6 +5139,65 @@ func addCurveTests() {
 	})
 }
 
+func addCECPQ1Tests() {
+	testCases = append(testCases, testCase{
+		testType: clientTest,
+		name:     "CECPQ1-Client-BadX25519Part",
+		config: Config{
+			MinVersion:   VersionTLS12,
+			CipherSuites: []uint16{TLS_CECPQ1_RSA_WITH_AES_256_GCM_SHA384},
+			Bugs: ProtocolBugs{
+				CECPQ1BadX25519Part: true,
+			},
+		},
+		flags:              []string{"-cipher", "kCECPQ1"},
+		shouldFail:         true,
+		expectedLocalError: "local error: bad record MAC",
+	})
+	testCases = append(testCases, testCase{
+		testType: clientTest,
+		name:     "CECPQ1-Client-BadNewhopePart",
+		config: Config{
+			MinVersion:   VersionTLS12,
+			CipherSuites: []uint16{TLS_CECPQ1_RSA_WITH_AES_256_GCM_SHA384},
+			Bugs: ProtocolBugs{
+				CECPQ1BadNewhopePart: true,
+			},
+		},
+		flags:              []string{"-cipher", "kCECPQ1"},
+		shouldFail:         true,
+		expectedLocalError: "local error: bad record MAC",
+	})
+	testCases = append(testCases, testCase{
+		testType: serverTest,
+		name:     "CECPQ1-Server-BadX25519Part",
+		config: Config{
+			MinVersion:   VersionTLS12,
+			CipherSuites: []uint16{TLS_CECPQ1_RSA_WITH_AES_256_GCM_SHA384},
+			Bugs: ProtocolBugs{
+				CECPQ1BadX25519Part: true,
+			},
+		},
+		flags:         []string{"-cipher", "kCECPQ1"},
+		shouldFail:    true,
+		expectedError: ":DECRYPTION_FAILED_OR_BAD_RECORD_MAC:",
+	})
+	testCases = append(testCases, testCase{
+		testType: serverTest,
+		name:     "CECPQ1-Server-BadNewhopePart",
+		config: Config{
+			MinVersion:   VersionTLS12,
+			CipherSuites: []uint16{TLS_CECPQ1_RSA_WITH_AES_256_GCM_SHA384},
+			Bugs: ProtocolBugs{
+				CECPQ1BadNewhopePart: true,
+			},
+		},
+		flags:         []string{"-cipher", "kCECPQ1"},
+		shouldFail:    true,
+		expectedError: ":DECRYPTION_FAILED_OR_BAD_RECORD_MAC:",
+	})
+}
+
 func addKeyExchangeInfoTests() {
 	testCases = append(testCases, testCase{
 		name: "KeyExchangeInfo-RSA-Client",
@@ -5194,6 +5351,7 @@ func main() {
 	addCustomExtensionTests()
 	addRSAClientKeyExchangeTests()
 	addCurveTests()
+	addCECPQ1Tests()
 	addKeyExchangeInfoTests()
 	for _, async := range []bool{false, true} {
 		for _, splitHandshake := range []bool{false, true} {

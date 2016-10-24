@@ -21,6 +21,7 @@ import (
 	"math/big"
 
 	"./curve25519"
+	"./newhope"
 )
 
 var errClientKeyExchange = errors.New("tls: invalid ClientKeyExchange message")
@@ -348,6 +349,66 @@ func (e *x25519ECDHCurve) finish(peerKey []byte) (preMasterSecret []byte, err er
 	return out[:], nil
 }
 
+// cecpq1Curve is combined elliptic curve (X25519) and post-quantum (new hope) key
+// agreement.
+type cecpq1Curve struct {
+	x25519  *x25519ECDHCurve
+	newhope *newhope.Poly
+}
+
+func (e *cecpq1Curve) offer(rand io.Reader) (publicKey []byte, err error) {
+	var x25519OfferMsg, newhopeOfferMsg []byte
+
+	e.x25519 = new(x25519ECDHCurve)
+	if x25519OfferMsg, err = e.x25519.offer(rand); err != nil {
+		return nil, err
+	}
+
+	newhopeOfferMsg, e.newhope = newhope.Offer(rand)
+
+	return append(x25519OfferMsg, newhopeOfferMsg[:]...), nil
+}
+
+func (e *cecpq1Curve) accept(rand io.Reader, peerKey []byte) (publicKey []byte, preMasterSecret []byte, err error) {
+	if len(peerKey) != 32+newhope.OfferMsgLen {
+		return nil, nil, errors.New("cecpq1: invalid offer message")
+	}
+
+	var x25519AcceptMsg, newhopeAcceptMsg []byte
+	var x25519Secret []byte
+	var newhopeSecret newhope.Key
+
+	x25519 := new(x25519ECDHCurve)
+	if x25519AcceptMsg, x25519Secret, err = x25519.accept(rand, peerKey[:32]); err != nil {
+		return nil, nil, err
+	}
+
+	if newhopeSecret, newhopeAcceptMsg, err = newhope.Accept(rand, peerKey[32:]); err != nil {
+		return nil, nil, err
+	}
+
+	return append(x25519AcceptMsg, newhopeAcceptMsg[:]...), append(x25519Secret, newhopeSecret[:]...), nil
+}
+
+func (e *cecpq1Curve) finish(peerKey []byte) (preMasterSecret []byte, err error) {
+	if len(peerKey) != 32+newhope.AcceptMsgLen {
+		return nil, errors.New("cecpq1: invalid accept message")
+	}
+
+	var x25519Secret []byte
+	var newhopeSecret newhope.Key
+
+	if x25519Secret, err = e.x25519.finish(peerKey[:32]); err != nil {
+		return nil, err
+	}
+
+	if newhopeSecret, err = e.newhope.Finish(peerKey[32:]); err != nil {
+		return nil, err
+	}
+
+	return append(x25519Secret, newhopeSecret[:]...), nil
+}
+
 func curveForCurveID(id CurveID) (ecdhCurve, bool) {
 	switch id {
 	case CurveP224:
@@ -651,6 +712,97 @@ func (ka *ecdheKeyAgreement) generateClientKeyExchange(config *Config, clientHel
 	if config.Bugs.InvalidECDHPoint {
 		ckx.ciphertext[1] ^= 0xff
 	}
+
+	return preMasterSecret, ckx, nil
+}
+
+// cecpq1RSAKeyAgreement is like an ecdheKeyAgreement, but using the cecpq1Curve
+// pseudo-curve, and without any parameters (e.g. curve name) other than the
+// keys being exchanged. The signature may either be ECDSA or RSA.
+type cecpq1KeyAgreement struct {
+	auth    keyAgreementAuthentication
+	curve   ecdhCurve
+	peerKey []byte
+}
+
+func (ka *cecpq1KeyAgreement) generateServerKeyExchange(config *Config, cert *Certificate, clientHello *clientHelloMsg, hello *serverHelloMsg) (*serverKeyExchangeMsg, error) {
+	ka.curve = &cecpq1Curve{}
+	publicKey, err := ka.curve.offer(config.rand())
+	if err != nil {
+		return nil, err
+	}
+
+	if config.Bugs.CECPQ1BadX25519Part {
+		publicKey[0] ^= 1
+	}
+	if config.Bugs.CECPQ1BadNewhopePart {
+		publicKey[32] ^= 1
+		publicKey[33] ^= 1
+		publicKey[34] ^= 1
+		publicKey[35] ^= 1
+	}
+
+	var params []byte
+	params = append(params, byte(len(publicKey)>>8))
+	params = append(params, byte(len(publicKey)&0xff))
+	params = append(params, publicKey[:]...)
+
+	return ka.auth.signParameters(config, cert, clientHello, hello, params)
+}
+
+func (ka *cecpq1KeyAgreement) processClientKeyExchange(config *Config, cert *Certificate, ckx *clientKeyExchangeMsg, version uint16) ([]byte, error) {
+	if len(ckx.ciphertext) < 2 {
+		return nil, errClientKeyExchange
+	}
+	peerKeyLen := int(ckx.ciphertext[0])<<8 + int(ckx.ciphertext[1])
+	peerKey := ckx.ciphertext[2:]
+	if peerKeyLen != len(peerKey) {
+		return nil, errClientKeyExchange
+	}
+	return ka.curve.finish(peerKey)
+}
+
+func (ka *cecpq1KeyAgreement) processServerKeyExchange(config *Config, clientHello *clientHelloMsg, serverHello *serverHelloMsg, cert *x509.Certificate, skx *serverKeyExchangeMsg) error {
+	if len(skx.key) < 2 {
+		return errServerKeyExchange
+	}
+	peerKeyLen := int(skx.key[0])<<8 + int(skx.key[1])
+	// Save the peer key for later.
+	if len(skx.key) < 2+peerKeyLen {
+		return errServerKeyExchange
+	}
+	ka.peerKey = skx.key[2 : 2+peerKeyLen]
+	if peerKeyLen != len(ka.peerKey) {
+		return errServerKeyExchange
+	}
+
+	// Check the signature.
+	params := skx.key[:2+peerKeyLen]
+	sig := skx.key[2+peerKeyLen:]
+	return ka.auth.verifyParameters(config, clientHello, serverHello, cert, params, sig)
+}
+
+func (ka *cecpq1KeyAgreement) generateClientKeyExchange(config *Config, clientHello *clientHelloMsg, cert *x509.Certificate) ([]byte, *clientKeyExchangeMsg, error) {
+	curve := &cecpq1Curve{}
+	publicKey, preMasterSecret, err := curve.accept(config.rand(), ka.peerKey)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	if config.Bugs.CECPQ1BadX25519Part {
+		publicKey[0] ^= 1
+	}
+	if config.Bugs.CECPQ1BadNewhopePart {
+		publicKey[32] ^= 1
+		publicKey[33] ^= 1
+		publicKey[34] ^= 1
+		publicKey[35] ^= 1
+	}
+
+	ckx := new(clientKeyExchangeMsg)
+	ckx.ciphertext = append(ckx.ciphertext, byte(len(publicKey)>>8))
+	ckx.ciphertext = append(ckx.ciphertext, byte(len(publicKey)&0xff))
+	ckx.ciphertext = append(ckx.ciphertext, publicKey[:]...)
 
 	return preMasterSecret, ckx, nil
 }

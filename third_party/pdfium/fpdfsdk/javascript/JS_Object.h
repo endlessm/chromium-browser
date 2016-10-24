@@ -18,12 +18,14 @@ class CJS_Context;
 class CJS_Object;
 class CJS_Timer;
 class CPDFDoc_Environment;
+
 class CJS_EmbedObj {
  public:
   explicit CJS_EmbedObj(CJS_Object* pJSObject);
   virtual ~CJS_EmbedObj();
 
   virtual void TimerProc(CJS_Timer* pTimer) {}
+  virtual void CancelProc(CJS_Timer* pTimer) {}
 
   CJS_Object* GetJSObject() const { return m_pJSObject; }
 
@@ -46,11 +48,11 @@ class CJS_Object {
   void MakeWeak();
   void Dispose();
 
-  virtual FX_BOOL IsType(const FX_CHAR* sClassName) { return TRUE; }
-  virtual CFX_ByteString GetClassName() { return ""; }
+  virtual FX_BOOL IsType(const FX_CHAR* sClassName);
+  virtual CFX_ByteString GetClassName();
 
-  virtual void InitInstance(IJS_Runtime* pIRuntime) {}
-  virtual void ExitInstance() {}
+  virtual void InitInstance(IJS_Runtime* pIRuntime);
+  virtual void ExitInstance();
 
   v8::Local<v8::Object> ToV8Object() { return m_pV8Object.Get(m_pIsolate); }
 
@@ -84,14 +86,14 @@ class CJS_Timer : public CJS_Runtime::Observer {
             uint32_t dwTimeOut);
   ~CJS_Timer() override;
 
-  void KillJSTimer();
+  static void Trigger(int nTimerID);
+  static void Cancel(int nTimerID);
 
-  int GetType() const { return m_nType; }
+  bool IsOneShot() const { return m_nType == 1; }
   uint32_t GetTimeOut() const { return m_dwTimeOut; }
+  int GetTimerID() const { return m_nTimerID; }
   CJS_Runtime* GetRuntime() const { return m_bValid ? m_pRuntime : nullptr; }
   CFX_WideString GetJScript() const { return m_swJScript; }
-
-  static void TimerProc(int idEvent);
 
  private:
   using TimerMap = std::map<FX_UINT, CJS_Timer*>;

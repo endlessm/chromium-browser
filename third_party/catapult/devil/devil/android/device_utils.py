@@ -8,6 +8,7 @@ Eventually, this will be based on adb_wrapper.
 """
 # pylint: disable=unused-argument
 
+import calendar
 import collections
 import itertools
 import json
@@ -17,6 +18,7 @@ import os
 import posixpath
 import re
 import shutil
+import stat
 import tempfile
 import time
 import threading
@@ -108,6 +110,40 @@ _CURRENT_FOCUS_CRASH_RE = re.compile(
 _GETPROP_RE = re.compile(r'\[(.*?)\]: \[(.*?)\]')
 _IPV4_ADDRESS_RE = re.compile(r'([0-9]{1,3}\.){3}[0-9]{1,3}\:[0-9]{4,5}')
 
+# Regex to parse the long (-l) output of 'ls' command, c.f.
+# https://github.com/landley/toybox/blob/master/toys/posix/ls.c#L446
+_LONG_LS_OUTPUT_RE = re.compile(
+    r'(?P<st_mode>[\w-]{10})\s+'                  # File permissions
+    r'(?:(?P<st_nlink>\d+)\s+)?'                  # Number of links (optional)
+    r'(?P<st_owner>\w+)\s+'                       # Name of owner
+    r'(?P<st_group>\w+)\s+'                       # Group of owner
+    r'(?:'                                        # Either ...
+      r'(?P<st_rdev_major>\d+),\s+'                 # Device major, and
+      r'(?P<st_rdev_minor>\d+)\s+'                  # Device minor
+    r'|'                                          # .. or
+      r'(?P<st_size>\d+)\s+'                        # Size in bytes
+    r')?'                                         # .. or nothing
+    r'(?P<st_mtime>\d{4}-\d\d-\d\d \d\d:\d\d)\s+' # Modification date/time
+    r'(?P<filename>.+?)'                          # File name
+    r'(?: -> (?P<symbolic_link_to>.+))?'          # Symbolic link (optional)
+    r'$'                                          # End of string
+)
+_LS_DATE_FORMAT = '%Y-%m-%d %H:%M'
+_FILE_MODE_RE = re.compile(r'[dbclps-](?:[r-][w-][xSs-]){2}[r-][w-][xTt-]$')
+_FILE_MODE_KIND = {
+    'd': stat.S_IFDIR, 'b': stat.S_IFBLK, 'c': stat.S_IFCHR,
+    'l': stat.S_IFLNK, 'p': stat.S_IFIFO, 's': stat.S_IFSOCK,
+    '-': stat.S_IFREG}
+_FILE_MODE_PERMS = [
+    stat.S_IRUSR, stat.S_IWUSR, stat.S_IXUSR,
+    stat.S_IRGRP, stat.S_IWGRP, stat.S_IXGRP,
+    stat.S_IROTH, stat.S_IWOTH, stat.S_IXOTH,
+]
+_FILE_MODE_SPECIAL = [
+    ('s', stat.S_ISUID),
+    ('s', stat.S_ISGID),
+    ('t', stat.S_ISVTX),
+]
 
 @decorators.WithExplicitTimeoutAndRetries(
     _DEFAULT_TIMEOUT, _DEFAULT_RETRIES)
@@ -152,6 +188,24 @@ def RestartServer():
   adb_wrapper.AdbWrapper.StartServer()
   if not timeout_retry.WaitFor(adb_started, wait_period=1, max_tries=5):
     raise device_errors.CommandFailedError('Failed to start adb server')
+
+
+def _ParseModeString(mode_str):
+  """Parse a mode string, e.g. 'drwxrwxrwx', into a st_mode value.
+
+  Effectively the reverse of |mode_to_string| in, e.g.:
+  https://github.com/landley/toybox/blob/master/lib/lib.c#L896
+  """
+  if not _FILE_MODE_RE.match(mode_str):
+    raise ValueError('Unexpected file mode %r', mode_str)
+  mode = _FILE_MODE_KIND[mode_str[0]]
+  for c, flag in zip(mode_str[1:], _FILE_MODE_PERMS):
+    if c != '-' and c.islower():
+      mode |= flag
+  for c, (t, flag) in zip(mode_str[3::3], _FILE_MODE_SPECIAL):
+    if c.lower() == t:
+      mode |= flag
+  return mode
 
 
 def _GetTimeStamp():
@@ -290,7 +344,7 @@ class DeviceUtils(object):
       DeviceUnreachableError on missing device.
     """
     try:
-      self.RunShellCommand('ls /root', check_return=True)
+      self.RunShellCommand(['ls', '/root'], check_return=True)
       return True
     except device_errors.AdbCommandFailedError:
       return False
@@ -506,7 +560,10 @@ class DeviceUtils(object):
         return False
 
     def boot_completed():
-      return self.GetProp('sys.boot_completed', cache=False) == '1'
+      try:
+        return self.GetProp('sys.boot_completed', cache=False) == '1'
+      except device_errors.CommandFailedError:
+        return False
 
     def wifi_enabled():
       return 'Wi-Fi is enabled' in self.RunShellCommand(['dumpsys', 'wifi'],
@@ -1440,10 +1497,6 @@ class DeviceUtils(object):
       if os.path.exists(d):
         shutil.rmtree(d)
 
-  _LS_RE = re.compile(
-      r'(?P<perms>\S+) (?:(?P<inodes>\d+) +)?(?P<owner>\S+) +(?P<group>\S+) +'
-      r'(?:(?P<size>\d+) +)?(?P<date>\S+) +(?P<time>\S+) +(?P<name>.+)$')
-
   @decorators.WithTimeoutAndRetriesFromInstance()
   def ReadFile(self, device_path, as_root=False, force_pull=False,
                timeout=None, retries=None):
@@ -1471,17 +1524,7 @@ class DeviceUtils(object):
       DeviceUnreachableError on missing device.
     """
     def get_size(path):
-      # TODO(jbudorick): Implement a generic version of Stat() that handles
-      # as_root=True, then switch this implementation to use that.
-      ls_out = self.RunShellCommand(['ls', '-l', device_path], as_root=as_root,
-                                    check_return=True)
-      file_name = posixpath.basename(device_path)
-      for line in ls_out:
-        m = self._LS_RE.match(line)
-        if m and file_name == posixpath.basename(m.group('name')):
-          return int(m.group('size'))
-      logging.warning('Could not determine size of %s.', device_path)
-      return None
+      return self.FileSize(path, as_root=as_root)
 
     if (not force_pull
         and 0 < get_size(device_path) <= self._MAX_ADB_OUTPUT_LENGTH):
@@ -1545,19 +1588,43 @@ class DeviceUtils(object):
       # If root is not needed, we can push directly to the desired location.
       self._WriteFileWithPush(device_path, contents)
 
-  @decorators.WithTimeoutAndRetriesFromInstance()
-  def Ls(self, device_path, timeout=None, retries=None):
-    """Lists the contents of a directory on the device.
+  def _ParseLongLsOutput(self, device_path, as_root=False, **kwargs):
+    """Run and scrape the output of 'ls -a -l' on a device directory."""
+    device_path = posixpath.join(device_path, '')  # Force trailing '/'.
+    output = self.RunShellCommand(
+        ['ls', '-a', '-l', device_path], as_root=as_root,
+        check_return=True, env={'TZ': 'utc'}, **kwargs)
+    if output and output[0].startswith('total '):
+      output.pop(0) # pylint: disable=maybe-no-member
+
+    entries = []
+    for line in output:
+      m = _LONG_LS_OUTPUT_RE.match(line)
+      if m:
+        if m.group('filename') not in ['.', '..']:
+          entries.append(m.groupdict())
+      else:
+        logging.info('Skipping: %s', line)
+
+    return entries
+
+  def ListDirectory(self, device_path, as_root=False, **kwargs):
+    """List all files on a device directory.
+
+    Mirroring os.listdir (and most client expectations) the resulting list
+    does not include the special entries '.' and '..' even if they are present
+    in the directory.
 
     Args:
       device_path: A string containing the path of the directory on the device
                    to list.
+      as_root: A boolean indicating whether the to use root privileges to list
+               the directory contents.
       timeout: timeout in seconds
       retries: number of retries
 
     Returns:
-      A list of pairs (filename, stat) for each file found in the directory,
-      where the stat object has the properties: st_mode, st_size, and st_time.
+      A list of filenames for all entries contained in the directory.
 
     Raises:
       AdbCommandFailedError if |device_path| does not specify a valid and
@@ -1565,32 +1632,119 @@ class DeviceUtils(object):
       CommandTimeoutError on timeout.
       DeviceUnreachableError on missing device.
     """
-    return self.adb.Ls(device_path)
+    entries = self._ParseLongLsOutput(device_path, as_root=as_root, **kwargs)
+    return [d['filename'] for d in entries]
 
-  @decorators.WithTimeoutAndRetriesFromInstance()
-  def Stat(self, device_path, timeout=None, retries=None):
-    """Get the stat attributes of a file or directory on the device.
+  def StatDirectory(self, device_path, as_root=False, **kwargs):
+    """List file and stat info for all entries on a device directory.
+
+    Implementation notes: this is currently implemented by parsing the output
+    of 'ls -a -l' on the device. Whether possible and convenient, we attempt to
+    make parsing strict and return values mirroring those of the standard |os|
+    and |stat| Python modules.
+
+    Mirroring os.listdir (and most client expectations) the resulting list
+    does not include the special entries '.' and '..' even if they are present
+    in the directory.
 
     Args:
-      device_path: A string containing the path of from which to get attributes
-                   on the device.
+      device_path: A string containing the path of the directory on the device
+                   to list.
+      as_root: A boolean indicating whether the to use root privileges to list
+               the directory contents.
       timeout: timeout in seconds
       retries: number of retries
 
     Returns:
-      A stat object with the properties: st_mode, st_size, and st_time
+      A list of dictionaries, each containing the following keys:
+        filename: A string with the file name.
+        st_mode: File permissions, use the stat module to interpret these.
+        st_nlink: Number of hard links (may be missing).
+        st_owner: A string with the user name of the owner.
+        st_group: A string with the group name of the owner.
+        st_rdev_pair: Device type as (major, minior) (only if inode device).
+        st_size: Size of file, in bytes (may be missing for non-regular files).
+        st_mtime: Time of most recent modification, in seconds since epoch
+          (although resolution is in minutes).
+        symbolic_link_to: If entry is a symbolic link, path where it points to;
+          missing otherwise.
+
+    Raises:
+      AdbCommandFailedError if |device_path| does not specify a valid and
+          accessible directory in the device.
+      CommandTimeoutError on timeout.
+      DeviceUnreachableError on missing device.
+    """
+    entries = self._ParseLongLsOutput(device_path, as_root=as_root, **kwargs)
+    for d in entries:
+      for key, value in d.items():
+        if value is None:
+          del d[key]  # Remove missing fields.
+      d['st_mode'] = _ParseModeString(d['st_mode'])
+      d['st_mtime'] = calendar.timegm(
+          time.strptime(d['st_mtime'], _LS_DATE_FORMAT))
+      for key in ['st_nlink', 'st_size', 'st_rdev_major', 'st_rdev_minor']:
+        if key in d:
+          d[key] = int(d[key])
+      if 'st_rdev_major' in d and 'st_rdev_minor' in d:
+        d['st_rdev_pair'] = (d.pop('st_rdev_major'), d.pop('st_rdev_minor'))
+    return entries
+
+  def StatPath(self, device_path, as_root=False, **kwargs):
+    """Get the stat attributes of a file or directory on the device.
+
+    Args:
+      device_path: A string containing the path of a file or directory from
+                   which to get attributes.
+      as_root: A boolean indicating whether the to use root privileges to
+               access the file information.
+      timeout: timeout in seconds
+      retries: number of retries
+
+    Returns:
+      A dictionary with the stat info collected; see StatDirectory for details.
 
     Raises:
       CommandFailedError if device_path cannot be found on the device.
       CommandTimeoutError on timeout.
       DeviceUnreachableError on missing device.
     """
-    dirname, target = device_path.rsplit('/', 1)
-    for filename, stat in self.adb.Ls(dirname):
-      if filename == target:
-        return stat
+    dirname, filename = posixpath.split(posixpath.normpath(device_path))
+    for entry in self.StatDirectory(dirname, as_root=as_root, **kwargs):
+      if entry['filename'] == filename:
+        return entry
     raise device_errors.CommandFailedError(
         'Cannot find file or directory: %r' % device_path, str(self))
+
+  def FileSize(self, device_path, as_root=False, **kwargs):
+    """Get the size of a file on the device.
+
+    Note: This is implemented by parsing the output of the 'ls' command on
+    the device. On some Android versions, when passing a directory or special
+    file, the size is *not* reported and this function will throw an exception.
+
+    Args:
+      device_path: A string containing the path of a file on the device.
+      as_root: A boolean indicating whether the to use root privileges to
+               access the file information.
+      timeout: timeout in seconds
+      retries: number of retries
+
+    Returns:
+      The size of the file in bytes.
+
+    Raises:
+      CommandFailedError if device_path cannot be found on the device, or
+        its size cannot be determited for some reason.
+      CommandTimeoutError on timeout.
+      DeviceUnreachableError on missing device.
+    """
+    entry = self.StatPath(device_path, as_root=as_root, **kwargs)
+    try:
+      return entry['st_size']
+    except KeyError:
+      raise device_errors.CommandFailedError(
+          'Could not determine the size of: %s' % device_path, str(self))
 
   @decorators.WithTimeoutAndRetriesFromInstance()
   def SetJavaAsserts(self, enabled, timeout=None, retries=None):

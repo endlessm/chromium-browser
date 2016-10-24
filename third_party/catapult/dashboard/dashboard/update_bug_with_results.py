@@ -117,8 +117,9 @@ def _CheckJob(job, issue_tracker):
   # Skip this check for bisect fyi jobs, because if the job is fails due to
   # bisect recipe or infra failures then an alert message should be sent to the
   # team.
-  if ((not results_data or results_data['status'] not in [COMPLETED, FAILED])
-      and job.job_type != 'bisect-fyi'):
+  if (job.job_type != 'bisect-fyi' and (
+      not results_data or results_data.get('status') not in [COMPLETED,
+                                                             FAILED])):
     logging.info('Not yet COMPLETED/FAILED')
     return
 
@@ -132,7 +133,7 @@ def _CheckJob(job, issue_tracker):
     logging.info('Checking bisect job')
     _CheckBisectJob(job, issue_tracker)
 
-  if results_data['status'] == COMPLETED:
+  if results_data and results_data.get('status') == COMPLETED:
     job.SetCompleted()
   else:
     job.SetFailed()
@@ -142,7 +143,7 @@ def _CheckBisectJob(job, issue_tracker):
   results_data = job.results_data
   has_partial_result = ('revision_data' in results_data and
                         results_data['revision_data'])
-  if results_data['status'] == FAILED and not has_partial_result:
+  if results_data.get('status') == FAILED and not has_partial_result:
     return
   _PostResult(job, issue_tracker)
 
@@ -151,6 +152,9 @@ def _CheckFYIBisectJob(job, issue_tracker):
   try:
     if not _IsBisectJobCompleted(job):
       return
+    if not job.results_data:
+      raise BisectJobFailure('Bisect job completed, but results data is not '
+                             'found, bot might have failed to post results.')
     error_message = bisect_fyi.VerifyBisectFYIResults(job)
     _PostResult(job, issue_tracker)
     if not bisect_fyi.IsBugUpdated(job, issue_tracker):
@@ -159,6 +163,13 @@ def _CheckFYIBisectJob(job, issue_tracker):
     error_message = 'Bisect job failed because, %s' % e
   except BugUpdateFailure as e:
     error_message = 'Failed to update bug with bisect results: %s' % e
+  finally:
+    job_info = buildbucket_service.GetJobStatus(job.buildbucket_job_id)
+    job_info = job_info.get('build', {})
+    if not job.results_data:
+      job.results_data = {}
+    job.results_data['buildbot_log_url'] = str(job_info.get('url'))
+
 
   # When the job fails before getting to the point where it post bisect results
   # to the dashboard, the tryjob's results_data is not set.
@@ -370,10 +381,10 @@ def UpdateQuickLog(job):
 
 def _IsBisectJobCompleted(job):
   return _ValidateBuildbucketResponse(
-      buildbucket_service.GetJobStatus(job.buildbucket_job_id), job)
+      buildbucket_service.GetJobStatus(job.buildbucket_job_id))
 
 
-def _ValidateBuildbucketResponse(job_info, job):
+def _ValidateBuildbucketResponse(job_info):
   """Checks and validates the response from the buildbucket service for bisect.
 
   Args:
@@ -392,10 +403,6 @@ def _ValidateBuildbucketResponse(job_info, job):
 
   if job_info.get('status') in ['SCHEDULED', 'STARTED']:
     return False
-
-  if not job.results_data:
-    job.results_data = {}
-  job.results_data['buildbot_log_url'] = str(job_info.get('url'))
 
   if job_info.get('result') is None:
     raise BisectJobFailure('No "result" in try job results. '

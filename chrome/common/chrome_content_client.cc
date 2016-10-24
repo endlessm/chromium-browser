@@ -13,7 +13,9 @@
 #include "base/debug/crash_logging.h"
 #include "base/files/file_util.h"
 #include "base/json/json_reader.h"
+#include "base/memory/ptr_util.h"
 #include "base/memory/scoped_vector.h"
+#include "base/native_library.h"
 #include "base/path_service.h"
 #include "base/strings/string16.h"
 #include "base/strings/string_number_conversions.h"
@@ -117,7 +119,8 @@ bool IsWidevineAvailable(base::FilePath* adapter_path,
   // TODO(jrummell): We should add a new path for DIR_WIDEVINE_CDM and use that
   // to locate the CDM and the CDM adapter.
   if (PathService::Get(chrome::FILE_WIDEVINE_CDM_ADAPTER, adapter_path)) {
-    *cdm_path = adapter_path->DirName().AppendASCII(kWidevineCdmFileName);
+    *cdm_path = adapter_path->DirName().AppendASCII(
+        base::GetNativeLibraryName(kWidevineCdmLibraryName));
     if (widevine_cdm_file_check == NOT_CHECKED) {
       widevine_cdm_file_check =
           (base::PathExists(*adapter_path) && base::PathExists(*cdm_path))
@@ -428,6 +431,12 @@ std::string GetUserAgent() {
   return content::BuildUserAgentFromProduct(product);
 }
 
+ChromeContentClient::ChromeContentClient() {
+}
+
+ChromeContentClient::~ChromeContentClient() {
+}
+
 #if !defined(DISABLE_NACL)
 void ChromeContentClient::SetNaClEntryFunctions(
     content::PepperPluginInfo::GetInterfaceFunc get_interface,
@@ -624,7 +633,7 @@ base::StringPiece ChromeContentClient::GetDataResource(
       resource_id, scale_factor);
 }
 
-base::RefCountedStaticMemory* ChromeContentClient::GetDataResourceBytes(
+base::RefCountedMemory* ChromeContentClient::GetDataResourceBytes(
     int resource_id) const {
   return ResourceBundle::GetSharedInstance().LoadDataResourceBytes(resource_id);
 }
@@ -680,6 +689,16 @@ void ChromeContentClient::AddServiceWorkerSchemes(
 #endif
 }
 
+bool ChromeContentClient::AllowScriptExtensionForServiceWorker(
+    const GURL& script_url) {
+#if defined(ENABLE_EXTENSIONS)
+  return script_url.SchemeIs(extensions::kExtensionScheme) ||
+         script_url.SchemeIs(extensions::kExtensionResourceScheme);
+#else
+  return false;
+#endif
+}
+
 bool ChromeContentClient::IsSupplementarySiteIsolationModeEnabled() {
 #if defined(ENABLE_EXTENSIONS)
   return extensions::IsIsolateExtensionsEnabled();
@@ -688,8 +707,11 @@ bool ChromeContentClient::IsSupplementarySiteIsolationModeEnabled() {
 #endif
 }
 
-base::StringPiece ChromeContentClient::GetOriginTrialPublicKey() {
-  return origin_trial_key_manager_.GetPublicKey();
+content::OriginTrialPolicy* ChromeContentClient::GetOriginTrialPolicy() {
+  if (!origin_trial_policy_) {
+    origin_trial_policy_ = base::WrapUnique(new ChromeOriginTrialPolicy());
+  }
+  return origin_trial_policy_.get();
 }
 
 #if defined(OS_ANDROID)

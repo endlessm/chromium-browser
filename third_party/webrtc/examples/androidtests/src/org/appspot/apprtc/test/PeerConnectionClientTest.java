@@ -13,13 +13,15 @@ package org.appspot.apprtc.test;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executor;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
 import org.appspot.apprtc.AppRTCClient.SignalingParameters;
 import org.appspot.apprtc.PeerConnectionClient;
 import org.appspot.apprtc.PeerConnectionClient.PeerConnectionEvents;
 import org.appspot.apprtc.PeerConnectionClient.PeerConnectionParameters;
-import org.appspot.apprtc.util.LooperExecutor;
 import org.webrtc.EglBase;
 import org.webrtc.IceCandidate;
 import org.webrtc.MediaCodecVideoEncoder;
@@ -66,7 +68,7 @@ public class PeerConnectionClientTest extends InstrumentationTestCase
   private EglBase eglBase;
 
   // These are protected by their respective event objects.
-  private LooperExecutor signalingExecutor;
+  private ExecutorService signalingExecutor;
   private boolean isClosed;
   private boolean isIceConnected;
   private SessionDescription localSdp;
@@ -261,9 +263,24 @@ public class PeerConnectionClientTest extends InstrumentationTestCase
   private PeerConnectionParameters createParametersForAudioCall() {
     PeerConnectionParameters peerConnectionParameters =
         new PeerConnectionParameters(
-            false, true, false, // videoCallEnabled, loopback, tracing.
-            0, 0, 0, 0, "", true, false, // video codec parameters.
-            0, "OPUS", false, false, false); // audio codec parameters.
+            false, /* videoCallEnabled */
+            true, /* loopback */
+            false, /* tracing */
+            // Video codec parameters.
+            0, /* videoWidth */
+            0, /* videoHeight */
+            0, /* videoFps */
+            0, /* videoStartBitrate */
+            "", /* videoCodec */
+            true, /* videoCodecHwAcceleration */
+            false, /* captureToToTexture */
+            // Audio codec parameters.
+            0, /* audioStartBitrate */
+            "OPUS", /* audioCodec */
+            false, /* noAudioProcessing */
+            false, /* aecDump */
+            false /* useOpenSLES */,
+            false /* disableBuiltInAEC */);
     return peerConnectionParameters;
   }
 
@@ -271,16 +288,30 @@ public class PeerConnectionClientTest extends InstrumentationTestCase
       String videoCodec, boolean captureToTexture) {
     PeerConnectionParameters peerConnectionParameters =
         new PeerConnectionParameters(
-            true, true, false, // videoCallEnabled, loopback, tracing.
-            0, 0, 0, 0, videoCodec, true, captureToTexture, // video codec parameters.
-            0, "OPUS", false, false, false); // audio codec parameters.
+            true, /* videoCallEnabled */
+            true, /* loopback */
+            false, /* tracing */
+            // Video codec parameters.
+            0, /* videoWidth */
+            0, /* videoHeight */
+            0, /* videoFps */
+            0, /* videoStartBitrate */
+            videoCodec, /* videoCodec */
+            true, /* videoCodecHwAcceleration */
+            captureToTexture, /* captureToToTexture */
+            // Audio codec parameters.
+            0, /* audioStartBitrate */
+            "OPUS", /* audioCodec */
+            false, /* noAudioProcessing */
+            false, /* aecDump */
+            false /* useOpenSLES */,
+            false /* disableBuiltInAEC */);
     return peerConnectionParameters;
   }
 
   @Override
   public void setUp() {
-    signalingExecutor = new LooperExecutor();
-    signalingExecutor.requestStart();
+    signalingExecutor = Executors.newSingleThreadExecutor();
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1) {
       eglBase = EglBase.create();
     }
@@ -288,7 +319,7 @@ public class PeerConnectionClientTest extends InstrumentationTestCase
 
   @Override
   public void tearDown() {
-    signalingExecutor.requestStop();
+    signalingExecutor.shutdown();
     if (eglBase != null) {
       eglBase.release();
     }

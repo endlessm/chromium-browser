@@ -68,6 +68,8 @@ CQ_PIPELINE_CONFIGS = {CQ_CONFIG, PRE_CQ_LAUNCHER_CONFIG}
 # normal.  Setting timeout to 3 minutes to be safe-ish.
 SUBMITTED_WAIT_TIMEOUT = 3 * 60 # Time in seconds.
 
+MAX_PLAN_RECURSION = 150
+
 
 class TreeIsClosedException(Exception):
   """Raised when the tree is closed and we wanted to submit changes."""
@@ -137,6 +139,14 @@ class PatchRejected(cros_patch.PatchException):
     return 'was rejected by the CQ.'
 
 
+class PatchNotEligible(cros_patch.PatchException):
+  """Raised if a patch was not eligible for transaction."""
+
+  def ShortExplanation(self):
+    return ('was not eligible (wrong manifest branch, wrong labels, or '
+            'otherwise filtered from eligible set).')
+
+
 class PatchFailedToSubmit(cros_patch.PatchException):
   """Raised if we fail to submit a change."""
 
@@ -156,6 +166,26 @@ class PatchConflict(cros_patch.PatchException):
     return ('could not be submitted because Gerrit reported a conflict. Did '
             'you modify your patch during the CQ run? Or do you just need to '
             'rebase?')
+
+
+class PatchExceededRecursionLimit(cros_patch.PatchException):
+  """Raised if we encountered recursion limit while trying to apply patch."""
+
+  def ShortExplanation(self):
+    return ('was part of a dependency stack that exceeded our recursion '
+            'depth. Try breaking this stack into smaller pieces.')
+
+
+# Note: This exception differs slightly in meaning from
+# PatchExceededRecursionLimit. That exception is caused by a RuntimeError when
+# we hit recursion depth, where as this one is thrown by us before we reach the
+# python recursion limit.
+class PatchReachedRecursionLimit(cros_patch.PatchException):
+  """Raised if we gave up on a too-recursive patch plan."""
+
+  def ShortExplanation(self):
+    return ('was part of a dependency stack that reached our recursion '
+            'depth limit. Try breaking this stack into smaller pieces.')
 
 
 class PatchSubmittedWithoutDeps(cros_patch.DependencyError):
@@ -443,6 +473,10 @@ class PatchSeries(object):
     Returns:
       A sequence of cros_patch.GitRepoPatch instances (or derivatives) that
       need to be resolved for this change to be mergable.
+
+    Raises:
+      Some variety of cros_patch.PatchException if an unsatisfiable required
+      dependency is encountered.
     """
     unsatisfied = []
     for dep in deps:
@@ -468,7 +502,7 @@ class PatchSeries(object):
         if self._is_submitting:
           raise PatchRejected(dep_change)
         else:
-          raise dep_change.GetMergeException() or PatchRejected(dep_change)
+          raise dep_change.GetMergeException() or PatchNotEligible(dep_change)
 
       unsatisfied.append(dep_change)
 
@@ -519,9 +553,15 @@ class PatchSeries(object):
     """
     for change in changes:
       try:
+        logging.info('Attempting to create transaction for %s', change)
         plan = self.CreateTransaction(change, limit_to=limit_to)
       except cros_patch.PatchException as e:
         yield (change, (), e)
+      except RuntimeError as e:
+        if 'maximum recursion depth' in e.message:
+          yield (change, (), PatchExceededRecursionLimit(change))
+        else:
+          raise
       else:
         yield (change, plan, None)
 
@@ -599,7 +639,8 @@ class PatchSeries(object):
   @_PatchWrapException
   def _AddChangeToPlanWithDeps(self, change, plan, gerrit_deps_seen,
                                cq_deps_seen, limit_to=None,
-                               include_cq_deps=True):
+                               include_cq_deps=True,
+                               remaining_depth=MAX_PLAN_RECURSION):
     """Add a change and its dependencies into a |plan|.
 
     Args:
@@ -614,6 +655,7 @@ class PatchSeries(object):
         what's in that container/mapping.
       include_cq_deps: If True, include CQ dependencies in the list
         of dependencies. Defaults to True.
+      remaining_depth: Amount of permissible recursion depth from this call.
 
     Raises:
       DependencyError: If we could not resolve a dependency.
@@ -621,6 +663,9 @@ class PatchSeries(object):
     """
     if change in self._committed_cache:
       return
+
+    if remaining_depth == 0:
+      raise PatchReachedRecursionLimit(change)
 
     # Get a list of the changes that haven't been committed.
     # These are returned as cros_patch.PatchQuery objects.
@@ -636,7 +681,8 @@ class PatchSeries(object):
       gerrit_deps_seen.Inject(change)
       for dep in gerrit_deps:
         self._AddChangeToPlanWithDeps(dep, plan, gerrit_deps_seen, cq_deps_seen,
-                                      limit_to=limit_to, include_cq_deps=False)
+                                      limit_to=limit_to, include_cq_deps=False,
+                                      remaining_depth=remaining_depth - 1)
 
     if include_cq_deps and change not in cq_deps_seen:
       cq_deps = self._LookupUncommittedChanges(
@@ -647,7 +693,8 @@ class PatchSeries(object):
         # already in the process of doing that.
         if dep not in cq_deps_seen:
           self._AddChangeToPlanWithDeps(dep, plan, gerrit_deps_seen,
-                                        cq_deps_seen, limit_to=limit_to)
+                                        cq_deps_seen, limit_to=limit_to,
+                                        remaining_depth=remaining_depth - 1)
 
     # If there are cyclic dependencies, we might have already applied this
     # patch as part of dependency resolution. If not, apply this patch.
@@ -1521,8 +1568,9 @@ class ValidationPool(object):
     """
 
     def IsCrosReview(change):
-      return (change.project.startswith('chromiumos') or
-              change.project.startswith('chromeos'))
+      return (change.project.startswith('chromiumos/') or
+              change.project.startswith('chromeos/') or
+              change.project.startswith('aosp/'))
 
     # First we filter to only Chromium OS repositories.
     changes = [c for c in changes if IsCrosReview(c)]
@@ -1604,12 +1652,14 @@ class ValidationPool(object):
     for change in sorted(changes, key=SortKeyForChanges):
       project = os.path.basename(change.project)
       gerrit_number = cros_patch.AddPrefix(change, change.gerrit_number)
-      # We cannot print '@' in the link because it is used to separate
-      # the display text and the URL by the buildbot annotator.
-      author = change.owner_email.replace('@', '-AT-')
-      if (change.owner_email.endswith(constants.GOOGLE_EMAIL) or
-          change.owner_email.endswith(constants.CHROMIUM_EMAIL)):
-        author = change.owner
+      author = change.owner
+      # Show the owner, unless it's a non-standard email address.
+      if (change.owner_email and
+          not (change.owner_email.endswith(constants.GOOGLE_EMAIL) or
+               change.owner_email.endswith(constants.CHROMIUM_EMAIL))):
+        # We cannot print '@' in the link because it is used to separate
+        # the display text and the URL by the buildbot annotator.
+        author = change.owner_email.replace('@', '-AT-')
 
       s = '%s | %s | %s' % (project, author, gerrit_number)
 

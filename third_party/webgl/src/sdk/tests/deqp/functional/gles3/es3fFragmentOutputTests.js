@@ -170,17 +170,14 @@ var tcuImageCompare = framework.common.tcuImageCompare;
 
         /** @type {gluShaderProgram.ShaderProgram} */
         var program = new gluShaderProgram.ShaderProgram(gl, gluShaderProgram.makeVtxFragSources(vtx, frag));
-        console.log(program);
         return program;
     };
 
     es3fFragmentOutputTests.FragmentOutputCase.prototype.init = function() {
         // Check that all attachments are supported
         for (var iter = 0; iter < this.m_fboSpec.length; ++iter) {
-            /* TODO: isSizedFormatColorRenderable (in gluTextureUtil) not implemented yet.
-            if (!glu::isSizedFormatColorRenderable(m_context.getRenderContext(), m_context.getContextInfo(), this.m_fboSpec[iter].format))
-                throw tcu::NotSupportedError("Unsupported attachment format");
-                */
+            if (!gluTextureUtil.isSizedFormatColorRenderable(this.m_fboSpec[iter].format))
+                throw new Error('Unsupported attachment format');
         }
 
         DE_ASSERT(!this.m_program);
@@ -213,7 +210,6 @@ var tcuImageCompare = framework.common.tcuImageCompare;
             /** @type {number} */ var attachment = gl.COLOR_ATTACHMENT0 + bufNdx;
 
             gl.bindRenderbuffer(gl.RENDERBUFFER, this.m_renderbuffer);
-            // gl.getInternalformatParameter(gl.RENDERBUFFER, bufSpec.format, gl.SAMPLES); // just for debugging purposes
 
             gl.renderbufferStorageMultisample(gl.RENDERBUFFER, bufSpec.samples, bufSpec.format, bufSpec.width, bufSpec.height);
             gl.framebufferRenderbuffer(gl.FRAMEBUFFER, attachment, gl.RENDERBUFFER, this.m_renderbuffer);
@@ -595,7 +591,7 @@ var tcuImageCompare = framework.common.tcuImageCompare;
                             /** @type {number} */ var f1 = 0.5 + (xf - yf) * 0.5;
 
                             /** @type {Array<number>} */ var f = es3fFragmentOutputTests.swizzleVec([f0, f1, 1.0 - f0, 1.0 - f1], curInVec); // Vec4
-                            c = deMath.multiply(deMath.add(minVal, deMath.subtract(maxVal, minVal)), f); // Vec4
+                            c = deMath.add(minVal, deMath.multiply(deMath.subtract(maxVal, minVal), f)); // Vec4
 
                             pos = (y * gridWidth + x) * numScalars;
 
@@ -877,7 +873,7 @@ var tcuImageCompare = framework.common.tcuImageCompare;
 
                     finalThreshold = tcuTextureUtil.select(
                                     deMath.max(formatThreshold, [precThreshold, precThreshold, precThreshold, precThreshold]),
-                                    [1, 1, 1, 1], // C++ version: UVec4(~0u) bitwise not, all bits in the integer will be flipped
+                                    [0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff], // C++ version: UVec4(~0u) bitwise not, all bits in the integer will be flipped
                                     cmpMask);
 
                     isOk = tcuImageCompare.floatUlpThresholdCompare(name, desc, reference, rendered, finalThreshold /*, tcu::COMPARE_LOG_RESULT*/);
@@ -904,9 +900,11 @@ var tcuImageCompare = framework.common.tcuImageCompare;
 
                 case tcuTexture.TextureChannelClass.SIGNED_INTEGER:
                 case tcuTexture.TextureChannelClass.UNSIGNED_INTEGER: {
+                    // The C++ dEQP code uses ~0u but ~0 is -1 in Javascript
+                    var UINT_MAX = Math.pow(2.0, 32.0) - 1;
                     threshold = tcuTextureUtil.select(
                                     [0, 0, 0, 0],
-                                    [1, 1, 1, 1],
+                                    [UINT_MAX, UINT_MAX, UINT_MAX, UINT_MAX],
                                     cmpMask
                                     ); // UVec4
                     isOk = tcuImageCompare.intThresholdCompare(name, desc, reference, rendered, threshold/*, tcu::COMPARE_LOG_RESULT*/);
@@ -1158,9 +1156,6 @@ var tcuImageCompare = framework.common.tcuImageCompare;
 
      // .basic.
 
-        /** @type {tcuTestCase.DeqpTest} */ var basicGroup = tcuTestCase.newTest('basic', 'Basic fragment output tests');
-        testGroup.addChild(basicGroup);
-
         /** @const @type {number} */ var width = 64;
         /** @const @type {number} */ var height = 64;
         /** @const @type {number} */ var samples = 0;
@@ -1170,8 +1165,8 @@ var tcuImageCompare = framework.common.tcuImageCompare;
 
     // .float
         if (gl.getExtension('EXT_color_buffer_float')) {
-            /** @type {tcuTestCase.DeqpTest} */ var floatGroup = tcuTestCase.newTest('float', 'Floating-point output tests');
-            basicGroup.addChild(floatGroup);
+            /** @type {tcuTestCase.DeqpTest} */ var floatGroup = tcuTestCase.newTest('basic.float', 'Floating-point output tests');
+            testGroup.addChild(floatGroup);
 
             for (var fmtNdx = 0; fmtNdx < requiredFloatFormats.length; fmtNdx++) {
                 var format = requiredFloatFormats[fmtNdx];
@@ -1194,8 +1189,8 @@ var tcuImageCompare = framework.common.tcuImageCompare;
         }
 
         // .fixed
-        /** @type {tcuTestCase.DeqpTest} */ var fixedGroup = tcuTestCase.newTest('fixed', 'Fixed-point output tests');
-        basicGroup.addChild(fixedGroup);
+        /** @type {tcuTestCase.DeqpTest} */ var fixedGroup = tcuTestCase.newTest('basic.fixed', 'Fixed-point output tests');
+        testGroup.addChild(fixedGroup);
         for (var fmtNdx = 0; fmtNdx < requiredFixedFormats.length; fmtNdx++) {
             var format = requiredFixedFormats[fmtNdx];
             var fmtName = es3fFboTestUtil.getFormatName(format);
@@ -1215,8 +1210,8 @@ var tcuImageCompare = framework.common.tcuImageCompare;
         }
 
         // .int
-        /** @type {tcuTestCase.DeqpTest} */ var intGroup = tcuTestCase.newTest('int', 'Integer output tests');
-        basicGroup.addChild(intGroup);
+        /** @type {tcuTestCase.DeqpTest} */ var intGroup = tcuTestCase.newTest('basic.int', 'Integer output tests');
+        testGroup.addChild(intGroup);
         for (var fmtNdx = 0; fmtNdx < requiredIntFormats.length; fmtNdx++) {
             var format = requiredIntFormats[fmtNdx];
             var fmtName = es3fFboTestUtil.getFormatName(format);
@@ -1236,8 +1231,8 @@ var tcuImageCompare = framework.common.tcuImageCompare;
         }
 
         // .uint
-        /** @type {tcuTestCase.DeqpTest} */ var uintGroup = tcuTestCase.newTest('uint', 'Usigned integer output tests');
-        basicGroup.addChild(uintGroup);
+        /** @type {tcuTestCase.DeqpTest} */ var uintGroup = tcuTestCase.newTest('basic.uint', 'Usigned integer output tests');
+        testGroup.addChild(uintGroup);
         for (var fmtNdx = 0; fmtNdx < requiredUintFormats.length; fmtNdx++) {
             var format = requiredUintFormats[fmtNdx];
             var fmtName = es3fFboTestUtil.getFormatName(format);
@@ -1259,15 +1254,12 @@ var tcuImageCompare = framework.common.tcuImageCompare;
 
      // .array
 
-        /** @type {tcuTestCase.DeqpTest} */ var arrayGroup = tcuTestCase.newTest('array', 'Array outputs');
-        testGroup.addChild(arrayGroup);
-
         /** @type {number} */ var numTargets = 3;
 
         // .float
         if (gl.getExtension('EXT_color_buffer_float')) {
-            /** @type {tcuTestCase.DeqpTest} */ var arrayFloatGroup = tcuTestCase.newTest('float', 'Floating-point output tests');
-            arrayGroup.addChild(arrayFloatGroup);
+            /** @type {tcuTestCase.DeqpTest} */ var arrayFloatGroup = tcuTestCase.newTest('array.float', 'Floating-point output tests');
+            testGroup.addChild(arrayFloatGroup);
             for (var fmtNdx = 0; fmtNdx < requiredFloatFormats.length; fmtNdx++) {
                 var format = requiredFloatFormats[fmtNdx];
                 var fmtName = es3fFboTestUtil.getFormatName(format);
@@ -1289,8 +1281,8 @@ var tcuImageCompare = framework.common.tcuImageCompare;
         }
 
         // .fixed
-        /** @type {tcuTestCase.DeqpTest} */ var arrayFixedGroup = tcuTestCase.newTest('fixed', 'Fixed-point output tests');
-        arrayGroup.addChild(arrayFixedGroup);
+        /** @type {tcuTestCase.DeqpTest} */ var arrayFixedGroup = tcuTestCase.newTest('array.fixed', 'Fixed-point output tests');
+        testGroup.addChild(arrayFixedGroup);
         for (var fmtNdx = 0; fmtNdx < requiredFixedFormats.length; fmtNdx++) {
             var format = requiredFixedFormats[fmtNdx];
             var fmtName = es3fFboTestUtil.getFormatName(format);
@@ -1311,8 +1303,8 @@ var tcuImageCompare = framework.common.tcuImageCompare;
         }
 
         // .int
-        /** @type {tcuTestCase.DeqpTest} */ var arrayIntGroup = tcuTestCase.newTest('int', 'Integer output tests');
-        arrayGroup.addChild(arrayIntGroup);
+        /** @type {tcuTestCase.DeqpTest} */ var arrayIntGroup = tcuTestCase.newTest('array.int', 'Integer output tests');
+        testGroup.addChild(arrayIntGroup);
         for (var fmtNdx = 0; fmtNdx < requiredIntFormats.length; fmtNdx++) {
             var format = requiredIntFormats[fmtNdx];
             var fmtName = es3fFboTestUtil.getFormatName(format);
@@ -1333,8 +1325,8 @@ var tcuImageCompare = framework.common.tcuImageCompare;
         }
 
         // .uint
-        /** @type {tcuTestCase.DeqpTest} */ var arrayUintGroup = tcuTestCase.newTest('uint', 'Usigned integer output tests');
-        arrayGroup.addChild(arrayUintGroup);
+        /** @type {tcuTestCase.DeqpTest} */ var arrayUintGroup = tcuTestCase.newTest('array.uint', 'Usigned integer output tests');
+        testGroup.addChild(arrayUintGroup);
         for (var fmtNdx = 0; fmtNdx < requiredUintFormats.length; fmtNdx++) {
             var format = requiredUintFormats[fmtNdx];
             var fmtName = es3fFboTestUtil.getFormatName(format);
@@ -1356,14 +1348,18 @@ var tcuImageCompare = framework.common.tcuImageCompare;
 
     // .random
 
-        /** @type {tcuTestCase.DeqpTest} */ var randomGroup = tcuTestCase.newTest('random', 'Random fragment output cases');
-        testGroup.addChild(randomGroup);
+        /** @type {Array<tcuTestCase.DeqpTest>} */ var randomGroup = [];
+        var numRandomGroups = 3;
+        for (var ii = 0; ii < numRandomGroups; ++ii) {
+            randomGroup[ii] = tcuTestCase.newTest('random', 'Random fragment output cases');
+            testGroup.addChild(randomGroup[ii]);
+        }
 
         /** @type {boolean} */ var colorBufferFloatSupported = (gl.getExtension('EXT_color_buffer_float') != null);
         for (var seed = 0; seed < 100; seed++) {
             var test = es3fFragmentOutputTests.createRandomCase(2, 4, seed, colorBufferFloatSupported);
             if (test !== null) {
-                randomGroup.addChild(test);
+                randomGroup[seed % numRandomGroups].addChild(test);
             }
         }
 
@@ -1372,7 +1368,7 @@ var tcuImageCompare = framework.common.tcuImageCompare;
     /**
      * Create and execute the test cases
      */
-    es3fFragmentOutputTests.run = function(context) {
+    es3fFragmentOutputTests.run = function(context, range) {
         gl = context;
       //Set up Test Root parameters
         var testName = 'fragment_output';
@@ -1388,6 +1384,8 @@ var tcuImageCompare = framework.common.tcuImageCompare;
 
         try {
             es3fFragmentOutputTests.init(gl);
+            if (range)
+                state.setRange(range);
             tcuTestCase.runTestCases();
         } catch (err) {
             testFailedOptions('Failed to es3fFragmentOutputTests.run tests', false);

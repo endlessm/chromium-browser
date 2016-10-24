@@ -7,12 +7,14 @@ found in the LICENSE file.
 
 <link rel="import" href="/tracing/value/time_display_mode.html">
 <link rel="import" href="/tracing/value/unit.html">
+<link rel="import" href="/tracing/value/unit_scale.html">
 
 <script>
 'use strict';
 
 tr.b.unittest.testSuite(function() {
   var Unit = tr.v.Unit;
+  var UnitScale = tr.v.UnitScale;
   var ImprovementDirection = tr.v.ImprovementDirection;
 
   test('Unit.display-mode-changed', function() {
@@ -87,19 +89,20 @@ tr.b.unittest.testSuite(function() {
     var SOURCE_VALUES = [0, 1, 1536, 424.5 * 1024 * 1024,
         1025 * 1024 * 1024 * 1024 * 1024, -2.5 * 1024 * 1024];
     var EXPECTED_REGULAR_FORMATTED_VALUES = ['0.0 B', '1.0 B', '1.5 KiB',
-        '424.5 MiB', '1025.0 TiB', '-2.5 MiB'];
+        '424.5 MiB', '1,025.0 TiB', '-2.5 MiB'];
     var EXPECTED_DELTA_FORMATTED_VALUES = ['\u00B10.0 B', '+1.0 B', '+1.5 KiB',
-        '+424.5 MiB', '+1025.0 TiB', '-2.5 MiB'];
+        '+424.5 MiB', '+1,025.0 TiB', '-2.5 MiB'];
 
     function checkSizeUnit(unit, expectation) {
       assert.strictEqual(unit.unitName, expectation.unitName);
       assert.strictEqual(unit.asJSON(), expectation.asJSON);
       assert.strictEqual(unit.isDelta, expectation.isDelta);
+      assert.strictEqual(unit.baseUnit, expectation.baseUnit);
       assert.strictEqual(unit.correspondingDeltaUnit,
           expectation.correspondingDeltaUnit);
       assert.strictEqual(unit.improvementDirection,
           expectation.improvementDirection);
-      assert.deepEqual(SOURCE_VALUES.map(unit.format.bind(unit)),
+      assert.deepEqual(SOURCE_VALUES.map(v => unit.format(v)),
           expectation.formattedValues);
     }
 
@@ -108,6 +111,7 @@ tr.b.unittest.testSuite(function() {
       unitName: 'sizeInBytes',
       asJSON: 'sizeInBytes',
       isDelta: false,
+      baseUnit: Unit.byName.sizeInBytes,
       correspondingDeltaUnit: Unit.byName.sizeInBytesDelta,
       improvementDirection: ImprovementDirection.DONT_CARE,
       formattedValues: EXPECTED_REGULAR_FORMATTED_VALUES
@@ -116,6 +120,7 @@ tr.b.unittest.testSuite(function() {
       unitName: 'sizeInBytes_smallerIsBetter',
       asJSON: 'sizeInBytes_smallerIsBetter',
       isDelta: false,
+      baseUnit: Unit.byName.sizeInBytes,
       correspondingDeltaUnit: Unit.byName.sizeInBytesDelta_smallerIsBetter,
       improvementDirection: ImprovementDirection.SMALLER_IS_BETTER,
       formattedValues: EXPECTED_REGULAR_FORMATTED_VALUES
@@ -124,6 +129,7 @@ tr.b.unittest.testSuite(function() {
       unitName: 'sizeInBytes_biggerIsBetter',
       asJSON: 'sizeInBytes_biggerIsBetter',
       isDelta: false,
+      baseUnit: Unit.byName.sizeInBytes,
       correspondingDeltaUnit: Unit.byName.sizeInBytesDelta_biggerIsBetter,
       improvementDirection: ImprovementDirection.BIGGER_IS_BETTER,
       formattedValues: EXPECTED_REGULAR_FORMATTED_VALUES
@@ -134,6 +140,7 @@ tr.b.unittest.testSuite(function() {
       unitName: 'sizeInBytesDelta',
       asJSON: 'sizeInBytesDelta',
       isDelta: true,
+      baseUnit: Unit.byName.sizeInBytes,
       correspondingDeltaUnit: Unit.byName.sizeInBytesDelta,
       improvementDirection: ImprovementDirection.DONT_CARE,
       formattedValues: EXPECTED_DELTA_FORMATTED_VALUES
@@ -142,6 +149,7 @@ tr.b.unittest.testSuite(function() {
       unitName: 'sizeInBytesDelta_smallerIsBetter',
       asJSON: 'sizeInBytesDelta_smallerIsBetter',
       isDelta: true,
+      baseUnit: Unit.byName.sizeInBytes,
       correspondingDeltaUnit: Unit.byName.sizeInBytesDelta_smallerIsBetter,
       improvementDirection: ImprovementDirection.SMALLER_IS_BETTER,
       formattedValues: EXPECTED_DELTA_FORMATTED_VALUES
@@ -150,10 +158,45 @@ tr.b.unittest.testSuite(function() {
       unitName: 'sizeInBytesDelta_biggerIsBetter',
       asJSON: 'sizeInBytesDelta_biggerIsBetter',
       isDelta: true,
+      baseUnit: Unit.byName.sizeInBytes,
       correspondingDeltaUnit: Unit.byName.sizeInBytesDelta_biggerIsBetter,
       improvementDirection: ImprovementDirection.BIGGER_IS_BETTER,
       formattedValues: EXPECTED_DELTA_FORMATTED_VALUES
     });
+  });
+
+  test('context', function() {
+    assert.strictEqual(Unit.byName.timeStampInMs.format(0, {}), '0.000 ms');
+    assert.strictEqual(Unit.byName.normalizedPercentageDelta.format(1.23456,
+        { maximumFractionDigits: 2 }), '+123.46%');
+    assert.strictEqual(Unit.byName.powerInWatts.format(999.999,
+        { minimumFractionDigits: 5 }), '999.99900 W');
+    assert.strictEqual(Unit.byName.powerInWatts_biggerIsBetter.format(8.88,
+        { minimumFractionDigits: 1 }), '8.88 W');
+    assert.strictEqual(Unit.byName.unitlessNumber.format(0.00789,
+        { maximumFractionDigits: 6 }), '0.00789');
+    assert.strictEqual(Unit.byName.unitlessNumber.format(41.9,
+        { maximumFractionDigits: 0 }), '42');
+    assert.strictEqual(
+        Unit.byName.energyInJoules.format(0.4444,
+            { minimumFractionDigits: 2, maximumFractionDigits: 3 }),
+        '0.444 J');
+    assert.strictEqual(
+        Unit.byName.energyInJoules.format(0.6,
+            { minimumFractionDigits: 2, maximumFractionDigits: 3 }),
+        '0.60 J');
+    assert.strictEqual(
+        Unit.byName.sizeInBytesDelta_smallerIsBetter.format(0,
+            { minimumFractionDigits: 1, maximumFractionDigits: 1 }),
+        '\u00B10.0 B');
+    assert.strictEqual(
+        Unit.byName.sizeInBytes.format(25600000000,
+            { unitPrefix: UnitScale.Binary.KIBI }),
+        '25,000,000.0 KiB');
+    assert.strictEqual(
+        Unit.byName.sizeInBytes.format(5243,
+            { unitPrefix: UnitScale.Binary.MEBI, minimumFractionDigits: 2 }),
+        '0.01 MiB');
   });
 
   test('energyInJoules', function() {
@@ -169,6 +212,13 @@ tr.b.unittest.testSuite(function() {
     assert.equal(Unit.byName.powerInWatts.format(1), '1.000 W');
     assert.equal(Unit.byName.powerInWatts.format(.001), '0.001 W');
     assert.equal(Unit.byName.powerInWatts.format(.001005), '0.001 W');
+  });
+
+  test('unitlessNumber', function() {
+    assert.equal(Unit.byName.unitlessNumber.format(1), '1.000');
+    assert.equal(Unit.byName.unitlessNumber.format(1.23), '1.230');
+    assert.equal(Unit.byName.unitlessNumber.format(-1.23), '-1.230');
+    assert.equal(Unit.byName.unitlessNumber.format(0), '0.000');
   });
 });
 </script>

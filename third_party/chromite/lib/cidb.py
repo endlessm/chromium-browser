@@ -11,15 +11,7 @@ import datetime
 import glob
 import os
 import re
-try:
-  import sqlalchemy
-  import sqlalchemy.exc
-  import sqlalchemy.interfaces
-  from sqlalchemy import MetaData
-except ImportError:
-  raise AssertionError(
-      'Unable to import sqlalchemy. Please install this package by running '
-      '`sudo apt-get install python-sqlalchemy` or similar.')
+
 
 from chromite.cbuildbot import constants
 from chromite.lib import clactions
@@ -29,6 +21,22 @@ from chromite.lib import graphite
 from chromite.lib import osutils
 from chromite.lib import retry_stats
 
+try:
+  from infra_libs.ts_mon.common import metrics
+  from infra_libs.ts_mon.common import interface
+except (ImportError, RuntimeError):
+  metrics = None
+  interface = None
+
+sqlalchemy_imported = False
+try:
+  import sqlalchemy
+  import sqlalchemy.exc
+  import sqlalchemy.interfaces
+  from sqlalchemy import MetaData
+  sqlalchemy_imported = True
+except ImportError:
+  pass
 
 CIDB_MIGRATIONS_DIR = os.path.join(constants.CHROMITE_DIR, 'cidb',
                                    'migrations')
@@ -116,12 +124,6 @@ def minimum_schema(min_version):
   return decorator
 
 
-class StrictModeListener(sqlalchemy.interfaces.PoolListener):
-  """This listener ensures that STRICT_ALL_TABLES for all connections."""
-  def connect(self, dbapi_con, *_args, **_kwargs):
-    cur = dbapi_con.cursor()
-    cur.execute("SET SESSION sql_mode='STRICT_ALL_TABLES'")
-    cur.close()
 
 
 # Tuple to keep arguments that modify SQL query retry behaviour of
@@ -196,6 +198,25 @@ class SchemaVersionedMySQLConnection(object):
       query_retry_args: An optional SqlConnectionRetryArgs tuple to tweak the
                         retry behaviour of SQL queries.
     """
+    if not sqlalchemy_imported:
+      raise AssertionError('Unable to open cidb connections, as sqlalchemy '
+                           'module could not be imported. If you need cidb, '
+                           'please install the missing package by running '
+                           '`sudo apt-get install python-sqlalchemy` or '
+                           'similar.')
+
+    # Note: This is a inner class because it needs to inherit from sqlalchemy,
+    # but we do not know for sure that sqlalchemy has been successfully imported
+    # until we enter this method (i.e. this class cannot be module-level).
+    class StrictModeListener(sqlalchemy.interfaces.PoolListener):
+      """This listener ensures that STRICT_ALL_TABLES for all connections."""
+      def connect(self, dbapi_con, *_args, **_kwargs):
+        cur = dbapi_con.cursor()
+        cur.execute("SET SESSION sql_mode='STRICT_ALL_TABLES'")
+        cur.close()
+
+    self._listener_class = StrictModeListener
+
     # None, or a sqlalchemy.MetaData instance
     self._meta = None
 
@@ -223,7 +244,7 @@ class SchemaVersionedMySQLConnection(object):
     # database name given by |db_name|.
     temp_engine = sqlalchemy.create_engine(connect_url,
                                            connect_args=self._ssl_args,
-                                           listeners=[StrictModeListener()])
+                                           listeners=[self._listener_class()])
     databases = self._ExecuteWithEngine('SHOW DATABASES',
                                         temp_engine).fetchall()
     if (db_name,) not in databases:
@@ -555,7 +576,7 @@ class SchemaVersionedMySQLConnection(object):
     else:
       e = sqlalchemy.create_engine(self._connect_url,
                                    connect_args=self._ssl_args,
-                                   listeners=[StrictModeListener()])
+                                   listeners=[self._listener_class()])
       self._engine = e
       self._engine_pid = pid
       logging.info('Created cidb engine %s@%s for pid %s', e.url.username,
@@ -587,6 +608,11 @@ class CIDBConnection(SchemaVersionedMySQLConnection):
   _DATE_FORMAT = '%Y-%m-%d'
 
   NUM_RESULTS_NO_LIMIT = -1
+
+  BUILD_STATUS_KEYS = (
+      'id', 'build_config', 'start_time', 'finish_time', 'status', 'waterfall',
+      'build_number', 'builder_name', 'platform_version', 'full_version',
+      'milestone_version', 'important')
 
   def __init__(self, db_credentials_dir, *args, **kwargs):
     super(CIDBConnection, self).__init__('cidb', CIDB_MIGRATIONS_DIR,
@@ -671,11 +697,21 @@ class CIDBConnection(SchemaVersionedMySQLConnection):
     stats = graphite.StatsFactory.GetInstance()
     for cl_action in cl_actions:
       r = cl_action.reason or 'no_reason'
+
       # TODO(akeshet) This is a slightly hacky workaround for the fact that our
       # strategy reasons contain a ':', but statsd considers that character to
       # be a name terminator.
-      r = r.replace(':', '_')
-      stats.Counter('.'.join(['cl_actions', cl_action.action])).increment(r)
+      statsd_name = 'cl_actions.%s' % cl_action.action
+      stats.Counter(statsd_name).increment(r.replace(':', '_'))
+
+      if metrics:
+        monarch_name = 'chromeos/cbuildbot/cl_action/' + cl_action.action
+        # This is necessary because ts_mon does not allow constructing a metrics
+        # object with the same name twice.
+        counter = (
+            interface.state.metrics.get(monarch_name) or
+            metrics.CounterMetric(monarch_name, fields={'reason': r}))
+        counter.increment()
 
     return retval
 
@@ -959,15 +995,13 @@ class CIDBConnection(SchemaVersionedMySQLConnection):
     Returns:
       A list of dictionary with keys (id, build_config, start_time,
       finish_time, status, waterfall, build_number, builder_name,
-      platform_version, full_version, important), or None if no build
-      with this id was found.
+      platform_version, full_version, milestone_version, important)
+      (see BUILD_STATUS_KEYS) or None if no build with this id was found.
     """
     return self._SelectWhere(
         'buildTable',
         'id IN (%s)' % ','.join(str(int(x)) for x in build_ids),
-        ['id', 'build_config', 'start_time', 'finish_time', 'status',
-         'waterfall', 'build_number', 'builder_name', 'platform_version',
-         'full_version', 'important'])
+        self.BUILD_STATUS_KEYS)
 
   @minimum_schema(30)
   def GetBuildStages(self, build_id):
@@ -1013,13 +1047,11 @@ class CIDBConnection(SchemaVersionedMySQLConnection):
 
     Returns:
       A list containing, for each slave build (row) found, a dictionary
-      with keys (id, build_config, start_time, finish_time, status, important).
+      with keys BUILD_STATUS_KEYS.
     """
     return self._SelectWhere('buildTable',
                              'master_build_id = %d' % master_build_id,
-                             ['id', 'build_config', 'start_time',
-                              'finish_time', 'status', 'important',
-                              'waterfall'])
+                             self.BUILD_STATUS_KEYS)
 
   @minimum_schema(30)
   def GetSlaveStages(self, master_build_id):
@@ -1105,7 +1137,7 @@ class CIDBConnection(SchemaVersionedMySQLConnection):
   @minimum_schema(43)
   def GetBuildHistory(self, build_config, num_results,
                       ignore_build_id=None, start_date=None, end_date=None,
-                      starting_build_number=None):
+                      starting_build_number=None, milestone_version=None):
     """Returns basic information about most recent builds.
 
     By default this function returns the most recent builds. Some arguments can
@@ -1125,6 +1157,8 @@ class CIDBConnection(SchemaVersionedMySQLConnection):
           before this date.
       starting_build_number: (Optional) The minimum build_number on the CQ
           master for which data should be retrieved.
+      milestone_version: (Optional) Return only results for this
+          milestone_version.
 
     Returns:
       A sorted list of dicts containing up to |number| dictionaries for
@@ -1133,6 +1167,7 @@ class CIDBConnection(SchemaVersionedMySQLConnection):
       start_time, finish_time, platform_version, full_version, status,
       important].
     """
+    # TODO(akeshet): Unify this with BUILD_STATUS_KEYS
     columns = ['id', 'build_config', 'buildbot_generation', 'waterfall',
                'build_number', 'start_time', 'finish_time', 'platform_version',
                'full_version', 'status', 'important']
@@ -1148,6 +1183,8 @@ class CIDBConnection(SchemaVersionedMySQLConnection):
       where_clauses.append('build_number >= %d' % starting_build_number)
     if ignore_build_id is not None:
       where_clauses.append('id != %d' % ignore_build_id)
+    if milestone_version is not None:
+      where_clauses.append('milestone_version = "%s"' % milestone_version)
     query = (
         'SELECT %s'
         ' FROM buildTable'

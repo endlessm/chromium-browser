@@ -64,6 +64,7 @@ class TracingControllerBackend(object):
     self._active_agents_instances = []
     self._trace_log = None
     self._is_tracing_controllable = True
+    self._iteration_info = None
 
   def StartTracing(self, config, timeout):
     if self.is_tracing_running:
@@ -122,6 +123,7 @@ class TracingControllerBackend(object):
         raised_exception_messages.append(
             ''.join(traceback.format_exception(*sys.exc_info())))
 
+    self._iteration_info = None
     self._active_agents_instances = []
     self._current_state = None
 
@@ -232,13 +234,39 @@ class TracingControllerBackend(object):
   def ClearStateIfNeeded(self):
     chrome_tracing_agent.ClearStarupTracingStateIfNeeded(self._platform_backend)
 
+  @property
+  def iteration_info(self):
+    return self._iteration_info
+
+  @iteration_info.setter
+  def iteration_info(self, ii):
+    self._iteration_info = ii
+
   def CollectAgentTraceData(self, trace_data_builder):
     if not self._is_tracing_controllable:
       return
     assert not trace_event.trace_is_enabled(), 'Stop tracing before collection.'
     with open(self._trace_log, 'r') as fp:
       data = ast.literal_eval(fp.read() + ']')
-    trace_data_builder.AddEventsTo(trace_data_module.TELEMETRY_PART, data)
+    trace_data_builder.SetTraceFor(trace_data_module.TELEMETRY_PART, {
+        "traceEvents": data,
+        "metadata": {
+            # TODO(charliea): For right now, we use "TELEMETRY" as the clock
+            # domain to guarantee that Telemetry is given its own clock
+            # domain. Telemetry isn't really a clock domain, though: it's a
+            # system that USES a clock domain like LINUX_CLOCK_MONOTONIC or
+            # WIN_QPC. However, there's a chance that a Telemetry controller
+            # running on Linux (using LINUX_CLOCK_MONOTONIC) is interacting with
+            # an Android phone (also using LINUX_CLOCK_MONOTONIC, but on a
+            # different machine). The current logic collapses clock domains
+            # based solely on the clock domain string, but we really should to
+            # collapse based on some (device ID, clock domain ID) tuple. Giving
+            # Telemetry its own clock domain is a work-around for this.
+            "clock-domain": "TELEMETRY",
+            "iteration-info": (self._iteration_info.AsDict()
+                if self._iteration_info else {}),
+        }
+    })
     try:
       os.remove(self._trace_log)
       self._trace_log = None

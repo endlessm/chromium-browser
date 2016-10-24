@@ -346,9 +346,9 @@ class PaygenStageTest(generic_stages_unittest.AbstractStageTestCase,
       self.assertEqual(
           queue.put.call_args_list,
           [mock.call(('stable', 'x86-alex-he', '0.0.1',
-                      False, True, False, True)),
+                      False, False, False, True)),
            mock.call(('beta', 'x86-alex-he', '0.0.1',
-                      False, True, False, True))])
+                      False, False, False, True))])
 
   def testPerformStageNoChannels(self):
     """Test that PaygenStage works when signing works."""
@@ -394,9 +394,9 @@ class PaygenStageTest(generic_stages_unittest.AbstractStageTestCase,
       self.assertEqual(
           queue.put.call_args_list,
           [mock.call(('foo', 'x86-alex-he', '0.0.1',
-                      False, True, False, True)),
+                      False, False, False, True)),
            mock.call(('bar', 'x86-alex-he', '0.0.1',
-                      False, True, False, True))])
+                      False, False, False, True))])
 
   def testPerformStageUnknownBoard(self):
     """Test that PaygenStage exits when an unknown board is specified."""
@@ -427,7 +427,6 @@ class PaygenStageTest(generic_stages_unittest.AbstractStageTestCase,
                                          site_config=stage._run.site_config,
                                          dry_run=False,
                                          run_parallel=True,
-                                         run_on_builder=True,
                                          skip_delta_payloads=False,
                                          disable_tests=False,
                                          skip_duts_check=False)
@@ -451,7 +450,6 @@ class PaygenStageTest(generic_stages_unittest.AbstractStageTestCase,
           work_dir=mock.ANY,
           site_config=stage._run.site_config,
           run_parallel=True,
-          run_on_builder=True,
           skip_delta_payloads=True,
           disable_tests=True,
           skip_duts_check=False)

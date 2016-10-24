@@ -52,13 +52,18 @@ function runOneIterationImageBitmapTest(useTexSubImage2D, bindingTarget, program
         break;
     }
 
-    if (optionsVal.is3D)
-        debug('Testing texSubImage3D' + ' with flipY=' + flipY + ' and premultiplyAlpha=' + premultiplyAlpha +
-                ', bindingTarget=' + (bindingTarget == gl.TEXTURE_3D ? 'TEXTURE_3D' : 'TEXTURE_2D_ARRAY'));
-    else
-        debug('Testing ' + (useTexSubImage2D ? 'texSubImage2D' : 'texImage2D') +
+    var str;
+    if (optionsVal.is3D) {
+        str = 'Testing texSubImage3D' + ' with flipY=' + flipY + ' and premultiplyAlpha=' + premultiplyAlpha +
+            ', bindingTarget=' + (bindingTarget == gl.TEXTURE_3D ? 'TEXTURE_3D' : 'TEXTURE_2D_ARRAY');
+    } else {
+        str = 'Testing ' + (useTexSubImage2D ? 'texSubImage2D' : 'texImage2D') +
               ' with flipY=' + flipY + ' and premultiplyAlpha=' + premultiplyAlpha +
-              ', bindingTarget=' + (bindingTarget == gl.TEXTURE_2D ? 'TEXTURE_2D' : 'TEXTURE_CUBE_MAP'));
+              ', bindingTarget=' + (bindingTarget == gl.TEXTURE_2D ? 'TEXTURE_2D' : 'TEXTURE_CUBE_MAP');
+    }
+    debug(str);
+    console.log(str);
+
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
     // Enable writes to the RGBA channels
     gl.colorMask(1, 1, 1, 0);
@@ -80,6 +85,8 @@ function runOneIterationImageBitmapTest(useTexSubImage2D, bindingTarget, program
                    gl.TEXTURE_CUBE_MAP_POSITIVE_Z,
                    gl.TEXTURE_CUBE_MAP_NEGATIVE_Z];
     }
+
+    console.log("Starts uploading the image into texture");
     // Upload the image into the texture
     for (var tt = 0; tt < targets.length; ++tt) {
         if (optionsVal.is3D) {
@@ -97,6 +104,7 @@ function runOneIterationImageBitmapTest(useTexSubImage2D, bindingTarget, program
             }
         }
     }
+    console.log("Uploading texture completed");
 
     var width = gl.canvas.width;
     var halfWidth = Math.floor(width / 2);
@@ -114,8 +122,18 @@ function runOneIterationImageBitmapTest(useTexSubImage2D, bindingTarget, program
     var br = premultiplyAlpha ? ((optionsVal.alpha == 0.5) ? halfGreen : (optionsVal.alpha == 1) ? greenColor : blackColor) : greenColor;
 
     var loc;
+    var skipCorner = false;
     if (bindingTarget == gl.TEXTURE_CUBE_MAP) {
         loc = gl.getUniformLocation(program, "face");
+        switch (pixelFormat) {
+          case gl.RED_INTEGER:
+          case gl.RG_INTEGER:
+          case gl.RGB_INTEGER:
+          case gl.RGBA_INTEGER:
+            // https://github.com/KhronosGroup/WebGL/issues/1819
+            skipCorner = true;
+            break;
+        }
     }
 
     var tolerance = 10;
@@ -128,12 +146,16 @@ function runOneIterationImageBitmapTest(useTexSubImage2D, bindingTarget, program
 
         // Check the top pixel and bottom pixel and make sure they have
         // the right color.
-        debug("Checking " + (flipY ? "top" : "bottom"));
+        console.log("Checking " + (flipY ? "top" : "bottom"));
         wtu.checkCanvasRect(gl, quaterWidth, bottom, 2, 2, tl, "shouldBe " + tl);
-        wtu.checkCanvasRect(gl, halfWidth + quaterWidth, bottom, 2, 2, tr, "shouldBe " + tr, tolerance);
-        debug("Checking " + (flipY ? "bottom" : "top"));
+        if (!skipCorner && !flipY) {
+            wtu.checkCanvasRect(gl, halfWidth + quaterWidth, bottom, 2, 2, tr, "shouldBe " + tr, tolerance);
+        }
+        console.log("Checking " + (flipY ? "bottom" : "top"));
         wtu.checkCanvasRect(gl, quaterWidth, top, 2, 2, bl, "shouldBe " + bl);
-        wtu.checkCanvasRect(gl, halfWidth + quaterWidth, top, 2, 2, br, "shouldBe " + br, tolerance);
+        if (!skipCorner && flipY) {
+            wtu.checkCanvasRect(gl, halfWidth + quaterWidth, top, 2, 2, br, "shouldBe " + br, tolerance);
+        }
     }
 }
 
@@ -195,6 +217,7 @@ function runImageBitmapTest(source, alphaVal, internalFormat, pixelFormat, pixel
     var p3 = createImageBitmap(source, {imageOrientation: "flipY", premultiplyAlpha: "premultiply"}).then(function(imageBitmap) { bitmaps.flipYPremul = imageBitmap });
     var p4 = createImageBitmap(source, {imageOrientation: "flipY", premultiplyAlpha: "none"}).then(function(imageBitmap) { bitmaps.flipYUnpremul = imageBitmap });
     Promise.all([p1, p2, p3, p4]).then(function() {
+        console.log("All createImageBitmap promises are resolved");
         runImageBitmapTestInternal(bitmaps, alphaVal, internalFormat, pixelFormat, pixelType, gl, tiu, wtu, is3D);
     }, function() {
         // createImageBitmap with options could be rejected if it is not supported

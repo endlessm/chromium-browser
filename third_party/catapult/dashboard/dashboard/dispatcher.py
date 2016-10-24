@@ -19,6 +19,7 @@ from dashboard import buildbucket_job_status
 from dashboard import can_bisect
 from dashboard import change_internal_only
 from dashboard import debug_alert
+from dashboard import delete_old_tests
 from dashboard import delete_test_data
 from dashboard import dump_graph_json
 from dashboard import edit_anomalies
@@ -26,7 +27,6 @@ from dashboard import edit_anomaly_configs
 from dashboard import edit_bug_labels
 from dashboard import edit_sheriffs
 from dashboard import edit_site_config
-from dashboard import edit_test_owners
 from dashboard import email_summary
 from dashboard import file_bug
 from dashboard import get_logs
@@ -51,7 +51,6 @@ from dashboard import send_stoppage_alert_emails
 from dashboard import set_warning_message
 from dashboard import short_uri
 from dashboard import start_try_job
-from dashboard import stats
 from dashboard import test_buildbucket
 from dashboard import update_bug_with_results
 from dashboard import update_test_suites
@@ -73,6 +72,7 @@ _URL_MAPPING = [
     ('/change_internal_only', change_internal_only.ChangeInternalOnlyHandler),
     ('/debug_alert', debug_alert.DebugAlertHandler),
     ('/delete_expired_entities', layered_cache.DeleteExpiredEntitiesHandler),
+    ('/delete_old_tests', delete_old_tests.DeleteOldTestsHandler),
     ('/delete_test_data', delete_test_data.DeleteTestDataHandler),
     ('/dump_graph_json', dump_graph_json.DumpGraphJsonHandler),
     ('/edit_anomalies', edit_anomalies.EditAnomaliesHandler),
@@ -80,7 +80,6 @@ _URL_MAPPING = [
     ('/edit_bug_labels', edit_bug_labels.EditBugLabelsHandler),
     ('/edit_sheriffs', edit_sheriffs.EditSheriffsHandler),
     ('/edit_site_config', edit_site_config.EditSiteConfigHandler),
-    ('/edit_test_owners', edit_test_owners.EditTestOwnersHandler),
     ('/email_summary', email_summary.EmailSummaryHandler),
     ('/file_bug', file_bug.FileBugHandler),
     ('/get_logs', get_logs.GetLogsHandler),
@@ -104,9 +103,6 @@ _URL_MAPPING = [
     ('/set_warning_message', set_warning_message.SetWarningMessageHandler),
     ('/short_uri', short_uri.ShortUriHandler),
     ('/start_try_job', start_try_job.StartBisectHandler),
-    ('/stats_around_revision', stats.StatsAroundRevisionHandler),
-    ('/stats_for_alerts', stats.StatsForAlertsHandler),
-    ('/stats', stats.StatsHandler),
     ('/test_buildbucket', test_buildbucket.TestBuildbucketHandler),
     ('/update_bug_with_results',
      update_bug_with_results.UpdateBugWithResultsHandler),

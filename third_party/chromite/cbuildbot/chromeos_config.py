@@ -88,9 +88,15 @@ class HWTestList(object):
     async_kwargs['suite_min_duts'] = 1
     async_kwargs['timeout'] = config_lib.HWTestConfig.ASYNC_HW_TEST_TIMEOUT
 
+    if IS_RELEASE_BRANCH:
+      bvt_inline_kwargs = async_kwargs
+    else:
+      bvt_inline_kwargs = kwargs.copy()
+      bvt_inline_kwargs['timeout'] = 120 * 60
+
     # BVT + AU suite.
     return [config_lib.HWTestConfig(constants.HWTEST_BVT_SUITE,
-                                    timeout=120*60, **kwargs),
+                                    **bvt_inline_kwargs),
             config_lib.HWTestConfig(constants.HWTEST_AU_SUITE,
                                     blocking=True, **au_kwargs),
             config_lib.HWTestConfig(constants.HWTEST_COMMIT_SUITE,
@@ -196,7 +202,7 @@ class HWTestList(object):
     default_dict = dict(file_bugs=True,
                         timeout=config_lib.HWTestConfig.ASYNC_HW_TEST_TIMEOUT,
                         priority=constants.HWTEST_PFQ_PRIORITY,
-                        retry=False, max_retries=None, minimum_duts=4)
+                        retry=True, max_retries=None, minimum_duts=4)
     # Allows kwargs overrides to default_dict for pfq.
     default_dict.update(kwargs)
 
@@ -206,7 +212,7 @@ class HWTestList(object):
     #                                num=8, pool=constants.HWTEST_MACH_POOL,
     #                                **default_dict),
     return [config_lib.HWTestConfig(constants.HWTEST_ARC_COMMIT_SUITE,
-                                    num=4, pool=constants.HWTEST_PALADIN_POOL,
+                                    num=4, pool=constants.HWTEST_MACH_POOL,
                                     **default_dict)]
 
   @classmethod
@@ -308,6 +314,26 @@ class HWTestList(object):
                                     **default_dict),
             config_lib.HWTestConfig(constants.HWTEST_COMMIT_SUITE,
                                     **default_dict)]
+  @classmethod
+  def ToolchainTest(cls, **kwargs):
+    """Return a list of HWTESTConfigs which run toolchain correctness tests."""
+    default_dict = dict(pool=constants.HWTEST_MACH_POOL, file_bugs=False,
+                        priority=constants.HWTEST_DEFAULT_PRIORITY)
+    default_dict.update(kwargs)
+    return [config_lib.HWTestConfig(constants.HWTEST_BVT_SUITE,
+                                    **default_dict),
+            config_lib.HWTestConfig(constants.HWTEST_COMMIT_SUITE,
+                                    **default_dict),
+            config_lib.HWTestConfig(constants.HWTEST_TOOLCHAIN_SUITE,
+                                    **default_dict),
+            config_lib.HWTestConfig('paygen_au_canary',
+                                    **default_dict),
+            config_lib.HWTestConfig('security',
+                                    **default_dict),
+            config_lib.HWTestConfig('kernel_daily_regression',
+                                    **default_dict),
+            config_lib.HWTestConfig('kernel_daily_benchmarks',
+                                    **default_dict)]
 
 
 
@@ -376,7 +402,6 @@ _arm_internal_release_boards = frozenset([
     'smaug-kasan',
     'storm',
     'veyron_fievel',
-    'veyron_gus',
     'veyron_jaq',
     'veyron_jerry',
     'veyron_mickey',
@@ -429,6 +454,7 @@ _x86_internal_release_boards = frozenset([
     'glados',
     'glados-cheets',
     'glimmer',
+    'glimmer-cheets',
     'gnawty',
     'guado',
     'guado_labstation',
@@ -451,8 +477,6 @@ _x86_internal_release_boards = frozenset([
     'ninja',
     'orco',
     'panther',
-    'panther_embedded',
-    'panther_moblab',
     'parrot',
     'parrot_ivb',
     'parry',
@@ -472,7 +496,6 @@ _x86_internal_release_boards = frozenset([
     'stout',
     'strago',
     'stumpy',
-    'stumpy_moblab',
     'sumo',
     'swanky',
     'terra',
@@ -535,7 +558,6 @@ _internal_boards = _all_release_boards
 _brillo_boards = frozenset([
     'arkham',
     'gale',
-    'panther_embedded',
     'purin',
     'storm',
     'whirlwind',
@@ -545,6 +567,7 @@ _cheets_boards = frozenset([
     'cyan-cheets',
     'elm-cheets',
     'glados-cheets',
+    'glimmer-cheets',
     'oak-cheets',
     'samus-cheets',
     'smaug-cheets',
@@ -560,12 +583,10 @@ _lakitu_boards = frozenset([
 ])
 
 _moblab_boards = frozenset([
-    'stumpy_moblab',
-    'panther_moblab',
     'guado_moblab',
 ])
 
-_nofactory_boards = frozenset([
+_nofactory_boards = _lakitu_boards | frozenset([
     'smaug',
 ])
 
@@ -589,6 +610,7 @@ _no_vmtest_boards = _arm_boards | _brillo_boards | frozenset((
     'cyan-cheets',
     'elm-cheets',
     'glados-cheets',
+    'glimmer-cheets',
     'oak-cheets',
     'samus-cheets',
     'smaug-cheets',
@@ -625,19 +647,11 @@ _waterfall_config_map = {
 
     constants.WATERFALL_INTERNAL: frozenset([
         # Experimental Paladins.
-        'cyan-cheets-paladin',
+        'elm-cheets-paladin',
         'lakitu_next-paladin',
-        'veyron_minnie-cheets-paladin',
-        'veyron_rialto-paladin',
-
-        # Experimental PFQs.
-        'veyron_rialto-chrome-pfq',
 
         # Experimental Canaries
         # auron
-        'lulu-release',
-        'gandof-release',
-        'buddy-release',
         'lulu-cheets-release',
         # glados
         'glados-release',
@@ -646,14 +660,6 @@ _waterfall_config_map = {
         'cave-release',
         'chell-cheets-release',
         'asuka-release',
-        # gru
-        'gru-release',
-        'kevin-release',
-        # oak
-        'oak-release',
-        'elm-release',
-        'oak-cheets-release',
-        'elm-cheets-release',
         # reef
         'reef-release',
         'amenia-release',
@@ -674,6 +680,7 @@ _waterfall_config_map = {
         # other
         'amd64-generic-goofy-release',
         'gale-release',
+        'glimmer-cheets-release',
         'lakitu_next-release',
         'nyan_freon-release',
         'smaug-release',
@@ -697,6 +704,7 @@ _waterfall_config_map = {
 
         # LLVM
         'llvm-toolchain-group',
+        'llvm-next-toolchain-group',
     ]),
 
     constants.WATERFALL_RELEASE: frozenset([
@@ -798,7 +806,7 @@ def GetConfig():
       # dictionary, all projects on that remote are considered to not be
       # branchable.
       BRANCHABLE_PROJECTS={
-          external_remote: r'chromiumos/(.+)',
+          external_remote: r'(chromiumos|aosp)/(.+)',
           internal_remote: r'chromeos/(.+)',
       },
 
@@ -1132,6 +1140,13 @@ def GetConfig():
       description='Informational Chrome Uprev & Build (internal)',
   )
 
+  chrome_info_cheets = site_config.AddTemplate(
+      'chrome-pfq-cheets-informational',
+      chrome_info,
+      hw_tests=HWTestList.SharedPoolAndroidPFQ(),
+      hw_tests_override=HWTestList.SharedPoolAndroidPFQ()
+  )
+
   chrome_perf = site_config.AddTemplate(
       'chrome-perf',
       chrome_info,
@@ -1312,6 +1327,7 @@ def GetConfig():
   _chrome_pfq_important_boards = frozenset([
       'peppy',
       'veyron_pinky',
+      'veyron_rialto',
       'nyan',
   ])
 
@@ -1714,6 +1730,7 @@ def GetConfig():
       'auron',
       'beaglebone',
       'butterfly',
+      'cyan-cheets',
       'daisy',
       'daisy_skate',
       'daisy_spring',
@@ -1741,7 +1758,9 @@ def GetConfig():
       'stumpy',
       'tricky',
       'veyron_mighty',
+      'veyron_minnie-cheets',
       'veyron_pinky',
+      'veyron_rialto',
       'veyron_speedy',
       'whirlwind',
       'wolf',
@@ -1918,15 +1937,6 @@ def GetConfig():
 
   # Paladins (CQ builders) which do not run VM or Unit tests on the builder
   # itself.
-  external_brillo_paladin = paladin.derive(brillo)
-
-  site_config.Add(
-      'panther_embedded-minimal-paladin', external_brillo_paladin,
-      boards=['panther_embedded'],
-      profile='minimal',
-      trybot_list=True,
-  )
-
   internal_beaglebone_paladin = internal_paladin.derive(beaglebone)
 
   site_config.Add(
@@ -1982,6 +1992,11 @@ def GetConfig():
   site_config.Add(
       'lakitu-pre-cq', pre_cq,
       _base_configs['lakitu'],
+      lakitu_test_customizations,
+  )
+  site_config.Add(
+      'lakitu_next-pre-cq', pre_cq,
+      _base_configs['lakitu_next'],
       lakitu_test_customizations,
   )
 
@@ -2100,9 +2115,16 @@ def GetConfig():
                        'chromeos-dev-installer',
       dev_installer_prebuilts=True,
       git_sync=False,
-      vm_tests=[config_lib.VMTestConfig(constants.SMOKE_SUITE_TEST_TYPE),
-                config_lib.VMTestConfig(constants.DEV_MODE_TEST_TYPE),
-                config_lib.VMTestConfig(constants.CROS_VM_TEST_TYPE)],
+      vm_tests=[
+          config_lib.VMTestConfig(constants.SMOKE_SUITE_TEST_TYPE),
+          config_lib.VMTestConfig(constants.DEV_MODE_TEST_TYPE),
+          config_lib.VMTestConfig(constants.CROS_VM_TEST_TYPE)],
+      # Some release builders disable VMTests to be able to build on GCE, but
+      # still want VMTests enabled on trybot builders.
+      vm_tests_override=[
+          config_lib.VMTestConfig(constants.SMOKE_SUITE_TEST_TYPE),
+          config_lib.VMTestConfig(constants.DEV_MODE_TEST_TYPE),
+          config_lib.VMTestConfig(constants.CROS_VM_TEST_TYPE)],
       hw_tests=HWTestList.SharedPoolCanary(),
       paygen=True,
       signer_tests=True,
@@ -2122,7 +2144,7 @@ def GetConfig():
       internal,
       default_hw_tests_override,
       build_type=constants.TOOLCHAIN_TYPE,
-      build_timeout=12 * 60 * 60 if IS_RELEASE_BRANCH else (7 * 60 + 50) * 60,
+      build_timeout=(9 * 60 + 50) * 60,
       useflags=append_useflags(['-cros-debug']),
       afdo_use=True,
       manifest=constants.OFFICIAL_MANIFEST,
@@ -2188,8 +2210,8 @@ def GetConfig():
       _toolchain,
       no_vmtest_builder,
       profile='llvm',
-      hw_tests=HWTestList.AsanTest(),
-      hw_tests_override=HWTestList.AsanTest(),
+      hw_tests=HWTestList.ToolchainTest(),
+      hw_tests_override=HWTestList.ToolchainTest(),
       images=['base', 'test'],
       description='Full release build with LLVM toolchain',
       paygen=False,
@@ -2200,7 +2222,7 @@ def GetConfig():
   )
 
   _grouped_toolchain_llvm = config_lib.BuildConfig(
-      build_packages_in_background=True,
+      build_packages_in_background=False,
       chrome_sdk=False,
       chrome_sdk_build_chrome=False,
       chroot_replace=False,
@@ -2222,6 +2244,34 @@ def GetConfig():
           'x86-alex-toolchain-llvm', _llvm_grouped,
           boards=['x86-alex'],
       ),
+      site_config.Add(
+          'oak-toolchain-llvm', _llvm_grouped,
+          boards=['oak'],
+      ),
+  )
+
+  site_config.AddGroup(
+      'llvm-next-toolchain-group',
+      site_config.Add(
+          'peppy-next-toolchain-llvm', llvm,
+          boards=['peppy'],
+          useflags=append_useflags(['llvm-next clang']),
+      ),
+      site_config.Add(
+          'daisy-next-toolchain-llvm', _llvm_grouped,
+          boards=['daisy'],
+          useflags=append_useflags(['llvm-next clang']),
+      ),
+      site_config.Add(
+          'x86-alex-next-toolchain-llvm', _llvm_grouped,
+          boards=['x86-alex'],
+          useflags=append_useflags(['llvm-next clang']),
+      ),
+      site_config.Add(
+          'oak-next-toolchain-llvm', _llvm_grouped,
+          boards=['oak'],
+          useflags=append_useflags(['llvm-next clang']),
+      ),
   )
 
   gcc = site_config.AddTemplate(
@@ -2230,8 +2280,8 @@ def GetConfig():
       # build and that we are using AFDO.
       _toolchain,
       no_vmtest_builder,
-      hw_tests=HWTestList.AsanTest(),
-      hw_tests_override=HWTestList.AsanTest(),
+      hw_tests=HWTestList.ToolchainTest(),
+      hw_tests_override=HWTestList.ToolchainTest(),
       images=['base', 'test'],
       description='Full release build with next minor GCC toolchain revision.',
       paygen=False,
@@ -2245,7 +2295,7 @@ def GetConfig():
   )
 
   _grouped_toolchain_gcc = config_lib.BuildConfig(
-      build_packages_in_background=True,
+      build_packages_in_background=False,
       chrome_sdk=False,
       chrome_sdk_build_chrome=False,
       chroot_replace=False,
@@ -2267,6 +2317,10 @@ def GetConfig():
           'x86-alex-toolchain-gcc', _gcc_grouped,
           boards=['x86-alex'],
       ),
+      site_config.Add(
+          'oak-toolchain-gcc', _gcc_grouped,
+          boards=['oak'],
+      ),
   )
 
   ### Master release config.
@@ -2282,38 +2336,6 @@ def GetConfig():
                                'tree'],
       afdo_use=False,
       branch_util_test=True,
-  )
-
-  ### Release config groups.
-
-  site_config.AddGroup(
-      'x86-alex-release-group',
-      site_config.Add(
-          'x86-alex-release', _release,
-          boards=['x86-alex'],
-      ),
-      site_config.Add(
-          'x86-alex_he-release', _grouped_variant_release,
-          boards=['x86-alex_he'],
-          hw_tests=[],
-          upload_hw_test_artifacts=False,
-          paygen_skip_testing=True,
-      ),
-  )
-
-  site_config.AddGroup(
-      'x86-zgb-release-group',
-      site_config.Add(
-          'x86-zgb-release', _release,
-          boards=['x86-zgb'],
-      ),
-      site_config.Add(
-          'x86-zgb_he-release', _grouped_variant_release,
-          boards=['x86-zgb_he'],
-          hw_tests=[],
-          upload_hw_test_artifacts=False,
-          paygen_skip_testing=True,
-      ),
   )
 
   ### Release AFDO configs.
@@ -2404,14 +2426,6 @@ def GetConfig():
   ### Arm release configs.
 
   site_config.Add(
-      'veyron_rialto-release', _release,
-      _base_configs['veyron_rialto'],
-      # rialto does not use Chrome.
-      sync_chrome=False,
-      chrome_sdk=False,
-  )
-
-  site_config.Add(
       'smaug-release', _release,
       _base_configs['smaug'],
       images=['base', 'recovery', 'test'],
@@ -2426,20 +2440,25 @@ def GetConfig():
   ])
 
 
-  # Now generate generic release configs if we haven't created anything more
-  # specific above already.
-  def _AddReleaseConfigs():
-    # We have to mark all autogenerated PFQs as not important so the master
-    # does not wait for them.  http://crbug.com/386214
-    # If you want an important PFQ, you'll have to declare it yourself.
+  # We have to mark all autogenerated PFQs as not important so the master
+  # does not wait for them.  http://crbug.com/386214
+  # If you want an important PFQ, you'll have to declare it yourself.
+
+  def _AddInformationalConfigs():
     _CreateConfigsForBoards(
         chrome_info, _chrome_informational_hwtest_boards,
         'tot-chrome-pfq-informational', important=False,
         hw_tests=HWTestList.DefaultListPFQ(
             pool=constants.HWTEST_CONTINUOUS_POOL))
+    informational_boards = list(set(_all_release_boards) - set(_cheets_boards))
     _CreateConfigsForBoards(
-        chrome_info, _all_release_boards, 'tot-chrome-pfq-informational',
+        chrome_info, informational_boards, 'tot-chrome-pfq-informational',
         important=False)
+    _CreateConfigsForBoards(
+        chrome_info_cheets, _cheets_boards,
+        'tot-chrome-pfq-cheets-informational', important=False)
+
+  def _AddReleaseConfigs():
     _CreateConfigsForBoards(
         chrome_pfq, _chrome_pfq_important_boards, 'chrome-pfq')
     _CreateConfigsForBoards(
@@ -2455,16 +2474,8 @@ def GetConfig():
     _CreateConfigsForBoards(
         _release, _all_release_boards, config_lib.CONFIG_TYPE_RELEASE)
 
+  _AddInformationalConfigs()
   _AddReleaseConfigs()
-
-  site_config.Add(
-      'panther_embedded-minimal-release', _release,
-      _base_configs['panther_embedded'],
-      profile='minimal',
-      important=True,
-      paygen=False,
-      signer_tests=False,
-  )
 
   # beaglebone build doesn't generate signed images, so don't try to release
   # them.
@@ -2519,22 +2530,14 @@ def GetConfig():
           config_lib.HWTestConfig(constants.HWTEST_BVT_SUITE,
                                   warn_only=True, num=1),
           config_lib.HWTestConfig(constants.HWTEST_AU_SUITE,
+                                  warn_only=True, num=1),
+          config_lib.HWTestConfig(constants.HWTEST_COMMIT_SUITE, async=True,
                                   warn_only=True, num=1)],
-  )
-
-  site_config.Add(
-      'stumpy_moblab-release', moblab_release,
-      _base_configs['stumpy_moblab'],
   )
 
   site_config.Add(
       'guado_moblab-release', moblab_release,
       _base_configs['guado_moblab'],
-  )
-
-  site_config.Add(
-      'panther_moblab-release', moblab_release,
-      _base_configs['panther_moblab'],
   )
 
   cheets_release = site_config.AddTemplate(
@@ -2560,6 +2563,11 @@ def GetConfig():
   site_config.Add(
       'glados-cheets-release', cheets_release,
       _base_configs['glados-cheets'],
+  )
+
+  site_config.Add(
+      'glimmer-cheets-release', cheets_release,
+      _base_configs['glimmer-cheets'],
   )
 
   site_config.Add(
@@ -2615,6 +2623,7 @@ def GetConfig():
       lakitu_test_customizations,
       sign_types=['base'],
       important=True,
+      images=['base', 'recovery', 'test'],
   )
 
   site_config.Add(
@@ -2622,6 +2631,7 @@ def GetConfig():
       _base_configs['lakitu_next'],
       lakitu_test_customizations,
       signer_tests=False,
+      images=['base', 'recovery', 'test'],
   )
 
   site_config.Add(
@@ -2711,7 +2721,7 @@ def GetConfig():
   def _AdjustLeaderFollowerReleaseConfigs(
       leader_boards,
       follower_boards=None,
-      variant_boards=None,
+      unimportant_boards=None,
       **kwargs):
     """Adjust existing release configs into a leader/follower group.
 
@@ -2727,8 +2737,9 @@ def GetConfig():
                      single leader board.
       follower_boards: List of board names for normal followers (reduced GCE
                        friendly testing).
-      variant_boards: List of board names of variants (chrome is binary
-                      identical to a leader/follower).
+      unimportant_boards: List of boards that are not to be marked important.
+                          These boards are assumed to be followers, unless they
+                          are also in the leaders list.
       kwargs: Any special build config settings needed for all builds in this
               group can be passed in as additional named arguments.
     """
@@ -2740,46 +2751,41 @@ def GetConfig():
     if isinstance(leader_boards, basestring):
       leader_boards = (leader_boards,)
 
-    # Compute all release configuration names.
-    leaders = [release_name(b) for b in leader_boards or []]
-    followers = [release_name(b) for b in follower_boards or []]
-    variants = [release_name(b) for b in variant_boards or []]
+    assert leader_boards
 
-    # Leaders are built on baremetal builders and run all tests needed by the
-    # related boards.
+    # Compute all release configuration names.
+    leaders = [release_name(b) for b in leader_boards]
+    followers = [release_name(b) for b in follower_boards or []]
+    unimportant = set(release_name(b) for b in unimportant_boards or [])
+
+    # Add unimportant to followers, if they are not covered already.
+    followers.extend(unimportant - set(leaders) - set(followers))
+
     leader_config = config_lib.BuildConfig(
-        important=True,
+        buildslave_type=constants.BAREMETAL_BUILD_SLAVE_TYPE,
     )
 
     # Followers are built on GCE instances, and turn off testing that breaks
     # on GCE. The missing tests run on the leader board.
-    follower_config = leader_config.derive(
+    follower_config = config_lib.BuildConfig(
         buildslave_type=constants.GCE_BEEFY_BUILD_SLAVE_TYPE,
         chrome_sdk_build_chrome=False,
         vm_tests=[],
     )
 
-    # Variant boards don't build chrome_sdk, since a non-variant board will
-    # already build/upload the same thing.
-    variant_config = follower_config.derive(chrome_sdk=False)
-
     # Adjust the leader board.
     for config_name in leaders:
       site_config[config_name] = site_config[config_name].derive(
           leader_config,
+          important=config_name not in unimportant,
           **kwargs
       )
 
-    # Adjust all follower/variant boards based on above options.
+    # Adjust all follower boards based on above options.
     for config_name in followers:
       site_config[config_name] = site_config[config_name].derive(
           follower_config,
-          **kwargs
-      )
-
-    for config_name in variants:
-      site_config[config_name] = site_config[config_name].derive(
-          variant_config,
+          important=config_name not in unimportant,
           **kwargs
       )
 
@@ -2788,7 +2794,6 @@ def GetConfig():
       'x86-mario', (
           'x86-alex',
           'x86-zgb',
-      ), (
           'x86-alex_he',
           'x86-zgb_he',
       )
@@ -2807,7 +2812,6 @@ def GetConfig():
   _AdjustLeaderFollowerReleaseConfigs(
       'stout', (
           'link',
-      ), (
           'parrot_ivb',
       )
   )
@@ -2823,7 +2827,6 @@ def GetConfig():
           'monroe',
           'tricky',
           'zako',
-      ), (
           'falco_li',
       )
   )
@@ -2847,7 +2850,10 @@ def GetConfig():
           'sumo',
           'orco',
           'heli',
-      )
+      ),
+      unimportant_boards=(
+          'glimmer-cheets',
+      ),
   )
 
   # daisy-based boards
@@ -2876,22 +2882,17 @@ def GetConfig():
 
   # auron-based boards
   _AdjustLeaderFollowerReleaseConfigs(
-      'auron', (
+      'auron_paine', (
+          'auron',
           'auron_yuna',
-          'auron_paine',
+          'buddy',
+          'gandof',
+          'lulu',
           'samus-cheets',
       ),
-  )
-
-  # auron-based boards that are not important.
-  _AdjustLeaderFollowerReleaseConfigs(
-       [], (
-          'lulu',
-          'gandof',
-          'buddy',
+      unimportant_boards=(
           'lulu-cheets',
       ),
-      important=False,
   )
 
   # veyron-based boards
@@ -2900,23 +2901,17 @@ def GetConfig():
           'veyron_jerry',
           'veyron_mighty',
           'veyron_speedy',
-          'veyron_gus',
           'veyron_jaq',
           'veyron_minnie',
           'veyron_rialto',
       ),
-  )
-
-  # veyron-based boards, not important
-  _AdjustLeaderFollowerReleaseConfigs(
-      [], (
+      unimportant_boards=(
           'veyron_mickey',
           'veyron_tiger',
           'veyron_shark',
           'veyron_minnie-cheets',
           'veyron_fievel',
       ),
-      important=False,
   )
 
   # jecht-based boards
@@ -2943,16 +2938,11 @@ def GetConfig():
           'umaro',
           'banon',
       ),
-  )
-
-  # strago-based boards, not important.
-  _AdjustLeaderFollowerReleaseConfigs(
-      [], (
+      unimportant_boards=(
           'celes-cheets',
           'kefka',
           'relm',
       ),
-      important=False,
   )
 
   # oak-based boards
@@ -2962,28 +2952,29 @@ def GetConfig():
           'oak-cheets',
           'elm-cheets',
       ),
-      important=False,
   )
 
   # glados-based boards
   _AdjustLeaderFollowerReleaseConfigs(
-      'glados', (
+      'glados', None,
+      unimportant_boards=(
+          'glados',
           'chell',
           'glados-cheets',
           'cave',
           'chell-cheets',
           'asuka',
       ),
-      important=False,
   )
 
   # storm-based boards
   _AdjustLeaderFollowerReleaseConfigs(
-      'storm', (
+      'storm', None,
+      unimportant_boards=(
+          'storm',
           'arkham',
           'whirlwind',
       ),
-      important=False,
   )
 
   # kunimitsu-based boards
@@ -2999,21 +2990,23 @@ def GetConfig():
       'gru', (
           'kevin',
       ),
-      important=False,
   )
 
   # gale-based boards
   _AdjustLeaderFollowerReleaseConfigs(
-      'gale',
-      important=False,
+      'gale', None,
+      unimportant_boards=(
+        'gale',
+      ),
   )
 
   # reef-based boards
   _AdjustLeaderFollowerReleaseConfigs(
-      'reef', (
+      'reef', None,
+      unimportant_boards=(
+          'reef',
           'amenia',
       ),
-      important=False,
   )
 
   # Factory and Firmware releases much inherit from these classes.

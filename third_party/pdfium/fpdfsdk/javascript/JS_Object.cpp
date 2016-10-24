@@ -31,7 +31,7 @@ int FXJS_MsgBox(CPDFDoc_Environment* pApp,
 CJS_EmbedObj::CJS_EmbedObj(CJS_Object* pJSObject) : m_pJSObject(pJSObject) {}
 
 CJS_EmbedObj::~CJS_EmbedObj() {
-  m_pJSObject = NULL;
+  m_pJSObject = nullptr;
 }
 
 int CJS_EmbedObj::MsgBox(CPDFDoc_Environment* pApp,
@@ -75,6 +75,18 @@ void CJS_Object::Dispose() {
   m_pV8Object.Reset();
 }
 
+FX_BOOL CJS_Object::IsType(const FX_CHAR* sClassName) {
+  return TRUE;
+}
+
+CFX_ByteString CJS_Object::GetClassName() {
+  return "";
+}
+
+void CJS_Object::InitInstance(IJS_Runtime* pIRuntime) {}
+
+void CJS_Object::ExitInstance() {}
+
 int CJS_Object::MsgBox(CPDFDoc_Environment* pApp,
                        const FX_WCHAR* swMsg,
                        const FX_WCHAR* swTitle,
@@ -87,7 +99,7 @@ void CJS_Object::Alert(CJS_Context* pContext, const FX_WCHAR* swMsg) {
   if (pContext->IsMsgBoxEnabled()) {
     CPDFDoc_Environment* pApp = pContext->GetReaderApp();
     if (pApp)
-      pApp->JS_appAlert(swMsg, NULL, 0, 3);
+      pApp->JS_appAlert(swMsg, nullptr, 0, 3);
   }
 }
 
@@ -108,7 +120,7 @@ CJS_Timer::CJS_Timer(CJS_EmbedObj* pObj,
       m_pRuntime(pRuntime),
       m_pApp(pApp) {
   CFX_SystemHandler* pHandler = m_pApp->GetSysHandler();
-  m_nTimerID = pHandler->SetTimer(dwElapse, TimerProc);
+  m_nTimerID = pHandler->SetTimer(dwElapse, Trigger);
   (*GetGlobalTimerMap())[m_nTimerID] = this;
   m_pRuntime->AddObserver(this);
 }
@@ -117,32 +129,49 @@ CJS_Timer::~CJS_Timer() {
   CJS_Runtime* pRuntime = GetRuntime();
   if (pRuntime)
     pRuntime->RemoveObserver(this);
-  KillJSTimer();
-}
 
-void CJS_Timer::KillJSTimer() {
-  if (m_nTimerID) {
-    if (m_bValid) {
-      CFX_SystemHandler* pHandler = m_pApp->GetSysHandler();
-      pHandler->KillTimer(m_nTimerID);
-    }
-    GetGlobalTimerMap()->erase(m_nTimerID);
-    m_nTimerID = 0;
-  }
+  if (!m_nTimerID)
+    return;
+
+  if (m_bValid)
+    m_pApp->GetSysHandler()->KillTimer(m_nTimerID);
+
+  GetGlobalTimerMap()->erase(m_nTimerID);
 }
 
 // static
-void CJS_Timer::TimerProc(int idEvent) {
-  const auto it = GetGlobalTimerMap()->find(idEvent);
-  if (it != GetGlobalTimerMap()->end()) {
-    CJS_Timer* pTimer = it->second;
-    if (!pTimer->m_bProcessing) {
-      CFX_AutoRestorer<bool> scoped_processing(&pTimer->m_bProcessing);
-      pTimer->m_bProcessing = true;
-      if (pTimer->m_pEmbedObj)
-        pTimer->m_pEmbedObj->TimerProc(pTimer);
-    }
-  }
+void CJS_Timer::Trigger(int nTimerID) {
+  auto it = GetGlobalTimerMap()->find(nTimerID);
+  if (it == GetGlobalTimerMap()->end())
+    return;
+
+  CJS_Timer* pTimer = it->second;
+  if (pTimer->m_bProcessing)
+    return;
+
+  pTimer->m_bProcessing = true;
+  if (pTimer->m_pEmbedObj)
+    pTimer->m_pEmbedObj->TimerProc(pTimer);
+
+  // Timer proc may have destroyed timer, find it again.
+  it = GetGlobalTimerMap()->find(nTimerID);
+  if (it == GetGlobalTimerMap()->end())
+    return;
+
+  pTimer = it->second;
+  pTimer->m_bProcessing = false;
+  if (pTimer->IsOneShot())
+    pTimer->m_pEmbedObj->CancelProc(pTimer);
+}
+
+// static
+void CJS_Timer::Cancel(int nTimerID) {
+  auto it = GetGlobalTimerMap()->find(nTimerID);
+  if (it == GetGlobalTimerMap()->end())
+    return;
+
+  CJS_Timer* pTimer = it->second;
+  pTimer->m_pEmbedObj->CancelProc(pTimer);
 }
 
 // static

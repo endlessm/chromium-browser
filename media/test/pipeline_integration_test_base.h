@@ -12,7 +12,6 @@
 #include "base/message_loop/message_loop.h"
 #include "media/audio/clockless_audio_sink.h"
 #include "media/audio/null_audio_sink.h"
-#include "media/base/audio_hardware_config.h"
 #include "media/base/demuxer.h"
 #include "media/base/media_keys.h"
 #include "media/base/null_video_sink.h"
@@ -67,7 +66,12 @@ class PipelineIntegrationTestBase : public Pipeline::Client {
   // Test types for advanced testing and benchmarking (e.g., underflow is
   // disabled to ensure consistent hashes). May be combined using the bitwise
   // or operator (and as such must have values that are powers of two).
-  enum TestTypeFlags { kNormal = 0, kHashed = 1, kClockless = 2 };
+  enum TestTypeFlags {
+    kNormal = 0,
+    kHashed = 1,
+    kClockless = 2,
+    kExpectDemuxerFailure = 4
+  };
 
   // Starts the pipeline with a file specified by |filename|, optionally with a
   // CdmContext or a |test_type|, returning the final status code after it has
@@ -133,7 +137,6 @@ class PipelineIntegrationTestBase : public Pipeline::Client {
   VideoPixelFormat last_video_frame_format_;
   ColorSpace last_video_frame_color_space_;
   DummyTickClock dummy_clock_;
-  AudioHardwareConfig hardware_config_;
   PipelineMetadata metadata_;
   scoped_refptr<VideoFrame> last_frame_;
 

@@ -211,8 +211,6 @@ find_client_info(struct display *d, struct wl_client *client)
 {
 	struct client_info *ci;
 
-	/* find the right client_info struct and save the
-	 * resource as its data, so that we can use it later */
 	wl_list_for_each(ci, &d->clients, link) {
 		if (ci->wl_client == client)
 			return ci;
@@ -235,6 +233,8 @@ bind_seat(struct wl_client *client, void *data,
 	res = wl_resource_create(client, &wl_seat_interface, vers, id);
 	assert(res);
 
+	/* save the resource as client's info data,
+	 * so that we can use it later */
 	ci->data = res;
 }
 
@@ -874,5 +874,55 @@ TEST(versions)
 
 	wl_global_destroy(global);
 
+	display_destroy(d);
+}
+
+static void
+check_error_on_destroyed_object(void *data)
+{
+	struct client *c;
+	struct wl_seat *seat;
+	uint32_t id;
+	const struct wl_interface *intf;
+
+	c = client_connect();
+	seat = client_get_seat(c);
+
+	/* destroy the seat proxy. The display won't know
+	 * about it yet, so it will post the error as usual */
+	wl_proxy_destroy((struct wl_proxy *) seat);
+
+	/* let display post the error. The error will
+	 * be caught in stop_display while dispatching */
+	assert(stop_display(c, 1) == -1);
+
+	/* check the returned error. Since the object was destroyed,
+	 * we don't know the interface and id */
+	assert(wl_display_get_error(c->wl_display) == EPROTO);
+	assert(wl_display_get_protocol_error(c->wl_display, &intf, &id) == 23);
+	assert(intf == NULL);
+	assert(id == 0);
+
+	client_disconnect_nocheck(c);
+}
+
+TEST(error_on_destroyed_object)
+{
+	struct client_info *cl;
+	struct display *d = display_create();
+
+	wl_global_create(d->wl_display, &wl_seat_interface,
+			 1, d, bind_seat);
+
+	cl = client_create_noarg(d, check_error_on_destroyed_object);
+	display_run(d);
+
+	/* did client bind to the seat? */
+	assert(cl->data);
+
+	/* post error on the destroyed object */
+	wl_resource_post_error((struct wl_resource *) cl->data,
+			       23, "Dummy error");
+	display_resume(d);
 	display_destroy(d);
 }

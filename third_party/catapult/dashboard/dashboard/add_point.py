@@ -19,7 +19,7 @@ from dashboard import math_utils
 from dashboard import post_data_handler
 from dashboard.models import graph_data
 
-_TASK_QUEUE_NAME = 'add-point-queue'
+_TASK_QUEUE_NAME = 'new-points-queue'
 
 # Number of rows to process per task queue task. This limits the task size
 # and execution time (Limits: 100KB object size and 10 minutes execution time).
@@ -602,7 +602,7 @@ def _ValidateTestPath(test_path):
 
 
 def _ValidateTestPathPartName(name):
-  """Checks whether a Master, Bot or Test name is OK."""
+  """Checks whether a Master, Bot or TestMetadata name is OK."""
   # NDB Datastore doesn't allow key names to start and with "__" and "__".
   if name.startswith('__') and name.endswith('__'):
     raise BadRequestError(
@@ -640,7 +640,7 @@ def _ValidateRowId(row_dict, test_map):
 def _IsAcceptableRowId(row_id, last_row_id):
   """Checks whether the given row id (aka revision) is not too large or small.
 
-  For each data series (i.e. Test entity), we assume that row IDs are
+  For each data series (i.e. TestMetadata entity), we assume that row IDs are
   monotonically increasing. On a given chart, points are sorted by these
   row IDs. This way, points can arrive out of order but still be shown
   correctly in the chart.
@@ -704,7 +704,7 @@ def GetAndValidateRowProperties(row):
 
   This includes the default "value" and "error" columns as well as all
   supplemental columns, but it doesn't include "revision", and it doesn't
-  include input fields that are properties of the parent Test, such as
+  include input fields that are properties of the parent TestMetadata, such as
   "units".
 
   This method is responsible for validating all properties that are to be

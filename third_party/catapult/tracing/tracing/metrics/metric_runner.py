@@ -3,9 +3,9 @@
 # found in the LICENSE file.
 import os
 
-from perf_insights import function_handle
-from perf_insights import map_runner
-from perf_insights import progress_reporter
+from perf_insights.mre import function_handle
+from perf_insights.mre import map_runner
+from perf_insights.mre import progress_reporter
 from perf_insights.mre import file_handle
 from perf_insights.mre import job as job_module
 
@@ -22,8 +22,9 @@ def _GetMetricRunnerHandle(metric):
   metric_mapper_path = os.path.join(metrics_dir, _METRIC_MAP_FUNCTION_FILENAME)
 
   modules_to_load = [function_handle.ModuleToLoad(filename=metric_mapper_path)]
+  options = {'metric': metric}
   map_function_handle = function_handle.FunctionHandle(
-      modules_to_load, _METRIC_MAP_FUNCTION_NAME, {'metric': metric})
+      modules_to_load, _METRIC_MAP_FUNCTION_NAME, options)
 
   return job_module.Job(map_function_handle, None)
 
@@ -31,7 +32,8 @@ def RunMetric(filename, metric, extra_import_options=None):
   result = RunMetricOnTraces([filename], metric, extra_import_options)
   return result[filename]
 
-def RunMetricOnTraces(filenames, metric, extra_import_options=None):
+def RunMetricOnTraces(filenames, metric,
+                      extra_import_options=None):
   trace_handles = [
       file_handle.URLFileHandle(f, 'file://%s' % f) for f in filenames]
   job = _GetMetricRunnerHandle(metric)

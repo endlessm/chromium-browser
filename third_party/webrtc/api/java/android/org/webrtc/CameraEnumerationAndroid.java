@@ -11,9 +11,8 @@
 package org.webrtc;
 
 import static java.lang.Math.abs;
-import android.graphics.ImageFormat;
 
-import org.webrtc.Logging;
+import android.graphics.ImageFormat;
 
 import java.util.Collections;
 import java.util.Comparator;
@@ -22,42 +21,59 @@ import java.util.List;
 @SuppressWarnings("deprecation")
 public class CameraEnumerationAndroid {
   private final static String TAG = "CameraEnumerationAndroid";
-  // Synchronized on |CameraEnumerationAndroid.this|.
-  private static Enumerator enumerator = new CameraEnumerator();
-
-  public interface Enumerator {
-    /**
-     * Returns a list of supported CaptureFormats for the camera with index |cameraId|.
-     */
-    List<CaptureFormat> getSupportedFormats(int cameraId);
-  }
-
-  public static synchronized void setEnumerator(Enumerator enumerator) {
-    CameraEnumerationAndroid.enumerator = enumerator;
-  }
-
-  public static synchronized List<CaptureFormat> getSupportedFormats(int cameraId) {
-    final List<CaptureFormat> formats = enumerator.getSupportedFormats(cameraId);
-    Logging.d(TAG, "Supported formats for camera " + cameraId + ": " + formats);
-    return formats;
-  }
 
   public static class CaptureFormat {
+    // Class to represent a framerate range. The framerate varies because of lightning conditions.
+    // The values are multiplied by 1000, so 1000 represents one frame per second.
+    public static class FramerateRange {
+      public int min;
+      public int max;
+
+      public FramerateRange(int min, int max) {
+        this.min = min;
+        this.max = max;
+      }
+
+      @Override
+      public String toString() {
+        return "[" + (min / 1000.0f) + ":" + (max / 1000.0f) + "]";
+      }
+
+      @Override
+      public boolean equals(Object other) {
+        if (!(other instanceof FramerateRange)) {
+          return false;
+        }
+        final FramerateRange otherFramerate = (FramerateRange) other;
+        return min == otherFramerate.min && max == otherFramerate.max;
+      }
+
+      @Override
+      public int hashCode() {
+        // Use prime close to 2^16 to avoid collisions for normal values less than 2^16.
+        return 1 + 65537 * min + max;
+      }
+    }
+
     public final int width;
     public final int height;
-    public final int maxFramerate;
-    public final int minFramerate;
+    public final FramerateRange framerate;
+
     // TODO(hbos): If VideoCapturer.startCapture is updated to support other image formats then this
     // needs to be updated and VideoCapturer.getSupportedFormats need to return CaptureFormats of
     // all imageFormats.
     public final int imageFormat = ImageFormat.NV21;
 
-    public CaptureFormat(int width, int height, int minFramerate,
-        int maxFramerate) {
+    public CaptureFormat(int width, int height, int minFramerate, int maxFramerate) {
       this.width = width;
       this.height = height;
-      this.minFramerate = minFramerate;
-      this.maxFramerate = maxFramerate;
+      this.framerate = new FramerateRange(minFramerate, maxFramerate);
+    }
+
+    public CaptureFormat(int width, int height, FramerateRange framerate) {
+      this.width = width;
+      this.height = height;
+      this.framerate = framerate;
     }
 
     // Calculates the frame size of this capture format.
@@ -79,62 +95,74 @@ public class CameraEnumerationAndroid {
 
     @Override
     public String toString() {
-      return width + "x" + height + "@[" + minFramerate + ":" + maxFramerate + "]";
+      return width + "x" + height + "@" + framerate;
     }
 
-    public boolean isSameFormat(final CaptureFormat that) {
-      if (that == null) {
+    @Override
+    public boolean equals(Object other) {
+      if (!(other instanceof CaptureFormat)) {
         return false;
       }
-      return width == that.width && height == that.height && maxFramerate == that.maxFramerate
-          && minFramerate == that.minFramerate;
+      final CaptureFormat otherFormat = (CaptureFormat) other;
+      return width == otherFormat.width && height == otherFormat.height
+          && framerate.equals(otherFormat.framerate);
+    }
+
+    @Override
+    public int hashCode() {
+      return 1 + (width * 65497 + height) * 251 + framerate.hashCode();
     }
   }
 
-  // Returns device names that can be used to create a new VideoCapturerAndroid.
+  /**
+   * @deprecated
+   * Please use Camera1Enumerator.getDeviceNames() instead.
+   */
+  @Deprecated
   public static String[] getDeviceNames() {
-    String[] names = new String[android.hardware.Camera.getNumberOfCameras()];
-    for (int i = 0; i < android.hardware.Camera.getNumberOfCameras(); ++i) {
-      names[i] = getDeviceName(i);
-    }
-    return names;
+    return new Camera1Enumerator().getDeviceNames();
   }
 
-  // Returns number of cameras on device.
+
+  /**
+   * @deprecated
+   * Please use Camera1Enumerator.getDeviceNames().length instead.
+   */
+  @Deprecated
   public static int getDeviceCount() {
-    return android.hardware.Camera.getNumberOfCameras();
+    return new Camera1Enumerator().getDeviceNames().length;
   }
 
-  // Returns the name of the camera with camera index. Returns null if the
-  // camera can not be used.
+  /**
+   * @deprecated
+   * Please use Camera1Enumerator.getDeviceNames().get(index) instead.
+   */
+  @Deprecated
   public static String getDeviceName(int index) {
-    android.hardware.Camera.CameraInfo info = new android.hardware.Camera.CameraInfo();
-    try {
-      android.hardware.Camera.getCameraInfo(index, info);
-    } catch (Exception e) {
-      Logging.e(TAG, "getCameraInfo failed on index " + index,e);
-      return null;
-    }
-
-    String facing =
-        (info.facing == android.hardware.Camera.CameraInfo.CAMERA_FACING_FRONT) ? "front" : "back";
-    return "Camera " + index + ", Facing " + facing
-        + ", Orientation " + info.orientation;
+    return new Camera1Enumerator().getDeviceName(index);
   }
 
-  // Returns the name of the front facing camera. Returns null if the
-  // camera can not be used or does not exist.
+  /**
+   * @deprecated
+   * Please use Camera1Enumerator.isFrontFacing(String deviceName) instead.
+   */
+  @Deprecated
   public static String getNameOfFrontFacingDevice() {
     return getNameOfDevice(android.hardware.Camera.CameraInfo.CAMERA_FACING_FRONT);
   }
 
-  // Returns the name of the back facing camera. Returns null if the
-  // camera can not be used or does not exist.
+  /**
+   * @deprecated
+   * Please use Camera1Enumerator.isBackFacing(String deviceName) instead.
+   */
+  @Deprecated
   public static String getNameOfBackFacingDevice() {
     return getNameOfDevice(android.hardware.Camera.CameraInfo.CAMERA_FACING_BACK);
   }
 
-  // Helper class for finding the closest supported format for the two functions below.
+  // Helper class for finding the closest supported format for the two functions below. It creates a
+  // comparator based on the difference to some requested parameters, where the element with the
+  // minimum difference is the element that is closest to the requested parameters.
   private static abstract class ClosestComparator<T> implements Comparator<T> {
     // Difference between supported and requested parameter.
     abstract int diff(T supportedParameter);
@@ -145,30 +173,48 @@ public class CameraEnumerationAndroid {
     }
   }
 
-  public static int[] getFramerateRange(android.hardware.Camera.Parameters parameters,
-      final int framerate) {
-    List<int[]> listFpsRange = parameters.getSupportedPreviewFpsRange();
-    if (listFpsRange.isEmpty()) {
-      Logging.w(TAG, "No supported preview fps range");
-      return new int[]{0, 0};
-    }
-    return Collections.min(listFpsRange,
-        new ClosestComparator<int[]>() {
-          @Override int diff(int[] range) {
-            final int maxFpsWeight = 10;
-            return range[android.hardware.Camera.Parameters.PREVIEW_FPS_MIN_INDEX]
-                + maxFpsWeight * abs(framerate
-                    - range[android.hardware.Camera.Parameters.PREVIEW_FPS_MAX_INDEX]);
+  // Prefer a fps range with an upper bound close to |framerate|. Also prefer a fps range with a low
+  // lower bound, to allow the framerate to fluctuate based on lightning conditions.
+  public static CaptureFormat.FramerateRange getClosestSupportedFramerateRange(
+      List<CaptureFormat.FramerateRange> supportedFramerates, final int requestedFps) {
+    return Collections.min(supportedFramerates,
+        new ClosestComparator<CaptureFormat.FramerateRange>() {
+          // Progressive penalty if the upper bound is further away than |MAX_FPS_DIFF_THRESHOLD|
+          // from requested.
+          private static final int MAX_FPS_DIFF_THRESHOLD = 5000;
+          private static final int MAX_FPS_LOW_DIFF_WEIGHT = 1;
+          private static final int MAX_FPS_HIGH_DIFF_WEIGHT = 3;
+
+          // Progressive penalty if the lower bound is bigger than |MIN_FPS_THRESHOLD|.
+          private static final int MIN_FPS_THRESHOLD = 8000;
+          private static final int MIN_FPS_LOW_VALUE_WEIGHT = 1;
+          private static final int MIN_FPS_HIGH_VALUE_WEIGHT = 4;
+
+          // Use one weight for small |value| less than |threshold|, and another weight above.
+          private int progressivePenalty(int value, int threshold, int lowWeight, int highWeight) {
+            return (value < threshold)
+                ? value * lowWeight
+                : threshold * lowWeight + (value - threshold) * highWeight;
+          }
+
+          @Override
+          int diff(CaptureFormat.FramerateRange range) {
+            final int minFpsError = progressivePenalty(range.min,
+                MIN_FPS_THRESHOLD, MIN_FPS_LOW_VALUE_WEIGHT, MIN_FPS_HIGH_VALUE_WEIGHT);
+            final int maxFpsError = progressivePenalty(Math.abs(requestedFps * 1000 - range.max),
+                MAX_FPS_DIFF_THRESHOLD, MAX_FPS_LOW_DIFF_WEIGHT, MAX_FPS_HIGH_DIFF_WEIGHT);
+            return minFpsError + maxFpsError;
           }
      });
   }
 
-  public static android.hardware.Camera.Size getClosestSupportedSize(
-      List<android.hardware.Camera.Size> supportedSizes, final int requestedWidth,
+  public static Size getClosestSupportedSize(
+      List<Size> supportedSizes, final int requestedWidth,
       final int requestedHeight) {
     return Collections.min(supportedSizes,
-        new ClosestComparator<android.hardware.Camera.Size>() {
-          @Override int diff(android.hardware.Camera.Size size) {
+        new ClosestComparator<Size>() {
+          @Override
+          int diff(Size size) {
             return abs(requestedWidth - size.width) + abs(requestedHeight - size.height);
           }
      });

@@ -18,6 +18,7 @@
 #include "webrtc/base/deprecation.h"
 #include "webrtc/base/optional.h"
 #include "webrtc/common_types.h"
+#include "webrtc/modules/audio_coding/codecs/audio_decoder_factory.h"
 #include "webrtc/modules/audio_coding/include/audio_coding_module_typedefs.h"
 #include "webrtc/modules/audio_coding/neteq/include/neteq.h"
 #include "webrtc/modules/include/module.h"
@@ -72,6 +73,7 @@ class AudioCodingModule {
     int id;
     NetEq::Config neteq_config;
     Clock* clock;
+    rtc::scoped_refptr<AudioDecoderFactory> decoder_factory;
   };
 
   ///////////////////////////////////////////////////////////////////////////
@@ -671,6 +673,15 @@ class AudioCodingModule {
   // valid timestamp is available.
   //
   virtual rtc::Optional<uint32_t> PlayoutTimestamp() = 0;
+
+  ///////////////////////////////////////////////////////////////////////////
+  // int FilteredCurrentDelayMs()
+  // Returns the current total delay from NetEq (packet buffer and sync buffer)
+  // in ms, with smoothing applied to even out short-time fluctuations due to
+  // jitter. The packet buffer part of the delay is not updated during DTX/CNG
+  // periods.
+  //
+  virtual int FilteredCurrentDelayMs() const = 0;
 
   ///////////////////////////////////////////////////////////////////////////
   // int32_t PlayoutData10Ms(

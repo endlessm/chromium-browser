@@ -164,25 +164,39 @@ tr.exportTo('tr.ui.analysis', function() {
     }
   };
 
+  /** @constructor */
+  function AllocationCountColumn(name, cellPath, aggregationMode) {
+    tr.ui.analysis.DetailsNumericMemoryColumn.call(
+        this, name, cellPath, aggregationMode);
+  }
+
+  AllocationCountColumn.prototype = {
+    __proto__: tr.ui.analysis.DetailsNumericMemoryColumn.prototype,
+
+    getFormattingContext: function(unit) {
+      return { minimumFractionDigits: 0 };
+    }
+  };
+
   var COLUMN_RULES = [
     {
       condition: 'Size',
       importance: 3,
-      columnConstructor: tr.ui.analysis.NumericMemoryColumn
+      columnConstructor: tr.ui.analysis.DetailsNumericMemoryColumn
     },
     {
       condition: 'Count',
       importance: 2,
-      columnConstructor: tr.ui.analysis.NumericMemoryColumn
+      columnConstructor: AllocationCountColumn
     },
     {
-      condition: 'Average size',
+      condition: 'Average size per allocation',
       importance: 1,
-      columnConstructor: tr.ui.analysis.NumericMemoryColumn
+      columnConstructor: tr.ui.analysis.DetailsNumericMemoryColumn
     },
     {
       importance: 0,
-      columnConstructor: tr.ui.analysis.NumericMemoryColumn
+      columnConstructor: tr.ui.analysis.DetailsNumericMemoryColumn
     }
   ];
 
@@ -352,8 +366,8 @@ tr.exportTo('tr.ui.analysis', function() {
           var count = countValue.total;
           row['Count'] = new ScalarNumeric(unitlessNumber_smallerIsBetter,
               count);
-          row['Average size'] = new ScalarNumeric(sizeInBytes_smallerIsBetter,
-              count === 0 ? 0 : size / count);
+          row['Average size per allocation'] = new ScalarNumeric(
+              sizeInBytes_smallerIsBetter, count === 0 ? 0 : size / count);
         }
         return row;
       }, this);
@@ -466,7 +480,9 @@ tr.exportTo('tr.ui.analysis', function() {
   });
 
   return {
-    RowDimension: RowDimension  // Exported for testing.
+    // Exported for testing.
+    RowDimension: RowDimension,
+    AllocationCountColumn: AllocationCountColumn
   };
 });
 </script>

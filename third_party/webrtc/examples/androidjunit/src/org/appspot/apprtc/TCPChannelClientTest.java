@@ -10,30 +10,26 @@
 
 package org.appspot.apprtc;
 
-import org.appspot.apprtc.util.LooperExecutor;
-import org.appspot.apprtc.util.RobolectricLooperExecutor;
+
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
-import org.mockito.invocation.InvocationOnMock;
-import org.mockito.stubbing.Answer;
 import org.robolectric.RobolectricTestRunner;
 import org.robolectric.annotation.Config;
 import org.robolectric.shadows.ShadowLog;
 
-import java.util.concurrent.ArrayBlockingQueue;
-import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.Assert.fail;
-import static org.mockito.Matchers.any;
-import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
-import static org.mockito.Mockito.when;
 
 @RunWith(RobolectricTestRunner.class)
 @Config(manifest = Config.NONE)
@@ -47,13 +43,14 @@ public class TCPChannelClientTest {
   private static final int CONNECT_TIMEOUT = 100;
   private static final int SEND_TIMEOUT = 100;
   private static final int DISCONNECT_TIMEOUT = 100;
+  private static final int TERMINATION_TIMEOUT = 1000;
   private static final String TEST_MESSAGE_SERVER = "Hello, Server!";
   private static final String TEST_MESSAGE_CLIENT = "Hello, Client!";
 
   @Mock TCPChannelClient.TCPChannelEvents serverEvents;
   @Mock TCPChannelClient.TCPChannelEvents clientEvents;
 
-  private RobolectricLooperExecutor executor;
+  private ExecutorService executor;
   private TCPChannelClient server;
   private TCPChannelClient client;
 
@@ -64,15 +61,14 @@ public class TCPChannelClientTest {
 
     MockitoAnnotations.initMocks(this);
 
-    executor = new RobolectricLooperExecutor();
-    executor.requestStart();
+    executor = Executors.newSingleThreadExecutor();
   }
 
   @After
   public void tearDown() {
     verifyNoMoreEvents();
 
-    executor.executeAndWait(new Runnable() {
+    executeAndWait(new Runnable() {
       @Override
       public void run() {
         client.disconnect();
@@ -81,9 +77,9 @@ public class TCPChannelClientTest {
     });
 
     // Stop the executor thread
-    executor.requestStop();
+    executor.shutdown();
     try {
-      executor.join();
+      executor.awaitTermination(TERMINATION_TIMEOUT, TimeUnit.MILLISECONDS);
     } catch (InterruptedException e) {
       fail(e.getMessage());
     }
@@ -121,7 +117,7 @@ public class TCPChannelClientTest {
   public void testSendData() {
     testConnectIPv4();
 
-    executor.executeAndWait(new Runnable() {
+    executeAndWait(new Runnable() {
       @Override
       public void run() {
         client.send(TEST_MESSAGE_SERVER);
@@ -136,7 +132,7 @@ public class TCPChannelClientTest {
   @Test
   public void testDisconnectServer() {
     testConnectIPv4();
-    executor.executeAndWait(new Runnable() {
+    executeAndWait(new Runnable() {
       @Override
       public void run() {
         server.disconnect();
@@ -150,7 +146,7 @@ public class TCPChannelClientTest {
   @Test
   public void testDisconnectClient() {
     testConnectIPv4();
-    executor.executeAndWait(new Runnable() {
+    executeAndWait(new Runnable() {
       @Override
       public void run() {
         client.disconnect();
@@ -191,5 +187,16 @@ public class TCPChannelClientTest {
   private void verifyNoMoreEvents() {
     verifyNoMoreInteractions(serverEvents);
     verifyNoMoreInteractions(clientEvents);
+  }
+
+  /**
+   * Queues runnable to be run and waits for it to be executed by the executor thread
+   */
+  public void executeAndWait(Runnable runnable) {
+    try {
+      executor.submit(runnable).get();
+    } catch (Exception e) {
+      fail(e.getMessage());
+    }
   }
 }

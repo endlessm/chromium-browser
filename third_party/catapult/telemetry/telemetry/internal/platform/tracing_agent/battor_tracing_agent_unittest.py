@@ -6,11 +6,24 @@ import unittest
 
 from battor import battor_error
 from battor import battor_wrapper
+from devil.android import battery_utils
 from telemetry.internal.platform.tracing_agent import battor_tracing_agent
 from telemetry.timeline import trace_data
 from telemetry.timeline import tracing_config
 
-_BATTOR_RETURN = ['fake', 'battor', 'data']
+_BATTOR_RETURN = 'fake\nbattor\ndata'
+
+
+class FakeBatteryUtils(object):
+  def __init__(self, device):
+    self._device = device
+    self._charging_state = True
+
+  def SetCharging(self, state):
+    self._charging_state = state
+
+  def GetCharging(self):
+    return self._charging_state
 
 
 class FakePlatformBackend(object):
@@ -83,6 +96,9 @@ class BattOrTracingAgentTest(unittest.TestCase):
     battor_wrapper.BattorWrapper = FakeBattOr
     battor_wrapper.IsBattOrConnected = lambda x, android_device=None: True
 
+    self._battery_utils = battery_utils.BatteryUtils
+    battery_utils.BatteryUtils = FakeBatteryUtils
+
     # Agents and backends.
     self.android_backend = FakeAndroidPlatformBackend()
     self.desktop_backend = FakeDesktopPlatformBackend()
@@ -93,6 +109,7 @@ class BattOrTracingAgentTest(unittest.TestCase):
 
   def tearDown(self):
     battor_wrapper.BattorWrapper = self._battor_wrapper
+    battery_utils.BatteryUtils = self._battery_utils
 
   def testInit(self):
     self.assertTrue(isinstance(self.android_agent._platform_backend,
@@ -139,7 +156,8 @@ class BattOrTracingAgentTest(unittest.TestCase):
     def throw_battor_error():
       raise battor_error.BattorError('Forced Exception')
     self.android_agent._battor.StartTracing = throw_battor_error
-    self.assertFalse(self.android_agent.StartAgentTracing(self._config, 0))
+    with self.assertRaises(battor_error.BattorError):
+      self.android_agent.StartAgentTracing(self._config, 0)
 
   def testStopAgentTracing(self):
     self.android_agent.StopAgentTracing()
@@ -150,9 +168,16 @@ class BattOrTracingAgentTest(unittest.TestCase):
     self.android_agent.CollectAgentTraceData(builder)
     self.assertTrue(self.android_agent._battor._collect_trace_data_called)
     builder = builder.AsData()
-    self.assertTrue(builder.HasEventsFor(trace_data.BATTOR_TRACE_PART))
-    data_from_builder = builder.GetEventsFor(trace_data.BATTOR_TRACE_PART)
-    self.assertListEqual(['\n'.join(_BATTOR_RETURN)], data_from_builder)
+    self.assertTrue(builder.HasTraceFor(trace_data.BATTOR_TRACE_PART))
+    data_from_builder = builder.GetTraceFor(trace_data.BATTOR_TRACE_PART)
+    self.assertEqual(_BATTOR_RETURN, data_from_builder)
+
+  def testAndroidCharging(self):
+    self.assertTrue(self.android_agent._battery.GetCharging())
+    self.assertTrue(self.android_agent.StartAgentTracing(self._config, 0))
+    self.assertFalse(self.android_agent._battery.GetCharging())
+    self.android_agent.StopAgentTracing()
+    self.assertTrue(self.android_agent._battery.GetCharging())
 
   def testRecordClockSyncMarker(self):
     def callback_with_exception(a, b):
