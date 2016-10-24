@@ -75,7 +75,7 @@
     [ 'OS != "ios" and target_arch != "arm" and target_arch != "mipsel" and \
        target_arch != "arm64" and target_arch != "mips64el"', {
       'sources': [
-        'ext/convolver_SSE2.cc',
+        'ext/convolver.cc',
       ],
     }],
     [ 'target_arch == "mipsel" and mips_dsp_rev >= 2',{

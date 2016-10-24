@@ -50,7 +50,7 @@
             'src/transform_util.h',
           ],
           'conditions': [
-            ['target_arch=="ia32" or target_arch=="x64"', {
+            ['target_arch=="x64"', {
               'defines': [
                 'SSE2_ENABLE',
               ],

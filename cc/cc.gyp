@@ -601,7 +601,7 @@
         '../build/android/increase_size_for_speed.gypi',
       ],
       'conditions': [
-        ['target_arch == "ia32" or target_arch == "x64"', {
+        ['target_arch == "x64"', {
           'sources': [
             'raster/texture_compressor_etc1_sse.cc',
             'raster/texture_compressor_etc1_sse.h',

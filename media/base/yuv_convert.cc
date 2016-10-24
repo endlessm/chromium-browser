@@ -32,7 +32,7 @@
 #include "media/base/simd/convert_yuv_to_rgb.h"
 #include "media/base/simd/filter_yuv.h"
 
-#if defined(ARCH_CPU_X86_FAMILY)
+#if defined(__x86_64__)
 #if defined(COMPILER_MSVC)
 #include <intrin.h>
 #else
@@ -245,7 +245,7 @@ void InitializeCPUSpecificYUVConversions() {
   g_empty_register_state_proc_ = EmptyRegisterStateStub;
 
   // Assembly code confuses MemorySanitizer. Also not available in iOS builds.
-#if defined(ARCH_CPU_X86_FAMILY) && !defined(MEMORY_SANITIZER) && \
+#if defined(ARCH_CPU_X86_64) && !defined(MEMORY_SANITIZER) && \
     !defined(OS_IOS)
   g_convert_yuva_to_argb_proc_ = ConvertYUVAToARGB_MMX;
 

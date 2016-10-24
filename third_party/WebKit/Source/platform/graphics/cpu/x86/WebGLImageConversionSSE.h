@@ -5,7 +5,7 @@
 #ifndef WebGLImageConversionSSE_h
 #define WebGLImageConversionSSE_h
 
-#if CPU(X86) || CPU(X86_64)
+#if CPU(X86_64)
 
 #include <emmintrin.h>
 

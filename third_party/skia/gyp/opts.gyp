@@ -33,9 +33,9 @@
       ],
       'conditions': [
         [ '"x86" in skia_arch_type and skia_os != "ios"', {
-          'cflags': [ '-msse2' ],
+          'cflags': [ ],
           'dependencies': [ 'opts_ssse3', 'opts_sse41', 'opts_sse42', 'opts_avx', 'opts_avx2' ],
-          'sources': [ '<@(sse2_sources)' ],
+          'sources': [ '<@(none_sources)' ],
         }],
 
         [ 'skia_arch_type == "mips"', {

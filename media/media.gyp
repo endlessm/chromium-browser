@@ -1016,7 +1016,7 @@
             'filters/ffmpeg_h265_to_annex_b_bitstream_converter.h',
           ],
         }],
-        ['target_arch=="ia32" or target_arch=="x64"', {
+        ['target_arch=="x64"', {
           'dependencies': [
             'media_asm',
           ],

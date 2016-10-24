@@ -46,7 +46,7 @@
           # be in the regular skia target. But we need skia_opts for arm
           # anyway, so putting sse2_sources here is simpler than making this
           # conditionally a type none target on x86.
-          'sources': [ '<@(sse2_sources)' ],
+          'sources': [ '<@(none_sources)' ],
           'dependencies': [
             'skia_opts_ssse3',
             'skia_opts_sse41',
