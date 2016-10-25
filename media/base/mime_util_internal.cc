@@ -29,6 +29,8 @@
 #include "media/base/android/media_codec_util.h"  // nogncheck
 #endif
 
+#include <dlfcn.h>
+
 namespace media {
 namespace internal {
 
@@ -278,6 +280,41 @@ void MimeUtil::InitializeMimeTypeMaps() {
   AddSupportedMediaFormats();
 }
 
+/* On Endless OS, we always build with USE_PROPRIETARY_CODECS defined
+ * and then, depending on the version of libffmpeg.so that is loaded,
+ * some non-free codecs can be available other than free ones.
+ *
+ * The problem with this approach is that Chromium will internally
+ * report that all the proprietary codecs are available regardless
+ * of the version of libffmpeg.so that is being used so we need
+ * to add some extra checks in this case at least for the codecs
+ * that Endless OS would support in the non-free version of the OS),
+ * so that users unable to reproduce certain media formats will then
+ * be reported about it, so that they can decide whether to purchase
+ * codecs activation key to unlock that particular type of content.
+ */
+static void
+checkNonFreeMIMETypesOnEOS(bool& supports_h264, bool& supports_aac) {
+    /* Get a handle for the current process */
+    void *handle = dlopen(nullptr, RTLD_NOW);
+    if (!handle) {
+      DVLOG(4) << __FUNCTION__ << ": Unable to obtain handle for main process: " << dlerror();
+      return;
+    }
+
+#if defined(__arm__)
+    // We support H.264 / AAC hardware accelerated decoding on ARM.
+    supports_h264 = true;
+    supports_aac = true;
+#else
+    // On Intel, we check the ffmpeg-based decoders are available.
+    supports_h264 = (dlsym(handle, "ff_h264_decoder") != nullptr);
+    supports_aac = (dlsym(handle, "ff_aac_decoder") != nullptr);
+#endif
+
+    dlclose(handle);
+}
+
 // Each call to AddContainerWithCodecs() contains a media type
 // (https://en.wikipedia.org/wiki/Media_type) and corresponding media codec(s)
 // supported by these types/containers.
@@ -313,11 +350,22 @@ void MimeUtil::AddSupportedMediaFormats() {
   mp4_video_codecs.emplace(VP9);
 
 #if BUILDFLAG(USE_PROPRIETARY_CODECS)
-  const CodecSet aac{MPEG2_AAC, MPEG4_AAC, MPEG4_XHE_AAC};
+  bool supportsH264 = false;
+  bool supportsAAC = false;
+  checkNonFreeMIMETypesOnEOS(supportsH264, supportsAAC);
+
+  CodecSet aac;
+  if (supportsAAC) {
+    aac.emplace(MPEG2_AAC);
+    aac.emplace(MPEG4_AAC);
+    aac.emplace(MPEG4_XHE_AAC);
+  }
+
   mp4_audio_codecs.insert(aac.begin(), aac.end());
 
   CodecSet avc_and_aac(aac);
-  avc_and_aac.emplace(H264);
+  if (supportsAAC && supportsH264)
+      avc_and_aac.emplace(H264);
 
 #if BUILDFLAG(ENABLE_PLATFORM_AC3_EAC3_AUDIO)
   mp4_audio_codecs.emplace(AC3);
@@ -328,7 +376,9 @@ void MimeUtil::AddSupportedMediaFormats() {
   mp4_audio_codecs.emplace(MPEG_H_AUDIO);
 #endif  // BUILDFLAG(ENABLE_PLATFORM_MPEG_H_AUDIO)
 
-  mp4_video_codecs.emplace(H264);
+  if (supportsH264)
+    mp4_video_codecs.emplace(H264);
+
 #if BUILDFLAG(ENABLE_PLATFORM_HEVC)
   mp4_video_codecs.emplace(HEVC);
 #endif  // BUILDFLAG(ENABLE_PLATFORM_HEVC)
@@ -362,15 +412,21 @@ void MimeUtil::AddSupportedMediaFormats() {
   AddContainerWithCodecs("audio/mp3", implicit_codec);
   AddContainerWithCodecs("audio/x-mp3", implicit_codec);
   AddContainerWithCodecs("audio/mp4", mp4_audio_codecs);
-  DCHECK(!mp4_video_codecs.empty());
-  AddContainerWithCodecs("video/mp4", mp4_codecs);
+  if (supportsH264) {
+    DCHECK(!mp4_video_codecs.empty());
+    AddContainerWithCodecs("video/mp4", mp4_codecs);
+  }
 
 #if BUILDFLAG(USE_PROPRIETARY_CODECS)
   AddContainerWithCodecs("audio/aac", implicit_codec);  // AAC / ADTS.
   // These strings are supported for backwards compatibility only and thus only
   // support the codecs needed for compatibility.
-  AddContainerWithCodecs("audio/x-m4a", aac);
-  AddContainerWithCodecs("video/x-m4v", avc_and_aac);
+  if (supportsAAC) {
+    AddContainerWithCodecs("audio/x-m4a", aac);
+
+    if (supportsH264)
+      AddContainerWithCodecs("video/x-m4v", avc_and_aac);
+  }
 
   CodecSet video_3gpp_codecs(aac);
   video_3gpp_codecs.emplace(H264);
