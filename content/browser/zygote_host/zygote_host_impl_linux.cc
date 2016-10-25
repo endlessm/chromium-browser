@@ -70,6 +70,10 @@ ZygoteHostImpl* ZygoteHostImpl::GetInstance() {
 }
 
 void ZygoteHostImpl::Init(const base::CommandLine& command_line) {
+#if defined(ARCH_CPU_ARMEL)
+  return;
+#endif
+
   if (command_line.HasSwitch(switches::kNoSandbox)) {
     return;
   }
