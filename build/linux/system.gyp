@@ -36,7 +36,12 @@
       'g_settings_get_boolean',
       'g_settings_get_int',
       'g_settings_get_strv',
+      'g_settings_new_full',
       'g_settings_list_schemas',
+      'g_settings_schema_source_get_default',
+      'g_settings_schema_source_lookup',
+      'g_settings_get',
+      'g_variant_lookup',
     ],
     'libpci_functions': [
       'pci_alloc',

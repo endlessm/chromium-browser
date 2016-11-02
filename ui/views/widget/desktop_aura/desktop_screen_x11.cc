@@ -7,7 +7,12 @@
 #include <X11/extensions/Xrandr.h>
 #include <X11/Xlib.h>
 
-// It clashes with out RootWindow.
+#ifdef USE_GLIB
+#include <gio/gio.h>
+#include <glib.h>
+#endif
+
+// It clashes with our RootWindow.
 #undef RootWindow
 
 #include "base/logging.h"
@@ -305,6 +310,29 @@ std::vector<display::Display> DesktopScreenX11::BuildDisplaysFromXRandRInfo() {
   primary_display_index_ = 0;
   RROutput primary_display_id = XRRGetOutputPrimary(xdisplay_, x_root_window_);
 
+#ifdef USE_GLIB
+  GSettingsSchemaSource* gsettings_schema_source =
+      g_settings_schema_source_get_default();
+  GSettingsSchema* gsettings_schema =
+      g_settings_schema_source_lookup(gsettings_schema_source,
+                                      "com.ubuntu.user-interface", TRUE);
+
+  GVariant* display_scales = NULL;
+  if (gsettings_schema != NULL) {
+    GSettings* gsettings = NULL;
+    gsettings = g_settings_new_full(gsettings_schema, NULL, NULL);
+
+    if (gsettings != NULL) {
+      g_settings_get(gsettings, "scale-factor", "@a{si}", &display_scales);
+      DVLOG(1) << "Got com.ubuntu.desktop gsettings.";
+    } else {
+      DVLOG(1) << "No com.ubuntu.desktop gsettings available.";
+    }
+  } else {
+    DVLOG(1) << "No com.ubuntu.desktop gsettings schema available.";
+  }
+#endif
+
   bool has_work_area = false;
   gfx::Rect work_area_in_pixels;
   std::vector<int> value;
@@ -343,7 +371,27 @@ std::vector<display::Display> DesktopScreenX11::BuildDisplaysFromXRandRInfo() {
       gfx::Rect crtc_bounds(crtc->x, crtc->y, crtc->width, crtc->height);
       display::Display display(display_id, crtc_bounds);
 
+      int density_indicator = 0;
+#ifdef USE_GLIB
+      if (display_scales != NULL) {
+        (void) g_variant_lookup(display_scales, output_info->name, "i",
+                                &density_indicator);
+        DCHECK_LE(0, density_indicator);
+        DVLOG(1) << "Got density indictor " << density_indicator << " from display_scales for " << output_info->name;
+      }
+#else
+      VLOG(1) << "Not using gsettings to get display scale info. No use_glib";
+#endif
+
+      if (density_indicator != 0) {
+        // n/8 is actual scaling factor.  Zero means discover from hardware.
+        device_scale_factor = float(density_indicator / 8.0);
+        DVLOG(1) << "Set " << output_info->name << " screen scaling to "
+                 << device_scale_factor << " from gsettings.";
+        display.SetScaleAndBounds(device_scale_factor, crtc_bounds);
+      } else
       if (!display::Display::HasForceDeviceScaleFactor()) {
+        DVLOG(1) << "Didn't use gsettings info at all.  Picked " << device_scale_factor;
         display.SetScaleAndBounds(device_scale_factor, crtc_bounds);
       }
 
