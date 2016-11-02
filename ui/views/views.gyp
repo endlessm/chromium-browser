@@ -781,7 +781,6 @@
           'dependencies': [
             '../../build/linux/system.gyp:x11',
             '../../build/linux/system.gyp:xrandr',
-            '../../build/linux/system.gyp:gio',
             '../events/devices/events_devices.gyp:events_devices',
             '../events/devices/x11/events_devices_x11.gyp:events_devices_x11',
             '../events/keycodes/events_keycodes.gyp:keycodes_x11',
