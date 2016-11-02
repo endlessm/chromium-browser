@@ -344,7 +344,7 @@ std::vector<display::Display> DesktopScreenX11::BuildDisplaysFromXRandRInfo() {
 
   // As per-display scale factor is not supported right now,
   // the X11 root window's scale factor is always used.
-  float device_scale_factor = GetDeviceScaleFactor();
+  const float device_scale_factor = GetDeviceScaleFactor();
   for (int i = 0; i < resources->noutput; ++i) {
     RROutput output_id = resources->outputs[i];
     gfx::XScopedPtr<XRROutputInfo,
@@ -371,13 +371,11 @@ std::vector<display::Display> DesktopScreenX11::BuildDisplaysFromXRandRInfo() {
       gfx::Rect crtc_bounds(crtc->x, crtc->y, crtc->width, crtc->height);
       display::Display display(display_id, crtc_bounds);
 
-      int density_indicator = 8;
+      int density_indicator = 0;
 #ifdef USE_GLIB
       if (display_scales != NULL) {
-        if (!g_variant_lookup(display_scales, output_info->name, "i",
-                                &density_indicator)) {
-          density_indicator = 8;  // default scale is 1
-        }
+        (void) g_variant_lookup(display_scales, output_info->name, "i",
+                                &density_indicator);
         DCHECK_LE(0, density_indicator);
         DVLOG(1) << "Got density indictor " << density_indicator << " from display_scales for " << output_info->name;
       }
