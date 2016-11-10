@@ -34,9 +34,20 @@ bool IsPaymentsProductionEnabled() {
   // If the command line flag exists, it takes precedence.
   const base::CommandLine* command_line =
       base::CommandLine::ForCurrentProcess();
+
+  // We assume --wallet-service-use-sandbox=0 if not present, which
+  // is the case for Chromium unless the user changes the defaults.
+  if (!command_line->HasSwitch(switches::kWalletServiceUseSandbox))
+    return true;
+
   std::string sandbox_enabled(
       command_line->GetSwitchValueASCII(switches::kWalletServiceUseSandbox));
-  return sandbox_enabled.empty() || sandbox_enabled != "1";
+
+  // Production mode is enabled only if the sandbox is not explicitly
+  // enabled by either setting --wallet-service-use-sandbox or the
+  // full version with a value, --wallet-service-use-sandbox=1 (i.e.
+  // --wallet-service-use-sandbox=0 means production mode).
+  return !sandbox_enabled.empty() && sandbox_enabled != "1";
 }
 
 GURL GetBaseSecureUrl() {
