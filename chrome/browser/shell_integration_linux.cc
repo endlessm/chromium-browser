@@ -152,7 +152,6 @@ bool SetDefaultWebClient(const std::string& protocol) {
   argv.push_back(shell_integration_linux::GetDesktopName(env.get()));
 
   int exit_code;
-  GetChromeVersionOfScript(kXdgSettings, &argv[0]);
   bool ran_ok = LaunchXdgUtility(argv, &exit_code);
   if (ran_ok && exit_code == EXIT_XDG_SETTINGS_SYNTAX_ERROR) {
     if (GetChromeVersionOfScript(kXdgSettings, &argv[0])) {
@@ -266,11 +265,6 @@ namespace shell_integration_linux {
 
 namespace {
 
-const char kXdgSettings[] = "xdg-settings";
-
-bool GetChromeVersionOfScript(const std::string& script,
-                              std::string* chrome_version);
-
 // The Categories for the App Launcher desktop shortcut. Should be the same as
 // the Chrome desktop shortcut, so they are in the same sub-menu.
 const char kAppListCategories[] = "Network;WebBrowser;";
@@ -321,7 +315,6 @@ std::string CreateShortcutIcon(const gfx::ImageFamily& icon_images,
     argv.push_back(temp_file_path.value());
     argv.push_back(icon_name);
     int exit_code;
-    shell_integration::GetChromeVersionOfScript(kXdgSettings, &argv[0]);
     if (!shell_integration::LaunchXdgUtility(argv, &exit_code) || exit_code) {
       LOG(WARNING) << "Could not install icon " << icon_name << ".png at size "
                    << width << ".";
@@ -421,7 +414,6 @@ bool CreateShortcutInApplicationsMenu(const base::FilePath& shortcut_filename,
     argv.push_back(temp_directory_path.value());
   argv.push_back(temp_file_path.value());
   int exit_code;
-  shell_integration::GetChromeVersionOfScript(kXdgSettings, &argv[0]);
   shell_integration::LaunchXdgUtility(argv, &exit_code);
   return exit_code == 0;
 }
@@ -445,7 +437,6 @@ void DeleteShortcutInApplicationsMenu(
     argv.push_back(directory_filename.value());
   argv.push_back(shortcut_filename.value());
   int exit_code;
-  shell_integration::GetChromeVersionOfScript(kXdgSettings, &argv[0]);
   shell_integration::LaunchXdgUtility(argv, &exit_code);
 }
 
