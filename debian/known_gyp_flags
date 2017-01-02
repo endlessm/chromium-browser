@@ -52,7 +52,6 @@ enable_spellcheck
 enable_supervised_users
 enable_task_manager
 enable_themes
-enable_topchrome_md
 enable_viewport
 enable_wayland_server
 enable_web_speech

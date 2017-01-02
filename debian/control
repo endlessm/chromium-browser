@@ -14,8 +14,8 @@ Build-Depends:
 	quilt,
 	python,
 	bison,
-	gcc-5,
-	g++-5,
+	gcc-4.8,
+	g++-4.8,
 	gperf,
 	libpulse-dev,
 	libcups2-dev | libcupsys2-dev,
@@ -26,6 +26,7 @@ Build-Depends:
 	libpci-dev,
 	libxtst-dev,
 	libxss-dev,
+	libgtk-3-dev,
 	libgtk2.0-dev,
 	libglib2.0-dev,
 	libgnome-keyring-dev,
@@ -33,34 +34,17 @@ Build-Depends:
 	libgconf2-dev,
 	libdrm-dev,
 	libcap-dev,
-	libexif-dev,
 	libgcrypt-dev,
 	libkrb5-dev,
 	libxkbcommon-dev,
-	libssl-dev,
 	libpam0g-dev,
 	libffi-dev,
 	chrpath,
-	libre2-dev,
-	yasm,
-	libopus-dev,
-	zlib1g-dev,
-	libspeex-dev,
-	libspeechd-dev,
-	libexpat-dev,
-	libpng-dev,
-	libxml2-dev,
-	libjpeg-dev,
-	libwebp-dev,
-	libxslt-dev,
-	libsrtp-dev,
-	libjsoncpp-dev,
-	libharfbuzz-dev,
-	xdg-utils
+	yasm
 Standards-Version: 3.9.6
 
 Package: chromium-browser
-Architecture: armhf armel i386 amd64 arm64
+Architecture: any
 Pre-Depends: dpkg (>= 1.15.6)
 Depends: ${shlibs:Depends}, ${misc:Depends},
 	bash (>= 4),
@@ -95,7 +79,7 @@ Description: chromium-browser language packages
  sk, sl, sr, sv, sw, ta, te, th, tr, ug, uk, vi, zh-CN, zh-TW
 
 Package: chromium-codecs-ffmpeg
-Architecture: armhf armel i386 amd64 arm64
+Architecture: any
 Pre-Depends: dpkg (>= 1.15.6)
 Depends: ${shlibs:Depends}, ${misc:Depends}
 Conflicts: chromium-codecs-ffmpeg-extra, chromium-browser (<< 44)
@@ -109,7 +93,7 @@ Description: Free ffmpeg codecs for the Chromium Browser
  included. See chromium-codecs-ffmpeg-extra for additional codecs
 
 Package: chromium-codecs-ffmpeg-extra
-Architecture: armhf armel i386 amd64 arm64
+Architecture: any
 Pre-Depends: dpkg (>= 1.15.6)
 Depends: ${shlibs:Depends}, ${misc:Depends}
 Conflicts: chromium-codecs-ffmpeg, chromium-browser (<< 44)
@@ -124,7 +108,7 @@ Description: Extra ffmpeg codecs for the Chromium Browser
  chromium-codecs-ffmpeg if you prefer only the patent-free codecs
 
 Package: chromium-chromedriver
-Architecture: armhf armel i386 amd64 arm64
+Architecture: any
 Pre-Depends: dpkg (>= 1.15.6)
 Depends: ${shlibs:Depends}, ${misc:Depends}, chromium-browser (>= 4.0.203.0~)
 Description: WebDriver driver for the Chromium Browser
