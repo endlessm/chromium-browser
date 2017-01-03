@@ -127,7 +127,7 @@ else ifeq (armhf,$(DEB_HOST_ARCH))
 common_defines += target_cpu="arm"
 #common_defines += arm_optionally_use_neon=false   # implies Android in 2016-10
 common_defines += arm_use_neon=false
-common_defined += arm_float_abi="hard" arm_use_thumb=true
+common_defines += arm_float_abi="hard" arm_use_thumb=true
 else ifeq (aarch64,$(DEB_HOST_ARCH))
 common_defines += target_cpu="arm64"
 else ifeq (i386,$(DEB_HOST_ARCH))
