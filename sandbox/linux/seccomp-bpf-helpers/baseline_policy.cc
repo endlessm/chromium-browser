@@ -176,7 +176,12 @@ ResultExpr EvaluateSyscallImpl(int fs_denied_errno,
   if (sysno == __NR_madvise) {
     // Only allow MADV_DONTNEED (aka MADV_FREE).
     const Arg<int> advice(2);
-    return If(advice == MADV_DONTNEED, Allow()).Else(Error(EPERM));
+#if defined(MADV_FREE)
+    return If(AnyOf(advice == MADV_DONTNEED, advice == MADV_FREE), Allow())
+#else
+    return If(advice == MADV_DONTNEED, Allow())
+#endif
+           .Else(Error(EPERM));
   }
 
 #if defined(__i386__) || defined(__x86_64__) || defined(__mips__) || \
