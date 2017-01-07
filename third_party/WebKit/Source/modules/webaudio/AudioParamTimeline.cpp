@@ -31,7 +31,7 @@
 #include "wtf/MathExtras.h"
 #include <algorithm>
 
-#if CPU(X86) || CPU(X86_64)
+#if CPU(X86_64)
 #include <emmintrin.h>
 #endif
 
@@ -637,7 +637,7 @@ float AudioParamTimeline::valuesForFrameRangeImpl(size_t startFrame,
     // the next event.
     if (nextEventType == ParamEvent::LinearRampToValue) {
       const float valueDelta = value2 - value1;
-#if CPU(X86) || CPU(X86_64)
+#if CPU(X86_64)
       // Minimize in-loop operations. Calculate starting value and increment.
       // Next step: value += inc.
       //  value = value1 +
@@ -813,7 +813,7 @@ float AudioParamTimeline::valuesForFrameRangeImpl(size_t startFrame,
             for (; writeIndex < fillToFrame; ++writeIndex)
               values[writeIndex] = target;
           } else {
-#if CPU(X86) || CPU(X86_64)
+#if CPU(X86_64)
             // Resolve recursion by expanding constants to achieve a 4-step loop
             // unrolling.
             // v1 = v0 + (t - v0) * c
@@ -926,7 +926,7 @@ float AudioParamTimeline::valuesForFrameRangeImpl(size_t startFrame,
           // Oversampled curve data can be provided if sharp discontinuities are
           // desired.
           unsigned k = 0;
-#if CPU(X86) || CPU(X86_64)
+#if CPU(X86_64)
           const __m128 vCurveVirtualIndex = _mm_set_ps1(curveVirtualIndex);
           const __m128 vCurvePointsPerFrame = _mm_set_ps1(curvePointsPerFrame);
           const __m128 vNumberOfCurvePointsM1 =

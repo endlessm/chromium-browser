@@ -33,7 +33,7 @@
 #include <Accelerate/Accelerate.h>
 #endif
 
-#if CPU(X86) || CPU(X86_64)
+#if CPU(X86_64)
 #include <emmintrin.h>
 #endif
 
@@ -169,7 +169,7 @@ void vsma(const float* sourceP,
           size_t framesToProcess) {
   int n = framesToProcess;
 
-#if CPU(X86) || CPU(X86_64)
+#if CPU(X86_64)
   if ((sourceStride == 1) && (destStride == 1)) {
     float k = *scale;
 
@@ -246,7 +246,7 @@ void vsmul(const float* sourceP,
            size_t framesToProcess) {
   int n = framesToProcess;
 
-#if CPU(X86) || CPU(X86_64)
+#if CPU(X86_64)
   if ((sourceStride == 1) && (destStride == 1)) {
     float k = *scale;
 
@@ -317,7 +317,7 @@ void vsmul(const float* sourceP,
       sourceP += sourceStride;
       destP += destStride;
     }
-#if CPU(X86) || CPU(X86_64)
+#if CPU(X86_64)
   }
 #endif
 }
@@ -331,7 +331,7 @@ void vadd(const float* source1P,
           size_t framesToProcess) {
   int n = framesToProcess;
 
-#if CPU(X86) || CPU(X86_64)
+#if CPU(X86_64)
   if ((sourceStride1 == 1) && (sourceStride2 == 1) && (destStride == 1)) {
     // If the sourceP address is not 16-byte aligned, the first several frames
     // (at most three) should be processed separately.
@@ -438,7 +438,7 @@ void vadd(const float* source1P,
       source2P += sourceStride2;
       destP += destStride;
     }
-#if CPU(X86) || CPU(X86_64)
+#if CPU(X86_64)
   }
 #endif
 }
@@ -452,7 +452,7 @@ void vmul(const float* source1P,
           size_t framesToProcess) {
   int n = framesToProcess;
 
-#if CPU(X86) || CPU(X86_64)
+#if CPU(X86_64)
   if ((sourceStride1 == 1) && (sourceStride2 == 1) && (destStride == 1)) {
     // If the source1P address is not 16-byte aligned, the first several frames
     // (at most three) should be processed separately.
@@ -532,7 +532,7 @@ void zvmul(const float* real1P,
            float* imagDestP,
            size_t framesToProcess) {
   unsigned i = 0;
-#if CPU(X86) || CPU(X86_64)
+#if CPU(X86_64)
   // Only use the SSE optimization in the very common case that all addresses
   // are 16-byte aligned.  Otherwise, fall through to the scalar code below.
   if (!(reinterpret_cast<uintptr_t>(real1P) & 0x0F) &&
@@ -591,7 +591,7 @@ void vsvesq(const float* sourceP,
   int n = framesToProcess;
   float sum = 0;
 
-#if CPU(X86) || CPU(X86_64)
+#if CPU(X86_64)
   if (sourceStride == 1) {
     // If the sourceP address is not 16-byte aligned, the first several frames
     // (at most three) should be processed separately.
@@ -660,7 +660,7 @@ void vmaxmgv(const float* sourceP,
   int n = framesToProcess;
   float max = 0;
 
-#if CPU(X86) || CPU(X86_64)
+#if CPU(X86_64)
   if (sourceStride == 1) {
     // If the sourceP address is not 16-byte aligned, the first several frames
     // (at most three) should be processed separately.

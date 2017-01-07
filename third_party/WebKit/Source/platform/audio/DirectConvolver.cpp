@@ -35,7 +35,7 @@
 #include "platform/audio/VectorMath.h"
 #include "wtf/CPU.h"
 
-#if (CPU(X86) || CPU(X86_64)) && !OS(MACOSX)
+#if (CPU(X86_64)) && !OS(MACOSX)
 #include <emmintrin.h>
 #endif
 
@@ -83,7 +83,7 @@ void DirectConvolver::process(AudioFloatArray* convolutionKernel,
 #endif  // CPU(X86)
 #else
   size_t i = 0;
-#if CPU(X86) || CPU(X86_64)
+#if CPU(X86_64)
   // Convolution using SSE2. Currently only do this if both |kernelSize| and
   // |framesToProcess| are multiples of 4. If not, use the straightforward loop
   // below.
@@ -397,7 +397,7 @@ void DirectConvolver::process(AudioFloatArray* convolutionKernel,
       }
       destP[i++] = sum;
     }
-#if CPU(X86) || CPU(X86_64)
+#if CPU(X86_64)
   }
 #endif
 #endif  // OS(MACOSX)
