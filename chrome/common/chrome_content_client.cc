@@ -208,9 +208,8 @@ void ComputeBuiltInPlugins(std::vector<content::PepperPluginInfo>* plugins) {
     widevine_cdm.path = adapter_path;
     widevine_cdm.name = kWidevineCdmDisplayName;
     widevine_cdm.description =
-        base::StringPrintf("%s (version: " WIDEVINE_CDM_VERSION_STRING ")",
+	    (
                            kWidevineCdmDescription);
-    widevine_cdm.version = WIDEVINE_CDM_VERSION_STRING;
     content::WebPluginMimeType widevine_cdm_mime_type(
         kWidevineCdmPluginMimeType, kWidevineCdmPluginExtension,
         kWidevineCdmPluginMimeTypeDescription);
