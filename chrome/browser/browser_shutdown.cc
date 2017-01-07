@@ -13,7 +13,7 @@
 #include "base/command_line.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
-#include "base/metrics/histogram.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/path_service.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/stringprintf.h"
@@ -45,6 +45,10 @@
 
 #if !defined(OS_ANDROID) && !defined(OS_CHROMEOS)
 #include "chrome/browser/first_run/upgrade_util.h"
+#endif
+
+#if BUILDFLAG(ENABLE_BACKGROUND)
+#include "chrome/browser/background/background_mode_manager.h"
 #endif
 
 #if defined(ENABLE_RLZ)
@@ -166,22 +170,7 @@ bool ShutdownPreThreadsStop() {
   if (metrics)
     metrics->RecordCompletedSessionEnd();
 
-  if (g_shutdown_type > NOT_VALID && g_shutdown_num_processes > 0) {
-    // Record the shutdown info so that we can put it into a histogram at next
-    // startup.
-    prefs->SetInteger(prefs::kShutdownType, g_shutdown_type);
-    prefs->SetInteger(prefs::kShutdownNumProcesses, g_shutdown_num_processes);
-    prefs->SetInteger(prefs::kShutdownNumProcessesSlow,
-                      g_shutdown_num_processes_slow);
-  }
-
-  // Check local state for the restart flag so we can restart the session below.
-  bool restart_last_session = false;
-  if (prefs->HasPrefPath(prefs::kRestartLastSessionOnShutdown)) {
-    restart_last_session =
-        prefs->GetBoolean(prefs::kRestartLastSessionOnShutdown);
-    prefs->ClearPref(prefs::kRestartLastSessionOnShutdown);
-  }
+  bool restart_last_session = RecordShutdownInfoPrefs();
 
   prefs->CommitPendingWrite();
 
@@ -194,7 +183,28 @@ bool ShutdownPreThreadsStop() {
   return restart_last_session;
 }
 
-void ShutdownPostThreadsStop(bool restart_last_session) {
+bool RecordShutdownInfoPrefs() {
+  PrefService* prefs = g_browser_process->local_state();
+  if (g_shutdown_type > NOT_VALID && g_shutdown_num_processes > 0) {
+    // Record the shutdown info so that we can put it into a histogram at next
+    // startup.
+    prefs->SetInteger(prefs::kShutdownType, g_shutdown_type);
+    prefs->SetInteger(prefs::kShutdownNumProcesses, g_shutdown_num_processes);
+    prefs->SetInteger(prefs::kShutdownNumProcessesSlow,
+                      g_shutdown_num_processes_slow);
+  }
+
+  // Check local state for the restart flag so we can restart the session later.
+  bool restart_last_session = false;
+  if (prefs->HasPrefPath(prefs::kRestartLastSessionOnShutdown)) {
+    restart_last_session =
+        prefs->GetBoolean(prefs::kRestartLastSessionOnShutdown);
+    prefs->ClearPref(prefs::kRestartLastSessionOnShutdown);
+  }
+  return restart_last_session;
+}
+
+void ShutdownPostThreadsStop(int shutdown_flags) {
   delete g_browser_process;
   g_browser_process = NULL;
 
@@ -214,7 +224,7 @@ void ShutdownPostThreadsStop(bool restart_last_session) {
   }
 #endif
 
-  if (restart_last_session) {
+  if (shutdown_flags & RESTART_LAST_SESSION) {
 #if !defined(OS_CHROMEOS)
     // Make sure to relaunch the browser with the original command line plus
     // the Restore Last Session flag. Note that Chrome can be launched (ie.
@@ -239,6 +249,8 @@ void ShutdownPostThreadsStop(bool restart_last_session) {
       else
         new_cl->AppendSwitch(it.first);
     }
+    if (shutdown_flags & RESTART_IN_BACKGROUND)
+      new_cl->AppendSwitch(switches::kNoStartupWindow);
 
 #if defined(OS_POSIX) || defined(OS_WIN)
     upgrade_util::RelaunchChromeBrowser(*new_cl.get());
@@ -321,6 +333,8 @@ void ReadLastShutdownInfo() {
   prefs->SetInteger(prefs::kShutdownNumProcesses, 0);
   prefs->SetInteger(prefs::kShutdownNumProcessesSlow, 0);
 
+  UMA_HISTOGRAM_ENUMERATION("Shutdown.ShutdownType", type, kNumShutdownTypes);
+
   // Read and delete the file on the file thread.
   BrowserThread::PostTask(
       BrowserThread::FILE, FROM_HERE,
@@ -329,6 +343,24 @@ void ReadLastShutdownInfo() {
 
 void SetTryingToQuit(bool quitting) {
   g_trying_to_quit = quitting;
+
+  if (quitting)
+    return;
+
+  // Reset the restart-related preferences. They get set unconditionally through
+  // calls such as chrome::AttemptRestart(), and need to be reset if the restart
+  // attempt is cancelled.
+  PrefService* pref_service = g_browser_process->local_state();
+  if (pref_service) {
+#if !defined(OS_ANDROID)
+    pref_service->ClearPref(prefs::kWasRestarted);
+#endif  // !defined(OS_ANDROID)
+    pref_service->ClearPref(prefs::kRestartLastSessionOnShutdown);
+  }
+
+#if BUILDFLAG(ENABLE_BACKGROUND)
+  BackgroundModeManager::set_should_restart_in_background(false);
+#endif  // BUILDFLAG(ENABLE_BACKGROUND)
 }
 
 bool IsTryingToQuit() {

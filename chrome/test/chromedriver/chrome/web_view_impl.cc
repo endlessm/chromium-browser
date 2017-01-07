@@ -28,9 +28,13 @@
 #include "chrome/test/chromedriver/chrome/mobile_emulation_override_manager.h"
 #include "chrome/test/chromedriver/chrome/navigation_tracker.h"
 #include "chrome/test/chromedriver/chrome/network_conditions_override_manager.h"
+#include "chrome/test/chromedriver/chrome/non_blocking_navigation_tracker.h"
+#include "chrome/test/chromedriver/chrome/page_load_strategy.h"
 #include "chrome/test/chromedriver/chrome/status.h"
 #include "chrome/test/chromedriver/chrome/ui_events.h"
 #include "chrome/test/chromedriver/net/timeout.h"
+#include "ui/events/keycodes/dom/keycode_converter.h"
+#include "ui/events/keycodes/keyboard_code_conversion.h"
 
 namespace {
 
@@ -123,15 +127,16 @@ const char* GetAsString(KeyEventType type) {
 WebViewImpl::WebViewImpl(const std::string& id,
                          const BrowserInfo* browser_info,
                          std::unique_ptr<DevToolsClient> client,
-                         const DeviceMetrics* device_metrics)
+                         const DeviceMetrics* device_metrics,
+                         std::string page_load_strategy)
     : id_(id),
       browser_info_(browser_info),
       dom_tracker_(new DomTracker(client.get())),
       frame_tracker_(new FrameTracker(client.get())),
       dialog_manager_(new JavaScriptDialogManager(client.get())),
-      navigation_tracker_(new NavigationTracker(client.get(),
-                                                browser_info,
-                                                dialog_manager_.get())),
+      navigation_tracker_(PageLoadStrategy::Create(
+          page_load_strategy, client.get(),
+          browser_info, dialog_manager_.get())),
       mobile_emulation_override_manager_(
           new MobileEmulationOverrideManager(client.get(), device_metrics)),
       geolocation_override_manager_(
@@ -278,8 +283,7 @@ Status WebViewImpl::CallFunction(const std::string& frame,
   std::unique_ptr<base::Value> temp_result;
   Status status = EvaluateScript(frame, expression, &temp_result);
   if (status.IsError())
-    return status;
-
+      return status;
   return internal::ParseCallFunctionResult(*temp_result, result);
 }
 
@@ -397,6 +401,10 @@ Status WebViewImpl::DispatchKeyEvents(const std::list<KeyEvent>& events) {
     params.SetString("unmodifiedText", it->unmodified_text);
     params.SetInteger("nativeVirtualKeyCode", it->key_code);
     params.SetInteger("windowsVirtualKeyCode", it->key_code);
+    ui::DomCode dom_code = ui::UsLayoutKeyboardCodeToDomCode(it->key_code);
+    std::string key = ui::KeycodeConverter::DomCodeToCodeString(dom_code);
+    if (!key.empty())
+      params.SetString("key", key);
     Status status = client_->SendCommand("Input.dispatchKeyEvent", params);
     if (status.IsError())
       return status;
@@ -511,7 +519,7 @@ Status WebViewImpl::SetFileInputFiles(
   if (status.IsError())
     return status;
   base::ListValue args;
-  args.Append(element.DeepCopy());
+  args.Append(element.CreateDeepCopy());
   bool found_node;
   int node_id;
   status = internal::GetNodeIdFromFunction(
@@ -633,6 +641,37 @@ Status WebViewImpl::SynthesizePinchGesture(int x, int y, double scale_factor) {
   return client_->SendCommand("Input.synthesizePinchGesture", params);
 }
 
+Status WebViewImpl::GetScreenOrientation(std::string* orientation) {
+  base::DictionaryValue empty_params;
+  std::unique_ptr<base::DictionaryValue> result;
+  Status status =
+    client_->SendCommandAndGetResult("Emulation.getScreenOrientation",
+                                      empty_params,
+                                      &result);
+  if (status.IsError() || !result->GetString("orientation", orientation))
+    return status;
+  return Status(kOk);
+}
+
+Status WebViewImpl::SetScreenOrientation(std::string orientation) {
+  base::DictionaryValue params;
+  params.SetString("screenOrientation", orientation);
+  Status status =
+    client_->SendCommand("Emulation.lockScreenOrientation", params);
+  if (status.IsError())
+    return status;
+  return Status(kOk);
+}
+
+Status WebViewImpl::DeleteScreenOrientation() {
+  base::DictionaryValue params;
+  Status status =
+    client_->SendCommand("Emulation.unlockScreenOrientation", params);
+  if (status.IsError())
+    return status;
+  return Status(kOk);
+}
+
 Status WebViewImpl::CallAsyncFunctionInternal(
     const std::string& frame,
     const std::string& function,
@@ -642,7 +681,7 @@ Status WebViewImpl::CallAsyncFunctionInternal(
     std::unique_ptr<base::Value>* result) {
   base::ListValue async_args;
   async_args.AppendString("return (" + function + ").apply(null, arguments);");
-  async_args.Append(args.DeepCopy());
+  async_args.Append(args.CreateDeepCopy());
   async_args.AppendBoolean(is_user_supplied);
   async_args.AppendInteger(timeout.InMilliseconds());
   std::unique_ptr<base::Value> tmp;
@@ -733,8 +772,12 @@ Status EvaluateScript(DevToolsClient* client,
     return status;
 
   bool was_thrown;
-  if (!cmd_result->GetBoolean("wasThrown", &was_thrown))
-    return Status(kUnknownError, "Runtime.evaluate missing 'wasThrown'");
+  if (!cmd_result->GetBoolean("wasThrown", &was_thrown)) {
+    // As of crrev.com/411814, Runtime.evaluate no longer returns a 'wasThrown'
+    // property in the response, so check 'exceptionDetails' instead.
+    // TODO(samuong): Ignore 'wasThrown' when we stop supporting Chrome 54.
+    was_thrown = cmd_result->HasKey("exceptionDetails");
+  }
   if (was_thrown) {
     std::string description = "unknown";
     cmd_result->GetString("result.description", &description);
@@ -870,5 +913,7 @@ Status GetNodeIdFromFunction(DevToolsClient* client,
   *found_node = true;
   return Status(kOk);
 }
+
+
 
 }  // namespace internal

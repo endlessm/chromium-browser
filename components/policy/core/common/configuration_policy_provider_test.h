@@ -12,10 +12,15 @@
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/message_loop/message_loop.h"
+#include "build/build_config.h"
 #include "components/policy/core/common/policy_types.h"
 #include "components/policy/core/common/schema.h"
 #include "components/policy/core/common/schema_registry.h"
 #include "testing/gtest/include/gtest/gtest.h"
+
+#if defined(OS_POSIX)
+#include "base/files/file_descriptor_watcher_posix.h"
+#endif
 
 namespace base {
 class DictionaryValue;
@@ -30,6 +35,7 @@ class ConfigurationPolicyProvider;
 
 namespace test_keys {
 
+// Key constants for general use.
 extern const char kKeyString[];
 extern const char kKeyBoolean[];
 extern const char kKeyInteger[];
@@ -53,8 +59,12 @@ class PolicyTestBase : public testing::Test {
 
   SchemaRegistry schema_registry_;
 
-  // Create an actual IO loop (needed by FilePathWatcher).
+  // Needed by FilePathWatcher, which is used by ConfigDirPolicyLoader and
+  // PolicyLoaderMac.
   base::MessageLoopForIO loop_;
+#if defined(OS_POSIX)
+  base::FileDescriptorWatcher file_descriptor_watcher_;
+#endif
 
  private:
   DISALLOW_COPY_AND_ASSIGN(PolicyTestBase);
@@ -81,9 +91,17 @@ class PolicyProviderTestHarness {
       scoped_refptr<base::SequencedTaskRunner> task_runner) = 0;
 
   // Returns the policy level, scope and source set by the policy provider.
-  PolicyLevel policy_level() const;
-  PolicyScope policy_scope() const;
-  PolicySource policy_source() const;
+  PolicyLevel policy_level() const { return level_; }
+  PolicyScope policy_scope() const { return scope_; }
+  PolicySource policy_source() const { return source_; }
+
+  // Returns policy keys and matching schema.
+  const char* key_string() const { return key_string_; }
+  const char* key_boolean() const { return key_boolean_; }
+  const char* key_integer() const { return key_integer_; }
+  const char* key_stringlist() const { return key_stringlist_; }
+  const char* key_dictionary() const { return key_dictionary_; }
+  const char* test_schema() const { return test_schema_; }
 
   // Helpers to configure the environment the policy provider reads from.
   virtual void InstallEmptyPolicy() = 0;
@@ -102,6 +120,14 @@ class PolicyProviderTestHarness {
   // Not every provider supports installing 3rd party policy. Those who do
   // should override this method; the default just makes the test fail.
   virtual void Install3rdPartyPolicy(const base::DictionaryValue* policies);
+
+ protected:
+  const char* key_string_;
+  const char* key_boolean_;
+  const char* key_integer_;
+  const char* key_stringlist_;
+  const char* key_dictionary_;
+  const char* test_schema_;
 
  private:
   PolicyLevel level_;
@@ -133,7 +159,7 @@ class ConfigurationPolicyProviderTest
                   const base::Value& expected_value,
                   base::Closure install_value);
 
-  std::unique_ptr<PolicyProviderTestHarness> test_harness_;
+  std::unique_ptr<PolicyProviderTestHarness> harness_;
   std::unique_ptr<ConfigurationPolicyProvider> provider_;
 
  private:

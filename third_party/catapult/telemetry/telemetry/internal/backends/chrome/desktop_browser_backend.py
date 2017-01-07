@@ -16,7 +16,7 @@ import sys
 import tempfile
 import time
 
-from catapult_base import cloud_storage  # pylint: disable=import-error
+from py_utils import cloud_storage  # pylint: disable=import-error
 import dependency_manager  # pylint: disable=import-error
 
 from telemetry.internal.util import binary_manager
@@ -114,6 +114,7 @@ class DesktopBrowserBackend(chrome_browser_backend.ChromeBrowserBackend):
     self._proc = None
     self._tmp_profile_dir = None
     self._tmp_output_file = None
+    self._most_recent_symbolized_minidump_paths = set([])
 
     self._executable = executable
     if not self._executable:
@@ -253,6 +254,9 @@ class DesktopBrowserBackend(chrome_browser_backend.ChromeBrowserBackend):
       args.append('--window-size=1280,1024')
       if self._flash_path:
         args.append('--ppapi-flash-path=%s' % self._flash_path)
+        # Also specify the version of Flash as a large version, so that it is
+        # not overridden by the bundled or component-updated version of Flash.
+        args.append('--ppapi-flash-version=99.9.999.999')
       if not self.browser_options.dont_override_profile:
         args.append('--user-data-dir=%s' % self._tmp_profile_dir)
     else:
@@ -332,7 +336,10 @@ class DesktopBrowserBackend(chrome_browser_backend.ChromeBrowserBackend):
     except IOError:
       return ''
 
-  def _GetMostRecentCrashpadMinidump(self):
+  def _GetAllCrashpadMinidumps(self):
+    if not self._tmp_minidump_dir:
+      logging.warning('No _tmp_minidump_dir; browser already closed?')
+      return None
     os_name = self.browser.platform.GetOSName()
     arch_name = self.browser.platform.GetArchName()
     try:
@@ -391,11 +398,21 @@ class DesktopBrowserBackend(chrome_browser_backend.ChromeBrowserBackend):
         logging.warning('Crashpad report expected valid keys'
                           ' "Path" and "Creation time": %s', e)
 
+    return reports_list
+
+  def _GetMostRecentCrashpadMinidump(self):
+    reports_list = self._GetAllCrashpadMinidumps()
     if reports_list:
       _, most_recent_report_path = max(reports_list)
       return most_recent_report_path
 
     return None
+
+  def _GetBreakPadMinidumpPaths(self):
+    if not self._tmp_minidump_dir:
+      logging.warning('No _tmp_minidump_dir; browser already closed?')
+      return None
+    return glob.glob(os.path.join(self._tmp_minidump_dir, '*.dmp'))
 
   def _GetMostRecentMinidump(self):
     # Crashpad dump layout will be the standard eventually, check it first.
@@ -404,7 +421,7 @@ class DesktopBrowserBackend(chrome_browser_backend.ChromeBrowserBackend):
     # Typical breakpad format is simply dump files in a folder.
     if not most_recent_dump:
       logging.info('No minidump found via crashpad_database_util')
-      dumps = glob.glob(os.path.join(self._tmp_minidump_dir, '*.dmp'))
+      dumps = self._GetBreakPadMinidumpPaths()
       if dumps:
         most_recent_dump = heapq.nlargest(1, dumps, os.path.getmtime)[0]
         if most_recent_dump:
@@ -441,13 +458,15 @@ class DesktopBrowserBackend(chrome_browser_backend.ChromeBrowserBackend):
       if not cdb:
         logging.warning('cdb.exe not found.')
         return None
-      # Include all the threads' stacks ("~*k30") in addition to the
+      # Include all the threads' stacks ("~*kb30") in addition to the
       # ostensibly crashed stack associated with the exception context
-      # record (".ecxr;k30"). Note that stack dumps, including that
+      # record (".ecxr;kb30"). Note that stack dumps, including that
       # for the crashed thread, may not be as precise as the one
       # starting from the exception context record.
+      # Specify kb instead of k in order to get four arguments listed, for
+      # easier diagnosis from stacks.
       output = subprocess.check_output([cdb, '-y', self._browser_directory,
-                                        '-c', '.ecxr;k30;~*k30;q',
+                                        '-c', '.ecxr;kb30;~*kb30;q',
                                         '-z', minidump])
       # cdb output can start the stack with "ChildEBP", "Child-SP", and possibly
       # other things we haven't seen yet. If we can't find the start of the
@@ -502,13 +521,42 @@ class DesktopBrowserBackend(chrome_browser_backend.ChromeBrowserBackend):
     if not most_recent_dump:
       return (False, 'No crash dump found.')
     logging.info('Minidump found: %s' % most_recent_dump)
-    stack = self._GetStackFromMinidump(most_recent_dump)
+    return self._InternalSymbolizeMinidump(most_recent_dump)
+
+  def GetMostRecentMinidumpPath(self):
+    return self._GetMostRecentMinidump()
+
+  def GetAllMinidumpPaths(self):
+    reports_list = self._GetAllCrashpadMinidumps()
+    if reports_list:
+      return [report[1] for report in reports_list]
+    else:
+      logging.info('No minidump found via crashpad_database_util')
+      dumps = self._GetBreakPadMinidumpPaths()
+      if dumps:
+        logging.info('Found minidump via globbing in minidump dir')
+        return dumps
+      return []
+
+  def GetAllUnsymbolizedMinidumpPaths(self):
+    minidump_paths = set(self.GetAllMinidumpPaths())
+    # If we have already symbolized paths remove them from the list
+    unsymbolized_paths = (minidump_paths
+      - self._most_recent_symbolized_minidump_paths)
+    return list(unsymbolized_paths)
+
+  def SymbolizeMinidump(self, minidump_path):
+    return self._InternalSymbolizeMinidump(minidump_path)
+
+  def _InternalSymbolizeMinidump(self, minidump_path):
+    stack = self._GetStackFromMinidump(minidump_path)
     if not stack:
-      cloud_storage_link = self._UploadMinidumpToCloudStorage(most_recent_dump)
+      cloud_storage_link = self._UploadMinidumpToCloudStorage(minidump_path)
       error_message = ('Failed to symbolize minidump. Raw stack is uploaded to'
                        ' cloud storage: %s.' % cloud_storage_link)
       return (False, error_message)
 
+    self._most_recent_symbolized_minidump_paths.add(minidump_path)
     return (True, stack)
 
   def __del__(self):
@@ -529,6 +577,9 @@ class DesktopBrowserBackend(chrome_browser_backend.ChromeBrowserBackend):
         except exceptions.TimeoutException as e:
           logging.warning('Failed to cooperatively shutdown. ' +
                           'Proceeding to terminate: ' + str(e))
+
+  def Background(self):
+    raise NotImplementedError
 
   def Close(self):
     super(DesktopBrowserBackend, self).Close()

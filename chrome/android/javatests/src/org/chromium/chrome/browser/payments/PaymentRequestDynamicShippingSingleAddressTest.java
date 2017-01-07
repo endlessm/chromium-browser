@@ -8,10 +8,13 @@ import android.content.DialogInterface;
 import android.test.suitebuilder.annotation.MediumTest;
 
 import org.chromium.base.ThreadUtils;
+import org.chromium.base.test.util.Feature;
+import org.chromium.base.test.util.FlakyTest;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.autofill.AutofillTestHelper;
 import org.chromium.chrome.browser.autofill.PersonalDataManager.AutofillProfile;
 import org.chromium.chrome.browser.autofill.PersonalDataManager.CreditCard;
+import org.chromium.chrome.browser.payments.ui.PaymentRequestSection;
 
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeoutException;
@@ -41,14 +44,16 @@ public class PaymentRequestDynamicShippingSingleAddressTest extends PaymentReque
 
     /** The shipping address should not be selected in UI by default. */
     @MediumTest
+    @Feature({"Payments"})
     public void testAddressNotSelected()
             throws InterruptedException, ExecutionException, TimeoutException {
         triggerUIAndWait(mReadyForInput);
-        assertEquals("Select shipping", getAddressSectionLabel());
+        assertEquals(PaymentRequestSection.EDIT_BUTTON_SELECT, getSummarySectionButtonState());
     }
 
     /** Expand the shipping address section, select an address, and click "Pay." */
     @MediumTest
+    @Feature({"Payments"})
     public void testSelectValidAddressAndPay()
             throws InterruptedException, ExecutionException, TimeoutException {
         triggerUIAndWait(mReadyForInput);
@@ -64,19 +69,25 @@ public class PaymentRequestDynamicShippingSingleAddressTest extends PaymentReque
 
     /** Attempt to add an invalid address and cancel the transaction. */
     @MediumTest
+    @Feature({"Payments"})
     public void testAddInvalidAddressAndCancel()
             throws InterruptedException, ExecutionException, TimeoutException {
         triggerUIAndWait(mReadyForInput);
         clickInShippingSummaryAndWait(R.id.payments_section, mReadyForInput);
         clickInShippingAddressAndWait(R.id.payments_add_option_button, mReadyToEdit);
         clickInEditorAndWait(R.id.payments_edit_done_button, mEditorValidationError);
-        clickInEditorAndWait(R.id.payments_edit_cancel_button, mReadyToClose);
+        clickInEditorAndWait(R.id.payments_edit_cancel_button, mReadyForInput);
         clickAndWait(R.id.close_button, mDismissed);
         expectResultContains(new String[] {"Request cancelled"});
     }
 
-    /** Add a valid address and complete the transaction. */
-    @MediumTest
+    /**
+     * Add a valid address and complete the transaction.
+     * @MediumTest
+     * @Restriction(RESTRICTION_TYPE_NON_LOW_END_DEVICE) // crbug.com/626289
+     */
+    @FlakyTest(message = "crbug.com/626289")
+    @Feature({"Payments"})
     public void testAddAddressAndPay()
             throws InterruptedException, ExecutionException, TimeoutException {
         triggerUIAndWait(mReadyForInput);
@@ -94,6 +105,7 @@ public class PaymentRequestDynamicShippingSingleAddressTest extends PaymentReque
 
     /** Quickly pressing "add address" and then [X] should not crash. */
     @MediumTest
+    @Feature({"Payments"})
     public void testQuickAddAddressAndCloseShouldNotCrash()
             throws InterruptedException, ExecutionException, TimeoutException {
         triggerUIAndWait(mReadyForInput);
@@ -111,13 +123,14 @@ public class PaymentRequestDynamicShippingSingleAddressTest extends PaymentReque
         });
         mReadyToEdit.waitForCallback(callCount);
 
-        clickInEditorAndWait(R.id.payments_edit_cancel_button, mReadyToClose);
+        clickInEditorAndWait(R.id.payments_edit_cancel_button, mReadyForInput);
         clickAndWait(R.id.close_button, mDismissed);
         expectResultContains(new String[] {"Request cancelled"});
     }
 
     /** Quickly pressing [X] and then "add address" should not crash. */
     @MediumTest
+    @Feature({"Payments"})
     public void testQuickCloseAndAddAddressShouldNotCrash()
             throws InterruptedException, ExecutionException, TimeoutException {
         triggerUIAndWait(mReadyForInput);
@@ -140,6 +153,7 @@ public class PaymentRequestDynamicShippingSingleAddressTest extends PaymentReque
 
     /** Quickly pressing "add address" and then "cancel" should not crash. */
     @MediumTest
+    @Feature({"Payments"})
     public void testQuickAddAddressAndCancelShouldNotCrash()
             throws InterruptedException, ExecutionException, TimeoutException {
         triggerUIAndWait(mReadyForInput);
@@ -157,13 +171,14 @@ public class PaymentRequestDynamicShippingSingleAddressTest extends PaymentReque
         });
         mReadyToEdit.waitForCallback(callCount);
 
-        clickInEditorAndWait(R.id.payments_edit_cancel_button, mReadyToClose);
+        clickInEditorAndWait(R.id.payments_edit_cancel_button, mReadyForInput);
         clickAndWait(R.id.close_button, mDismissed);
         expectResultContains(new String[] {"Request cancelled"});
     }
 
     /** Quickly pressing on "cancel" and then "add address" should not crash. */
     @MediumTest
+    @Feature({"Payments"})
     public void testQuickCancelAndAddAddressShouldNotCrash()
             throws InterruptedException, ExecutionException, TimeoutException {
         triggerUIAndWait(mReadyForInput);

@@ -4,7 +4,6 @@
 
 #include "chrome/browser/prerender/prerender_manager_factory.h"
 
-#include "base/sys_info.h"
 #include "base/trace_event/trace_event.h"
 #include "chrome/browser/history/history_service_factory.h"
 #include "chrome/browser/predictors/predictor_database_factory.h"
@@ -22,13 +21,13 @@
 namespace prerender {
 
 // static
-PrerenderManager* PrerenderManagerFactory::GetForProfile(
-    Profile* profile) {
+PrerenderManager* PrerenderManagerFactory::GetForBrowserContext(
+    content::BrowserContext* context) {
   TRACE_EVENT0("browser", "PrerenderManagerFactory::GetForProfile")
   if (!PrerenderManager::IsPrerenderingPossible())
     return NULL;
   return static_cast<PrerenderManager*>(
-      GetInstance()->GetServiceForBrowserContext(profile, true));
+      GetInstance()->GetServiceForBrowserContext(context, true));
 }
 
 // static
@@ -55,11 +54,7 @@ PrerenderManagerFactory::~PrerenderManagerFactory() {
 
 KeyedService* PrerenderManagerFactory::BuildServiceInstanceFor(
     content::BrowserContext* browser_context) const {
-  Profile* profile = Profile::FromBrowserContext(browser_context);
-  if (base::SysInfo::IsLowEndDevice())
-    return NULL;
-
-  return new PrerenderManager(profile);
+  return new PrerenderManager(Profile::FromBrowserContext(browser_context));
 }
 
 content::BrowserContext* PrerenderManagerFactory::GetBrowserContextToUse(

@@ -18,7 +18,6 @@ from chromite.lib import cros_logging as logging
 from chromite.lib import gs
 from chromite.lib.paygen import gslock
 from chromite.lib.paygen import gspaths
-from chromite.lib.paygen import utils
 
 
 # How long to sleep between polling GS to see if signer results are present.
@@ -130,7 +129,7 @@ class SignerPayloadsClientGoogleStorage(object):
     Args:
       keyset: name of the keyset contained in this instruction set.
 
-    Result:
+    Returns:
       URI for the given instruction set as a string.
     """
     return os.path.join(self.signing_base_dir,
@@ -158,7 +157,8 @@ class SignerPayloadsClientGoogleStorage(object):
     Args:
       hash_names: The list of input_names passed to the signer.
       keyset: Keyset name passed to the signer.
-    Result:
+
+    Returns:
       List of URIs expected back from the signer.
     """
     result = []
@@ -193,10 +193,8 @@ class SignerPayloadsClientGoogleStorage(object):
           f.write(h)
 
       cmd = ['tar', '-cjf', archive_file] + hash_names
-      utils.RunCommand(cmd,
-                       redirect_stdout=True,
-                       redirect_stderr=True,
-                       cwd=tmp_dir)
+      cros_build_lib.RunCommand(
+          cmd, redirect_stdout=True, redirect_stderr=True, cwd=tmp_dir)
     finally:
       # Cleanup.
       shutil.rmtree(tmp_dir)

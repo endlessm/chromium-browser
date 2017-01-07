@@ -10,7 +10,7 @@
 #include "cc/test/fake_layer_tree_host_client.h"
 #include "cc/test/fake_layer_tree_host_impl.h"
 #include "cc/test/test_shared_bitmap_manager.h"
-#include "cc/trees/layer_tree_host.h"
+#include "cc/trees/layer_tree_host_in_process.h"
 #include "cc/trees/layer_tree_impl.h"
 #include "cc/trees/tree_synchronizer.h"
 
@@ -18,7 +18,7 @@ namespace cc {
 class ImageSerializationProcessor;
 class TestTaskGraphRunner;
 
-class FakeLayerTreeHost : public LayerTreeHost {
+class FakeLayerTreeHost : public LayerTreeHostInProcess {
  public:
   static std::unique_ptr<FakeLayerTreeHost> Create(
       FakeLayerTreeHostClient* client,
@@ -46,13 +46,19 @@ class FakeLayerTreeHost : public LayerTreeHost {
       ImageSerializationProcessor* image_serialization_processor);
   ~FakeLayerTreeHost() override;
 
-  const RendererCapabilities& GetRendererCapabilities() const override;
   void SetNeedsCommit() override;
   void SetNeedsUpdateLayers() override {}
-  void SetNeedsFullTreeSync() override {}
 
-  using LayerTreeHost::SetRootLayer;
-  using LayerTreeHost::root_layer;
+  void SetRootLayer(scoped_refptr<Layer> root_layer) {
+    layer_tree_->SetRootLayer(root_layer);
+  }
+  Layer* root_layer() const { return layer_tree_->root_layer(); }
+  PropertyTrees* property_trees() const {
+    return layer_tree_->property_trees();
+  }
+  void BuildPropertyTreesForTesting() {
+    layer_tree_->BuildPropertyTreesForTesting();
+  }
 
   LayerImpl* CommitAndCreateLayerImplTree();
   LayerImpl* CommitAndCreatePendingTree();
@@ -61,15 +67,15 @@ class FakeLayerTreeHost : public LayerTreeHost {
   LayerTreeImpl* active_tree() { return host_impl_.active_tree(); }
   LayerTreeImpl* pending_tree() { return host_impl_.pending_tree(); }
 
-  using LayerTreeHost::ScheduleMicroBenchmark;
-  using LayerTreeHost::SendMessageToMicroBenchmark;
-  using LayerTreeHost::SetOutputSurfaceLostForTesting;
-  using LayerTreeHost::InitializeSingleThreaded;
-  using LayerTreeHost::InitializeForTesting;
-  using LayerTreeHost::InitializePictureCacheForTesting;
-  using LayerTreeHost::RecordGpuRasterizationHistogram;
+  using LayerTreeHostInProcess::ScheduleMicroBenchmark;
+  using LayerTreeHostInProcess::SendMessageToMicroBenchmark;
+  using LayerTreeHostInProcess::InitializeSingleThreaded;
+  using LayerTreeHostInProcess::InitializeForTesting;
+  using LayerTreeHostInProcess::InitializePictureCacheForTesting;
+  using LayerTreeHostInProcess::RecordGpuRasterizationHistogram;
+  using LayerTreeHostInProcess::SetUIResourceManagerForTesting;
 
-  void UpdateLayers() { LayerTreeHost::UpdateLayers(); }
+  void UpdateLayers() { LayerTreeHostInProcess::UpdateLayers(); }
 
   MicroBenchmarkController* GetMicroBenchmarkController() {
     return &micro_benchmark_controller_;
@@ -77,14 +83,8 @@ class FakeLayerTreeHost : public LayerTreeHost {
 
   bool needs_commit() { return needs_commit_; }
 
-  void set_renderer_capabilities(const RendererCapabilities& capabilities) {
-    renderer_capabilities_set = true;
-    renderer_capabilities = capabilities;
-  }
-
- protected:
   FakeLayerTreeHost(FakeLayerTreeHostClient* client,
-                    LayerTreeHost::InitParams* params,
+                    LayerTreeHostInProcess::InitParams* params,
                     CompositorMode mode);
 
  private:
@@ -93,9 +93,6 @@ class FakeLayerTreeHost : public LayerTreeHost {
   TestSharedBitmapManager manager_;
   FakeLayerTreeHostImpl host_impl_;
   bool needs_commit_;
-
-  bool renderer_capabilities_set;
-  RendererCapabilities renderer_capabilities;
 };
 
 }  // namespace cc

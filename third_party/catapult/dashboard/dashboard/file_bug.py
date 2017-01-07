@@ -13,19 +13,18 @@ from google.appengine.api import users
 from google.appengine.ext import ndb
 
 from dashboard import auto_bisect
-from dashboard import issue_tracker_service
 from dashboard import oauth2_decorator
-from dashboard import request_handler
-from dashboard import utils
+from dashboard.common import request_handler
+from dashboard.common import utils
 from dashboard.models import alert
 from dashboard.models import bug_data
 from dashboard.models import bug_label_patterns
+from dashboard.services import issue_tracker_service
 
 # A list of bug labels to suggest for all performance regression bugs.
 _DEFAULT_LABELS = [
     'Type-Bug-Regression',
     'Pri-2',
-    'Performance-Sheriff'
 ]
 _OMAHA_PROXY_URL = 'https://omahaproxy.appspot.com/all.json'
 
@@ -98,7 +97,8 @@ class FileBugHandler(request_handler.RequestHandler):
         'description': description,
         'labels': labels,
         'components': components,
-        'owner': users.get_current_user(),
+        'owner': '',
+        'cc': users.get_current_user(),
     })
 
   def _CreateBug(self, summary, description, labels, components, urlsafe_keys):
@@ -129,11 +129,14 @@ class FileBugHandler(request_handler.RequestHandler):
       })
       return
 
+    cc = self.request.get('cc')
+
     http = oauth2_decorator.DECORATOR.http()
-    service = issue_tracker_service.IssueTrackerService(http=http)
+    service = issue_tracker_service.IssueTrackerService(http)
 
     bug_id = service.NewBug(
-        summary, description, labels=labels, components=components, owner=owner)
+        summary, description, labels=labels, components=components, owner=owner,
+        cc=cc)
     if not bug_id:
       self.RenderHtml('bug_result.html', {'error': 'Error creating bug!'})
       return
@@ -180,11 +183,22 @@ def _UrlsafeKeys(alerts):
   return ','.join(a.key.urlsafe() for a in alerts)
 
 
+def _ComponentFromCrLabel(label):
+  return label.replace('Cr-', '').replace('-', '>')
+
 def _FetchLabelsAndComponents(alert_keys):
   """Fetches a list of bug labels and components for the given Alert keys."""
   labels = set(_DEFAULT_LABELS)
   components = set()
   alerts = ndb.get_multi(alert_keys)
+  sheriff_keys = set(alert.sheriff for alert in alerts)
+  sheriff_labels = [sheriff.labels for sheriff in ndb.get_multi(sheriff_keys)]
+  tags = [item for sublist in sheriff_labels for item in sublist]
+  for tag in tags:
+    if tag.startswith('Cr-'):
+      components.add(_ComponentFromCrLabel(tag))
+    else:
+      labels.add(tag)
   if any(a.internal_only for a in alerts):
     # This is a Chrome-specific behavior, and should ideally be made
     # more general (maybe there should be a list in datastore of bug
@@ -194,7 +208,7 @@ def _FetchLabelsAndComponents(alert_keys):
     labels_components = bug_label_patterns.GetBugLabelsForTest(test)
     for item in labels_components:
       if item.startswith('Cr-'):
-        components.add(item.replace('Cr-', '').replace('-', '>'))
+        components.add(_ComponentFromCrLabel(item))
       else:
         labels.add(item)
   return labels, components

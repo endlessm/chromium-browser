@@ -22,7 +22,7 @@ class FetchBenchmarkDepsUnittest(unittest.TestCase):
 
   It assumes the following telemetry APIs always success:
   telemetry.wpr.archive_info.WprArchiveInfo.DownloadArchivesIfNeeded
-  catapult_base.cloud_storage.GetFilesInDirectoryIfChanged
+  py_utils.cloud_storage.GetFilesInDirectoryIfChanged
   """
 
   def setUp(self):
@@ -46,7 +46,7 @@ class FetchBenchmarkDepsUnittest(unittest.TestCase):
     output = StringIO.StringIO()
     with mock.patch('telemetry.wpr.archive_info.WprArchiveInfo'
                     '.DownloadArchivesIfNeeded') as mock_download:
-      with mock.patch('catapult_base.cloud_storage'
+      with mock.patch('py_utils.cloud_storage'
                       '.GetFilesInDirectoryIfChanged') as mock_get:
         mock_download.return_value = True
         mock_get.GetFilesInDirectoryIfChanged.return_value = True
@@ -67,7 +67,7 @@ class FetchBenchmarkDepsUnittest(unittest.TestCase):
 
   def testFetchOctane(self):
     octane_wpr_path = os.path.join(
-        os.path.dirname(__file__), 'page_sets', 'data', 'octane_001.wpr')
+        os.path.dirname(__file__), 'page_sets', 'data', 'octane_002.wpr')
     expected = os.path.relpath(octane_wpr_path,
                                path_util.GetChromiumSrcDir())
     self._RunFetchBenchmarkDepsTest('octane', NormPaths(expected))

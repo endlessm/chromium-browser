@@ -34,161 +34,150 @@
 #include "core/events/KeyboardEvent.h"
 #include "core/frame/Settings.h"
 #include "platform/KeyboardCodes.h"
-#include "public/web/WebInputEvent.h"
+#include "public/platform/Platform.h"
+#include "public/platform/WebInputEvent.h"
 #include "testing/gtest/include/gtest/gtest.h"
-#include "web/WebInputEventConversion.h"
 #include <memory>
 
 namespace blink {
 
 class KeyboardTest : public testing::Test {
-public:
+ public:
+  // Pass a WebKeyboardEvent into the EditorClient and get back the string
+  // name of which editing event that key causes.
+  // E.g., sending in the enter key gives back "InsertNewline".
+  const char* interpretKeyEvent(const WebKeyboardEvent& webKeyboardEvent) {
+    KeyboardEvent* keyboardEvent = KeyboardEvent::create(webKeyboardEvent, 0);
+    std::unique_ptr<Settings> settings = Settings::create();
+    EditingBehavior behavior(settings->editingBehaviorType());
+    return behavior.interpretKeyEvent(*keyboardEvent);
+  }
 
-    // Pass a WebKeyboardEvent into the EditorClient and get back the string
-    // name of which editing event that key causes.
-    // E.g., sending in the enter key gives back "InsertNewline".
-    const char* interpretKeyEvent(
-        const WebKeyboardEvent& webKeyboardEvent,
-        PlatformEvent::EventType keyType)
-    {
-        PlatformKeyboardEventBuilder evt(webKeyboardEvent);
-        evt.setKeyType(keyType);
-        KeyboardEvent* keyboardEvent = KeyboardEvent::create(evt, 0);
-        std::unique_ptr<Settings> settings = Settings::create();
-        EditingBehavior behavior(settings->editingBehaviorType());
-        return behavior.interpretKeyEvent(*keyboardEvent);
-    }
+  WebKeyboardEvent createFakeKeyboardEvent(char keyCode,
+                                           int modifiers,
+                                           WebInputEvent::Type type,
+                                           const String& key = emptyString()) {
+    WebKeyboardEvent event;
+    event.type = type;
+    event.modifiers = modifiers;
+    event.text[0] = keyCode;
+    event.windowsKeyCode = keyCode;
+    event.domKey = Platform::current()->domKeyEnumFromString(key);
+    return event;
+  }
 
-    // Set up a WebKeyboardEvent KEY_DOWN event with key code and modifiers.
-    void setupKeyDownEvent(WebKeyboardEvent* keyboardEvent,
-                           char keyCode,
-                           int modifiers)
-    {
-        keyboardEvent->windowsKeyCode = keyCode;
-        keyboardEvent->modifiers = modifiers;
-        keyboardEvent->type = WebInputEvent::KeyDown;
-        keyboardEvent->text[0] = keyCode;
-        keyboardEvent->setKeyIdentifierFromWindowsKeyCode();
-    }
-
-    // Like interpretKeyEvent, but with pressing down OSModifier+|keyCode|.
-    // OSModifier is the platform's standard modifier key: control on most
-    // platforms, but meta (command) on Mac.
-    const char* interpretOSModifierKeyPress(char keyCode)
-    {
-        WebKeyboardEvent keyboardEvent;
+  // Like interpretKeyEvent, but with pressing down OSModifier+|keyCode|.
+  // OSModifier is the platform's standard modifier key: control on most
+  // platforms, but meta (command) on Mac.
+  const char* interpretOSModifierKeyPress(char keyCode) {
 #if OS(MACOSX)
-        WebInputEvent::Modifiers osModifier = WebInputEvent::MetaKey;
+    WebInputEvent::Modifiers osModifier = WebInputEvent::MetaKey;
 #else
-        WebInputEvent::Modifiers osModifier = WebInputEvent::ControlKey;
+    WebInputEvent::Modifiers osModifier = WebInputEvent::ControlKey;
 #endif
-        setupKeyDownEvent(&keyboardEvent, keyCode, osModifier);
-        return interpretKeyEvent(keyboardEvent, PlatformEvent::RawKeyDown);
-    }
+    return interpretKeyEvent(createFakeKeyboardEvent(
+        keyCode, osModifier, WebInputEvent::RawKeyDown));
+  }
 
-    // Like interpretKeyEvent, but with pressing down ctrl+|keyCode|.
-    const char* interpretCtrlKeyPress(char keyCode)
-    {
-        WebKeyboardEvent keyboardEvent;
-        setupKeyDownEvent(&keyboardEvent, keyCode, WebInputEvent::ControlKey);
-        return interpretKeyEvent(keyboardEvent, PlatformEvent::RawKeyDown);
-    }
+  // Like interpretKeyEvent, but with pressing down ctrl+|keyCode|.
+  const char* interpretCtrlKeyPress(char keyCode) {
+    return interpretKeyEvent(createFakeKeyboardEvent(
+        keyCode, WebInputEvent::ControlKey, WebInputEvent::RawKeyDown));
+  }
 
-    // Like interpretKeyEvent, but with typing a tab.
-    const char* interpretTab(int modifiers)
-    {
-        WebKeyboardEvent keyboardEvent;
-        setupKeyDownEvent(&keyboardEvent, '\t', modifiers);
-        return interpretKeyEvent(keyboardEvent, PlatformEvent::Char);
-    }
+  // Like interpretKeyEvent, but with typing a tab.
+  const char* interpretTab(int modifiers) {
+    return interpretKeyEvent(
+        createFakeKeyboardEvent('\t', modifiers, WebInputEvent::Char));
+  }
 
-    // Like interpretKeyEvent, but with typing a newline.
-    const char* interpretNewLine(int modifiers)
-    {
-        WebKeyboardEvent keyboardEvent;
-        setupKeyDownEvent(&keyboardEvent, '\r', modifiers);
-        return interpretKeyEvent(keyboardEvent, PlatformEvent::Char);
-    }
+  // Like interpretKeyEvent, but with typing a newline.
+  const char* interpretNewLine(int modifiers) {
+    return interpretKeyEvent(
+        createFakeKeyboardEvent('\r', modifiers, WebInputEvent::Char));
+  }
 
-    // A name for "no modifiers set".
-    static const int noModifiers = 0;
+  const char* interpretDomKey(const char* key) {
+    return interpretKeyEvent(createFakeKeyboardEvent(
+        0, noModifiers, WebInputEvent::RawKeyDown, key));
+  }
+
+  // A name for "no modifiers set".
+  static const int noModifiers = 0;
 };
 
-TEST_F(KeyboardTest, TestCtrlReturn)
-{
-    EXPECT_STREQ("InsertNewline", interpretCtrlKeyPress(0xD));
+TEST_F(KeyboardTest, TestCtrlReturn) {
+  EXPECT_STREQ("InsertNewline", interpretCtrlKeyPress(0xD));
 }
 
-TEST_F(KeyboardTest, TestOSModifierZ)
-{
+TEST_F(KeyboardTest, TestOSModifierZ) {
 #if !OS(MACOSX)
-    EXPECT_STREQ("Undo", interpretOSModifierKeyPress('Z'));
+  EXPECT_STREQ("Undo", interpretOSModifierKeyPress('Z'));
 #endif
 }
 
-TEST_F(KeyboardTest, TestOSModifierY)
-{
+TEST_F(KeyboardTest, TestOSModifierY) {
 #if !OS(MACOSX)
-    EXPECT_STREQ("Redo", interpretOSModifierKeyPress('Y'));
+  EXPECT_STREQ("Redo", interpretOSModifierKeyPress('Y'));
 #endif
 }
 
-TEST_F(KeyboardTest, TestOSModifierA)
-{
+TEST_F(KeyboardTest, TestOSModifierA) {
 #if !OS(MACOSX)
-    EXPECT_STREQ("SelectAll", interpretOSModifierKeyPress('A'));
+  EXPECT_STREQ("SelectAll", interpretOSModifierKeyPress('A'));
 #endif
 }
 
-TEST_F(KeyboardTest, TestOSModifierX)
-{
+TEST_F(KeyboardTest, TestOSModifierX) {
 #if !OS(MACOSX)
-    EXPECT_STREQ("Cut", interpretOSModifierKeyPress('X'));
+  EXPECT_STREQ("Cut", interpretOSModifierKeyPress('X'));
 #endif
 }
 
-TEST_F(KeyboardTest, TestOSModifierC)
-{
+TEST_F(KeyboardTest, TestOSModifierC) {
 #if !OS(MACOSX)
-    EXPECT_STREQ("Copy", interpretOSModifierKeyPress('C'));
+  EXPECT_STREQ("Copy", interpretOSModifierKeyPress('C'));
 #endif
 }
 
-TEST_F(KeyboardTest, TestOSModifierV)
-{
+TEST_F(KeyboardTest, TestOSModifierV) {
 #if !OS(MACOSX)
-    EXPECT_STREQ("Paste", interpretOSModifierKeyPress('V'));
+  EXPECT_STREQ("Paste", interpretOSModifierKeyPress('V'));
 #endif
 }
 
-TEST_F(KeyboardTest, TestEscape)
-{
-    WebKeyboardEvent keyboardEvent;
-    setupKeyDownEvent(&keyboardEvent, VKEY_ESCAPE, noModifiers);
-
-    const char* result = interpretKeyEvent(keyboardEvent,
-                                           PlatformEvent::RawKeyDown);
-    EXPECT_STREQ("Cancel", result);
+TEST_F(KeyboardTest, TestEscape) {
+  const char* result = interpretKeyEvent(createFakeKeyboardEvent(
+      VKEY_ESCAPE, noModifiers, WebInputEvent::RawKeyDown));
+  EXPECT_STREQ("Cancel", result);
 }
 
-TEST_F(KeyboardTest, TestInsertTab)
-{
-    EXPECT_STREQ("InsertTab", interpretTab(noModifiers));
+TEST_F(KeyboardTest, TestInsertTab) {
+  EXPECT_STREQ("InsertTab", interpretTab(noModifiers));
 }
 
-TEST_F(KeyboardTest, TestInsertBackTab)
-{
-    EXPECT_STREQ("InsertBacktab", interpretTab(WebInputEvent::ShiftKey));
+TEST_F(KeyboardTest, TestInsertBackTab) {
+  EXPECT_STREQ("InsertBacktab", interpretTab(WebInputEvent::ShiftKey));
 }
 
-TEST_F(KeyboardTest, TestInsertNewline)
-{
-    EXPECT_STREQ("InsertNewline", interpretNewLine(noModifiers));
+TEST_F(KeyboardTest, TestInsertNewline) {
+  EXPECT_STREQ("InsertNewline", interpretNewLine(noModifiers));
 }
 
-TEST_F(KeyboardTest, TestInsertLineBreak)
-{
-    EXPECT_STREQ("InsertLineBreak", interpretNewLine(WebInputEvent::ShiftKey));
+TEST_F(KeyboardTest, TestInsertLineBreak) {
+  EXPECT_STREQ("InsertLineBreak", interpretNewLine(WebInputEvent::ShiftKey));
 }
 
-} // namespace blink
+TEST_F(KeyboardTest, TestDomKeyMap) {
+  struct TestCase {
+    const char* key;
+    const char* command;
+  } kDomKeyTestCases[] = {
+      {"Copy", "Copy"}, {"Cut", "Cut"}, {"Paste", "Paste"},
+  };
+
+  for (const auto& test_case : kDomKeyTestCases)
+    EXPECT_STREQ(test_case.command, interpretDomKey(test_case.key));
+}
+
+}  // namespace blink

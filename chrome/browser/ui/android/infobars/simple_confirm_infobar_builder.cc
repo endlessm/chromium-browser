@@ -20,6 +20,8 @@
 #include "ui/gfx/image/image.h"
 #include "ui/gfx/vector_icons_public.h"
 
+using base::android::JavaParamRef;
+
 namespace {
 
 // Delegate for a simple ConfirmInfoBar triggered via JNI.
@@ -96,7 +98,7 @@ bool SimpleConfirmInfoBarDelegate::ShouldExpire(
 
 void SimpleConfirmInfoBarDelegate::InfoBarDismissed() {
   Java_SimpleConfirmInfoBarBuilder_onInfoBarDismissed(
-      base::android::AttachCurrentThread(), java_listener_.obj());
+      base::android::AttachCurrentThread(), java_listener_);
 }
 
 base::string16 SimpleConfirmInfoBarDelegate::GetMessageText() const {
@@ -115,12 +117,12 @@ SimpleConfirmInfoBarDelegate::GetButtonLabel(InfoBarButton button) const {
 
 bool SimpleConfirmInfoBarDelegate::Accept() {
   return !Java_SimpleConfirmInfoBarBuilder_onInfoBarButtonClicked(
-      base::android::AttachCurrentThread(), java_listener_.obj(), true);
+      base::android::AttachCurrentThread(), java_listener_, true);
 }
 
 bool SimpleConfirmInfoBarDelegate::Cancel() {
   return !Java_SimpleConfirmInfoBarBuilder_onInfoBarButtonClicked(
-      base::android::AttachCurrentThread(), java_listener_.obj(), false);
+      base::android::AttachCurrentThread(), java_listener_, false);
 }
 
 }  // anonymous namespace
@@ -159,9 +161,9 @@ void Create(JNIEnv* env,
   InfoBarService* service = InfoBarService::FromWebContents(
       TabAndroid::GetNativeTab(env, j_tab)->web_contents());
   service->AddInfoBar(service->CreateConfirmInfoBar(
-      base::WrapUnique(new SimpleConfirmInfoBarDelegate(
+      base::MakeUnique<SimpleConfirmInfoBarDelegate>(
           j_listener, infobar_identifier, icon_bitmap, message_str, primary_str,
-          secondary_str, auto_expire))));
+          secondary_str, auto_expire)));
 }
 
 bool RegisterSimpleConfirmInfoBarBuilder(JNIEnv* env) {

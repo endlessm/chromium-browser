@@ -20,11 +20,11 @@ WebUsbChooserServiceAndroid::WebUsbChooserServiceAndroid(
 WebUsbChooserServiceAndroid::~WebUsbChooserServiceAndroid() {}
 
 void WebUsbChooserServiceAndroid::GetPermission(
-    mojo::Array<device::usb::DeviceFilterPtr> device_filters,
+    std::vector<device::usb::DeviceFilterPtr> device_filters,
     const GetPermissionCallback& callback) {
   usb_chooser_dialog_android_.push_back(
-      base::WrapUnique(new UsbChooserDialogAndroid(
-          std::move(device_filters), render_frame_host_, callback)));
+      base::MakeUnique<UsbChooserDialogAndroid>(std::move(device_filters),
+                                                render_frame_host_, callback));
 }
 
 void WebUsbChooserServiceAndroid::Bind(

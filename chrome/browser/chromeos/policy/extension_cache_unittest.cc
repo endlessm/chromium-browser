@@ -70,7 +70,7 @@ TEST_F(ExtensionCacheTest, SizePolicy) {
   const base::Time now = base::Time::Now();
   base::ScopedTempDir cache_dir;
   ASSERT_TRUE(cache_dir.CreateUniqueTempDir());
-  const base::FilePath cache_path = cache_dir.path();
+  const base::FilePath cache_path = cache_dir.GetPath();
   CreateFile(cache_path.Append(LocalExtensionCache::kCacheReadyFlagFileName), 0,
              now);
 
@@ -86,7 +86,7 @@ TEST_F(ExtensionCacheTest, SizePolicy) {
                           now - base::TimeDelta::FromSeconds(3));
 
   ExtensionCacheImpl cache_impl(
-      base::WrapUnique(new ChromeOSExtensionCacheDelegate(cache_path)));
+      base::MakeUnique<ChromeOSExtensionCacheDelegate>(cache_path));
 
   std::unique_ptr<base::RunLoop> run_loop(new base::RunLoop);
   cache_impl.Start(run_loop->QuitClosure());

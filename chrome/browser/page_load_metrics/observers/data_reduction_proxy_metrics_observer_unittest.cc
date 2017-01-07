@@ -10,22 +10,23 @@
 #include "base/macros.h"
 #include "base/memory/ptr_util.h"
 #include "base/metrics/field_trial.h"
+#include "base/optional.h"
 #include "base/time/time.h"
+#include "chrome/browser/loader/chrome_navigation_data.h"
 #include "chrome/browser/page_load_metrics/observers/page_load_metrics_observer_test_harness.h"
-#include "chrome/browser/renderer_host/chrome_navigation_data.h"
+#include "chrome/common/page_load_metrics/page_load_timing.h"
 #include "chrome/test/base/testing_browser_process.h"
 #include "components/data_reduction_proxy/core/browser/data_reduction_proxy_data.h"
 #include "components/data_reduction_proxy/core/browser/data_reduction_proxy_pingback_client.h"
 #include "components/data_reduction_proxy/core/common/data_reduction_proxy_page_load_timing.h"
 #include "components/data_reduction_proxy/core/common/data_reduction_proxy_params.h"
-#include "components/page_load_metrics/common/page_load_timing.h"
 
 namespace data_reduction_proxy {
 
 namespace {
 
-const char kDefaultTestUrl[] = "https://google.com";
-const char kDefaultTestUrl2[] = "https://example.com";
+const char kDefaultTestUrl[] = "http://google.com";
+const char kDefaultTestUrl2[] = "http://example.com";
 
 data_reduction_proxy::DataReductionProxyData* DataForNavigationHandle(
     content::WebContents* web_contents,
@@ -99,12 +100,13 @@ class TestDataReductionProxyMetricsObserver
   ~TestDataReductionProxyMetricsObserver() override {}
 
   // page_load_metrics::PageLoadMetricsObserver implementation:
-  void OnCommit(content::NavigationHandle* navigation_handle) override {
+  ObservePolicy OnCommit(
+      content::NavigationHandle* navigation_handle) override {
     DataReductionProxyData* data =
         DataForNavigationHandle(web_contents_, navigation_handle);
     data->set_used_data_reduction_proxy(data_reduction_proxy_used_);
     data->set_lofi_requested(lofi_used_);
-    DataReductionProxyMetricsObserver::OnCommit(navigation_handle);
+    return DataReductionProxyMetricsObserver::OnCommit(navigation_handle);
   }
 
   DataReductionProxyPingbackClient* GetPingbackClient() const override {
@@ -134,9 +136,14 @@ class DataReductionProxyMetricsObserverTest
     timing_.response_start = base::TimeDelta::FromSeconds(2);
     timing_.parse_start = base::TimeDelta::FromSeconds(3);
     timing_.first_contentful_paint = base::TimeDelta::FromSeconds(4);
+    timing_.first_paint = base::TimeDelta::FromSeconds(4);
+    timing_.first_meaningful_paint = base::TimeDelta::FromSeconds(8);
     timing_.first_image_paint = base::TimeDelta::FromSeconds(5);
     timing_.first_text_paint = base::TimeDelta::FromSeconds(6);
     timing_.load_event_start = base::TimeDelta::FromSeconds(7);
+    timing_.parse_stop = base::TimeDelta::FromSeconds(4);
+    timing_.parse_blocked_on_script_load_duration =
+        base::TimeDelta::FromSeconds(1);
     PopulateRequiredTimingFields(&timing_);
   }
 
@@ -152,17 +159,32 @@ class DataReductionProxyMetricsObserverTest
     NavigateAndCommit(GURL(kDefaultTestUrl2));
   }
 
+  // Verify that, if expected and actual are set, their values are equal.
+  // Otherwise, verify that both are unset.
+  void ExpectEqualOrUnset(const base::Optional<base::TimeDelta>& expected,
+                          const base::Optional<base::TimeDelta>& actual) {
+    if (expected && actual) {
+      EXPECT_EQ(expected.value(), actual.value());
+    } else {
+      EXPECT_TRUE(!expected);
+      EXPECT_TRUE(!actual);
+    }
+  }
+
   void ValidateTimes() {
     EXPECT_TRUE(pingback_client_->send_pingback_called());
     EXPECT_EQ(timing_.navigation_start,
               pingback_client_->timing()->navigation_start);
-    EXPECT_EQ(timing_.first_contentful_paint,
+    ExpectEqualOrUnset(timing_.first_contentful_paint,
               pingback_client_->timing()->first_contentful_paint);
-    EXPECT_EQ(timing_.response_start,
+    ExpectEqualOrUnset(
+        timing_.first_meaningful_paint,
+        pingback_client_->timing()->experimental_first_meaningful_paint);
+    ExpectEqualOrUnset(timing_.response_start,
               pingback_client_->timing()->response_start);
-    EXPECT_EQ(timing_.load_event_start,
+    ExpectEqualOrUnset(timing_.load_event_start,
               pingback_client_->timing()->load_event_start);
-    EXPECT_EQ(timing_.first_image_paint,
+    ExpectEqualOrUnset(timing_.first_image_paint,
               pingback_client_->timing()->first_image_paint);
   }
 
@@ -176,6 +198,8 @@ class DataReductionProxyMetricsObserverTest
                                 timing_.load_event_start);
     ValidateHistogramsForSuffix(internal::kHistogramFirstContentfulPaintSuffix,
                                 timing_.first_contentful_paint);
+    ValidateHistogramsForSuffix(internal::kHistogramFirstMeaningfulPaintSuffix,
+                                timing_.first_meaningful_paint);
     ValidateHistogramsForSuffix(internal::kHistogramFirstImagePaintSuffix,
                                 timing_.first_image_paint);
     ValidateHistogramsForSuffix(internal::kHistogramFirstPaintSuffix,
@@ -184,10 +208,17 @@ class DataReductionProxyMetricsObserverTest
                                 timing_.first_text_paint);
     ValidateHistogramsForSuffix(internal::kHistogramParseStartSuffix,
                                 timing_.parse_start);
+    ValidateHistogramsForSuffix(
+        internal::kHistogramParseBlockedOnScriptLoadSuffix,
+        timing_.parse_blocked_on_script_load_duration);
+    ValidateHistogramsForSuffix(
+        internal::kHistogramParseDurationSuffix,
+        timing_.parse_stop.value() - timing_.parse_start.value());
   }
 
-  void ValidateHistogramsForSuffix(const std::string& histogram_suffix,
-                                   const base::TimeDelta& event) {
+  void ValidateHistogramsForSuffix(
+      const std::string& histogram_suffix,
+      const base::Optional<base::TimeDelta>& event) {
     histogram_tester().ExpectTotalCount(
         std::string(internal::kHistogramDataReductionProxyPrefix)
             .append(histogram_suffix),
@@ -201,21 +232,23 @@ class DataReductionProxyMetricsObserverTest
     histogram_tester().ExpectUniqueSample(
         std::string(internal::kHistogramDataReductionProxyPrefix)
             .append(histogram_suffix),
-        static_cast<base::HistogramBase::Sample>(event.InMilliseconds()), 1);
+        static_cast<base::HistogramBase::Sample>(
+            event.value().InMilliseconds()),
+        1);
     if (!is_using_lofi_)
       return;
     histogram_tester().ExpectUniqueSample(
         std::string(internal::kHistogramDataReductionProxyLoFiOnPrefix)
             .append(histogram_suffix),
-        event.InMilliseconds(), is_using_lofi_ ? 1 : 0);
+        event.value().InMilliseconds(), is_using_lofi_ ? 1 : 0);
   }
 
  protected:
   void RegisterObservers(page_load_metrics::PageLoadTracker* tracker) override {
     tracker->AddObserver(
-        base::WrapUnique(new TestDataReductionProxyMetricsObserver(
+        base::MakeUnique<TestDataReductionProxyMetricsObserver>(
             web_contents(), pingback_client_.get(), data_reduction_proxy_used_,
-            is_using_lofi_)));
+            is_using_lofi_));
   }
 
   std::unique_ptr<TestPingbackClient> pingback_client_;
@@ -260,22 +293,29 @@ TEST_F(DataReductionProxyMetricsObserverTest, OnCompletePingback) {
 
   ResetTest();
   // Verify that when data reduction proxy was used but first image paint is
-  // zero, the correct timing information is sent to SendPingback.
-  timing_.first_image_paint = base::TimeDelta::FromSeconds(0);
+  // unset, the correct timing information is sent to SendPingback.
+  timing_.first_image_paint = base::nullopt;
   RunTest(true, false);
   ValidateTimes();
 
   ResetTest();
   // Verify that when data reduction proxy was used but first contentful paint
-  // is zero, SendPingback is not called.
-  timing_.first_contentful_paint = base::TimeDelta::FromSeconds(0);
+  // is unset, SendPingback is not called.
+  timing_.first_contentful_paint = base::nullopt;
+  RunTest(true, false);
+  ValidateTimes();
+
+  ResetTest();
+  // Verify that when data reduction proxy was used but first meaningful paint
+  // is unset, SendPingback is not called.
+  timing_.first_meaningful_paint = base::nullopt;
   RunTest(true, false);
   ValidateTimes();
 
   ResetTest();
   // Verify that when data reduction proxy was used but load event start is
-  // zero, SendPingback is not called.
-  timing_.load_event_start = base::TimeDelta::FromSeconds(0);
+  // unset, SendPingback is not called.
+  timing_.load_event_start = base::nullopt;
   RunTest(true, false);
   ValidateTimes();
 

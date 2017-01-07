@@ -29,6 +29,7 @@ class ScopedCLDDynamicDataHarness;
 class PrefService;
 
 namespace translate {
+class LanguageModel;
 class LanguageState;
 class TranslateAcceptLanguages;
 class TranslatePrefs;
@@ -70,6 +71,10 @@ class ChromeTranslateClient
   static void GetTranslateLanguages(content::WebContents* web_contents,
                                     std::string* source,
                                     std::string* target);
+
+  static void BindContentTranslateDriver(
+      content::RenderFrameHost* render_frame_host,
+      translate::mojom::ContentTranslateDriverRequest request);
 
   // Gets the associated TranslateManager.
   translate::TranslateManager* GetTranslateManager();
@@ -117,6 +122,10 @@ class ChromeTranslateClient
 
   translate::ContentTranslateDriver translate_driver_;
   std::unique_ptr<translate::TranslateManager> translate_manager_;
+
+  // Model to be notified about detected language of every page visited. Not
+  // owned here.
+  translate::LanguageModel* language_model_;
 
   DISALLOW_COPY_AND_ASSIGN(ChromeTranslateClient);
 };

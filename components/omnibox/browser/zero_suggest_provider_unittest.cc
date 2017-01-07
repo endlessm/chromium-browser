@@ -4,6 +4,7 @@
 
 #include "components/omnibox/browser/zero_suggest_provider.h"
 
+#include "base/memory/ptr_util.h"
 #include "base/metrics/field_trial.h"
 #include "base/run_loop.h"
 #include "base/strings/utf_string_conversions.h"
@@ -208,11 +209,10 @@ void ZeroSuggestProviderTest::SetUp() {
   data.suggestions_url = "https://www.google.com/complete/?q={searchTerms}";
   data.instant_url = "https://does/not/exist?strk=1";
   data.search_terms_replacement_key = "strk";
-  default_t_url_ = new TemplateURL(data);
-  turl_model->Add(default_t_url_);
+  default_t_url_ = turl_model->Add(base::MakeUnique<TemplateURL>(data));
   turl_model->SetUserSelectedDefaultSearchProvider(default_t_url_);
 
-  provider_ = ZeroSuggestProvider::Create(client_.get(), this);
+  provider_ = ZeroSuggestProvider::Create(client_.get(), nullptr, this);
 }
 
 void ZeroSuggestProviderTest::OnProviderUpdate(bool updated_matches) {
@@ -223,7 +223,7 @@ void ZeroSuggestProviderTest::ResetFieldTrialList() {
   // a DCHECK.
   field_trial_list_.reset();
   field_trial_list_.reset(new base::FieldTrialList(
-      new metrics::SHA1EntropyProvider("foo")));
+      base::MakeUnique<metrics::SHA1EntropyProvider>("foo")));
   variations::testing::ClearAllVariationParams();
 }
 
@@ -328,8 +328,8 @@ TEST_F(ZeroSuggestProviderTest, TestMostVisitedNavigateToSearchPage) {
   std::string search_url("https://www.google.com/?q=flowers");
   AutocompleteInput srp_input(
       base::ASCIIToUTF16(search_url), base::string16::npos, std::string(),
-      GURL(search_url), metrics::OmniboxEventProto::
-                            SEARCH_RESULT_PAGE_DOING_SEARCH_TERM_REPLACEMENT,
+      GURL(search_url),
+      metrics::OmniboxEventProto::SEARCH_RESULT_PAGE_NO_SEARCH_TERM_REPLACEMENT,
       false, false, true, true, true, TestSchemeClassifier());
 
   provider_->Start(srp_input, false);

@@ -6,7 +6,7 @@
 
 #include "base/callback.h"
 #include "base/command_line.h"
-#include "chrome/browser/media/desktop_media_list.h"
+#include "chrome/browser/media/webrtc/desktop_media_list.h"
 #include "chrome/browser/ui/browser_finder.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/views/desktop_capture/desktop_media_list_view.h"
@@ -14,14 +14,13 @@
 #include "chrome/browser/ui/views/desktop_media_picker_views_deprecated.h"
 #include "chrome/grit/chromium_strings.h"
 #include "chrome/grit/generated_resources.h"
-#include "chrome/grit/google_chrome_strings.h"
 #include "components/constrained_window/constrained_window_views.h"
+#include "components/strings/grit/components_strings.h"
 #include "components/web_modal/web_contents_modal_dialog_manager.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/web_contents_delegate.h"
 #include "extensions/common/switches.h"
-#include "grit/components_strings.h"
 #include "ui/aura/window_tree_host.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/events/keycodes/keyboard_codes.h"
@@ -76,7 +75,7 @@ DesktopMediaPickerDialogView::DesktopMediaPickerDialogView(
   AddChildView(description_label_);
 
   const SkColor bg_color = GetNativeTheme()->GetSystemColor(
-      ui::NativeTheme::kColorId_MenuBackgroundColor);
+      ui::NativeTheme::kColorId_DialogBackground);
 
   if (screen_list) {
     source_types_.push_back(DesktopMediaID::TYPE_SCREEN);
@@ -84,6 +83,7 @@ DesktopMediaPickerDialogView::DesktopMediaPickerDialogView(
     const DesktopMediaSourceViewStyle kSingleScreenStyle(
         1,                                       // columns
         gfx::Size(360, 280),                     // item_size
+        gfx::Rect(),                             // icon_rect
         gfx::Rect(),                             // label_rect
         gfx::HorizontalAlignment::ALIGN_CENTER,  // text_alignment
         gfx::Rect(20, 20, 320, 240),             // image_rect
@@ -93,6 +93,7 @@ DesktopMediaPickerDialogView::DesktopMediaPickerDialogView(
     const DesktopMediaSourceViewStyle kGenericScreenStyle(
         2,                                       // columns
         gfx::Size(270, 220),                     // item_size
+        gfx::Rect(),                             // icon_rect
         gfx::Rect(15, 165, 240, 40),             // label_rect
         gfx::HorizontalAlignment::ALIGN_CENTER,  // text_alignment
         gfx::Rect(15, 15, 240, 150),             // image_rect
@@ -101,8 +102,11 @@ DesktopMediaPickerDialogView::DesktopMediaPickerDialogView(
 
     views::ScrollView* screen_scroll_view =
         views::ScrollView::CreateScrollViewWithBorder();
+    base::string16 screen_title_text =
+        l10n_util::GetStringUTF16(IDS_DESKTOP_MEDIA_PICKER_SOURCE_TYPE_SCREEN);
     list_views_.push_back(new DesktopMediaListView(
-        this, std::move(screen_list), kGenericScreenStyle, kSingleScreenStyle));
+        this, std::move(screen_list), kGenericScreenStyle, kSingleScreenStyle,
+        screen_title_text));
 
     screen_scroll_view->SetContents(list_views_.back());
     screen_scroll_view->ClipHeightTo(
@@ -112,9 +116,7 @@ DesktopMediaPickerDialogView::DesktopMediaPickerDialogView(
     screen_scroll_view->set_background(
         views::Background::CreateSolidBackground(bg_color));
 
-    pane_->AddTab(
-        l10n_util::GetStringUTF16(IDS_DESKTOP_MEDIA_PICKER_SOURCE_TYPE_SCREEN),
-        screen_scroll_view);
+    pane_->AddTab(screen_title_text, screen_scroll_view);
     pane_->set_listener(this);
   }
 
@@ -122,18 +124,22 @@ DesktopMediaPickerDialogView::DesktopMediaPickerDialogView(
     source_types_.push_back(DesktopMediaID::TYPE_WINDOW);
 
     const DesktopMediaSourceViewStyle kWindowStyle(
-        3,                                       // columns
-        gfx::Size(180, 160),                     // item_size
-        gfx::Rect(10, 110, 160, 40),             // label_rect
-        gfx::HorizontalAlignment::ALIGN_CENTER,  // text_alignment
-        gfx::Rect(8, 8, 164, 104),               // image_rect
-        2,                                       // selection_border_thickness
-        5);                                      // focus_rectangle_inset
+        3,                                     // columns
+        gfx::Size(180, 160),                   // item_size
+        gfx::Rect(10, 120, 20, 20),            // icon_rect
+        gfx::Rect(32, 110, 138, 40),           // label_rect
+        gfx::HorizontalAlignment::ALIGN_LEFT,  // text_alignment
+        gfx::Rect(8, 8, 164, 104),             // image_rect
+        2,                                     // selection_border_thickness
+        5);                                    // focus_rectangle_inset
 
     views::ScrollView* window_scroll_view =
         views::ScrollView::CreateScrollViewWithBorder();
+    base::string16 window_title_text =
+        l10n_util::GetStringUTF16(IDS_DESKTOP_MEDIA_PICKER_SOURCE_TYPE_WINDOW);
     list_views_.push_back(new DesktopMediaListView(this, std::move(window_list),
-                                                   kWindowStyle, kWindowStyle));
+                                                   kWindowStyle, kWindowStyle,
+                                                   window_title_text));
     window_scroll_view->SetContents(list_views_.back());
     window_scroll_view->ClipHeightTo(kWindowStyle.item_size.height(),
                                      kWindowStyle.item_size.height() * 2);
@@ -141,9 +147,7 @@ DesktopMediaPickerDialogView::DesktopMediaPickerDialogView(
     window_scroll_view->set_background(
         views::Background::CreateSolidBackground(bg_color));
 
-    pane_->AddTab(
-        l10n_util::GetStringUTF16(IDS_DESKTOP_MEDIA_PICKER_SOURCE_TYPE_WINDOW),
-        window_scroll_view);
+    pane_->AddTab(window_title_text, window_scroll_view);
     pane_->set_listener(this);
   }
 
@@ -153,6 +157,7 @@ DesktopMediaPickerDialogView::DesktopMediaPickerDialogView(
     const DesktopMediaSourceViewStyle kTabStyle(
         1,                                     // columns
         gfx::Size(600, 30),                    // item_size
+        gfx::Rect(),                           // icon_rect
         gfx::Rect(46, 0, 490, 30),             // label_rect
         gfx::HorizontalAlignment::ALIGN_LEFT,  // text_alignment
         gfx::Rect(10, 2, 26, 26),              // image_rect
@@ -161,8 +166,10 @@ DesktopMediaPickerDialogView::DesktopMediaPickerDialogView(
 
     views::ScrollView* tab_scroll_view =
         views::ScrollView::CreateScrollViewWithBorder();
-    list_views_.push_back(new DesktopMediaListView(this, std::move(tab_list),
-                                                   kTabStyle, kTabStyle));
+    base::string16 tab_title_text =
+        l10n_util::GetStringUTF16(IDS_DESKTOP_MEDIA_PICKER_SOURCE_TYPE_TAB);
+    list_views_.push_back(new DesktopMediaListView(
+        this, std::move(tab_list), kTabStyle, kTabStyle, tab_title_text));
 
     tab_scroll_view->SetContents(list_views_.back());
     tab_scroll_view->ClipHeightTo(kTabStyle.item_size.height(),
@@ -171,9 +178,7 @@ DesktopMediaPickerDialogView::DesktopMediaPickerDialogView(
     tab_scroll_view->set_background(
         views::Background::CreateSolidBackground(bg_color));
 
-    pane_->AddTab(
-        l10n_util::GetStringUTF16(IDS_DESKTOP_MEDIA_PICKER_SOURCE_TYPE_TAB),
-        tab_scroll_view);
+    pane_->AddTab(tab_title_text, tab_scroll_view);
     pane_->set_listener(this);
   }
 
@@ -186,6 +191,7 @@ DesktopMediaPickerDialogView::DesktopMediaPickerDialogView(
   }
 
   DCHECK(!source_types_.empty());
+  pane_->SetFocusBehavior(views::View::FocusBehavior::NEVER);
   AddChildView(pane_);
 
   if (request_audio) {
@@ -228,7 +234,7 @@ DesktopMediaPickerDialogView::DesktopMediaPickerDialogView(
 #endif
   }
 
-  for (auto& list_view : list_views_)
+  for (auto* list_view : list_views_)
     list_view->StartUpdating(dialog_window_id);
 }
 
@@ -236,6 +242,7 @@ DesktopMediaPickerDialogView::~DesktopMediaPickerDialogView() {}
 
 void DesktopMediaPickerDialogView::TabSelectedAt(int index) {
   SwitchSourceType(index);
+  list_views_[index]->RequestFocus();
   GetDialogClientView()->UpdateDialogButtons();
 }
 
@@ -438,8 +445,8 @@ void DesktopMediaPickerViews::NotifyDialogResult(DesktopMediaID source) {
 
 // static
 std::unique_ptr<DesktopMediaPicker> DesktopMediaPicker::Create() {
-  if (!base::CommandLine::ForCurrentProcess()->HasSwitch(
-          extensions::switches::kDisableDesktopCapturePickerOldUI)) {
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+          extensions::switches::kDisableDesktopCapturePickerNewUI)) {
     return std::unique_ptr<DesktopMediaPicker>(
         new deprecated::DesktopMediaPickerViews());
   }

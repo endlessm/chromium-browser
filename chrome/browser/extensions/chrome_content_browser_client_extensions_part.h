@@ -34,9 +34,6 @@ class ChromeContentBrowserClientExtensionsPart
                                  const GURL& effective_site_url);
   static bool CanCommitURL(content::RenderProcessHost* process_host,
                            const GURL& url);
-  static bool IsIllegalOrigin(content::ResourceContext* resource_context,
-                              int child_process_id,
-                              const GURL& origin);
   static bool IsSuitableHost(Profile* profile,
                              content::RenderProcessHost* process_host,
                              const GURL& site_url);
@@ -59,7 +56,6 @@ class ChromeContentBrowserClientExtensionsPart
   // Similiar to ChromeContentBrowserClient::ShouldAllowOpenURL(), but the
   // return value indicates whether to use |result| or not.
   static bool ShouldAllowOpenURL(content::SiteInstance* site_instance,
-                                 const GURL& from_url,
                                  const GURL& to_url,
                                  bool* result);
 
@@ -91,6 +87,7 @@ class ChromeContentBrowserClientExtensionsPart
       base::CommandLine* command_line,
       content::RenderProcessHost* process,
       Profile* profile) override;
+  void ResourceDispatcherHostCreated() override;
 
   DISALLOW_COPY_AND_ASSIGN(ChromeContentBrowserClientExtensionsPart);
 };

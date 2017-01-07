@@ -26,11 +26,11 @@ SafePicasaAlbumTableReader::SafePicasaAlbumTableReader(
       parser_state_(INITIAL_STATE) {
   // TODO(tommycli): Add DCHECK to make sure |album_table_files| are all
   // opened read-only once security adds ability to check PlatformFiles.
-  DCHECK(MediaFileSystemBackend::CurrentlyOnMediaTaskRunnerThread());
+  MediaFileSystemBackend::AssertCurrentlyOnMediaSequence();
 }
 
 void SafePicasaAlbumTableReader::Start(const ParserCallback& callback) {
-  DCHECK(MediaFileSystemBackend::CurrentlyOnMediaTaskRunnerThread());
+  MediaFileSystemBackend::AssertCurrentlyOnMediaSequence();
   DCHECK(!callback.is_null());
 
   callback_ = callback;
@@ -65,10 +65,10 @@ void SafePicasaAlbumTableReader::StartWorkOnIOThread() {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
   DCHECK_EQ(INITIAL_STATE, parser_state_);
 
-  utility_process_host_ = content::UtilityProcessHost::Create(
-      this,
-      BrowserThread::GetMessageLoopProxyForThread(BrowserThread::IO).get())
-      ->AsWeakPtr();
+  utility_process_host_ =
+      content::UtilityProcessHost::Create(
+          this, BrowserThread::GetTaskRunnerForThread(BrowserThread::IO).get())
+          ->AsWeakPtr();
   utility_process_host_->SetName(l10n_util::GetStringUTF16(
       IDS_UTILITY_PROCESS_MEDIA_LIBRARY_FILE_CHECKER_NAME));
 

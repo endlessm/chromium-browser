@@ -10,7 +10,7 @@
 
 #include "base/command_line.h"
 #include "base/files/file_path.h"
-#include "base/metrics/histogram.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/metrics/user_metrics.h"
 #include "base/metrics/user_metrics_action.h"
 #include "base/strings/string_split.h"
@@ -22,12 +22,12 @@
 #include "components/pref_registry/pref_registry_syncable.h"
 #include "components/prefs/pref_service.h"
 #include "components/prefs/scoped_user_pref_update.h"
-#include "sync/api/sync_change.h"
-#include "sync/api/sync_data.h"
-#include "sync/api/sync_error.h"
-#include "sync/api/sync_error_factory.h"
-#include "sync/api/sync_merge_result.h"
-#include "sync/protocol/sync.pb.h"
+#include "components/sync/api/sync_change.h"
+#include "components/sync/api/sync_data.h"
+#include "components/sync/api/sync_error.h"
+#include "components/sync/api/sync_error_factory.h"
+#include "components/sync/api/sync_merge_result.h"
+#include "components/sync/protocol/sync.pb.h"
 
 const char kName[] = "name";
 

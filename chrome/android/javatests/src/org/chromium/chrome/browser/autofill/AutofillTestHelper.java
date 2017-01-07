@@ -24,6 +24,16 @@ public class AutofillTestHelper {
 
     public AutofillTestHelper() {
         registerDataObserver();
+        setNormalizationTimeoutForTesting();
+    }
+
+    void setNormalizationTimeoutForTesting() {
+        ThreadUtils.runOnUiThreadBlocking(new Runnable() {
+            @Override
+            public void run() {
+                PersonalDataManager.getInstance().setNormalizationTimeoutForTesting(1);
+            }
+        });
     }
 
     AutofillProfile getProfile(final String guid) throws ExecutionException {
@@ -35,11 +45,12 @@ public class AutofillTestHelper {
         });
     }
 
-    List<AutofillProfile> getProfilesToSuggest() throws ExecutionException {
+    List<AutofillProfile> getProfilesToSuggest(final boolean includeName) throws
+            ExecutionException {
         return ThreadUtils.runOnUiThreadBlocking(new Callable<List<AutofillProfile>>() {
             @Override
             public List<AutofillProfile> call() {
-                return PersonalDataManager.getInstance().getProfilesToSuggest();
+                return PersonalDataManager.getInstance().getProfilesToSuggest(includeName);
             }
         });
     }
@@ -54,7 +65,7 @@ public class AutofillTestHelper {
     }
 
     int getNumberOfProfilesToSuggest() throws ExecutionException {
-        return getProfilesToSuggest().size();
+        return getProfilesToSuggest(false).size();
     }
 
     int getNumberOfProfilesForSettings() throws ExecutionException {
@@ -325,18 +336,24 @@ public class AutofillTestHelper {
     }
 
     private void registerDataObserver() {
-        ThreadUtils.runOnUiThreadBlocking(new Runnable() {
-            @Override
-            public void run() {
-                PersonalDataManager.getInstance().registerDataObserver(
-                        new PersonalDataManagerObserver() {
-                            @Override
-                            public void onPersonalDataChanged() {
-                                mOnPersonalDataChangedHelper.notifyCalled();
-                            }
-                        }
-                );
-            }
-        });
+        try {
+            int callCount = mOnPersonalDataChangedHelper.getCallCount();
+            boolean isDataLoaded = ThreadUtils.runOnUiThreadBlocking(new Callable<Boolean>() {
+                @Override
+                public Boolean call() {
+                    return PersonalDataManager.getInstance().registerDataObserver(
+                            new PersonalDataManagerObserver() {
+                                @Override
+                                public void onPersonalDataChanged() {
+                                    mOnPersonalDataChangedHelper.notifyCalled();
+                                }
+                            });
+                }
+            });
+            if (isDataLoaded) return;
+            mOnPersonalDataChangedHelper.waitForCallback(callCount);
+        } catch (TimeoutException | InterruptedException | ExecutionException e) {
+            throw new AssertionError(e);
+        }
     }
 }

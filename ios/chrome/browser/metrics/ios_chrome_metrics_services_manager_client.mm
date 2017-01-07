@@ -57,8 +57,8 @@ IOSChromeMetricsServicesManagerClient::
 std::unique_ptr<rappor::RapporService>
 IOSChromeMetricsServicesManagerClient::CreateRapporService() {
   DCHECK(thread_checker_.CalledOnValidThread());
-  return base::WrapUnique(new rappor::RapporService(
-      local_state_, base::Bind(&::IsOffTheRecordSessionActive)));
+  return base::MakeUnique<rappor::RapporService>(
+      local_state_, base::Bind(&::IsOffTheRecordSessionActive));
 }
 
 std::unique_ptr<variations::VariationsService>
@@ -77,8 +77,12 @@ IOSChromeMetricsServicesManagerClient::CreateVariationsService() {
 std::unique_ptr<metrics::MetricsServiceClient>
 IOSChromeMetricsServicesManagerClient::CreateMetricsServiceClient() {
   DCHECK(thread_checker_.CalledOnValidThread());
-  return IOSChromeMetricsServiceClient::Create(GetMetricsStateManager(),
-                                               local_state_);
+  return IOSChromeMetricsServiceClient::Create(GetMetricsStateManager());
+}
+
+std::unique_ptr<const base::FieldTrial::EntropyProvider>
+IOSChromeMetricsServicesManagerClient::CreateEntropyProvider() {
+  return GetMetricsStateManager()->CreateDefaultEntropyProvider();
 }
 
 net::URLRequestContextGetter*

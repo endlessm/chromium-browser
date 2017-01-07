@@ -9,6 +9,7 @@ import android.test.suitebuilder.annotation.SmallTest;
 
 import org.chromium.base.ThreadUtils;
 import org.chromium.base.test.util.Feature;
+import org.chromium.base.test.util.RetryOnFailure;
 import org.chromium.chrome.browser.ChromeActivity;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.test.ChromeActivityTestCaseBase;
@@ -48,6 +49,7 @@ public class ChromeDownloadDelegateTest extends ChromeActivityTestCaseBase<Chrom
      */
     @SmallTest
     @Feature({"Download"})
+    @RetryOnFailure
     public void testShouldInterceptContextMenuDownload() throws InterruptedException {
         final Tab tab = getActivity().getActivityTab();
         loadUrl("about:blank");
@@ -66,5 +68,15 @@ public class ChromeDownloadDelegateTest extends ChromeActivityTestCaseBase<Chrom
         assertFalse(delegate.shouldInterceptContextMenuDownload("http://test.dd"));
         assertFalse(delegate.shouldInterceptContextMenuDownload("http://test/test.dd"));
         assertTrue(delegate.shouldInterceptContextMenuDownload("https://test/test.dm"));
+    }
+
+    @SmallTest
+    @Feature({"Download"})
+    public void testGetFileExtension() {
+        assertEquals("ext", ChromeDownloadDelegate.getFileExtension("", "file.ext"));
+        assertEquals("ext", ChromeDownloadDelegate.getFileExtension("http://file.ext", ""));
+        assertEquals("txt", ChromeDownloadDelegate.getFileExtension("http://file.ext", "file.txt"));
+        assertEquals("txt", ChromeDownloadDelegate.getFileExtension(
+                "http://file.ext", "file name.txt"));
     }
 }

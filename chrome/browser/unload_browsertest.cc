@@ -153,7 +153,8 @@ class UnloadTest : public InProcessBrowserTest {
   // page without waiting for the first load to complete.
   void NavigateToNolistenersFileTwiceAsync() {
     GURL url(net::URLRequestMockHTTPJob::GetMockUrl("title2.html"));
-    ui_test_utils::NavigateToURLWithDisposition(browser(), url, CURRENT_TAB, 0);
+    ui_test_utils::NavigateToURLWithDisposition(
+        browser(), url, WindowOpenDisposition::CURRENT_TAB, 0);
     ui_test_utils::NavigateToURL(browser(), url);
     CheckTitle("Title Of Awesomeness");
   }
@@ -402,7 +403,7 @@ IN_PROC_BROWSER_TEST_F(UnloadTest, BrowserCloseTabWhenOtherTabHasListener) {
       content::NotificationService::AllSources());
   content::SimulateMouseClick(
       browser()->tab_strip_model()->GetActiveWebContents(), 0,
-      blink::WebMouseEvent::ButtonLeft);
+      blink::WebMouseEvent::Button::Left);
   observer.Wait();
   load_stop_observer.Wait();
   CheckTitle("popup");
@@ -438,7 +439,7 @@ class FastUnloadTest : public UnloadTest {
 
   void NavigateToPageInNewTab(const char* name) {
     ui_test_utils::NavigateToURLWithDisposition(
-        browser(), GetUrl(name), NEW_FOREGROUND_TAB,
+        browser(), GetUrl(name), WindowOpenDisposition::NEW_FOREGROUND_TAB,
         ui_test_utils::BROWSER_TEST_WAIT_FOR_NAVIGATION);
     CheckTitle(name);
   }

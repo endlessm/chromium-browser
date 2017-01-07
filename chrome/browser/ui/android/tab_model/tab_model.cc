@@ -10,7 +10,7 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/sync/glue/synced_window_delegate_android.h"
 #include "chrome/browser/sync/profile_sync_service_factory.h"
-#include "components/browser_sync/browser/profile_sync_service.h"
+#include "components/browser_sync/profile_sync_service.h"
 #include "components/toolbar/toolbar_model_impl.h"
 #include "content/public/browser/notification_service.h"
 
@@ -21,10 +21,10 @@ using content::NotificationService;
 static int INVALID_TAB_INDEX = -1;
 
 TabModel::TabModel(Profile* profile)
-  : profile_(profile),
-    synced_window_delegate_(
-        new browser_sync::SyncedWindowDelegateAndroid(this)) {
-
+    : profile_(profile),
+      live_tab_context_(new AndroidLiveTabContext(this)),
+      synced_window_delegate_(
+          new browser_sync::SyncedWindowDelegateAndroid(this)) {
   if (profile) {
     // A normal Profile creates an OTR profile if it does not exist when
     // GetOffTheRecordProfile() is called, so we guard it with
@@ -56,12 +56,20 @@ bool TabModel::IsOffTheRecord() const {
   return is_off_the_record_;
 }
 
-browser_sync::SyncedWindowDelegate* TabModel::GetSyncedWindowDelegate() const {
+sync_sessions::SyncedWindowDelegate* TabModel::GetSyncedWindowDelegate() const {
   return synced_window_delegate_.get();
 }
 
 SessionID::id_type TabModel::GetSessionId() const {
   return session_id_.id();
+}
+
+const SessionID& TabModel::SessionId() const {
+  return session_id_;
+}
+
+sessions::LiveTabContext* TabModel::GetLiveTabContext() const {
+  return live_tab_context_.get();
 }
 
 content::WebContents* TabModel::GetActiveWebContents() const {
@@ -73,7 +81,7 @@ content::WebContents* TabModel::GetActiveWebContents() const {
 
 void TabModel::BroadcastSessionRestoreComplete() {
   if (profile_) {
-    ProfileSyncService* sync_service =
+    browser_sync::ProfileSyncService* sync_service =
         ProfileSyncServiceFactory::GetForProfile(profile_);
     if (sync_service)
       sync_service->OnSessionRestoreComplete();

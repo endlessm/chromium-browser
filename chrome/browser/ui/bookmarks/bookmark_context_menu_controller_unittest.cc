@@ -55,7 +55,7 @@ class BookmarkContextMenuControllerTest : public testing::Test {
     TestingProfile::Builder builder;
     profile_ = builder.Build();
     profile_->CreateBookmarkModel(true);
-    model_ = BookmarkModelFactory::GetForProfile(profile_.get());
+    model_ = BookmarkModelFactory::GetForBrowserContext(profile_.get());
     bookmarks::test::WaitForBookmarkModelToLoad(model_);
     AddTestData(model_);
   }
@@ -112,7 +112,8 @@ TEST_F(BookmarkContextMenuControllerTest, DeleteURL) {
 // Tests open all on a folder with a couple of bookmarks.
 TEST_F(BookmarkContextMenuControllerTest, OpenAll) {
   const BookmarkNode* folder = model_->bookmark_bar_node()->GetChild(1);
-  chrome::OpenAll(NULL, &navigator_, folder, NEW_FOREGROUND_TAB, NULL);
+  chrome::OpenAll(NULL, &navigator_, folder,
+                  WindowOpenDisposition::NEW_FOREGROUND_TAB, NULL);
 
   // Should have navigated to F1's child, but not F11's child.
   ASSERT_EQ(static_cast<size_t>(1), navigator_.urls_.size());
@@ -240,7 +241,7 @@ TEST_F(BookmarkContextMenuControllerTest, DisableIncognito) {
       TestingProfile::Builder().BuildIncognito(profile_.get());
 
   incognito->CreateBookmarkModel(true);
-  BookmarkModel* model = BookmarkModelFactory::GetForProfile(incognito);
+  BookmarkModel* model = BookmarkModelFactory::GetForBrowserContext(incognito);
   bookmarks::test::WaitForBookmarkModelToLoad(model);
   AddTestData(model);
 

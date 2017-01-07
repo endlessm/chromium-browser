@@ -149,6 +149,12 @@ class ConstantFoldingTest : public testing::Test
     }
 
     template <typename T>
+    bool constantColumnMajorMatrixFoundInAST(const std::vector<T> &constantMatrix)
+    {
+        return constantVectorFoundInAST(constantMatrix);
+    }
+
+    template <typename T>
     bool constantVectorNearFoundInAST(const std::vector<T> &constantVector, const T &faultTolerance)
     {
         ConstantFinder<T> finder(constantVector, faultTolerance);
@@ -293,14 +299,14 @@ TEST_F(ConstantFoldingTest, Fold2x2MatrixInverse)
         5.0f, 7.0f
     };
     std::vector<float> input(inputElements, inputElements + 4);
-    ASSERT_FALSE(constantVectorFoundInAST(input));
+    ASSERT_FALSE(constantColumnMajorMatrixFoundInAST(input));
     float outputElements[] =
     {
         -7.0f, 3.0f,
         5.0f, -2.0f
     };
     std::vector<float> result(outputElements, outputElements + 4);
-    ASSERT_TRUE(constantVectorFoundInAST(result));
+    ASSERT_TRUE(constantColumnMajorMatrixFoundInAST(result));
 }
 
 // Check if the matrix 'inverse' operation on 3x3 matrix is constant folded.
@@ -398,7 +404,7 @@ TEST_F(ConstantFoldingTest, Fold2x2MatrixDeterminant)
         5.0f, 7.0f
     };
     std::vector<float> input(inputElements, inputElements + 4);
-    ASSERT_FALSE(constantVectorFoundInAST(input));
+    ASSERT_FALSE(constantColumnMajorMatrixFoundInAST(input));
     ASSERT_TRUE(constantFoundInAST(-1.0f));
 }
 
@@ -423,7 +429,7 @@ TEST_F(ConstantFoldingTest, Fold3x3MatrixDeterminant)
         37.0f, 41.0f, 43.0f
     };
     std::vector<float> input(inputElements, inputElements + 9);
-    ASSERT_FALSE(constantVectorFoundInAST(input));
+    ASSERT_FALSE(constantColumnMajorMatrixFoundInAST(input));
     ASSERT_TRUE(constantFoundInAST(-680.0f));
 }
 
@@ -450,7 +456,7 @@ TEST_F(ConstantFoldingTest, Fold4x4MatrixDeterminant)
         79.0f, 83.0f, 89.0f, 97.0f
     };
     std::vector<float> input(inputElements, inputElements + 16);
-    ASSERT_FALSE(constantVectorFoundInAST(input));
+    ASSERT_FALSE(constantColumnMajorMatrixFoundInAST(input));
     ASSERT_TRUE(constantFoundInAST(-2520.0f));
 }
 
@@ -478,7 +484,7 @@ TEST_F(ConstantFoldingTest, Fold3x3MatrixTranspose)
         37.0f, 41.0f, 43.0f
     };
     std::vector<float> input(inputElements, inputElements + 9);
-    ASSERT_FALSE(constantVectorFoundInAST(input));
+    ASSERT_FALSE(constantColumnMajorMatrixFoundInAST(input));
     float outputElements[] =
     {
         11.0f, 23.0f, 37.0f,
@@ -486,7 +492,7 @@ TEST_F(ConstantFoldingTest, Fold3x3MatrixTranspose)
         19.0f, 31.0f, 43.0f
     };
     std::vector<float> result(outputElements, outputElements + 9);
-    ASSERT_TRUE(constantVectorFoundInAST(result));
+    ASSERT_TRUE(constantColumnMajorMatrixFoundInAST(result));
 }
 
 // Test that 0xFFFFFFFF wraps to -1 when parsed as integer.
@@ -583,7 +589,7 @@ TEST_F(ConstantFoldingTest, FoldMat2ConstructorTakingMat2)
         2.0f, 3.0f
     };
     std::vector<float> result(outputElements, outputElements + 4);
-    ASSERT_TRUE(constantVectorFoundInAST(result));
+    ASSERT_TRUE(constantColumnMajorMatrixFoundInAST(result));
 }
 
 // Test that constant mat2 initialization with an int parameter works correctly.
@@ -604,7 +610,7 @@ TEST_F(ConstantFoldingTest, FoldMat2ConstructorTakingScalar)
         0.0f, 3.0f
     };
     std::vector<float> result(outputElements, outputElements + 4);
-    ASSERT_TRUE(constantVectorFoundInAST(result));
+    ASSERT_TRUE(constantColumnMajorMatrixFoundInAST(result));
 }
 
 // Test that constant mat2 initialization with a mix of parameters works correctly.
@@ -625,7 +631,7 @@ TEST_F(ConstantFoldingTest, FoldMat2ConstructorTakingMix)
         1.0f, 2.0f
     };
     std::vector<float> result(outputElements, outputElements + 4);
-    ASSERT_TRUE(constantVectorFoundInAST(result));
+    ASSERT_TRUE(constantColumnMajorMatrixFoundInAST(result));
 }
 
 // Test that constant mat2 initialization with a mat3 parameter works correctly.
@@ -646,7 +652,7 @@ TEST_F(ConstantFoldingTest, FoldMat2ConstructorTakingMat3)
         3.0f, 4.0f
     };
     std::vector<float> result(outputElements, outputElements + 4);
-    ASSERT_TRUE(constantVectorFoundInAST(result));
+    ASSERT_TRUE(constantColumnMajorMatrixFoundInAST(result));
 }
 
 // Test that constant mat4x3 initialization with a mat3x2 parameter works correctly.
@@ -673,7 +679,7 @@ TEST_F(ConstantFoldingTest, FoldMat4x3ConstructorTakingMat3x2)
         0.0f, 0.0f, 0.0f
     };
     std::vector<float> result(outputElements, outputElements + 12);
-    ASSERT_TRUE(constantVectorFoundInAST(result));
+    ASSERT_TRUE(constantColumnMajorMatrixFoundInAST(result));
 }
 
 
@@ -695,7 +701,7 @@ TEST_F(ConstantFoldingTest, FoldMat2ConstructorTakingVec4)
         2.0f, 3.0f
     };
     std::vector<float> result(outputElements, outputElements + 4);
-    ASSERT_TRUE(constantVectorFoundInAST(result));
+    ASSERT_TRUE(constantColumnMajorMatrixFoundInAST(result));
 }
 
 // Test that equality comparison of two different structs with a nested struct inside returns false.
@@ -743,4 +749,239 @@ TEST_F(ConstantFoldingTest, FoldNestedIdenticalStructEqualityComparison)
         "}\n";
     compile(shaderString);
     ASSERT_TRUE(constantFoundInAST(1.0f));
+}
+
+// Test that right elements are chosen from non-square matrix
+TEST_F(ConstantFoldingTest, FoldNonSquareMatrixIndexing)
+{
+    const std::string &shaderString =
+        "#version 300 es\n"
+        "precision mediump float;\n"
+        "out vec4 my_FragColor;\n"
+        "void main()\n"
+        "{\n"
+        "    my_FragColor = mat3x4(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11)[1];\n"
+        "}\n";
+    compile(shaderString);
+    float outputElements[] = {4.0f, 5.0f, 6.0f, 7.0f};
+    std::vector<float> result(outputElements, outputElements + 4);
+    ASSERT_TRUE(constantVectorFoundInAST(result));
+}
+
+// Test that folding outer product of vectors with non-matching lengths works.
+TEST_F(ConstantFoldingTest, FoldNonSquareOuterProduct)
+{
+    const std::string &shaderString =
+        "#version 300 es\n"
+        "precision mediump float;\n"
+        "out vec4 my_FragColor;\n"
+        "void main()\n"
+        "{\n"
+        "    mat3x2 prod = outerProduct(vec2(2.0, 3.0), vec3(5.0, 7.0, 11.0));\n"
+        "    my_FragColor = vec4(prod[0].x);\n"
+        "}\n";
+    compile(shaderString);
+    // clang-format off
+    float outputElements[] =
+    {
+        10.0f, 15.0f,
+        14.0f, 21.0f,
+        22.0f, 33.0f
+    };
+    // clang-format on
+    std::vector<float> result(outputElements, outputElements + 6);
+    ASSERT_TRUE(constantColumnMajorMatrixFoundInAST(result));
+}
+
+// Test that folding bit shift left with non-matching signedness works.
+TEST_F(ConstantFoldingTest, FoldBitShiftLeftDifferentSignedness)
+{
+    const std::string &shaderString =
+        "#version 300 es\n"
+        "precision mediump float;\n"
+        "out vec4 my_FragColor;\n"
+        "void main()\n"
+        "{\n"
+        "    uint u = 0xffffffffu << 31;\n"
+        "    my_FragColor = vec4(u);\n"
+        "}\n";
+    compile(shaderString);
+    ASSERT_TRUE(constantFoundInAST(0x80000000u));
+}
+
+// Test that folding bit shift right with non-matching signedness works.
+TEST_F(ConstantFoldingTest, FoldBitShiftRightDifferentSignedness)
+{
+    const std::string &shaderString =
+        "#version 300 es\n"
+        "precision mediump float;\n"
+        "out vec4 my_FragColor;\n"
+        "void main()\n"
+        "{\n"
+        "    uint u = 0xffffffffu >> 30;\n"
+        "    my_FragColor = vec4(u);\n"
+        "}\n";
+    compile(shaderString);
+    ASSERT_TRUE(constantFoundInAST(0x3u));
+}
+
+// Test that dividing the minimum signed integer by -1 works.
+// ESSL 3.00.6 section 4.1.3 Integers:
+// "However, for the case where the minimum representable value is divided by -1, it is allowed to
+// return either the minimum representable value or the maximum representable value."
+TEST_F(ConstantFoldingTest, FoldDivideMinimumIntegerByMinusOne)
+{
+    const std::string &shaderString =
+        "#version 300 es\n"
+        "precision mediump float;\n"
+        "out vec4 my_FragColor;\n"
+        "void main()\n"
+        "{\n"
+        "    int i = 0x80000000 / (-1);\n"
+        "    my_FragColor = vec4(i);\n"
+        "}\n";
+    compile(shaderString);
+    ASSERT_TRUE(constantFoundInAST(0x7fffffff) || constantFoundInAST(-0x7fffffff - 1));
+}
+
+// Test that folding an unsigned integer addition that overflows works.
+// ESSL 3.00.6 section 4.1.3 Integers:
+// "For all precisions, operations resulting in overflow or underflow will not cause any exception,
+// nor will they saturate, rather they will 'wrap' to yield the low-order n bits of the result where
+// n is the size in bits of the integer."
+TEST_F(ConstantFoldingTest, FoldUnsignedIntegerAddOverflow)
+{
+    const std::string &shaderString =
+        "#version 300 es\n"
+        "precision mediump float;\n"
+        "out vec4 my_FragColor;\n"
+        "void main()\n"
+        "{\n"
+        "    uint u = 0xffffffffu + 43u;\n"
+        "    my_FragColor = vec4(u);\n"
+        "}\n";
+    compile(shaderString);
+    ASSERT_TRUE(constantFoundInAST(42u));
+}
+
+// Test that folding a signed integer addition that overflows works.
+// ESSL 3.00.6 section 4.1.3 Integers:
+// "For all precisions, operations resulting in overflow or underflow will not cause any exception,
+// nor will they saturate, rather they will 'wrap' to yield the low-order n bits of the result where
+// n is the size in bits of the integer."
+TEST_F(ConstantFoldingTest, FoldSignedIntegerAddOverflow)
+{
+    const std::string &shaderString =
+        "#version 300 es\n"
+        "precision mediump float;\n"
+        "out vec4 my_FragColor;\n"
+        "void main()\n"
+        "{\n"
+        "    int i = 0x7fffffff + 4;\n"
+        "    my_FragColor = vec4(i);\n"
+        "}\n";
+    compile(shaderString);
+    ASSERT_TRUE(constantFoundInAST(-0x7ffffffd));
+}
+
+// Test that folding an unsigned integer subtraction that overflows works.
+// ESSL 3.00.6 section 4.1.3 Integers:
+// "For all precisions, operations resulting in overflow or underflow will not cause any exception,
+// nor will they saturate, rather they will 'wrap' to yield the low-order n bits of the result where
+// n is the size in bits of the integer."
+TEST_F(ConstantFoldingTest, FoldUnsignedIntegerDiffOverflow)
+{
+    const std::string &shaderString =
+        "#version 300 es\n"
+        "precision mediump float;\n"
+        "out vec4 my_FragColor;\n"
+        "void main()\n"
+        "{\n"
+        "    uint u = 0u - 5u;\n"
+        "    my_FragColor = vec4(u);\n"
+        "}\n";
+    compile(shaderString);
+    ASSERT_TRUE(constantFoundInAST(0xfffffffbu));
+}
+
+// Test that folding a signed integer subtraction that overflows works.
+// ESSL 3.00.6 section 4.1.3 Integers:
+// "For all precisions, operations resulting in overflow or underflow will not cause any exception,
+// nor will they saturate, rather they will 'wrap' to yield the low-order n bits of the result where
+// n is the size in bits of the integer."
+TEST_F(ConstantFoldingTest, FoldSignedIntegerDiffOverflow)
+{
+    const std::string &shaderString =
+        "#version 300 es\n"
+        "precision mediump float;\n"
+        "out vec4 my_FragColor;\n"
+        "void main()\n"
+        "{\n"
+        "    int i = -0x7fffffff - 7;\n"
+        "    my_FragColor = vec4(i);\n"
+        "}\n";
+    compile(shaderString);
+    ASSERT_TRUE(constantFoundInAST(0x7ffffffa));
+}
+
+// Test that folding an unsigned integer multiplication that overflows works.
+// ESSL 3.00.6 section 4.1.3 Integers:
+// "For all precisions, operations resulting in overflow or underflow will not cause any exception,
+// nor will they saturate, rather they will 'wrap' to yield the low-order n bits of the result where
+// n is the size in bits of the integer."
+TEST_F(ConstantFoldingTest, FoldUnsignedIntegerMultiplyOverflow)
+{
+    const std::string &shaderString =
+        "#version 300 es\n"
+        "precision mediump float;\n"
+        "out vec4 my_FragColor;\n"
+        "void main()\n"
+        "{\n"
+        "    uint u = 0xffffffffu * 10u;\n"
+        "    my_FragColor = vec4(u);\n"
+        "}\n";
+    compile(shaderString);
+    ASSERT_TRUE(constantFoundInAST(0xfffffff6u));
+}
+
+// Test that folding a signed integer multiplication that overflows works.
+// ESSL 3.00.6 section 4.1.3 Integers:
+// "For all precisions, operations resulting in overflow or underflow will not cause any exception,
+// nor will they saturate, rather they will 'wrap' to yield the low-order n bits of the result where
+// n is the size in bits of the integer."
+TEST_F(ConstantFoldingTest, FoldSignedIntegerMultiplyOverflow)
+{
+    const std::string &shaderString =
+        "#version 300 es\n"
+        "precision mediump float;\n"
+        "out vec4 my_FragColor;\n"
+        "void main()\n"
+        "{\n"
+        "    int i = 0x7fffffff * 42;\n"
+        "    my_FragColor = vec4(i);\n"
+        "}\n";
+    compile(shaderString);
+    ASSERT_TRUE(constantFoundInAST(-42));
+}
+
+// Test that folding of negating the minimum representable integer works. Note that in the test
+// "0x80000000" is a negative literal, and the minus sign before it is the negation operator.
+// ESSL 3.00.6 section 4.1.3 Integers:
+// "For all precisions, operations resulting in overflow or underflow will not cause any exception,
+// nor will they saturate, rather they will 'wrap' to yield the low-order n bits of the result where
+// n is the size in bits of the integer."
+TEST_F(ConstantFoldingTest, FoldMinimumSignedIntegerNegation)
+{
+    const std::string &shaderString =
+        "#version 300 es\n"
+        "precision mediump float;\n"
+        "out vec4 my_FragColor;\n"
+        "void main()\n"
+        "{\n"
+        "    int i = -0x80000000;\n"
+        "    my_FragColor = vec4(i);\n"
+        "}\n";
+    compile(shaderString);
+    // Negating the minimum signed integer overflows the positive range, so it wraps back to itself.
+    ASSERT_TRUE(constantFoundInAST(-0x7fffffff - 1));
 }

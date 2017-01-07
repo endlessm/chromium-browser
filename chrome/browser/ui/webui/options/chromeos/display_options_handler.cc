@@ -7,26 +7,29 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <memory>
 #include <string>
+#include <utility>
 
+#include "ash/common/strings/grit/ash_strings.h"
 #include "ash/display/display_configuration_controller.h"
 #include "ash/display/display_manager.h"
 #include "ash/display/resolution_notification_controller.h"
 #include "ash/display/window_tree_host_manager.h"
-#include "ash/screen_util.h"
 #include "ash/shell.h"
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "base/logging.h"
+#include "base/memory/ptr_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/stringprintf.h"
 #include "base/values.h"
 #include "chrome/browser/chromeos/display/display_preferences.h"
+#include "chrome/browser/ui/ash/ash_util.h"
 #include "chrome/grit/generated_resources.h"
 #include "chromeos/chromeos_switches.h"
 #include "content/public/browser/user_metrics.h"
 #include "content/public/browser/web_ui.h"
-#include "grit/ash_strings.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/display/display.h"
 #include "ui/display/manager/display_layout.h"
@@ -121,47 +124,60 @@ bool GetFloat(const base::DictionaryValue* dict,
   return false;
 }
 
-bool ConvertValueToDisplayMode(const base::DictionaryValue* dict,
-                               ash::DisplayMode* mode) {
-  mode->size.set_width(GetIntOrDouble(dict, "originalWidth"));
-  mode->size.set_height(GetIntOrDouble(dict, "originalHeight"));
-  if (mode->size.IsEmpty()) {
+scoped_refptr<display::ManagedDisplayMode> ConvertValueToManagedDisplayMode(
+    const base::DictionaryValue* dict) {
+  scoped_refptr<display::ManagedDisplayMode> mode;
+
+  gfx::Size size;
+  size.set_width(GetIntOrDouble(dict, "originalWidth"));
+  size.set_height(GetIntOrDouble(dict, "originalHeight"));
+
+  if (size.IsEmpty()) {
     LOG(ERROR) << "missing width or height.";
-    return false;
+    return mode;
   }
-  if (!GetFloat(dict, "refreshRate", &mode->refresh_rate)) {
+
+  float refresh_rate, ui_scale, device_scale_factor;
+  if (!GetFloat(dict, "refreshRate", &refresh_rate)) {
     LOG(ERROR) << "missing refreshRate.";
-    return false;
+    return mode;
   }
-  if (!GetFloat(dict, "scale", &mode->ui_scale)) {
+  if (!GetFloat(dict, "scale", &ui_scale)) {
     LOG(ERROR) << "missing ui-scale.";
-    return false;
+    return mode;
   }
-  if (!GetFloat(dict, "deviceScaleFactor", &mode->device_scale_factor)) {
+  if (!GetFloat(dict, "deviceScaleFactor", &device_scale_factor)) {
     LOG(ERROR) << "missing deviceScaleFactor.";
-    return false;
+    return mode;
   }
-  return true;
+
+  // Used to select the actual mode.
+  mode = new display::ManagedDisplayMode(
+      size, refresh_rate, false /* interlaced */, false /* native */, ui_scale,
+      device_scale_factor);
+  return mode;
 }
 
-base::DictionaryValue* ConvertDisplayModeToValue(int64_t display_id,
-                                                 const ash::DisplayMode& mode) {
+base::DictionaryValue* ConvertDisplayModeToValue(
+    int64_t display_id,
+    const scoped_refptr<display::ManagedDisplayMode>& mode) {
   bool is_internal = display::Display::HasInternalDisplay() &&
                      display::Display::InternalDisplayId() == display_id;
   base::DictionaryValue* result = new base::DictionaryValue();
-  gfx::Size size_dip = mode.GetSizeInDIP(is_internal);
+  gfx::Size size_dip = mode->GetSizeInDIP(is_internal);
   result->SetInteger("width", size_dip.width());
   result->SetInteger("height", size_dip.height());
-  result->SetInteger("originalWidth", mode.size.width());
-  result->SetInteger("originalHeight", mode.size.height());
-  result->SetDouble("deviceScaleFactor", mode.device_scale_factor);
-  result->SetDouble("scale", mode.ui_scale);
-  result->SetDouble("refreshRate", mode.refresh_rate);
+  result->SetInteger("originalWidth", mode->size().width());
+  result->SetInteger("originalHeight", mode->size().height());
+  result->SetDouble("deviceScaleFactor", mode->device_scale_factor());
+  result->SetDouble("scale", mode->ui_scale());
+  result->SetDouble("refreshRate", mode->refresh_rate());
+  result->SetBoolean("isBest",
+                     is_internal ? (mode->ui_scale() == 1.0f) : mode->native());
+  result->SetBoolean("isNative", mode->native());
   result->SetBoolean(
-      "isBest", is_internal ? (mode.ui_scale == 1.0f) : mode.native);
-  result->SetBoolean("isNative", mode.native);
-  result->SetBoolean(
-      "selected", mode.IsEquivalent(
+      "selected",
+      mode->IsEquivalent(
           GetDisplayManager()->GetActiveModeForDisplayId(display_id)));
   return result;
 }
@@ -178,14 +194,15 @@ base::DictionaryValue* ConvertBoundsToValue(const gfx::Rect& bounds) {
 }  // namespace
 
 DisplayOptionsHandler::DisplayOptionsHandler() {
-  // ash::Shell doesn't exist in Athena.
-  // See: http://crbug.com/416961
-  ash::Shell::GetInstance()->window_tree_host_manager()->AddObserver(this);
+  // TODO(mash) Support Chrome display settings in Mash. crbug.com/548429
+  if (!chrome::IsRunningInMash())
+    ash::Shell::GetInstance()->window_tree_host_manager()->AddObserver(this);
 }
 
 DisplayOptionsHandler::~DisplayOptionsHandler() {
-  // ash::Shell doesn't exist in Athena.
-  ash::Shell::GetInstance()->window_tree_host_manager()->RemoveObserver(this);
+  // TODO(mash) Support Chrome display settings in Mash. crbug.com/548429
+  if (!chrome::IsRunningInMash())
+    ash::Shell::GetInstance()->window_tree_host_manager()->RemoveObserver(this);
 }
 
 void DisplayOptionsHandler::GetLocalizedValues(
@@ -306,9 +323,9 @@ void DisplayOptionsHandler::SendAllDisplayInfo() {
   int64_t primary_id = display::Screen::GetScreen()->GetPrimaryDisplay().id();
   std::unique_ptr<base::ListValue> js_displays(new base::ListValue);
   for (const display::Display& display : displays) {
-    const ash::DisplayInfo& display_info =
+    const display::ManagedDisplayInfo& display_info =
         display_manager->GetDisplayInfo(display.id());
-    base::DictionaryValue* js_display = new base::DictionaryValue();
+    auto js_display = base::MakeUnique<base::DictionaryValue>();
     js_display->SetString("id", base::Int64ToString(display.id()));
     js_display->SetString("name",
                           display_manager->GetDisplayNameForId(display.id()));
@@ -320,7 +337,8 @@ void DisplayOptionsHandler::SendAllDisplayInfo() {
     js_display->SetInteger("rotation", display.RotationAsDegree());
 
     base::ListValue* js_resolutions = new base::ListValue();
-    for (const ash::DisplayMode& display_mode : display_info.display_modes()) {
+    for (const scoped_refptr<display::ManagedDisplayMode>& display_mode :
+         display_info.display_modes()) {
       js_resolutions->Append(
           ConvertDisplayModeToValue(display.id(), display_mode));
     }
@@ -332,10 +350,10 @@ void DisplayOptionsHandler::SendAllDisplayInfo() {
       const base::string16 profile_name = GetColorProfileName(color_profile);
       if (profile_name.empty())
         continue;
-      base::DictionaryValue* color_profile_dict = new base::DictionaryValue();
+      auto color_profile_dict = base::MakeUnique<base::DictionaryValue>();
       color_profile_dict->SetInteger("profileId", color_profile);
       color_profile_dict->SetString("name", profile_name);
-      available_color_profiles->Append(color_profile_dict);
+      available_color_profiles->Append(std::move(color_profile_dict));
     }
     js_display->Set("availableColorProfiles", available_color_profiles);
 
@@ -351,7 +369,7 @@ void DisplayOptionsHandler::SendAllDisplayInfo() {
       }
     }
 
-    js_displays->Append(js_display);
+    js_displays->Append(std::move(js_display));
   }
 
   web_ui()->CallJavascriptFunctionUnsafe(
@@ -359,6 +377,10 @@ void DisplayOptionsHandler::SendAllDisplayInfo() {
 }
 
 void DisplayOptionsHandler::UpdateDisplaySettingsEnabled() {
+  // TODO(mash) Support Chrome display settings in Mash. crbug.com/548429
+  if (chrome::IsRunningInMash())
+    return;
+
   ash::DisplayManager* display_manager = GetDisplayManager();
   bool disable_multi_display_layout =
       base::CommandLine::ForCurrentProcess()->HasSwitch(
@@ -464,14 +486,15 @@ void DisplayOptionsHandler::HandleSetDisplayMode(const base::ListValue* args) {
     return;
   }
 
-  ash::DisplayMode mode;
-  if (!ConvertValueToDisplayMode(mode_data, &mode))
+  scoped_refptr<display::ManagedDisplayMode> mode =
+      ConvertValueToManagedDisplayMode(mode_data);
+  if (!mode)
     return;
 
   content::RecordAction(
       base::UserMetricsAction("Options_DisplaySetResolution"));
   ash::DisplayManager* display_manager = GetDisplayManager();
-  ash::DisplayMode current_mode =
+  scoped_refptr<display::ManagedDisplayMode> current_mode =
       display_manager->GetActiveModeForDisplayId(display_id);
   if (!display_manager->SetDisplayMode(display_id, mode)) {
     LOG(ERROR) << "Unable to set display mode for: " << display_id

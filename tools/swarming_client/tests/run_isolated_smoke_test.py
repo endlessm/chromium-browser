@@ -1,7 +1,7 @@
 #!/usr/bin/env python
-# Copyright 2012 The Swarming Authors. All rights reserved.
-# Use of this source code is governed under the Apache License, Version 2.0 that
-# can be found in the LICENSE file.
+# Copyright 2012 The LUCI Authors. All rights reserved.
+# Use of this source code is governed under the Apache License, Version 2.0
+# that can be found in the LICENSE file.
 
 import json
 import logging
@@ -10,7 +10,8 @@ import subprocess
 import sys
 import unittest
 
-ROOT_DIR = unicode(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(
+    __file__.decode(sys.getfilesystemencoding()))))
 sys.path.insert(0, ROOT_DIR)
 
 import isolated_format
@@ -25,7 +26,8 @@ import test_utils
 CONTENTS = {
   'check_files.py': """if True:
       import os, sys
-      ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
+      ROOT_DIR = os.path.dirname(os.path.abspath(
+          __file__.decode(sys.getfilesystemencoding())))
       expected = [
         'check_files.py', 'file1.txt', 'file1_copy.txt', 'file2.txt',
         'repeated_files.py',
@@ -47,7 +49,8 @@ CONTENTS = {
   'repeated_files.py': """if True:
       import os, sys
       expected = ['file1.txt', 'file1_copy.txt', 'repeated_files.py']
-      actual = sorted(os.listdir(os.path.dirname(os.path.abspath(__file__))))
+      actual = sorted(os.listdir(os.path.dirname(os.path.abspath(
+          __file__.decode(sys.getfilesystemencoding())))))
       if expected != actual:
         print >> sys.stderr, 'Expected list doesn\\'t match:'
         print >> sys.stderr, '%s\\n%s' % (','.join(expected), ','.join(actual))
@@ -56,12 +59,55 @@ CONTENTS = {
   'max_path.py': """if True:
       import os, sys
       prefix = u'\\\\\\\\?\\\\' if sys.platform == 'win32' else u''
-      path = unicode(os.path.join(os.getcwd(), 'a' * 200, 'b' * 200))
+      path = os.path.join(os.getcwd().decode(
+          sys.getfilesystemencoding()), 'a' * 200, 'b' * 200)
       with open(prefix + path, 'rb') as f:
         actual = f.read()
         if actual != 'File1\\n':
           print >> sys.stderr, 'Unexpected content: %s' % actual
           sys.exit(1)
+      print('Success')""",
+  'archive': (
+      '!<arch>\n'
+      '#1/5            '
+      '1447140471  1000  1000  100640  '
+      '12        '
+      '\x60\n'
+      'a/foo'
+      'Content'
+      'b               '
+      '1447140471  1000  1000  100640  '
+      '12        '
+      '\x60\n'
+      'More content'),
+  'archive_files.py': """if True:
+      import os, sys
+      ROOT_DIR = os.path.dirname(os.path.abspath(
+          __file__.decode(sys.getfilesystemencoding())))
+      expected = ['a', 'archive_files.py', 'b']
+      actual = sorted(os.listdir(ROOT_DIR))
+      if expected != actual:
+        print >> sys.stderr, 'Expected list doesn\\'t match:'
+        print >> sys.stderr, '%s\\n%s' % (','.join(expected), ','.join(actual))
+        sys.exit(1)
+      expected = ['foo']
+      actual = sorted(os.listdir(os.path.join(ROOT_DIR, 'a')))
+      if expected != actual:
+        print >> sys.stderr, 'Expected list doesn\\'t match:'
+        print >> sys.stderr, '%s\\n%s' % (','.join(expected), ','.join(actual))
+        sys.exit(2)
+      # Check that a/foo has right contents.
+      with open(os.path.join(ROOT_DIR, 'a/foo'), 'rb') as f:
+        d = f.read()
+        if d != 'Content':
+          print >> sys.stderr, 'a/foo contained %r' % d
+          sys.exit(3)
+      # Check that b has right contents.
+      with open(os.path.join(ROOT_DIR, 'b'), 'rb') as f:
+        d = f.read()
+        if d != 'More content':
+          print >> sys.stderr, 'b contained %r' % d
+          sys.exit(4)
       print('Success')""",
 }
 
@@ -103,6 +149,20 @@ CONTENTS['manifest2.isolated'] = json.dumps(
       'includes': [
         isolateserver_mock.hash_content(CONTENTS['manifest1.isolated']),
       ],
+    })
+
+
+CONTENTS['archive.isolated'] = json.dumps(
+    {
+      'command': ['python', 'archive_files.py'],
+      'files': {
+        'archive': {
+          'h': isolateserver_mock.hash_content(CONTENTS['archive']),
+          's': len(CONTENTS['archive']),
+          't': 'ar',
+        },
+        'archive_files.py': file_meta('archive_files.py'),
+      },
     })
 
 
@@ -329,6 +389,22 @@ class RunIsolatedTest(unittest.TestCase):
     actual = list_files_tree(self.cache)
     self.assertEqual(sorted(expected), actual)
 
+  def test_archive(self):
+    # Loads an .isolated that includes an ar archive.
+    isolated_hash = self._store('archive.isolated')
+    expected = [
+      'state.json',
+      isolated_hash,
+      self._store('archive'),
+      self._store('archive_files.py'),
+    ]
+    out, err, returncode = self._run(self._cmd_args(isolated_hash))
+    self.assertEqual('', err)
+    self.assertEqual('Success\n', out)
+    self.assertEqual(0, returncode)
+    actual = list_files_tree(self.cache)
+    self.assertEqual(sorted(expected), actual)
+
   def _test_corruption_common(self, new_content):
     isolated_hash = self._store('file_with_size.isolated')
     file1_hash = self._store('file1.txt')
@@ -337,8 +413,8 @@ class RunIsolatedTest(unittest.TestCase):
     _out, _err, returncode = self._run(self._cmd_args(isolated_hash))
     self.assertEqual(0, returncode)
     expected = {
-      '.': (040707, 040707, 040777),
-      'state.json': (0100606, 0100606, 0100666),
+      '.': (040700, 040700, 040777),
+      'state.json': (0100600, 0100600, 0100666),
       # The reason for 0100666 on Windows is that the file node had to be
       # modified to delete the hardlinked node. The read only bit is reset on
       # load.
@@ -358,13 +434,13 @@ class RunIsolatedTest(unittest.TestCase):
     self.assertNotEqual(CONTENTS['file1.txt'], read_content(cached_file_path))
 
     # Rerun the test and make sure the cache contains the right file afterwards.
-    _out, _err, returncode = self._run(self._cmd_args(isolated_hash))
-    self.assertEqual(0, returncode)
+    out, err, returncode = self._run(self._cmd_args(isolated_hash))
+    self.assertEqual(0, returncode, (out, err, returncode))
     expected = {
       '.': (040700, 040700, 040777),
-      'state.json': (0100600, 0100600, 0100666),
-      file1_hash: (0100400, 0100400, 0100666),
-      isolated_hash: (0100400, 0100400, 0100444),
+      u'state.json': (0100600, 0100600, 0100666),
+      unicode(file1_hash): (0100400, 0100400, 0100666),
+      unicode(isolated_hash): (0100400, 0100400, 0100444),
     }
     self.assertTreeModes(self.cache, expected)
     return cached_file_path

@@ -12,10 +12,10 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/app_list/app_list_controller_delegate.h"
 #include "chrome/browser/ui/app_list/search/search_util.h"
+#include "chrome/grit/theme_resources.h"
 #include "components/bookmarks/browser/bookmark_model.h"
 #include "components/omnibox/browser/autocomplete_controller.h"
 #include "components/omnibox/browser/autocomplete_match_type.h"
-#include "grit/theme_resources.h"
 #include "ui/app_list/app_list_constants.h"
 #include "ui/base/material_design/material_design_controller.h"
 #include "ui/base/resource/resource_bundle.h"
@@ -166,7 +166,8 @@ std::unique_ptr<SearchResult> OmniboxResult::Duplicate() const {
 }
 
 void OmniboxResult::UpdateIcon() {
-  BookmarkModel* bookmark_model = BookmarkModelFactory::GetForProfile(profile_);
+  BookmarkModel* bookmark_model =
+      BookmarkModelFactory::GetForBrowserContext(profile_);
   bool is_bookmarked =
       bookmark_model && bookmark_model->IsBookmarked(match_.destination_url);
 

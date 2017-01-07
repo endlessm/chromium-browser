@@ -5,13 +5,12 @@
 #include "ash/display/screen_ash.h"
 
 #include "ash/aura/wm_window_aura.h"
+#include "ash/common/shelf/shelf_widget.h"
 #include "ash/common/wm/root_window_finder.h"
 #include "ash/display/display_manager.h"
 #include "ash/display/window_tree_host_manager.h"
 #include "ash/root_window_controller.h"
 #include "ash/root_window_settings.h"
-#include "ash/shelf/shelf_layout_manager.h"
-#include "ash/shelf/shelf_widget.h"
 #include "ash/shell.h"
 #include "base/logging.h"
 #include "ui/aura/client/screen_position_client.h"
@@ -25,13 +24,17 @@ namespace ash {
 
 namespace {
 
+// We need to keep this in order for unittests to tell if
+// the object in display::Screen::GetScreenByType is for shutdown.
+display::Screen* screen_for_shutdown = nullptr;
+
 DisplayManager* GetDisplayManager() {
   return Shell::GetInstance()->display_manager();
 }
 
 class ScreenForShutdown : public display::Screen {
  public:
-  explicit ScreenForShutdown(ScreenAsh* screen_ash)
+  explicit ScreenForShutdown(display::Screen* screen_ash)
       : display_list_(screen_ash->GetAllDisplays()),
         primary_display_(screen_ash->GetPrimaryDisplay()) {}
 
@@ -80,22 +83,6 @@ class ScreenForShutdown : public display::Screen {
 ScreenAsh::ScreenAsh() {}
 
 ScreenAsh::~ScreenAsh() {}
-
-void ScreenAsh::NotifyMetricsChanged(const display::Display& display,
-                                     uint32_t metrics) {
-  FOR_EACH_OBSERVER(display::DisplayObserver, observers_,
-                    OnDisplayMetricsChanged(display, metrics));
-}
-
-void ScreenAsh::NotifyDisplayAdded(const display::Display& display) {
-  FOR_EACH_OBSERVER(display::DisplayObserver, observers_,
-                    OnDisplayAdded(display));
-}
-
-void ScreenAsh::NotifyDisplayRemoved(const display::Display& display) {
-  FOR_EACH_OBSERVER(display::DisplayObserver, observers_,
-                    OnDisplayRemoved(display));
-}
 
 gfx::Point ScreenAsh::GetCursorScreenPoint() {
   return aura::Env::GetInstance()->last_mouse_location();
@@ -161,7 +148,7 @@ display::Display ScreenAsh::GetDisplayNearestPoint(
   // the |point|. This is correct in the only areas that matter, namely in the
   // corners between the physical screens.
   return *display::FindDisplayNearestPoint(
-      GetDisplayManager()->active_display_list(), point);
+      GetDisplayManager()->active_only_display_list(), point);
 }
 
 display::Display ScreenAsh::GetDisplayMatching(
@@ -170,7 +157,7 @@ display::Display ScreenAsh::GetDisplayMatching(
     return GetDisplayNearestPoint(match_rect.origin());
   const display::Display* matching =
       display::FindDisplayWithBiggestIntersection(
-          GetDisplayManager()->active_display_list(), match_rect);
+          GetDisplayManager()->active_only_display_list(), match_rect);
   // Fallback to the primary display if there is no matching display.
   return matching ? *matching : GetPrimaryDisplay();
 }
@@ -181,15 +168,30 @@ display::Display ScreenAsh::GetPrimaryDisplay() const {
 }
 
 void ScreenAsh::AddObserver(display::DisplayObserver* observer) {
-  observers_.AddObserver(observer);
+  GetDisplayManager()->AddObserver(observer);
 }
 
 void ScreenAsh::RemoveObserver(display::DisplayObserver* observer) {
-  observers_.RemoveObserver(observer);
+  GetDisplayManager()->RemoveObserver(observer);
 }
 
-display::Screen* ScreenAsh::CloneForShutdown() {
-  return new ScreenForShutdown(this);
+// static
+DisplayManager* ScreenAsh::CreateDisplayManager() {
+  std::unique_ptr<ScreenAsh> screen(new ScreenAsh);
+
+  display::Screen* current = display::Screen::GetScreen();
+  // If there is no native, or the native was for shutdown,
+  // use ash's screen.
+  if (!current || current == screen_for_shutdown)
+    display::Screen::SetScreenInstance(screen.get());
+  return new DisplayManager(std::move(screen));
+}
+
+// static
+void ScreenAsh::CreateScreenForShutdown() {
+  delete screen_for_shutdown;
+  screen_for_shutdown = new ScreenForShutdown(display::Screen::GetScreen());
+  display::Screen::SetScreenInstance(screen_for_shutdown);
 }
 
 }  // namespace ash

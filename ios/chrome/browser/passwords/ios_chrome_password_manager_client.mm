@@ -8,13 +8,14 @@
 #include <utility>
 
 #include "components/autofill/core/common/password_form.h"
-#include "components/browser_sync/browser/profile_sync_service.h"
+#include "components/browser_sync/profile_sync_service.h"
 #include "components/keyed_service/core/service_access_type.h"
 #include "components/password_manager/core/browser/password_form_manager.h"
 #include "components/password_manager/core/browser/password_manager_util.h"
 #include "components/password_manager/core/common/password_manager_pref_names.h"
 #include "components/signin/core/browser/signin_manager_base.h"
 #include "ios/chrome/browser/browser_state/chrome_browser_state.h"
+#include "ios/chrome/browser/experimental_flags.h"
 #include "ios/chrome/browser/passwords/ios_chrome_password_store_factory.h"
 #include "ios/chrome/browser/signin/signin_manager_factory.h"
 #include "ios/chrome/browser/sync/ios_chrome_profile_sync_service_factory.h"
@@ -26,7 +27,7 @@ using password_manager::PasswordSyncState;
 
 namespace {
 
-const sync_driver::SyncService* GetSyncService(
+const syncer::SyncService* GetSyncService(
     ios::ChromeBrowserState* browser_state) {
   return IOSChromeProfileSyncServiceFactory::GetForBrowserStateIfExists(
       browser_state);
@@ -53,7 +54,7 @@ IOSChromePasswordManagerClient::IOSChromePasswordManagerClient(
 IOSChromePasswordManagerClient::~IOSChromePasswordManagerClient() = default;
 
 PasswordSyncState IOSChromePasswordManagerClient::GetPasswordSyncState() const {
-  ProfileSyncService* sync_service =
+  browser_sync::ProfileSyncService* sync_service =
       IOSChromeProfileSyncServiceFactory::GetForBrowserState(
           delegate_.browserState);
   return password_manager_util::GetPasswordSyncState(sync_service);
@@ -74,7 +75,13 @@ bool IOSChromePasswordManagerClient::PromptUserToSaveOrUpdatePassword(
     bool update_password) {
   if (form_to_save->IsBlacklisted())
     return false;
-  [delegate_ showSavePasswordInfoBar:std::move(form_to_save)];
+
+  if (update_password && IsUpdatePasswordUIEnabled()) {
+    [delegate_ showUpdatePasswordInfoBar:std::move(form_to_save)];
+  } else {
+    [delegate_ showSavePasswordInfoBar:std::move(form_to_save)];
+  }
+
   return true;
 }
 
@@ -118,6 +125,10 @@ bool IOSChromePasswordManagerClient::IsSavingAndFillingEnabledForCurrentPage()
   return *saving_passwords_enabled_ && !IsOffTheRecord() &&
          !DidLastPageLoadEncounterSSLErrors() &&
          IsFillingEnabledForCurrentPage();
+}
+
+bool IOSChromePasswordManagerClient::IsUpdatePasswordUIEnabled() const {
+  return experimental_flags::IsUpdatePasswordUIEnabled();
 }
 
 const GURL& IOSChromePasswordManagerClient::GetLastCommittedEntryURL() const {

@@ -40,10 +40,10 @@ class WebrtcConnectionToClient : public ConnectionToClient,
       ConnectionToClient::EventHandler* event_handler) override;
   Session* session() override;
   void Disconnect(ErrorCode error) override;
-  void OnInputEventReceived(int64_t timestamp) override;
   std::unique_ptr<VideoStream> StartVideoStream(
       std::unique_ptr<webrtc::DesktopCapturer> desktop_capturer) override;
-  AudioStub* audio_stub() override;
+  std::unique_ptr<AudioStream> StartAudioStream(
+      std::unique_ptr<AudioSource> audio_source) override;
   ClientStub* client_stub() override;
   void set_clipboard_stub(ClipboardStub* clipboard_stub) override;
   void set_host_stub(HostStub* host_stub) override;
@@ -56,6 +56,9 @@ class WebrtcConnectionToClient : public ConnectionToClient,
   void OnWebrtcTransportConnecting() override;
   void OnWebrtcTransportConnected() override;
   void OnWebrtcTransportError(ErrorCode error) override;
+  void OnWebrtcTransportIncomingDataChannel(
+      const std::string& name,
+      std::unique_ptr<MessagePipe> pipe) override;
   void OnWebrtcTransportMediaStreamAdded(
       scoped_refptr<webrtc::MediaStreamInterface> stream) override;
   void OnWebrtcTransportMediaStreamRemoved(
@@ -63,8 +66,12 @@ class WebrtcConnectionToClient : public ConnectionToClient,
 
   // ChannelDispatcherBase::EventHandler interface.
   void OnChannelInitialized(ChannelDispatcherBase* channel_dispatcher) override;
+  void OnChannelClosed(ChannelDispatcherBase* channel_dispatcher) override;
 
  private:
+  // Callback for the event dispatcher.
+  void OnInputEventReceived(int64_t timestamp);
+
   base::ThreadChecker thread_checker_;
 
   // Event handler for handling events sent from this object.

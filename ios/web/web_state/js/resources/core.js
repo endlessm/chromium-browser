@@ -181,20 +181,23 @@ goog.require('__crWeb.message');
             tagName === 'select' || tagName === 'option') {
           // If the element is a known input element, stop the spiral search and
           // return empty results.
-          return '{}';
+          return {};
         }
 
         if (tagName === 'a' && element.href) {
           // Found a link.
-          return __gCrWeb.common.JSONStringify(
-              {href: element.href,
-               referrerPolicy: getReferrerPolicy_(element)});
+          return {
+            href: element.href,
+            referrerPolicy: getReferrerPolicy_(element)
+          };
         }
 
         if (tagName === 'img' && element.src) {
           // Found an image.
-          var result = {src: element.src,
-                        referrerPolicy: getReferrerPolicy_()};
+          var result = {
+            src: element.src,
+            referrerPolicy: getReferrerPolicy_()
+          };
           // Copy the title, if any.
           if (element.title) {
             result.title = element.title;
@@ -219,12 +222,12 @@ goog.require('__crWeb.message');
             }
             parent = parent.parentNode;
           }
-          return __gCrWeb.common.JSONStringify(result);
+          return result;
         }
         element = element.parentNode;
       }
     }
-    return '{}';
+    return {};
   };
 
   // Suppresses the next click such that they are not handled by JS click
@@ -336,10 +339,6 @@ goog.require('__crWeb.message');
     __gCrWeb.message.invokeOnHost(command);
   };
 
-  function invokeOnHostImmediate_(command) {
-    __gCrWeb.message.invokeOnHostImmediate(command);
-  };
-
   /**
    * Gets the referrer policy to use for navigations away from the current page.
    * If a link element is passed, and it includes a rel=noreferrer tag, that
@@ -374,8 +373,8 @@ goog.require('__crWeb.message');
   // Various aspects of global DOM behavior are overridden here.
 
   // A popstate event needs to be fired anytime the active history entry
-  // changes. Either via back, forward, go navigation or by loading the URL,
-  // clicking on a link, etc.
+  // changes without an associated document change. Either via back, forward, go
+  // navigation or by loading the URL, clicking on a link, etc.
   __gCrWeb['dispatchPopstateEvent'] = function(stateObject) {
     var popstateEvent = window.document.createEvent('HTMLEvents');
     popstateEvent.initEvent('popstate', true, false);
@@ -387,6 +386,24 @@ goog.require('__crWeb.message');
     // cause a ReentryGuard failure.
     window.setTimeout(function() {
       window.dispatchEvent(popstateEvent);
+    }, 0);
+  };
+
+  // A hashchange event needs to be fired after a same-document history
+  // navigation between two URLs that are equivalent except for their fragments.
+  __gCrWeb['dispatchHashchangeEvent'] = function(oldURL, newURL) {
+    var hashchangeEvent = window.document.createEvent('HTMLEvents');
+    hashchangeEvent.initEvent('hashchange', true, false);
+    if (oldURL)
+      hashchangeEvent.oldURL = oldURL;
+    if (newURL)
+      hashchangeEvent.newURL = newURL
+
+    // setTimeout() is used in order to return immediately. Otherwise the
+    // dispatchEvent call waits for all event handlers to return, which could
+    // cause a ReentryGuard failure.
+    window.setTimeout(function() {
+      window.dispatchEvent(hashchangeEvent);
     }, 0);
   };
 
@@ -550,15 +567,10 @@ goog.require('__crWeb.message');
       // W3C recommended behavior.
       href = 'about:blank';
     }
-    // ExternalRequest messages need to be handled before the expected
-    // shouldStartLoadWithRequest, as such we cannot wait for the regular
-    // message queue invoke which delays to avoid illegal recursion into
-    // UIWebView. This immediate class of messages is handled ASAP by
-    // CRWWebController.
-    invokeOnHostImmediate_({'command': 'externalRequest',
-                               'href': href,
-                             'target': target,
-                     'referrerPolicy': getReferrerPolicy_()});
+    invokeOnHost_({'command': 'externalRequest',
+                      'href': href,
+                    'target': target,
+            'referrerPolicy': getReferrerPolicy_()});
   };
 
   var resetExternalRequest_ = function() {

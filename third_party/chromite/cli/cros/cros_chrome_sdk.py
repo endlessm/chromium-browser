@@ -408,7 +408,7 @@ class ChromeSDKCommand(command.CliCommand):
   _GOMA_URL = ('https://clients5.google.com/cxx-compiler-service/'
                'download/goma_ctl.py')
 
-  _CLANG_DIR = 'third_party/llvm-build/Release+Asserts/bin'
+  _CHROME_CLANG_DIR = 'third_party/llvm-build/Release+Asserts/bin'
   _HOST_BINUTILS_DIR = 'third_party/binutils/Linux_x64/Release/bin/'
 
   EBUILD_ENV = (
@@ -430,6 +430,7 @@ class ChromeSDKCommand(command.CliCommand):
       'GN_ARGS',
       'GOLD_SET',
       'GYP_DEFINES',
+      'USE',
   )
 
   SDK_GOMA_PORT_ENV = 'SDK_GOMA_PORT'
@@ -515,10 +516,13 @@ class ChromeSDKCommand(command.CliCommand):
              'pull toolchain components from.')
     parser.add_argument(
         '--nogoma', action='store_false', default=True, dest='goma',
-        help="Disables Goma in the shell by removing it from the PATH.")
+        help='Disables Goma in the shell by removing it from the PATH.')
+    parser.add_argument(
+        '--nostart-goma', action='store_false', default=True, dest='start_goma',
+        help='Skip starting goma and hope somebody else starts goma later.')
     parser.add_argument(
         '--gomadir', type='path',
-        help="Use the goma installation at the specified PATH.")
+        help='Use the goma installation at the specified PATH.')
     parser.add_argument(
         '--version', default=None, type=cls.ValidateVersion,
         help="Specify version of SDK to use, in the format '3912.0.0'.  "
@@ -528,6 +532,9 @@ class ChromeSDKCommand(command.CliCommand):
         'cmd', nargs='*', default=None,
         help='The command to execute in the SDK environment.  Defaults to '
              'starting a bash shell.')
+    parser.add_argument(
+        '--download-vm', action='store_true', default=False,
+        help='Additionally downloads a VM image from cloud storage.')
 
     parser.add_option_to_group(
         parser.caching_group, '--clear-sdk-cache', action='store_true',
@@ -604,24 +611,20 @@ class ChromeSDKCommand(command.CliCommand):
     for var in ('CXX', 'CC', 'LD'):
       env[var] = self._FixGoldPath(env[var], target_tc_path)
 
-    clang_path = os.path.join(options.chrome_src, self._CLANG_DIR)
-    if options.clang:
-      # Tell clang where to find the gcc headers and libraries.
-      flags = ['--gcc-toolchain=' + os.path.join(target_tc_path, 'usr'),
-               '--target=' + sdk_ctx.target_tc]
-      # TODO: It'd be nicer to inject these flags via some gyp variable.
-      # Note: It's important they're only passed to target targets, not host
-      # targets. They are intentionally added only to CC and not CC_host.
-      clang_bin = os.path.join(clang_path, 'clang')
-      env['CC'] = ' '.join([clang_bin] + flags + [env['CC'].split()[-1]])
-      clangxx_bin = os.path.join(clang_path, 'clang++')
-      env['CXX'] = ' '.join([clangxx_bin] + flags + [env['CXX'].split()[-1]])
+    chrome_clang_path = os.path.join(options.chrome_src, self._CHROME_CLANG_DIR)
 
-    # The host compiler intentionally doesn't use the libstdc++ from sdk_ctx,
-    # so that host binaries link against the system libstdc++ and can run
-    # without a special rpath.
-    env['CC_host'] = os.path.join(clang_path, 'clang')
-    env['CXX_host'] = os.path.join(clang_path, 'clang++')
+    if options.clang:
+      clang_flags = ['-Wno-unknown-warning-option']
+      env['CC'] = ' '.join([sdk_ctx.target_tc + '-clang'] +
+                           env['CC'].split()[1:] + clang_flags)
+      env['CXX'] = ' '.join([sdk_ctx.target_tc + '-clang++'] +
+                            env['CXX'].split()[1:] + clang_flags)
+      env['LD'] = env['CXX']
+
+    # For host compiler, we use the compiler that comes with Chrome
+    # instead of the target compiler.
+    env['CC_host'] = os.path.join(chrome_clang_path, 'clang')
+    env['CXX_host'] = os.path.join(chrome_clang_path, 'clang++')
     env['LD_host'] = env['CXX_host']
 
     binutils_path = os.path.join(options.chrome_src, self._HOST_BINUTILS_DIR)
@@ -630,6 +633,7 @@ class ChromeSDKCommand(command.CliCommand):
     if not options.fastbuild:
       # Enable debug fission for GYP. linux_use_debug_fission cannot be used
       # because it doesn't have effect on Release builds.
+      # TODO: Get rid of this once we remove support for GYP.
       env['CFLAGS'] = env.get('CFLAGS', '') +  ' -gsplit-dwarf'
       env['CXXFLAGS'] = env.get('CXXFLAGS', '') + ' -gsplit-dwarf'
 
@@ -694,6 +698,7 @@ class ChromeSDKCommand(command.CliCommand):
     # Export Goma information.
     if goma_dir:
       env[self.SDK_GOMA_DIR_ENV] = goma_dir
+    if goma_port:
       env[self.SDK_GOMA_PORT_ENV] = goma_port
 
     # SYSROOT is necessary for Goma and the sysroot wrapper.
@@ -739,13 +744,20 @@ class ChromeSDKCommand(command.CliCommand):
     # Need to reset these after the env vars have been fixed by
     # _SetupTCEnvironment.
     gn_args['cros_host_is_clang'] = True
+    # v8 snapshot is built on the host, so we need to set this.
+    # See crosbug/618346.
+    gn_args['cros_v8_snapshot_is_clang'] = True
+    #
     gn_args['cros_target_cc'] = env['CC']
     gn_args['cros_target_cxx'] = env['CXX']
     gn_args['cros_target_ld'] = env['LD']
     # We need to reset extra C/CXX flags to remove references to
-    # EBUILD_CFLAGS, EBUILD_CXXFLAGS
-    gn_args['cros_target_extra_cflags'] = env['CFLAGS']
-    gn_args['cros_target_extra_cxxflags'] = env['CXXFLAGS']
+    # EBUILD_CFLAGS, EBUILD_CXXFLAGS. We also need to remove redundant
+    # -gsplit-dwarf (only needed while we still support GYP).
+    gn_args['cros_target_extra_cflags'] = env['CFLAGS'].replace(
+        '-gsplit-dwarf', '')
+    gn_args['cros_target_extra_cxxflags'] = env['CXXFLAGS'].replace(
+        '-gsplit-dwarf', '')
     gn_args['cros_host_cc'] = env['CC_host']
     gn_args['cros_host_cxx'] = env['CXX_host']
     gn_args['cros_host_ld'] = env['LD_host']
@@ -781,14 +793,6 @@ class ChromeSDKCommand(command.CliCommand):
     env['builddir_name'] = out_dir
     env['GYP_GENERATOR_FLAGS'] = 'output_dir=%s' % out_dir
     env['GYP_CROSSCOMPILE'] = '1'
-
-    # deploy_chrome relies on the 'gn' USE flag to locate .so (and potentially
-    # other) files. Set this by default if GYP_CHROMIUM_NO_ACTION=1.
-    # TODO(stevenjb): Maybe figure out a better way to set this by default.
-    if os.environ.get('GYP_CHROMIUM_NO_ACTION', '') == '1':
-      env['USE'] = 'gn'
-      logging.notice(
-          'GYP_CHROMIUM_NO_ACTION=1, setting USE="gn" for deploy_chrome.')
 
     return env
 
@@ -904,13 +908,15 @@ class ChromeSDKCommand(command.CliCommand):
           ref.SetDefault(goma_dir)
       goma_dir = ref.path
 
-    Log('Starting Goma.', silent=self.silent)
-    cros_build_lib.DebugRunCommand(
-        ['python2', 'goma_ctl.py', 'ensure_start'], cwd=goma_dir)
-    port = self._GomaPort(goma_dir)
-    Log('Goma is started on port %s', port, silent=self.silent)
-    if not port:
-      raise GomaError('No Goma port detected')
+    port = None
+    if self.options.start_goma:
+      Log('Starting Goma.', silent=self.silent)
+      cros_build_lib.DebugRunCommand(
+          ['python2', 'goma_ctl.py', 'ensure_start'], cwd=goma_dir)
+      port = self._GomaPort(goma_dir)
+      Log('Goma is started on port %s', port, silent=self.silent)
+      if not port:
+        raise GomaError('No Goma port detected')
 
     return goma_dir, port
 
@@ -949,6 +955,8 @@ class ChromeSDKCommand(command.CliCommand):
     components = [self.sdk.TARGET_TOOLCHAIN_KEY, constants.CHROME_ENV_TAR]
     if not self.options.chroot:
       components.append(constants.CHROME_SYSROOT_TAR)
+    if self.options.download_vm:
+      components.append(constants.VM_IMAGE_TAR)
 
     goma_dir = None
     goma_port = None
@@ -963,6 +971,14 @@ class ChromeSDKCommand(command.CliCommand):
                           toolchain_url=self.options.toolchain_url) as ctx:
       env = self._SetupEnvironment(self.options.board, ctx, self.options,
                                    goma_dir=goma_dir, goma_port=goma_port)
+
+      if constants.VM_IMAGE_TAR in ctx.key_map:
+        vm_image_path = os.path.join(ctx.key_map[constants.VM_IMAGE_TAR].path,
+                                     constants.VM_IMAGE_BIN)
+        if os.path.exists(vm_image_path):
+          env['VM_IMAGE_PATH'] = vm_image_path
+
+
       with self._GetRCFile(env, self.options.bashrc) as rcfile:
         bash_cmd = ['/bin/bash']
 

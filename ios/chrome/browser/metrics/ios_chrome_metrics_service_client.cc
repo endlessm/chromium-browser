@@ -39,7 +39,8 @@
 #include "components/prefs/pref_registry_simple.h"
 #include "components/prefs/pref_service.h"
 #include "components/signin/core/browser/signin_status_metrics_provider.h"
-#include "components/sync_driver/device_count_metrics_provider.h"
+#include "components/sync/device_info/device_count_metrics_provider.h"
+#include "components/translate/core/browser/translate_ranker_metrics_provider.h"
 #include "components/variations/variations_associated_data.h"
 #include "components/version_info/version_info.h"
 #include "ios/chrome/browser/application_context.h"
@@ -74,8 +75,7 @@ IOSChromeMetricsServiceClient::~IOSChromeMetricsServiceClient() {
 // static
 std::unique_ptr<IOSChromeMetricsServiceClient>
 IOSChromeMetricsServiceClient::Create(
-    metrics::MetricsStateManager* state_manager,
-    PrefService* local_state) {
+    metrics::MetricsStateManager* state_manager) {
   // Perform two-phase initialization so that |client->metrics_service_| only
   // receives pointers to fully constructed objects.
   std::unique_ptr<IOSChromeMetricsServiceClient> client(
@@ -100,14 +100,6 @@ metrics::MetricsService* IOSChromeMetricsServiceClient::GetMetricsService() {
 void IOSChromeMetricsServiceClient::SetMetricsClientId(
     const std::string& client_id) {
   crash_keys::SetMetricsClientIdFromGUID(client_id);
-}
-
-void IOSChromeMetricsServiceClient::OnRecordingDisabled() {
-  crash_keys::ClearMetricsClientId();
-}
-
-bool IOSChromeMetricsServiceClient::IsOffTheRecordSessionActive() {
-  return ::IsOffTheRecordSessionActive();
 }
 
 int32_t IOSChromeMetricsServiceClient::GetProduct() {
@@ -241,8 +233,12 @@ void IOSChromeMetricsServiceClient::Initialize() {
 
   metrics_service_->RegisterMetricsProvider(
       std::unique_ptr<metrics::MetricsProvider>(
-          new sync_driver::DeviceCountMetricsProvider(
+          new syncer::DeviceCountMetricsProvider(
               base::Bind(&IOSChromeSyncClient::GetDeviceInfoTrackers))));
+
+  metrics_service_->RegisterMetricsProvider(
+      std::unique_ptr<metrics::MetricsProvider>(
+          new translate::TranslateRankerMetricsProvider()));
 }
 
 void IOSChromeMetricsServiceClient::OnInitTaskGotDriveMetrics() {

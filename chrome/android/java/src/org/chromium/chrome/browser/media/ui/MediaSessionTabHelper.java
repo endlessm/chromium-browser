@@ -13,13 +13,12 @@ import android.text.TextUtils;
 import org.chromium.base.ContextUtils;
 import org.chromium.base.Log;
 import org.chromium.chrome.R;
-import org.chromium.chrome.browser.ChromeFeatureList;
 import org.chromium.chrome.browser.metrics.MediaNotificationUma;
 import org.chromium.chrome.browser.metrics.MediaSessionUMA;
 import org.chromium.chrome.browser.tab.EmptyTabObserver;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.tab.TabObserver;
-import org.chromium.chrome.browser.util.UrlUtilities;
+import org.chromium.components.url_formatter.UrlFormatter;
 import org.chromium.content_public.browser.WebContents;
 import org.chromium.content_public.browser.WebContentsObserver;
 import org.chromium.content_public.common.MediaMetadata;
@@ -105,11 +104,11 @@ public class MediaSessionTabHelper {
 
                 // The page's title is used as a placeholder if no title is specified in the
                 // metadata.
-                if (TextUtils.isEmpty(metadata.getTitle())) {
+                if (metadata == null || TextUtils.isEmpty(metadata.getTitle())) {
                     mFallbackMetadata = new MediaMetadata(
                             sanitizeMediaTitle(mTab.getTitle()),
-                            metadata.getArtist(),
-                            metadata.getAlbum());
+                            metadata == null ? "" : metadata.getArtist(),
+                            metadata == null ? "" : metadata.getAlbum());
                     metadata = mFallbackMetadata;
                 }
 
@@ -170,9 +169,6 @@ public class MediaSessionTabHelper {
         @Override
         public void onFaviconUpdated(Tab tab, Bitmap icon) {
             assert tab == mTab;
-            // Don't update the large icon if using customized notification. Otherwise, the
-            // lockscreen art will be the favicon.
-            if (!ChromeFeatureList.isEnabled(ChromeFeatureList.MEDIA_STYLE_NOTIFICATION)) return;
 
             if (!updateFavicon(icon)) return;
 
@@ -189,7 +185,7 @@ public class MediaSessionTabHelper {
 
             String origin = mTab.getUrl();
             try {
-                origin = UrlUtilities.formatUrlForSecurityDisplay(new URI(origin), true);
+                origin = UrlFormatter.formatUrlForSecurityDisplay(new URI(origin), true);
             } catch (URISyntaxException e) {
                 Log.e(TAG, "Unable to parse the origin from the URL. "
                                 + "Using the full URL instead.");
@@ -304,7 +300,7 @@ public class MediaSessionTabHelper {
                                         || icon.getHeight() < mFavicon.getHeight())) {
             return false;
         }
-        mFavicon = icon;
+        mFavicon = MediaNotificationManager.scaleIconForDisplay(icon);
         return true;
     }
 }

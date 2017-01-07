@@ -5,6 +5,7 @@
 #import <AppKit/AppKit.h>
 
 #include "base/mac/scoped_nsobject.h"
+#include "chrome/browser/notifications/notification_common.h"
 #include "chrome/browser/ui/cocoa/notifications/notification_builder_mac.h"
 #include "chrome/browser/ui/cocoa/notifications/notification_constants_mac.h"
 #include "chrome/browser/ui/cocoa/notifications/notification_response_builder_mac.h"
@@ -12,7 +13,9 @@
 
 TEST(NotificationResponseBuilderMacTest, TestNotificationClick) {
   base::scoped_nsobject<NotificationBuilder> builder(
-      [[NotificationBuilder alloc] init]);
+      [[NotificationBuilder alloc] initWithCloseLabel:@"Close"
+                                         optionsLabel:@"Options"
+                                        settingsLabel:@"Settings"]);
   [builder setTitle:@"Title"];
   [builder setSubTitle:@"https://www.miguel.com"];
   [builder setContextMessage:@""];
@@ -21,6 +24,9 @@ TEST(NotificationResponseBuilderMacTest, TestNotificationClick) {
   [builder setNotificationId:@"notificationId"];
   [builder setProfileId:@"profileId"];
   [builder setIncognito:false];
+  [builder
+      setNotificationType:[NSNumber
+                              numberWithInt:NotificationCommon::PERSISTENT]];
 
   NSUserNotification* notification = [builder buildUserNotification];
   NSDictionary* response =
@@ -36,7 +42,9 @@ TEST(NotificationResponseBuilderMacTest, TestNotificationClick) {
 
 TEST(NotificationResponseBuilderMacTest, TestNotificationSettingsClick) {
   base::scoped_nsobject<NotificationBuilder> builder(
-      [[NotificationBuilder alloc] init]);
+      [[NotificationBuilder alloc] initWithCloseLabel:@"Close"
+                                         optionsLabel:@"Options"
+                                        settingsLabel:@"Settings"]);
   [builder setTitle:@"Title"];
   [builder setSubTitle:@"https://www.miguel.com"];
   [builder setContextMessage:@""];
@@ -45,6 +53,9 @@ TEST(NotificationResponseBuilderMacTest, TestNotificationSettingsClick) {
   [builder setNotificationId:@"notificationId"];
   [builder setProfileId:@"profileId"];
   [builder setIncognito:false];
+  [builder
+      setNotificationType:[NSNumber
+                              numberWithInt:NotificationCommon::PERSISTENT]];
 
   NSUserNotification* notification = [builder buildUserNotification];
 
@@ -68,7 +79,9 @@ TEST(NotificationResponseBuilderMacTest, TestNotificationSettingsClick) {
 
 TEST(NotificationResponseBuilderMacTest, TestNotificationOneActionClick) {
   base::scoped_nsobject<NotificationBuilder> builder(
-      [[NotificationBuilder alloc] init]);
+      [[NotificationBuilder alloc] initWithCloseLabel:@"Close"
+                                         optionsLabel:@"Options"
+                                        settingsLabel:@"Settings"]);
   [builder setTitle:@"Title"];
   [builder setSubTitle:@"https://www.miguel.com"];
   [builder setContextMessage:@""];
@@ -78,6 +91,9 @@ TEST(NotificationResponseBuilderMacTest, TestNotificationOneActionClick) {
   [builder setNotificationId:@"notificationId"];
   [builder setProfileId:@"profileId"];
   [builder setIncognito:false];
+  [builder
+      setNotificationType:[NSNumber
+                              numberWithInt:NotificationCommon::PERSISTENT]];
 
   NSUserNotification* notification = [builder buildUserNotification];
 
@@ -103,7 +119,9 @@ TEST(NotificationResponseBuilderMacTest, TestNotificationOneActionClick) {
 
 TEST(NotificationResponseBuilderMacTest, TestNotificationTwoActionClick) {
   base::scoped_nsobject<NotificationBuilder> builder(
-      [[NotificationBuilder alloc] init]);
+      [[NotificationBuilder alloc] initWithCloseLabel:@"Close"
+                                         optionsLabel:@"Options"
+                                        settingsLabel:@"Settings"]);
   [builder setTitle:@"Title"];
   [builder setSubTitle:@"https://www.miguel.com"];
   [builder setContextMessage:@""];
@@ -113,6 +131,9 @@ TEST(NotificationResponseBuilderMacTest, TestNotificationTwoActionClick) {
   [builder setNotificationId:@"notificationId"];
   [builder setProfileId:@"profileId"];
   [builder setIncognito:false];
+  [builder
+      setNotificationType:[NSNumber
+                              numberWithInt:NotificationCommon::PERSISTENT]];
 
   NSUserNotification* notification = [builder buildUserNotification];
 
@@ -140,7 +161,9 @@ TEST(NotificationResponseBuilderMacTest, TestNotificationTwoActionClick) {
 TEST(NotificationResponseBuilderMacTest,
      TestNotificationTwoActionSettingsClick) {
   base::scoped_nsobject<NotificationBuilder> builder(
-      [[NotificationBuilder alloc] init]);
+      [[NotificationBuilder alloc] initWithCloseLabel:@"Close"
+                                         optionsLabel:@"Options"
+                                        settingsLabel:@"Settings"]);
   [builder setTitle:@"Title"];
   [builder setSubTitle:@"https://www.miguel.com"];
   [builder setContextMessage:@""];
@@ -150,6 +173,9 @@ TEST(NotificationResponseBuilderMacTest,
   [builder setNotificationId:@"notificationId"];
   [builder setProfileId:@"profileId"];
   [builder setIncognito:false];
+  [builder
+      setNotificationType:[NSNumber
+                              numberWithInt:NotificationCommon::PERSISTENT]];
 
   NSUserNotification* notification = [builder buildUserNotification];
 

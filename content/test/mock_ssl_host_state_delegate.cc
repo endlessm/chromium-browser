@@ -2,6 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "base/callback.h"
 #include "content/test/mock_ssl_host_state_delegate.h"
 
 namespace content {
@@ -16,8 +17,20 @@ void MockSSLHostStateDelegate::AllowCert(const std::string& host,
   exceptions_.insert(host);
 }
 
-void MockSSLHostStateDelegate::Clear() {
-  exceptions_.clear();
+void MockSSLHostStateDelegate::Clear(
+    const base::Callback<bool(const std::string&)>& host_filter) {
+  if (host_filter.is_null()) {
+    exceptions_.clear();
+  } else {
+    for (auto it = exceptions_.begin(); it != exceptions_.end();) {
+      auto next_it = std::next(it);
+
+      if (host_filter.Run(*it))
+        exceptions_.erase(it);
+
+      it = next_it;
+    }
+  }
 }
 
 SSLHostStateDelegate::CertJudgment MockSSLHostStateDelegate::QueryPolicy(
@@ -31,12 +44,15 @@ SSLHostStateDelegate::CertJudgment MockSSLHostStateDelegate::QueryPolicy(
   return SSLHostStateDelegate::ALLOWED;
 }
 
-void MockSSLHostStateDelegate::HostRanInsecureContent(const std::string& host,
-                                                      int pid) {}
+void MockSSLHostStateDelegate::HostRanInsecureContent(
+    const std::string& host,
+    int child_id,
+    InsecureContentType content_type) {}
 
 bool MockSSLHostStateDelegate::DidHostRunInsecureContent(
     const std::string& host,
-    int pid) const {
+    int child_id,
+    InsecureContentType content_type) const {
   return false;
 }
 

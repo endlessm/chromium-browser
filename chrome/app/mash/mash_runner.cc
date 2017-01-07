@@ -4,8 +4,6 @@
 
 #include "chrome/app/mash/mash_runner.h"
 
-#include "ash/mus/window_manager_application.h"
-#include "ash/sysui/sysui_application.h"
 #include "base/at_exit.h"
 #include "base/bind.h"
 #include "base/command_line.h"
@@ -15,109 +13,48 @@
 #include "base/memory/ptr_util.h"
 #include "base/message_loop/message_loop.h"
 #include "base/process/launch.h"
-#include "components/mus/mus_app.h"
+#include "base/run_loop.h"
+#include "base/trace_event/trace_event.h"
+#include "components/tracing/common/trace_to_console.h"
+#include "components/tracing/common/tracing_switches.h"
 #include "content/public/common/content_switches.h"
-#include "mash/app_driver/app_driver.h"
-#include "mash/quick_launch/quick_launch_application.h"
-#include "mash/session/session.h"
-#include "mash/task_viewer/task_viewer.h"
+#include "mash/package/mash_packaged_service.h"
 #include "mojo/public/cpp/bindings/binding_set.h"
 #include "services/shell/background/background_shell.h"
 #include "services/shell/native_runner_delegate.h"
 #include "services/shell/public/cpp/connector.h"
 #include "services/shell/public/cpp/identity.h"
-#include "services/shell/public/cpp/shell_client.h"
-#include "services/shell/public/cpp/shell_connection.h"
-#include "services/shell/public/interfaces/shell_client_factory.mojom.h"
+#include "services/shell/public/cpp/service.h"
+#include "services/shell/public/cpp/service_context.h"
+#include "services/shell/public/interfaces/service_factory.mojom.h"
 #include "services/shell/runner/common/switches.h"
 #include "services/shell/runner/host/child_process_base.h"
+#include "ui/base/resource/resource_bundle.h"
+#include "ui/base/ui_base_paths.h"
+#include "ui/base/ui_base_switches.h"
 
-#if defined(OS_LINUX)
-#include "components/font_service/font_service_app.h"
-#endif
-
-using shell::mojom::ShellClientFactory;
+using shell::mojom::ServiceFactory;
 
 namespace {
 
 // kProcessType used to identify child processes.
 const char* kMashChild = "mash-child";
 
-// ShellClient responsible for starting the appropriate app.
-class DefaultShellClient : public shell::ShellClient,
-                           public ShellClientFactory,
-                           public shell::InterfaceFactory<ShellClientFactory> {
- public:
-  DefaultShellClient() {}
-  ~DefaultShellClient() override {}
-
-  // shell::ShellClient:
-  bool AcceptConnection(shell::Connection* connection) override {
-    connection->AddInterface<ShellClientFactory>(this);
-    return true;
-  }
-
-  // shell::InterfaceFactory<ShellClientFactory>
-  void Create(shell::Connection* connection,
-              mojo::InterfaceRequest<ShellClientFactory> request) override {
-    shell_client_factory_bindings_.AddBinding(this, std::move(request));
-  }
-
-  // ShellClientFactory:
-  void CreateShellClient(shell::mojom::ShellClientRequest request,
-                         const mojo::String& mojo_name) override {
-    if (shell_client_) {
-      LOG(ERROR) << "request to create additional app " << mojo_name;
-      return;
-    }
-    shell_client_ = CreateShellClient(mojo_name);
-    if (shell_client_) {
-      shell_connection_.reset(
-          new shell::ShellConnection(shell_client_.get(), std::move(request)));
-      return;
-    }
-    LOG(ERROR) << "unknown name " << mojo_name;
-    NOTREACHED();
-  }
-
- private:
-  // TODO(sky): move this into mash.
-  std::unique_ptr<shell::ShellClient> CreateShellClient(
-      const std::string& name) {
-    if (name == "mojo:ash_sysui")
-      return base::WrapUnique(new ash::sysui::SysUIApplication);
-    if (name == "mojo:ash")
-      return base::WrapUnique(new ash::mus::WindowManagerApplication);
-    if (name == "mojo:mash_session")
-      return base::WrapUnique(new mash::session::Session);
-    if (name == "mojo:mus")
-      return base::WrapUnique(new mus::MusApp);
-    if (name == "mojo:quick_launch")
-      return base::WrapUnique(new mash::quick_launch::QuickLaunchApplication);
-    if (name == "mojo:task_viewer")
-      return base::WrapUnique(new mash::task_viewer::TaskViewer);
-#if defined(OS_LINUX)
-    if (name == "mojo:font_service")
-      return base::WrapUnique(new font_service::FontServiceApp);
-#endif
-    if (name == "mojo:app_driver") {
-      return base::WrapUnique(new mash::app_driver::AppDriver());
-    }
-    return nullptr;
-  }
-
-  mojo::BindingSet<ShellClientFactory> shell_client_factory_bindings_;
-  std::unique_ptr<shell::ShellClient> shell_client_;
-  std::unique_ptr<shell::ShellConnection> shell_connection_;
-
-  DISALLOW_COPY_AND_ASSIGN(DefaultShellClient);
-};
-
 bool IsChild() {
   return base::CommandLine::ForCurrentProcess()->HasSwitch(
              switches::kProcessType) &&
          base::CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
              switches::kProcessType) == kMashChild;
+}
+
+void InitializeResources() {
+  ui::RegisterPathProvider();
+  const std::string locale =
+      base::CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
+          switches::kLang);
+  // This loads the Chrome's resources (chrome_100_percent.pak etc.)
+  ui::ResourceBundle::InitSharedInstanceWithLocale(
+      locale, nullptr, ui::ResourceBundle::LOAD_COMMON_RESOURCES);
 }
 
 // Convert the command line program from chrome_mash to chrome. This is
@@ -186,28 +123,32 @@ void MashRunner::RunMain() {
       new shell::BackgroundShell::InitParams);
   init_params->native_runner_delegate = &native_runner_delegate;
   background_shell.Init(std::move(init_params));
-  shell_client_.reset(new DefaultShellClient);
-  shell_connection_.reset(new shell::ShellConnection(
-      shell_client_.get(),
-      background_shell.CreateShellClientRequest("exe:chrome_mash")));
-  shell_connection_->connector()->Connect("mojo:mash_session");
-  base::MessageLoop::current()->Run();
+  service_.reset(new mash::MashPackagedService);
+  service_->set_context(base::MakeUnique<shell::ServiceContext>(
+      service_.get(),
+      background_shell.CreateServiceRequest("exe:chrome_mash")));
+  service_->connector()->Connect("service:mash_session");
+  base::RunLoop().Run();
 }
 
 void MashRunner::RunChild() {
   base::i18n::InitializeICU();
+  InitializeResources();
   shell::ChildProcessMainWithCallback(
       base::Bind(&MashRunner::StartChildApp, base::Unretained(this)));
 }
 
 void MashRunner::StartChildApp(
-    shell::mojom::ShellClientRequest client_request) {
-  // TODO(sky): use MessagePumpMojo.
+    shell::mojom::ServiceRequest service_request) {
+  // TODO(sad): Normally, this would be a TYPE_DEFAULT message loop. However,
+  // TYPE_UI is needed for mojo:ui. But it is not known whether the child app is
+  // going to be mojo:ui at this point. So always create a TYPE_UI message loop
+  // for now.
   base::MessageLoop message_loop(base::MessageLoop::TYPE_UI);
-  shell_client_.reset(new DefaultShellClient);
-  shell_connection_.reset(new shell::ShellConnection(
-      shell_client_.get(), std::move(client_request)));
-  message_loop.Run();
+  service_.reset(new mash::MashPackagedService);
+  service_->set_context(base::MakeUnique<shell::ServiceContext>(
+      service_.get(), std::move(service_request)));
+  base::RunLoop().Run();
 }
 
 int MashMain() {
@@ -224,13 +165,22 @@ int MashMain() {
                        true,   // Timestamp
                        true);  // Tick count
 
-  // TODO(sky): use MessagePumpMojo.
   std::unique_ptr<base::MessageLoop> message_loop;
 #if defined(OS_LINUX)
   base::AtExitManager exit_manager;
 #endif
   if (!IsChild())
     message_loop.reset(new base::MessageLoop(base::MessageLoop::TYPE_UI));
+
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kTraceToConsole)) {
+    base::trace_event::TraceConfig trace_config =
+        tracing::GetConfigForTraceToConsole();
+    base::trace_event::TraceLog::GetInstance()->SetEnabled(
+        trace_config,
+        base::trace_event::TraceLog::RECORDING_MODE);
+  }
+
   MashRunner mash_runner;
   mash_runner.Run();
   return 0;

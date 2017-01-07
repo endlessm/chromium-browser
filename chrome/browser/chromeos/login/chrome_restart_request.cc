@@ -4,6 +4,7 @@
 
 #include "chrome/browser/chromeos/login/chrome_restart_request.h"
 
+#include <sys/socket.h>
 #include <vector>
 
 #include "ash/common/ash_switches.h"
@@ -40,6 +41,7 @@
 #include "content/public/browser/browser_thread.h"
 #include "content/public/common/content_switches.h"
 #include "gpu/command_buffer/service/gpu_switches.h"
+#include "gpu/ipc/service/switches.h"
 #include "media/base/media_switches.h"
 #include "third_party/cros_system_api/switches/chrome_switches.h"
 #include "ui/app_list/app_list_switches.h"
@@ -91,6 +93,7 @@ void DeriveCommandLine(const GURL& start_url,
     ::switches::kDisableGpuCompositing,
     ::switches::kDisableGpuRasterization,
     ::switches::kDisableLowResTiling,
+    ::switches::kDisablePepper3DImageChromium,
     ::switches::kDisablePreferCompositingToLCDText,
     ::switches::kDisablePanelFitting,
     ::switches::kDisableRGBA4444Textures,
@@ -103,12 +106,12 @@ void DeriveCommandLine(const GURL& start_url,
     ::switches::kDisableDisplayList2dCanvas,
     ::switches::kEnableDisplayList2dCanvas,
     ::switches::kForceDisplayList2dCanvas,
+    ::switches::kEnableCanvas2dDynamicRenderingModeSwitching,
     ::switches::kDisableGpuSandbox,
     ::switches::kEnableDistanceFieldText,
     ::switches::kEnableGpuAsyncWorkerContext,
     ::switches::kEnableGpuMemoryBufferVideoFrames,
     ::switches::kEnableGpuRasterization,
-    ::switches::kEnableImageColorProfiles,
     ::switches::kEnableLogging,
     ::switches::kEnableLowResTiling,
     ::switches::kDisablePartialRaster,
@@ -118,12 +121,14 @@ void DeriveCommandLine(const GURL& start_url,
     ::switches::kEnableRGBA4444Textures,
     ::switches::kEnableSlimmingPaintV2,
     ::switches::kEnableTouchDragDrop,
+    ::switches::kEnableUnifiedDesktop,
     ::switches::kEnableUseZoomForDSF,
     ::switches::kEnableViewport,
     ::switches::kEnableZeroCopy,
 #if defined(USE_OZONE)
     ::switches::kExtraTouchNoiseFiltering,
 #endif
+    ::switches::kHostWindowBounds,
     ::switches::kMainFrameResizesAreOrientationChanges,
     ::switches::kForceDeviceScaleFactor,
     ::switches::kForceGpuRasterization,
@@ -138,6 +143,7 @@ void DeriveCommandLine(const GURL& start_url,
     ::switches::kPpapiFlashPath,
     ::switches::kPpapiFlashVersion,
     ::switches::kPpapiInProcess,
+    ::switches::kRemoteDebuggingPort,
     ::switches::kRendererStartupDialog,
     ::switches::kRootLayerScrolls,
     ::switches::kEnableShareGroupAsyncTextureUpload,
@@ -173,11 +179,10 @@ void DeriveCommandLine(const GURL& start_url,
     ::switches::kOzonePlatform,
 #endif
     app_list::switches::kDisableSyncAppList,
-    app_list::switches::kEnableCenteredAppList,
     app_list::switches::kEnableSyncAppList,
     ash::switches::kAshEnableTouchView,
-    ash::switches::kAshEnableUnifiedDesktop,
-    ash::switches::kAshHostWindowBounds,
+    ash::switches::kAshEnablePalette,
+    ash::switches::kAshEnablePaletteOnAllDisplays,
     ash::switches::kAshTouchHud,
     ash::switches::kAuraLegacyPowerButton,
     chromeos::switches::kDefaultWallpaperLarge,
@@ -191,7 +196,7 @@ void DeriveCommandLine(const GURL& start_url,
     cc::switches::kDisableCompositedAntialiasing,
     cc::switches::kDisableMainFrameBeforeActivation,
     cc::switches::kDisableThreadedAnimation,
-    cc::switches::kEnableBeginFrameScheduling,
+    cc::switches::kEnableColorCorrectRendering,
     cc::switches::kEnableGpuBenchmarking,
     cc::switches::kEnableLayerLists,
     cc::switches::kEnableMainFrameBeforeActivation,
@@ -199,19 +204,17 @@ void DeriveCommandLine(const GURL& start_url,
     cc::switches::kShowFPSCounter,
     cc::switches::kShowLayerAnimationBounds,
     cc::switches::kShowPropertyChangedRects,
-    cc::switches::kShowReplicaScreenSpaceRects,
     cc::switches::kShowScreenSpaceRects,
     cc::switches::kShowSurfaceDamageRects,
     cc::switches::kSlowDownRasterScaleFactor,
     cc::switches::kUIEnableLayerLists,
     cc::switches::kUIShowFPSCounter,
-    chromeos::switches::kConsumerDeviceManagementUrl,
+    chromeos::switches::kArcAvailable,
     chromeos::switches::kDbusStub,
-    chromeos::switches::kDbusUnstubClients,
+    chromeos::switches::kDisableArcDataWipe,
     chromeos::switches::kDisableArcOptInVerification,
     chromeos::switches::kDisableLoginAnimations,
     chromeos::switches::kEnableArc,
-    chromeos::switches::kEnableConsumerManagement,
     chromeos::switches::kEnterpriseDisableArc,
     chromeos::switches::kEnterpriseEnableForcedReEnrollment,
     chromeos::switches::kHasChromeOSDiamondKey,
@@ -264,6 +267,9 @@ class ChromeRestartRequest
   // Fires job restart request to session manager.
   void RestartJob();
 
+  // Called when RestartJob D-Bus method call is complete.
+  void OnRestartJob(base::ScopedFD local_auth_fd, DBusMethodCallStatus status);
+
   const std::vector<std::string> argv_;
   base::OneShotTimer timer_;
 
@@ -311,9 +317,36 @@ void ChromeRestartRequest::Start() {
 
 void ChromeRestartRequest::RestartJob() {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
+  VLOG(1) << "ChromeRestartRequest::RestartJob";
 
-  DBusThreadManager::Get()->GetSessionManagerClient()->RestartJob(argv_);
+  // The session manager requires a RestartJob caller to open a socket pair and
+  // pass one end over D-Bus while holding the local end open for the duration
+  // of the call.
+  int sockets[2] = {-1, -1};
+  // socketpair() doesn't cause disk IO so it's OK to call it on the UI thread.
+  // Also, the current chrome process is going to die soon so it doesn't matter
+  // anyways.
+  if (socketpair(AF_UNIX, SOCK_STREAM, 0, sockets) < 0) {
+    PLOG(ERROR) << "Failed to create a unix domain socketpair";
+    delete this;
+    return;
+  }
+  base::ScopedFD local_auth_fd(sockets[0]);
+  base::ScopedFD remote_auth_fd(sockets[1]);
+  // Ownership of local_auth_fd is passed to the callback that is to be
+  // called on completion of this method call. This keeps the browser end
+  // of the socket-pair alive for the duration of the RPC.
+  DBusThreadManager::Get()->GetSessionManagerClient()->RestartJob(
+      remote_auth_fd.get(), argv_,
+      base::Bind(&ChromeRestartRequest::OnRestartJob, AsWeakPtr(),
+                 base::Passed(&local_auth_fd)));
+}
 
+void ChromeRestartRequest::OnRestartJob(base::ScopedFD local_auth_fd,
+                                        DBusMethodCallStatus status) {
+  // Now that the call is complete, local_auth_fd can be closed and discarded,
+  // which will happen automatically when it goes out of scope.
+  VLOG(1) << "OnRestartJob";
   delete this;
 }
 

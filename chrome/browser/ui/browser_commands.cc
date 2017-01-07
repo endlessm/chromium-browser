@@ -5,7 +5,7 @@
 #include "chrome/browser/ui/browser_commands.h"
 
 #include "base/command_line.h"
-#include "base/metrics/histogram.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
 #include "chrome/app/chrome_command_ids.h"
@@ -53,6 +53,7 @@
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/browser/upgrade_detector.h"
 #include "chrome/common/content_restriction.h"
+#include "chrome/common/features.h"
 #include "chrome/common/pref_names.h"
 #include "components/bookmarks/browser/bookmark_model.h"
 #include "components/bookmarks/browser/bookmark_utils.h"
@@ -107,11 +108,11 @@
 #endif  // defined(ENABLE_PRINTING)
 
 #if defined(ENABLE_RLZ)
-#include "components/rlz/rlz_tracker.h"
+#include "components/rlz/rlz_tracker.h"  // nogncheck
 #endif
 
 #if defined(ENABLE_MEDIA_ROUTER)
-#include "chrome/browser/media/router/media_router_dialog_controller.h"
+#include "chrome/browser/media/router/media_router_dialog_controller.h"  // nogncheck
 #endif
 
 namespace {
@@ -132,7 +133,7 @@ namespace {
 bool CanBookmarkCurrentPageInternal(const Browser* browser,
                                     bool check_remove_bookmark_ui) {
   BookmarkModel* model =
-      BookmarkModelFactory::GetForProfile(browser->profile());
+      BookmarkModelFactory::GetForBrowserContext(browser->profile());
   return browser_defaults::bookmarks_enabled &&
       browser->profile()->GetPrefs()->GetBoolean(
           bookmarks::prefs::kEditBookmarksEnabled) &&
@@ -186,18 +187,19 @@ WebContents* GetTabAndRevertIfNecessary(Browser* browser,
                                         WindowOpenDisposition disposition) {
   WebContents* current_tab = browser->tab_strip_model()->GetActiveWebContents();
   switch (disposition) {
-    case NEW_FOREGROUND_TAB:
-    case NEW_BACKGROUND_TAB: {
+    case WindowOpenDisposition::NEW_FOREGROUND_TAB:
+    case WindowOpenDisposition::NEW_BACKGROUND_TAB: {
       WebContents* new_tab = current_tab->Clone();
-      if (disposition == NEW_BACKGROUND_TAB)
+      if (disposition == WindowOpenDisposition::NEW_BACKGROUND_TAB)
         new_tab->WasHidden();
       browser->tab_strip_model()->AddWebContents(
           new_tab, -1, ui::PAGE_TRANSITION_LINK,
-          (disposition == NEW_FOREGROUND_TAB) ?
-              TabStripModel::ADD_ACTIVE : TabStripModel::ADD_NONE);
+          (disposition == WindowOpenDisposition::NEW_FOREGROUND_TAB)
+              ? TabStripModel::ADD_ACTIVE
+              : TabStripModel::ADD_NONE);
       return new_tab;
     }
-    case NEW_WINDOW: {
+    case WindowOpenDisposition::NEW_WINDOW: {
       WebContents* new_tab = current_tab->Clone();
       Browser* new_browser =
           new Browser(Browser::CreateParams(browser->profile()));
@@ -251,7 +253,7 @@ bool IsShowingWebContentsModalDialog(Browser* browser) {
   return manager && manager->IsDialogActive();
 }
 
-#if defined(ENABLE_BASIC_PRINTING)
+#if BUILDFLAG(ENABLE_BASIC_PRINT_DIALOG)
 bool PrintPreviewShowing(const Browser* browser) {
 #if defined(ENABLE_PRINT_PREVIEW)
   WebContents* contents = browser->tab_strip_model()->GetActiveWebContents();
@@ -263,7 +265,7 @@ bool PrintPreviewShowing(const Browser* browser) {
   return false;
 #endif
 }
-#endif  // ENABLE_BASIC_PRINTING
+#endif  // BUILDFLAG(ENABLE_BASIC_PRINT_DIALOG)
 
 }  // namespace
 
@@ -469,7 +471,8 @@ void Home(Browser* browser, WindowOpenDisposition disposition) {
     url = extensions::AppLaunchInfo::GetLaunchWebURL(extension);
   }
 
-  if (disposition == CURRENT_TAB || disposition == NEW_FOREGROUND_TAB)
+  if (disposition == WindowOpenDisposition::CURRENT_TAB ||
+      disposition == WindowOpenDisposition::NEW_FOREGROUND_TAB)
     extensions::MaybeShowExtensionControlledHomeNotification(browser);
 #endif
 
@@ -505,9 +508,9 @@ void OpenCurrentURL(Browser* browser) {
                                     ui::PAGE_TRANSITION_TYPED) &&
       !ui::PageTransitionCoreTypeIs(page_transition,
                                     ui::PAGE_TRANSITION_RELOAD) &&
-      browser->instant_controller() &&
-      browser->instant_controller()->OpenInstant(open_disposition, url))
-    return;
+      browser->instant_controller()) {
+    browser->instant_controller()->OpenInstant(open_disposition, url);
+  }
 
   NavigateParams params(browser, url, page_transition);
   params.disposition = open_disposition;
@@ -727,7 +730,7 @@ void BookmarkCurrentPageIgnoringExtensionOverrides(Browser* browser) {
   content::RecordAction(UserMetricsAction("Star"));
 
   BookmarkModel* model =
-      BookmarkModelFactory::GetForProfile(browser->profile());
+      BookmarkModelFactory::GetForBrowserContext(browser->profile());
   if (!model || !model->loaded())
     return;  // Ignore requests until bookmarks are loaded.
 
@@ -899,12 +902,16 @@ void BasicPrint(Browser* browser) {
 }
 
 bool CanBasicPrint(Browser* browser) {
+#if BUILDFLAG(ENABLE_BASIC_PRINT_DIALOG)
   // If printing is not disabled via pref or policy, it is always possible to
   // advanced print when the print preview is visible.
   return browser->profile()->GetPrefs()->GetBoolean(prefs::kPrintingEnabled) &&
-      (PrintPreviewShowing(browser) || CanPrint(browser));
+         (PrintPreviewShowing(browser) || CanPrint(browser));
+#else
+  return false;  // The print dialog is disabled.
+#endif  // BUILDFLAG(ENABLE_BASIC_PRINT_DIALOG)
 }
-#endif  // ENABLE_BASIC_PRINTING
+#endif  // defined(ENABLE_BASIC_PRINTING)
 
 bool CanRouteMedia(Browser* browser) {
   // Do not allow user to open Media Router dialog when there is already an
@@ -1200,7 +1207,8 @@ void ViewSource(Browser* browser,
   last_committed_entry->SetPageState(page_state.RemoveScrollOffset());
 
   // Do not restore title, derive it from the url.
-  last_committed_entry->SetTitle(base::string16());
+  view_source_contents->UpdateTitleForEntry(last_committed_entry,
+                                            base::string16());
 
   // Now show view-source entry.
   if (browser->CanSupportWindowFeature(Browser::FEATURE_TABSTRIP)) {

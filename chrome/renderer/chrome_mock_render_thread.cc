@@ -18,11 +18,11 @@ ChromeMockRenderThread::~ChromeMockRenderThread() {
 }
 
 scoped_refptr<base::SingleThreadTaskRunner>
-ChromeMockRenderThread::GetIOMessageLoopProxy() {
+ChromeMockRenderThread::GetIOTaskRunner() {
   return io_task_runner_;
 }
 
-void ChromeMockRenderThread::set_io_message_loop_proxy(
+void ChromeMockRenderThread::set_io_task_runner(
     const scoped_refptr<base::SingleThreadTaskRunner>& task_runner) {
   io_task_runner_ = task_runner;
 }
@@ -51,7 +51,7 @@ void ChromeMockRenderThread::OnOpenChannelToExtension(
     const ExtensionMsg_ExternalConnectionInfo& info,
     const std::string& channel_name,
     bool include_tls_channel_id,
-    int* port_id) {
-  *port_id = 0;
+    int request_id) {
+  Send(new ExtensionMsg_AssignPortId(routing_id, 0, request_id));
 }
 #endif

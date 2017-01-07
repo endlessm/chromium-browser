@@ -4,7 +4,7 @@
 import uuid
 import sys
 
-from catapult_base import cloud_storage  # pylint: disable=import-error
+from py_utils import cloud_storage  # pylint: disable=import-error
 
 from telemetry import decorators
 from telemetry.internal.backends import app_backend
@@ -102,7 +102,10 @@ class BrowserBackend(app_backend.AppBackend):
                    timeout=web_contents.DEFAULT_WEB_CONTENTS_TIMEOUT):
     raise NotImplementedError()
 
-  def StopTracing(self, trace_data_builder):
+  def StopTracing(self):
+    raise NotImplementedError()
+
+  def CollectTracingData(self, trace_data_builder):
     raise NotImplementedError()
 
   def Start(self):
@@ -118,6 +121,18 @@ class BrowserBackend(app_backend.AppBackend):
     raise NotImplementedError()
 
   def GetStackTrace(self):
+    raise NotImplementedError()
+
+  def GetMostRecentMinidumpPath(self):
+    raise NotImplementedError()
+
+  def GetAllMinidumpPaths(self):
+    raise NotImplementedError()
+
+  def GetAllUnsymbolizedMinidumpPaths(self):
+    raise NotImplementedError()
+
+  def SymbolizeMinidump(self, minidump_path):
     raise NotImplementedError()
 
   def GetSystemInfo(self):

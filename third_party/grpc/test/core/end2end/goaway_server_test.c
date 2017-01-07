@@ -46,8 +46,9 @@ static void *tag(intptr_t i) { return (void *)i; }
 
 static gpr_mu g_mu;
 static int g_resolve_port = -1;
-static grpc_resolved_addresses *(*iomgr_resolve_address)(
-    const char *name, const char *default_port);
+static grpc_error *(*iomgr_resolve_address)(const char *name,
+                                            const char *default_port,
+                                            grpc_resolved_addresses **addrs);
 
 static void set_resolve_port(int port) {
   gpr_mu_lock(&g_mu);
@@ -55,28 +56,28 @@ static void set_resolve_port(int port) {
   gpr_mu_unlock(&g_mu);
 }
 
-static grpc_resolved_addresses *my_resolve_address(const char *name,
-                                                   const char *addr) {
+static grpc_error *my_resolve_address(const char *name, const char *addr,
+                                      grpc_resolved_addresses **addrs) {
   if (0 != strcmp(name, "test")) {
-    return iomgr_resolve_address(name, addr);
+    return iomgr_resolve_address(name, addr, addrs);
   }
 
   gpr_mu_lock(&g_mu);
   if (g_resolve_port < 0) {
     gpr_mu_unlock(&g_mu);
-    return NULL;
+    return GRPC_ERROR_CREATE("Forced Failure");
   } else {
-    grpc_resolved_addresses *addrs = gpr_malloc(sizeof(*addrs));
-    addrs->naddrs = 1;
-    addrs->addrs = gpr_malloc(sizeof(*addrs->addrs));
-    memset(addrs->addrs, 0, sizeof(*addrs->addrs));
-    struct sockaddr_in *sa = (struct sockaddr_in *)addrs->addrs[0].addr;
+    *addrs = gpr_malloc(sizeof(**addrs));
+    (*addrs)->naddrs = 1;
+    (*addrs)->addrs = gpr_malloc(sizeof(*(*addrs)->addrs));
+    memset((*addrs)->addrs, 0, sizeof(*(*addrs)->addrs));
+    struct sockaddr_in *sa = (struct sockaddr_in *)(*addrs)->addrs[0].addr;
     sa->sin_family = AF_INET;
     sa->sin_addr.s_addr = htonl(0x7f000001);
     sa->sin_port = htons((uint16_t)g_resolve_port);
-    addrs->addrs[0].len = sizeof(*sa);
+    (*addrs)->addrs[0].len = sizeof(*sa);
     gpr_mu_unlock(&g_mu);
-    return addrs;
+    return GRPC_ERROR_NONE;
   }
 }
 
@@ -174,8 +175,8 @@ int main(int argc, char **argv) {
   set_resolve_port(port1);
 
   /* first call should now start */
-  cq_expect_completion(cqv, tag(0x101), 1);
-  cq_expect_completion(cqv, tag(0x301), 1);
+  CQ_EXPECT_COMPLETION(cqv, tag(0x101), 1);
+  CQ_EXPECT_COMPLETION(cqv, tag(0x301), 1);
   cq_verify(cqv);
 
   GPR_ASSERT(GRPC_CHANNEL_READY ==
@@ -199,7 +200,7 @@ int main(int argc, char **argv) {
    * we should see a connectivity change and then nothing */
   set_resolve_port(-1);
   grpc_server_shutdown_and_notify(server1, cq, tag(0xdead1));
-  cq_expect_completion(cqv, tag(0x9999), 1);
+  CQ_EXPECT_COMPLETION(cqv, tag(0x9999), 1);
   cq_verify(cqv);
   cq_verify_empty(cqv);
 
@@ -249,8 +250,8 @@ int main(int argc, char **argv) {
                                       &request_metadata2, cq, cq, tag(0x401)));
 
   /* second call should now start */
-  cq_expect_completion(cqv, tag(0x201), 1);
-  cq_expect_completion(cqv, tag(0x401), 1);
+  CQ_EXPECT_COMPLETION(cqv, tag(0x201), 1);
+  CQ_EXPECT_COMPLETION(cqv, tag(0x401), 1);
   cq_verify(cqv);
 
   /* listen for close on the server call to probe for finishing */
@@ -272,12 +273,12 @@ int main(int argc, char **argv) {
   grpc_call_cancel(call2, NULL);
 
   /* now everything else should finish */
-  cq_expect_completion(cqv, tag(0x102), 1);
-  cq_expect_completion(cqv, tag(0x202), 1);
-  cq_expect_completion(cqv, tag(0x302), 1);
-  cq_expect_completion(cqv, tag(0x402), 1);
-  cq_expect_completion(cqv, tag(0xdead1), 1);
-  cq_expect_completion(cqv, tag(0xdead2), 1);
+  CQ_EXPECT_COMPLETION(cqv, tag(0x102), 1);
+  CQ_EXPECT_COMPLETION(cqv, tag(0x202), 1);
+  CQ_EXPECT_COMPLETION(cqv, tag(0x302), 1);
+  CQ_EXPECT_COMPLETION(cqv, tag(0x402), 1);
+  CQ_EXPECT_COMPLETION(cqv, tag(0xdead1), 1);
+  CQ_EXPECT_COMPLETION(cqv, tag(0xdead2), 1);
   cq_verify(cqv);
 
   grpc_call_destroy(call1);

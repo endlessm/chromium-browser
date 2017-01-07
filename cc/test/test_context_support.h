@@ -7,6 +7,7 @@
 
 #include <stdint.h>
 
+#include <set>
 #include <vector>
 
 #include "base/macros.h"
@@ -31,6 +32,7 @@ class TestContextSupport : public gpu::ContextSupport {
   void SignalQuery(uint32_t query, const base::Closure& callback) override;
   void SetAggressivelyFreeResources(bool aggressively_free_resources) override;
   void Swap() override;
+  void SwapWithDamage(const gfx::Rect& damage) override;
   void PartialSwapBuffers(const gfx::Rect& sub_buffer) override;
   void CommitOverlayPlanes() override;
   void ScheduleOverlayPlane(int plane_z_order,

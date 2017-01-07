@@ -19,7 +19,6 @@
 #include "components/proxy_config/pref_proxy_config_tracker_impl.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/common/content_switches.h"
-#include "net/log/net_log.h"
 #include "net/proxy/dhcp_proxy_script_fetcher_factory.h"
 #include "net/proxy/proxy_config_service.h"
 #include "net/proxy/proxy_resolver_v8.h"
@@ -76,8 +75,8 @@ ProxyServiceFactory::CreateProxyConfigService(PrefProxyConfigTracker* tracker) {
   // that code be moved to chrome/browser instead of being in net, so that it
   // can use BrowserThread instead of raw MessageLoop pointers? See bug 25354.
   base_service = net::ProxyService::CreateSystemProxyConfigService(
-      BrowserThread::GetMessageLoopProxyForThread(BrowserThread::IO),
-      BrowserThread::GetMessageLoopProxyForThread(BrowserThread::FILE));
+      BrowserThread::GetTaskRunnerForThread(BrowserThread::IO),
+      BrowserThread::GetTaskRunnerForThread(BrowserThread::FILE));
 #endif  // !defined(OS_CHROMEOS)
 
   return tracker->CreateTrackingProxyConfigService(std::move(base_service));
@@ -92,8 +91,7 @@ ProxyServiceFactory::CreatePrefProxyConfigTrackerOfProfile(
   return new chromeos::ProxyConfigServiceImpl(profile_prefs, local_state_prefs);
 #else
   return new PrefProxyConfigTrackerImpl(
-      profile_prefs,
-      BrowserThread::GetMessageLoopProxyForThread(BrowserThread::IO));
+      profile_prefs, BrowserThread::GetTaskRunnerForThread(BrowserThread::IO));
 #endif  // defined(OS_CHROMEOS)
 }
 
@@ -106,7 +104,7 @@ ProxyServiceFactory::CreatePrefProxyConfigTrackerOfLocalState(
 #else
   return new PrefProxyConfigTrackerImpl(
       local_state_prefs,
-      BrowserThread::GetMessageLoopProxyForThread(BrowserThread::IO));
+      BrowserThread::GetTaskRunnerForThread(BrowserThread::IO));
 #endif  // defined(OS_CHROMEOS)
 }
 

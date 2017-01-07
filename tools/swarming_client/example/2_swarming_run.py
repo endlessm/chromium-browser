@@ -1,7 +1,7 @@
 #!/usr/bin/env python
-# Copyright 2012 The Swarming Authors. All rights reserved.
-# Use of this source code is governed under the Apache License, Version 2.0 that
-# can be found in the LICENSE file.
+# Copyright 2012 The LUCI Authors. All rights reserved.
+# Use of this source code is governed under the Apache License, Version 2.0
+# that can be found in the LICENSE file.
 
 """Runs hello_world.py, through hello_world.isolate, remotely on a Swarming
 bot.
@@ -40,6 +40,7 @@ def main():
       '--swarming', options.swarming,
       '--isolate-server', options.isolate_server,
       '--dimension', 'os', options.swarming_os,
+      '--dimension', 'pool', 'default',
       '--task-name', options.task_name,
       '--task-summary-json', 'example_result.json',
       '--decorate',

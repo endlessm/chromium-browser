@@ -105,6 +105,7 @@
 #include "components/policy/core/common/policy_namespace.h"
 #include "components/policy/core/common/policy_service.h"
 #include "components/policy/core/common/policy_switches.h"
+#include "components/policy/policy_constants.h"
 #include "components/prefs/pref_change_registrar.h"
 #include "components/prefs/pref_service.h"
 #include "components/signin/core/browser/signin_manager.h"
@@ -139,7 +140,6 @@
 #include "net/url_request/test_url_fetcher_factory.h"
 #include "net/url_request/url_fetcher_delegate.h"
 #include "net/url_request/url_request_status.h"
-#include "policy/policy_constants.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "third_party/icu/source/common/unicode/locid.h"
 #include "ui/base/ime/chromeos/extension_ime_util.h"
@@ -394,8 +394,8 @@ std::unique_ptr<net::FakeURLFetcher> RunCallbackAndReturnFakeURLFetcher(
     net::HttpStatusCode response_code,
     net::URLRequestStatus::Status status) {
   task_runner->PostTask(FROM_HERE, callback);
-  return base::WrapUnique(new net::FakeURLFetcher(url, delegate, response_data,
-                                                  response_code, status));
+  return base::MakeUnique<net::FakeURLFetcher>(url, delegate, response_data,
+                                               response_code, status);
 }
 
 bool IsSessionStarted() {
@@ -1267,13 +1267,13 @@ IN_PROC_BROWSER_TEST_F(DeviceLocalAccountTest, ExtensionCacheImplTest) {
   // Create and initialize local cache.
   base::ScopedTempDir cache_dir;
   EXPECT_TRUE(cache_dir.CreateUniqueTempDir());
-  const base::FilePath impl_path = cache_dir.path();
+  const base::FilePath impl_path = cache_dir.GetPath();
   EXPECT_TRUE(base::CreateDirectory(impl_path));
   CreateFile(impl_path.Append(
                  extensions::LocalExtensionCache::kCacheReadyFlagFileName),
              0, base::Time::Now());
-  extensions::ExtensionCacheImpl cache_impl(base::WrapUnique(
-      new extensions::ChromeOSExtensionCacheDelegate(impl_path)));
+  extensions::ExtensionCacheImpl cache_impl(
+      base::MakeUnique<extensions::ChromeOSExtensionCacheDelegate>(impl_path));
   std::unique_ptr<base::RunLoop> run_loop;
   run_loop.reset(new base::RunLoop);
   cache_impl.Start(base::Bind(&OnExtensionCacheImplInitialized, &run_loop));
@@ -1282,7 +1282,7 @@ IN_PROC_BROWSER_TEST_F(DeviceLocalAccountTest, ExtensionCacheImplTest) {
   // Put extension in the local cache.
   base::ScopedTempDir temp_dir;
   EXPECT_TRUE(temp_dir.CreateUniqueTempDir());
-  const base::FilePath temp_path = temp_dir.path();
+  const base::FilePath temp_path = temp_dir.GetPath();
   EXPECT_TRUE(base::CreateDirectory(temp_path));
   const base::FilePath temp_file =
       GetCacheCRXFilePath(kGoodExtensionID, kGoodExtensionVersion, temp_path);
@@ -1565,9 +1565,9 @@ IN_PROC_BROWSER_TEST_F(DeviceLocalAccountTest, LastWindowClosedLogoutReminder) {
 
   // Start the platform app, causing it to open a window.
   run_loop_.reset(new base::RunLoop);
-  OpenApplication(AppLaunchParams(profile, app,
-                                  extensions::LAUNCH_CONTAINER_NONE, NEW_WINDOW,
-                                  extensions::SOURCE_TEST));
+  OpenApplication(AppLaunchParams(
+      profile, app, extensions::LAUNCH_CONTAINER_NONE,
+      WindowOpenDisposition::NEW_WINDOW, extensions::SOURCE_TEST));
   run_loop_->Run();
   EXPECT_EQ(1U, app_window_registry->app_windows().size());
 

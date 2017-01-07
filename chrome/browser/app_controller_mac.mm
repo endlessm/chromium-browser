@@ -14,9 +14,9 @@
 #include "base/mac/mac_util.h"
 #include "base/mac/sdk_forward_declarations.h"
 #include "base/macros.h"
+#include "base/memory/ptr_util.h"
 #include "base/message_loop/message_loop.h"
-#include "base/metrics/histogram.h"
-#include "base/stl_util.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/sys_string_conversions.h"
 #include "base/strings/utf_string_conversions.h"
@@ -64,7 +64,6 @@
 #import "chrome/browser/ui/cocoa/bookmarks/bookmark_menu_bridge.h"
 #import "chrome/browser/ui/cocoa/confirm_quit.h"
 #import "chrome/browser/ui/cocoa/confirm_quit_panel_controller.h"
-#import "chrome/browser/ui/cocoa/encoding_menu_controller_delegate_mac.h"
 #include "chrome/browser/ui/cocoa/handoff_active_url_observer_bridge.h"
 #import "chrome/browser/ui/cocoa/history_menu_bridge.h"
 #include "chrome/browser/ui/cocoa/last_active_browser_cocoa.h"
@@ -84,7 +83,7 @@
 #include "chrome/common/url_constants.h"
 #include "chrome/grit/chromium_strings.h"
 #include "chrome/grit/generated_resources.h"
-#include "components/browser_sync/browser/profile_sync_service.h"
+#include "components/browser_sync/profile_sync_service.h"
 #include "components/handoff/handoff_manager.h"
 #include "components/handoff/handoff_utility.h"
 #include "components/prefs/pref_service.h"
@@ -409,6 +408,10 @@ class AppControllerProfileObserver : public ProfileAttributesStorage::Observer {
 - (void)applicationWillFinishLaunching:(NSNotification*)notification {
   MacStartupProfiler::GetInstance()->Profile(
       MacStartupProfiler::WILL_FINISH_LAUNCHING);
+
+  if ([NSWindow respondsToSelector:@selector(allowsAutomaticWindowTabbing)]) {
+    NSWindow.allowsAutomaticWindowTabbing = NO;
+  }
 }
 
 - (void)applicationWillHide:(NSNotification*)notification {
@@ -531,8 +534,7 @@ class AppControllerProfileObserver : public ProfileAttributesStorage::Observer {
 
   appShimMenuController_.reset();
 
-  STLDeleteContainerPairSecondPointers(profileBookmarkMenuBridgeMap_.begin(),
-                                       profileBookmarkMenuBridgeMap_.end());
+  profileBookmarkMenuBridgeMap_.clear();
 }
 
 - (void)didEndMainMessageLoop {
@@ -745,16 +747,6 @@ class AppControllerProfileObserver : public ProfileAttributesStorage::Observer {
   // Dynamically update shortcuts for "Close Window" and "Close Tab" menu items.
   [[closeTabMenuItem_ menu] setDelegate:self];
 
-  // Build up the encoding menu, the order of the items differs based on the
-  // current locale (see http://crbug.com/7647 for details).
-  // We need a valid g_browser_process to get the profile which is why we can't
-  // call this from awakeFromNib.
-  NSMenu* viewMenu = [[[NSApp mainMenu] itemWithTag:IDC_VIEW_MENU] submenu];
-  NSMenuItem* encodingMenuItem = [viewMenu itemWithTag:IDC_ENCODING_MENU];
-  NSMenu* encodingMenu = [encodingMenuItem submenu];
-  EncodingMenuControllerDelegate::BuildEncodingMenu([self lastProfile],
-                                                    encodingMenu);
-
   // Instantiate the ProfileAttributesStorage observer so that we can get
   // notified when a profile is deleted.
   profileAttributesStorageObserver_.reset(new AppControllerProfileObserver(
@@ -889,11 +881,7 @@ class AppControllerProfileObserver : public ProfileAttributesStorage::Observer {
         GetLastUsedProfile()];
   }
 
-  auto it = profileBookmarkMenuBridgeMap_.find(profilePath);
-  if (it != profileBookmarkMenuBridgeMap_.end()) {
-    delete it->second;
-    profileBookmarkMenuBridgeMap_.erase(it);
-  }
+  profileBookmarkMenuBridgeMap_.erase(profilePath);
 }
 
 // Returns true if there is a modal window (either window- or application-
@@ -968,11 +956,6 @@ class AppControllerProfileObserver : public ProfileAttributesStorage::Observer {
                            currentProfile:lastProfile];
           break;
         }
-#if defined(GOOGLE_CHROME_BUILD)
-        case IDC_FEEDBACK:
-          enable = NO;
-          break;
-#endif
         default:
           enable = menuState_->IsCommandEnabled(tag) ?
                    ![self keyWindowIsModal] : NO;
@@ -1570,9 +1553,10 @@ class AppControllerProfileObserver : public ProfileAttributesStorage::Observer {
   if (it == profileBookmarkMenuBridgeMap_.end()) {
     base::scoped_nsobject<NSMenu> submenu([[bookmarkItem submenu] copy]);
     bookmarkMenuBridge_ = new BookmarkMenuBridge(profile, submenu);
-    profileBookmarkMenuBridgeMap_[profile->GetPath()] = bookmarkMenuBridge_;
+    profileBookmarkMenuBridgeMap_[profile->GetPath()] =
+        base::WrapUnique(bookmarkMenuBridge_);
   } else {
-    bookmarkMenuBridge_ = it->second;
+    bookmarkMenuBridge_ = it->second.get();
   }
 
   // No need to |BuildMenu| here.  It is done lazily upon menu access.
@@ -1646,7 +1630,7 @@ class AppControllerProfileObserver : public ProfileAttributesStorage::Observer {
 #pragma mark - Handoff Manager
 
 - (BOOL)shouldUseHandoff {
-  return base::mac::IsOSYosemiteOrLater();
+  return base::mac::IsAtLeastOS10_10();
 }
 
 - (void)passURLToHandoffManager:(const GURL&)handoffURL {

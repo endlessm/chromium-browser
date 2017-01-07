@@ -8,13 +8,18 @@
 #include <set>
 #include <string>
 
+#include "base/compiler_specific.h"
 #include "base/mac/scoped_nsobject.h"
 #include "base/macros.h"
+#include "chrome/browser/notifications/notification_common.h"
 #include "chrome/browser/notifications/notification_platform_bridge.h"
 
 class Notification;
 @class NotificationCenterDelegate;
+@class NotificationRemoteDispatcher;
+@class NSDictionary;
 @class NSUserNotificationCenter;
+@class NSXPCConnection;
 class PrefService;
 
 // This class is an implementation of NotificationPlatformBridge that will
@@ -26,7 +31,8 @@ class NotificationPlatformBridgeMac : public NotificationPlatformBridge {
   ~NotificationPlatformBridgeMac() override;
 
   // NotificationPlatformBridge implementation.
-  void Display(const std::string& notification_id,
+  void Display(NotificationCommon::Type notification_type,
+               const std::string& notification_id,
                const std::string& profile_id,
                bool incognito,
                const Notification& notification) override;
@@ -35,14 +41,26 @@ class NotificationPlatformBridgeMac : public NotificationPlatformBridge {
   bool GetDisplayed(const std::string& profile_id,
                     bool incognito,
                     std::set<std::string>* notifications) const override;
-  bool SupportsNotificationCenter() const override;
+
+  // Processes a notification response generated from a user action
+  // (click close, etc.).
+  static void ProcessNotificationResponse(NSDictionary* response);
+
+  // Validates contents of the |response| dictionary as received from the system
+  // when a notification gets activated.
+  static bool VerifyNotificationData(NSDictionary* response) WARN_UNUSED_RESULT;
 
  private:
   // Cocoa class that receives callbacks from the NSUserNotificationCenter.
   base::scoped_nsobject<NotificationCenterDelegate> delegate_;
 
-  // The notification center to use, this can be overriden in tests
+  // The notification center to use for local banner notifications,
+  // this can be overriden in tests.
   NSUserNotificationCenter* notification_center_;
+
+  // The object in charge of dispatching remote notifications.
+  base::scoped_nsobject<NotificationRemoteDispatcher>
+      notification_remote_dispatcher_;
 
   DISALLOW_COPY_AND_ASSIGN(NotificationPlatformBridgeMac);
 };

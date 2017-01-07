@@ -11,8 +11,8 @@ import mock
 from google.appengine.ext import ndb
 
 from dashboard import email_sheriff
-from dashboard import testing_common
-from dashboard import utils
+from dashboard.common import testing_common
+from dashboard.common import utils
 from dashboard.models import anomaly
 from dashboard.models import bug_label_patterns
 from dashboard.models import sheriff
@@ -33,7 +33,9 @@ class EmailSheriffTest(testing_common.TestCase):
     test.improvement_direction = anomaly.DOWN
     sheriff.Sheriff(
         id='Chromium Perf Sheriff',
-        url=_SHERIFF_URL, email=_SHERIFF_EMAIL).put()
+        url=_SHERIFF_URL,
+        email=_SHERIFF_EMAIL,
+        labels=['Performance-Sheriff']).put()
     return test
 
   def _GetDefaultMailArgs(self):

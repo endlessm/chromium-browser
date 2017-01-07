@@ -45,8 +45,6 @@
 #include "src/core/lib/support/string.h"
 #include "test/core/end2end/cq_verifier.h"
 
-enum { TIMEOUT = 200000 };
-
 static void *tag(intptr_t t) { return (void *)t; }
 
 static grpc_end2end_test_fixture begin_test(grpc_end2end_test_config config,
@@ -112,7 +110,7 @@ static void simple_request_body(grpc_end2end_test_fixture f, size_t num_ops) {
   char *details = NULL;
   size_t details_capacity = 0;
 
-  gpr_log(GPR_DEBUG, "test with %d ops", num_ops);
+  gpr_log(GPR_DEBUG, "test with %" PRIuPTR " ops", num_ops);
 
   c = grpc_channel_create_call(f.client, NULL, GRPC_PROPAGATE_DEFAULTS, f.cq,
                                "/foo", "foo.test.google.fr:1234", deadline,
@@ -152,7 +150,7 @@ static void simple_request_body(grpc_end2end_test_fixture f, size_t num_ops) {
 
   grpc_call_cancel_with_status(c, GRPC_STATUS_UNIMPLEMENTED, "xyz", NULL);
 
-  cq_expect_completion(cqv, tag(1), 1);
+  CQ_EXPECT_COMPLETION(cqv, tag(1), 1);
   cq_verify(cqv);
 
   GPR_ASSERT(status == GRPC_STATUS_UNIMPLEMENTED);

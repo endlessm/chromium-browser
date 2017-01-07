@@ -53,7 +53,7 @@ struct CookieStoreIOSTestTraits {
 
 struct InactiveCookieStoreIOSTestTraits {
   static std::unique_ptr<net::CookieStore> Create() {
-    return base::WrapUnique(new CookieStoreIOS(nullptr));
+    return base::MakeUnique<CookieStoreIOS>(nullptr);
   }
 
   static const bool is_cookie_monster = false;
@@ -205,7 +205,7 @@ class RoundTripTestCookieStore : public net::CookieStore {
 struct RoundTripTestCookieStoreTraits {
   static std::unique_ptr<net::CookieStore> Create() {
     ClearCookies();
-    return base::WrapUnique(new RoundTripTestCookieStore());
+    return base::MakeUnique<RoundTripTestCookieStore>();
   }
 
   static const bool is_cookie_monster = false;
@@ -259,16 +259,17 @@ class TestPersistentCookieStore
 
     // Some canonical cookies cannot be converted into System cookies, for
     // example if value is not valid utf8. Such cookies are ignored.
-    net::CanonicalCookie* bad_canonical_cookie = new net::CanonicalCookie(
-        kTestCookieURL, "name", "\x81r\xe4\xbd\xa0\xe5\xa5\xbd", "domain",
-        "path/",
-        base::Time(),  // creation
-        base::Time(),  // expires
-        base::Time(),  // last_access
-        false,         // secure
-        false,         // httponly
-        net::CookieSameSite::DEFAULT_MODE, net::COOKIE_PRIORITY_DEFAULT);
-    cookies.push_back(bad_canonical_cookie);
+    std::unique_ptr<net::CanonicalCookie> bad_canonical_cookie(
+        net::CanonicalCookie::Create(GURL("http://domain/"), "name",
+                                     "\x81r\xe4\xbd\xa0\xe5\xa5\xbd",
+                                     std::string(), "/path/",
+                                     base::Time(),  // creation
+                                     base::Time(),  // expires
+                                     false,         // secure
+                                     false,         // httponly
+                                     net::CookieSameSite::DEFAULT_MODE, false,
+                                     net::COOKIE_PRIORITY_DEFAULT));
+    cookies.push_back(bad_canonical_cookie.release());
     loaded_callback_.Run(cookies);
   }
 
@@ -348,11 +349,11 @@ namespace {
 void RecordCookieChanges(std::vector<net::CanonicalCookie>* out_cookies,
                          std::vector<bool>* out_removes,
                          const net::CanonicalCookie& cookie,
-                         bool removed) {
+                         net::CookieStore::ChangeCause cause) {
   DCHECK(out_cookies);
   out_cookies->push_back(cookie);
   if (out_removes)
-    out_removes->push_back(removed);
+    out_removes->push_back(net::CookieStore::ChangeCauseIsDeletion(cause));
 }
 
 void IgnoreBoolean(bool ignored) {

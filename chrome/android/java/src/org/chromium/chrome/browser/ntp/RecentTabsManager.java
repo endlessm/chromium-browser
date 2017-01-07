@@ -24,10 +24,10 @@ import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.browser.signin.SigninManager;
 import org.chromium.chrome.browser.signin.SigninManager.SignInStateObserver;
 import org.chromium.chrome.browser.tab.Tab;
+import org.chromium.components.signin.ChromeSigninController;
+import org.chromium.components.sync.AndroidSyncSettings;
+import org.chromium.components.sync.AndroidSyncSettings.AndroidSyncSettingsObserver;
 import org.chromium.content_public.browser.LoadUrlParams;
-import org.chromium.sync.AndroidSyncSettings;
-import org.chromium.sync.AndroidSyncSettings.AndroidSyncSettingsObserver;
-import org.chromium.sync.signin.ChromeSigninController;
 
 import java.util.Collections;
 import java.util.List;
@@ -380,7 +380,8 @@ public class RecentTabsManager implements AndroidSyncSettingsObserver, SignInSta
      * @return Whether sync promo should be displayed.
      */
     public boolean shouldDisplaySyncPromo() {
-        if (SigninManager.get(mContext).isSigninDisabledByPolicy()) {
+        SigninManager signinManager = SigninManager.get(mContext);
+        if (signinManager.isSigninDisabledByPolicy() || !signinManager.isSigninSupported()) {
             return false;
         }
 

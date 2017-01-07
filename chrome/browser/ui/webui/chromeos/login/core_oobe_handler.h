@@ -118,6 +118,7 @@ class CoreOobeHandler : public BaseScreenHandler,
   void ClearErrors() override;
   void ReloadContent(const base::DictionaryValue& dictionary) override;
   void ShowControlBar(bool show) override;
+  void ShowPinKeyboard(bool show) override;
   void SetClientAreaSize(int width, int height) override;
   void ShowDeviceResetScreen() override;
   void ShowEnableDebuggingScreen() override;
@@ -142,6 +143,7 @@ class CoreOobeHandler : public BaseScreenHandler,
   void HandleToggleResetScreen();
   void HandleEnableDebuggingScreen();
   void HandleHeaderBarVisible();
+  void HandleSetOobeBootstrappingSlave();
 
   // When keyboard_utils.js arrow key down event is reached, raise it
   // to tab/shift-tab event.

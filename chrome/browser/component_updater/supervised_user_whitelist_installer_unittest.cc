@@ -136,17 +136,23 @@ class MockComponentUpdateService : public ComponentUpdateService,
     return false;
   }
 
+  std::unique_ptr<ComponentInfo> GetComponentForMimeType(
+      const std::string& mime_type) const override {
+    return nullptr;
+  }
+
   // OnDemandUpdater implementation:
-  bool OnDemandUpdate(const std::string& crx_id) override {
+  void OnDemandUpdate(
+      const std::string& crx_id,
+      ComponentUpdateService::CompletionCallback callback) override {
     on_demand_update_called_ = true;
 
     if (!component_) {
       ADD_FAILURE() << "Trying to update unregistered component " << crx_id;
-      return false;
+      return;
     }
 
     EXPECT_EQ(GetCrxComponentID(*component_), crx_id);
-    return true;
   }
 
  private:
@@ -340,7 +346,7 @@ TEST_F(SupervisedUserWhitelistInstallerTest, InstallNewWhitelist) {
 
   base::ScopedTempDir temp_dir;
   ASSERT_TRUE(temp_dir.CreateUniqueTempDir());
-  base::FilePath unpacked_path = temp_dir.path();
+  base::FilePath unpacked_path = temp_dir.GetPath();
   ASSERT_NO_FATAL_FAILURE(PrepareWhitelistDirectory(unpacked_path));
 
   const CrxComponent* component =

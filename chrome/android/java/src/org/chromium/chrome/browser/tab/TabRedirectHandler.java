@@ -12,6 +12,8 @@ import android.os.SystemClock;
 import android.provider.Browser;
 import android.text.TextUtils;
 
+import org.chromium.chrome.browser.ChromeFeatureList;
+import org.chromium.chrome.browser.customtabs.CustomTabIntentDataProvider;
 import org.chromium.chrome.browser.document.ChromeLauncherActivity;
 import org.chromium.chrome.browser.util.IntentUtils;
 import org.chromium.ui.base.PageTransition;
@@ -71,23 +73,31 @@ public class TabRedirectHandler {
             return;
         }
 
-        String chromePackageName = mContext.getPackageName();
-        // If an intent is heading explicitly to Chrome, we should stay in Chrome.
-        if (TextUtils.equals(chromePackageName, intent.getPackage())
-                || TextUtils.equals(chromePackageName, IntentUtils.safeGetStringExtra(intent,
-                        Browser.EXTRA_APPLICATION_ID))) {
-            mIsInitialIntentHeadingToChrome = true;
-        }
         mIsCustomTabIntent = ChromeLauncherActivity.isCustomTabIntent(intent);
-
-        // Copies minimum information to retrieve resolvers.
-        mInitialIntent = new Intent(Intent.ACTION_VIEW);
-        mInitialIntent.setData(intent.getData());
-        if (intent.getCategories() != null) {
-            for (String category : intent.getCategories()) {
-                mInitialIntent.addCategory(category);
-            }
+        boolean checkIsToChrome = true;
+        // All custom tabs VIEW intents are by design explicit intents, so the presence of package
+        // name doesn't imply they have to be handled by Chrome explicitly. Check if external apps
+        // should be checked for handling the initial redirect chain.
+        if (mIsCustomTabIntent) {
+            boolean sendToExternalApps = IntentUtils.safeGetBooleanExtra(intent,
+                    CustomTabIntentDataProvider.EXTRA_SEND_TO_EXTERNAL_DEFAULT_HANDLER, false);
+            checkIsToChrome = !(sendToExternalApps
+                    && ChromeFeatureList.isEnabled(ChromeFeatureList.CCT_EXTERNAL_LINK_HANDLING));
         }
+
+        if (checkIsToChrome) mIsInitialIntentHeadingToChrome = isIntentToChrome(mContext, intent);
+
+        // A copy of the intent with component cleared to find resolvers.
+        mInitialIntent = new Intent(intent).setComponent(null);
+        Intent selector = mInitialIntent.getSelector();
+        if (selector != null) selector.setComponent(null);
+    }
+
+    private static boolean isIntentToChrome(Context context, Intent intent) {
+        String chromePackageName = context.getPackageName();
+        return TextUtils.equals(chromePackageName, intent.getPackage())
+                || TextUtils.equals(chromePackageName, IntentUtils.safeGetStringExtra(intent,
+                        Browser.EXTRA_APPLICATION_ID));
     }
 
     private void clearIntentHistory() {
@@ -189,7 +199,15 @@ public class TabRedirectHandler {
      */
     public boolean shouldStayInChrome(boolean hasExternalProtocol) {
         return (mIsInitialIntentHeadingToChrome && !hasExternalProtocol)
-                || mInitialNavigationType == NAVIGATION_TYPE_FROM_LINK_WITHOUT_USER_GESTURE
+                || shouldNavigationTypeStayInChrome();
+
+    }
+
+    /**
+     * @return Whether the current navigation is of the type that should always stay in Chrome.
+     */
+    public boolean shouldNavigationTypeStayInChrome() {
+        return mInitialNavigationType == NAVIGATION_TYPE_FROM_LINK_WITHOUT_USER_GESTURE
                 || mInitialNavigationType == NAVIGATION_TYPE_FROM_RELOAD;
     }
 
@@ -257,5 +275,12 @@ public class TabRedirectHandler {
             }
         }
         return false;
+    }
+
+    /**
+     * @return The initial intent of a redirect chain, if available.
+     */
+    public Intent getInitialIntent() {
+        return mInitialIntent;
     }
 }

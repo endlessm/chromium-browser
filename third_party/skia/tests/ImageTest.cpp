@@ -8,7 +8,6 @@
 #include <functional>
 #include <initializer_list>
 #include <vector>
-#include "DMGpuSupport.h"
 
 #include "SkAutoPixmapStorage.h"
 #include "SkBitmap.h"
@@ -17,6 +16,7 @@
 #include "SkImageEncoder.h"
 #include "SkImageGenerator.h"
 #include "SkImage_Base.h"
+#include "SkImagePriv.h"
 #include "SkPicture.h"
 #include "SkPictureRecorder.h"
 #include "SkPixelSerializer.h"
@@ -25,6 +25,10 @@
 #include "SkSurface.h"
 #include "SkUtils.h"
 #include "Test.h"
+
+#if SK_SUPPORT_GPU
+#include "GrGpu.h"
+#endif
 
 using namespace sk_gpu_test;
 
@@ -39,8 +43,7 @@ static void assert_equal(skiatest::Reporter* reporter, SkImage* a, const SkIRect
     // see https://bug.skia.org/3965
     //REPORTER_ASSERT(reporter, a->isOpaque() == b->isOpaque());
 
-    SkImageInfo info = SkImageInfo::MakeN32(widthA, heightA,
-                                        a->isOpaque() ? kOpaque_SkAlphaType : kPremul_SkAlphaType);
+    SkImageInfo info = SkImageInfo::MakeN32(widthA, heightA, a->alphaType());
     SkAutoPixmapStorage pmapA, pmapB;
     pmapA.alloc(info);
     pmapB.alloc(info);
@@ -68,22 +71,22 @@ static sk_sp<SkImage> create_image() {
     draw_image_test_pattern(surface->getCanvas());
     return surface->makeImageSnapshot();
 }
-static SkData* create_image_data(SkImageInfo* info) {
+static sk_sp<SkData> create_image_data(SkImageInfo* info) {
     *info = SkImageInfo::MakeN32(20, 20, kOpaque_SkAlphaType);
     const size_t rowBytes = info->minRowBytes();
-    SkAutoTUnref<SkData> data(SkData::NewUninitialized(rowBytes * info->height()));
+    sk_sp<SkData> data(SkData::MakeUninitialized(rowBytes * info->height()));
     {
         SkBitmap bm;
         bm.installPixels(*info, data->writable_data(), rowBytes);
         SkCanvas canvas(bm);
         draw_image_test_pattern(&canvas);
     }
-    return data.release();
+    return data;
 }
 static sk_sp<SkImage> create_data_image() {
     SkImageInfo info;
     sk_sp<SkData> data(create_image_data(&info));
-    return SkImage::MakeRasterData(info, data, info.minRowBytes());
+    return SkImage::MakeRasterData(info, std::move(data), info.minRowBytes());
 }
 #if SK_SUPPORT_GPU // not gpu-specific but currently only used in GPU tests
 static sk_sp<SkImage> create_image_565() {
@@ -129,7 +132,7 @@ static sk_sp<SkImage> create_picture_image() {
 // Want to ensure that our Release is called when the owning image is destroyed
 struct RasterDataHolder {
     RasterDataHolder() : fReleaseCount(0) {}
-    SkAutoTUnref<SkData> fData;
+    sk_sp<SkData> fData;
     int fReleaseCount;
     static void Release(const void* pixels, void* context) {
         RasterDataHolder* self = static_cast<RasterDataHolder*>(context);
@@ -140,19 +143,17 @@ struct RasterDataHolder {
 static sk_sp<SkImage> create_rasterproc_image(RasterDataHolder* dataHolder) {
     SkASSERT(dataHolder);
     SkImageInfo info;
-    SkAutoTUnref<SkData> data(create_image_data(&info));
-    dataHolder->fData.reset(SkRef(data.get()));
-    return SkImage::MakeFromRaster(SkPixmap(info, data->data(), info.minRowBytes()),
+    dataHolder->fData = create_image_data(&info);
+    return SkImage::MakeFromRaster(SkPixmap(info, dataHolder->fData->data(), info.minRowBytes()),
                                    RasterDataHolder::Release, dataHolder);
 }
 static sk_sp<SkImage> create_codec_image() {
     SkImageInfo info;
-    SkAutoTUnref<SkData> data(create_image_data(&info));
+    sk_sp<SkData> data(create_image_data(&info));
     SkBitmap bitmap;
     bitmap.installPixels(info, data->writable_data(), info.minRowBytes());
-    sk_sp<SkData> src(
-        SkImageEncoder::EncodeData(bitmap, SkImageEncoder::kPNG_Type, 100));
-    return SkImage::MakeFromEncoded(src);
+    sk_sp<SkData> src(SkImageEncoder::EncodeData(bitmap, SkImageEncoder::kPNG_Type, 100));
+    return SkImage::MakeFromEncoded(std::move(src));
 }
 #if SK_SUPPORT_GPU
 static sk_sp<SkImage> create_gpu_image(GrContext* context) {
@@ -170,6 +171,10 @@ static void test_encode(skiatest::Reporter* reporter, SkImage* image) {
     REPORTER_ASSERT(reporter, origEncoded->size() > 0);
 
     sk_sp<SkImage> decoded(SkImage::MakeFromEncoded(origEncoded));
+    if (!decoded) {
+        ERRORF(reporter, "failed to decode image!");
+        return;
+    }
     REPORTER_ASSERT(reporter, decoded);
     assert_equal(reporter, image, nullptr, decoded.get());
 
@@ -190,13 +195,45 @@ DEF_GPUTEST_FOR_RENDERING_CONTEXTS(ImageEncode_Gpu, reporter, ctxInfo) {
 }
 #endif
 
+DEF_TEST(Image_MakeFromRasterBitmap, reporter) {
+    const struct {
+        SkCopyPixelsMode fCPM;
+        bool            fExpectSameAsMutable;
+        bool            fExpectSameAsImmutable;
+    } recs[] = {
+        { kIfMutable_SkCopyPixelsMode,  false,  true },
+        { kAlways_SkCopyPixelsMode,     false,  false },
+        { kNever_SkCopyPixelsMode,      true,   true },
+    };
+    for (auto rec : recs) {
+        SkPixmap pm;
+        SkBitmap bm;
+        bm.allocN32Pixels(100, 100);
+
+        auto img = SkMakeImageFromRasterBitmap(bm, rec.fCPM);
+        REPORTER_ASSERT(reporter, img->peekPixels(&pm));
+        const bool sameMutable = pm.addr32(0, 0) == bm.getAddr32(0, 0);
+        REPORTER_ASSERT(reporter, rec.fExpectSameAsMutable == sameMutable);
+        REPORTER_ASSERT(reporter, (bm.getGenerationID() == img->uniqueID()) == sameMutable);
+
+        bm.notifyPixelsChanged();   // force a new generation ID
+
+        bm.setImmutable();
+        img = SkMakeImageFromRasterBitmap(bm, rec.fCPM);
+        REPORTER_ASSERT(reporter, img->peekPixels(&pm));
+        const bool sameImmutable = pm.addr32(0, 0) == bm.getAddr32(0, 0);
+        REPORTER_ASSERT(reporter, rec.fExpectSameAsImmutable == sameImmutable);
+        REPORTER_ASSERT(reporter, (bm.getGenerationID() == img->uniqueID()) == sameImmutable);
+    }
+}
+
 namespace {
 
 const char* kSerializedData = "serialized";
 
 class MockSerializer : public SkPixelSerializer {
 public:
-    MockSerializer(SkData* (*func)()) : fFunc(func), fDidEncode(false) { }
+    MockSerializer(sk_sp<SkData> (*func)()) : fFunc(func), fDidEncode(false) { }
 
     bool didEncode() const { return fDidEncode; }
 
@@ -207,11 +244,11 @@ protected:
 
     SkData* onEncode(const SkPixmap&) override {
         fDidEncode = true;
-        return fFunc();
+        return fFunc().release();
     }
 
 private:
-    SkData* (*fFunc)();
+    sk_sp<SkData> (*fFunc)();
     bool fDidEncode;
 
     typedef SkPixelSerializer INHERITED;
@@ -221,15 +258,17 @@ private:
 
 // Test that SkImage encoding observes custom pixel serializers.
 DEF_TEST(Image_Encode_Serializer, reporter) {
-    MockSerializer serializer([]() -> SkData* { return SkData::NewWithCString(kSerializedData); });
+    MockSerializer serializer([]() -> sk_sp<SkData> {
+        return SkData::MakeWithCString(kSerializedData);
+    });
     sk_sp<SkImage> image(create_image());
-    SkAutoTUnref<SkData> encoded(image->encode(&serializer));
-    SkAutoTUnref<SkData> reference(SkData::NewWithCString(kSerializedData));
+    sk_sp<SkData> encoded(image->encode(&serializer));
+    sk_sp<SkData> reference(SkData::MakeWithCString(kSerializedData));
 
     REPORTER_ASSERT(reporter, serializer.didEncode());
     REPORTER_ASSERT(reporter, encoded);
     REPORTER_ASSERT(reporter, encoded->size() > 0);
-    REPORTER_ASSERT(reporter, encoded->equals(reference));
+    REPORTER_ASSERT(reporter, encoded->equals(reference.get()));
 }
 
 // Test that image encoding failures do not break picture serialization/deserialization.
@@ -246,8 +285,8 @@ DEF_TEST(Image_Serialize_Encoding_Failure, reporter) {
     REPORTER_ASSERT(reporter, picture);
     REPORTER_ASSERT(reporter, picture->approximateOpCount() > 0);
 
-    MockSerializer emptySerializer([]() -> SkData* { return SkData::NewEmpty(); });
-    MockSerializer nullSerializer([]() -> SkData* { return nullptr; });
+    MockSerializer emptySerializer([]() -> sk_sp<SkData> { return SkData::MakeEmpty(); });
+    MockSerializer nullSerializer([]() -> sk_sp<SkData> { return nullptr; });
     MockSerializer* serializers[] = { &emptySerializer, &nullSerializer };
 
     for (size_t i = 0; i < SK_ARRAY_COUNT(serializers); ++i) {
@@ -312,7 +351,7 @@ DEF_TEST(Image_RetainSnapshot, reporter) {
     }
 
     SkPaint paint;
-    paint.setXfermodeMode(SkXfermode::kSrc_Mode);
+    paint.setBlendMode(SkBlendMode::kSrc);
     paint.setColor(SK_ColorRED);
 
     surface->getCanvas()->drawRect(SkRect::MakeXYWH(1, 1, 1, 1), paint);
@@ -469,9 +508,36 @@ DEF_GPUTEST_FOR_RENDERING_CONTEXTS(SkImage_newTextureImage, reporter, contextInf
         if (image->width() != texImage->width() || image->height() != texImage->height()) {
             ERRORF(reporter, "newTextureImage changed the image size.");
         }
-        if (image->isOpaque() != texImage->isOpaque()) {
-            ERRORF(reporter, "newTextureImage changed image opaqueness.");
+        if (image->alphaType() != texImage->alphaType()) {
+            ERRORF(reporter, "newTextureImage changed image alpha type.");
         }
+    }
+}
+
+DEF_GPUTEST_FOR_RENDERING_CONTEXTS(SkImage_makeNonTextureImage, reporter, contextInfo) {
+    GrContext* context = contextInfo.grContext();
+
+    std::function<sk_sp<SkImage>()> imageFactories[] = {
+        create_image,
+        create_codec_image,
+        create_data_image,
+        create_picture_image,
+        [context] { return create_gpu_image(context); },
+    };
+    for (auto factory : imageFactories) {
+        sk_sp<SkImage> image = factory();
+        if (!image->isTextureBacked()) {
+            REPORTER_ASSERT(reporter, image->makeNonTextureImage().get() == image.get());
+            if (!(image = image->makeTextureImage(context))) {
+                continue;
+            }
+        }
+        auto rasterImage = image->makeNonTextureImage();
+        if (!rasterImage) {
+            ERRORF(reporter, "makeNonTextureImage failed for texture-backed image.");
+        }
+        REPORTER_ASSERT(reporter, !rasterImage->isTextureBacked());
+        assert_equal(reporter, image.get(), nullptr, rasterImage.get());
     }
 }
 
@@ -537,6 +603,10 @@ static bool has_pixels(const SkPMColor pixels[], int count, SkPMColor expected) 
 }
 
 static void test_read_pixels(skiatest::Reporter* reporter, SkImage* image) {
+    if (!image) {
+        ERRORF(reporter, "Failed to create image!");
+        return;
+    }
     const SkPMColor expected = SkPreMultiplyColor(SK_ColorWHITE);
     const SkPMColor notExpected = ~expected;
 
@@ -606,7 +676,7 @@ static void check_legacy_bitmap(skiatest::Reporter* reporter, const SkImage* ima
                                 const SkBitmap& bitmap, SkImage::LegacyBitmapMode mode) {
     REPORTER_ASSERT(reporter, image->width() == bitmap.width());
     REPORTER_ASSERT(reporter, image->height() == bitmap.height());
-    REPORTER_ASSERT(reporter, image->isOpaque() == bitmap.isOpaque());
+    REPORTER_ASSERT(reporter, image->alphaType() == bitmap.alphaType());
 
     if (SkImage::kRO_LegacyBitmapMode == mode) {
         REPORTER_ASSERT(reporter, bitmap.isImmutable());
@@ -622,6 +692,10 @@ static void check_legacy_bitmap(skiatest::Reporter* reporter, const SkImage* ima
 }
 
 static void test_legacy_bitmap(skiatest::Reporter* reporter, const SkImage* image, SkImage::LegacyBitmapMode mode) {
+    if (!image) {
+        ERRORF(reporter, "Failed to create image.");
+        return;
+    }
     SkBitmap bitmap;
     REPORTER_ASSERT(reporter, image->asLegacyBitmap(&bitmap, mode));
     check_legacy_bitmap(reporter, image, bitmap, mode);
@@ -673,6 +747,10 @@ DEF_GPUTEST_FOR_RENDERING_CONTEXTS(ImageLegacyBitmap_Gpu, reporter, ctxInfo) {
 #endif
 
 static void test_peek(skiatest::Reporter* reporter, SkImage* image, bool expectPeekSuccess) {
+    if (!image) {
+        ERRORF(reporter, "Failed to create image!");
+        return;
+    }
     SkPixmap pm;
     bool success = image->peekPixels(&pm);
     REPORTER_ASSERT(reporter, expectPeekSuccess == success);
@@ -718,66 +796,30 @@ struct TextureReleaseChecker {
         static_cast<TextureReleaseChecker*>(self)->fReleaseCount++;
     }
 };
-static void check_image_color(skiatest::Reporter* reporter, SkImage* image, SkPMColor expected) {
-    const SkImageInfo info = SkImageInfo::MakeN32Premul(1, 1);
-    SkPMColor pixel;
-    REPORTER_ASSERT(reporter, image->readPixels(info, &pixel, sizeof(pixel), 0, 0));
-    REPORTER_ASSERT(reporter, pixel == expected);
-}
-DEF_GPUTEST_FOR_GL_RENDERING_CONTEXTS(SkImage_NewFromTexture, reporter, ctxInfo) {
-    GrTextureProvider* provider = ctxInfo.grContext()->textureProvider();
-    const int w = 10;
-    const int h = 10;
-    SkPMColor storage[w * h];
-    const SkPMColor expected0 = SkPreMultiplyColor(SK_ColorRED);
-    sk_memset32(storage, expected0, w * h);
-    GrSurfaceDesc desc;
-    desc.fFlags = kRenderTarget_GrSurfaceFlag;  // needs to be a rendertarget for readpixels();
-    desc.fOrigin = kDefault_GrSurfaceOrigin;
-    desc.fWidth = w;
-    desc.fHeight = h;
-    desc.fConfig = kSkia8888_GrPixelConfig;
-    desc.fSampleCnt = 0;
-    SkAutoTUnref<GrTexture> tex(provider->createTexture(desc, SkBudgeted::kNo, storage, w * 4));
-    if (!tex) {
-        REPORTER_ASSERT(reporter, false);
-        return;
-    }
-
+DEF_GPUTEST_FOR_GL_RENDERING_CONTEXTS(SkImage_NewFromTextureRelease, reporter, ctxInfo) {
+    const int kWidth = 10;
+    const int kHeight = 10;
+    SkAutoTDeleteArray<uint32_t> pixels(new uint32_t[kWidth * kHeight]);
     GrBackendTextureDesc backendDesc;
-    backendDesc.fConfig = kSkia8888_GrPixelConfig;
+    backendDesc.fConfig = kRGBA_8888_GrPixelConfig;
     backendDesc.fFlags = kRenderTarget_GrBackendTextureFlag;
-    backendDesc.fWidth = w;
-    backendDesc.fHeight = h;
+    backendDesc.fWidth = kWidth;
+    backendDesc.fHeight = kHeight;
     backendDesc.fSampleCnt = 0;
-    backendDesc.fTextureHandle = tex->getTextureHandle();
+    backendDesc.fTextureHandle = ctxInfo.grContext()->getGpu()->createTestingOnlyBackendTexture(
+        pixels.get(), kWidth, kHeight, kRGBA_8888_GrPixelConfig, true);
+
     TextureReleaseChecker releaseChecker;
     sk_sp<SkImage> refImg(
         SkImage::MakeFromTexture(ctxInfo.grContext(), backendDesc, kPremul_SkAlphaType,
                                  TextureReleaseChecker::Release, &releaseChecker));
-    sk_sp<SkImage> cpyImg(SkImage::MakeFromTextureCopy(ctxInfo.grContext(), backendDesc,
-                                                       kPremul_SkAlphaType));
-
-    check_image_color(reporter, refImg.get(), expected0);
-    check_image_color(reporter, cpyImg.get(), expected0);
-
-    // Now lets jam new colors into our "external" texture, and see if the images notice
-    const SkPMColor expected1 = SkPreMultiplyColor(SK_ColorBLUE);
-    sk_memset32(storage, expected1, w * h);
-    tex->writePixels(0, 0, w, h, kSkia8888_GrPixelConfig, storage, GrContext::kFlushWrites_PixelOp);
-
-    // The cpy'd one should still see the old color
-#if 0
-    // There is no guarantee that refImg sees the new color. We are free to have made a copy. Our
-    // write pixels call violated the contract with refImg and refImg is now undefined.
-    check_image_color(reporter, refImg, expected1);
-#endif
-    check_image_color(reporter, cpyImg.get(), expected0);
 
     // Now exercise the release proc
     REPORTER_ASSERT(reporter, 0 == releaseChecker.fReleaseCount);
     refImg.reset(nullptr); // force a release of the image
     REPORTER_ASSERT(reporter, 1 == releaseChecker.fReleaseCount);
+
+    ctxInfo.grContext()->getGpu()->deleteTestingOnlyBackendTexture(backendDesc.fTextureHandle);
 }
 
 static void check_images_same(skiatest::Reporter* reporter, const SkImage* a, const SkImage* b) {
@@ -785,8 +827,8 @@ static void check_images_same(skiatest::Reporter* reporter, const SkImage* a, co
         ERRORF(reporter, "Images must have the same size");
         return;
     }
-    if (a->isOpaque() != b->isOpaque()) {
-        ERRORF(reporter, "Images must have the same opaquness");
+    if (a->alphaType() != b->alphaType()) {
+        ERRORF(reporter, "Images must have the same alpha type");
         return;
     }
 
@@ -862,20 +904,28 @@ DEF_GPUTEST_FOR_RENDERING_CONTEXTS(DeferredTextureImage, reporter, ctxInfo) {
         int                                                   fExpectedScaleFactor;
         bool                                                  fExpectation;
     } testCases[] = {
-        { create_image,          {{}}, kNone_SkFilterQuality, 1, true },
-        { create_codec_image,    {{}}, kNone_SkFilterQuality, 1, true },
-        { create_data_image,     {{}}, kNone_SkFilterQuality, 1, true },
-        { create_picture_image,  {{}}, kNone_SkFilterQuality, 1, false },
-        { [context] { return create_gpu_image(context); }, {{}}, kNone_SkFilterQuality, 1, false },
+        { create_image,          {{SkMatrix::I(), kNone_SkFilterQuality, 0}},
+          kNone_SkFilterQuality, 1, true },
+        { create_codec_image,    {{SkMatrix::I(), kNone_SkFilterQuality, 0}},
+          kNone_SkFilterQuality, 1, true },
+        { create_data_image,     {{SkMatrix::I(), kNone_SkFilterQuality, 0}},
+          kNone_SkFilterQuality, 1, true },
+        { create_picture_image,  {{SkMatrix::I(), kNone_SkFilterQuality, 0}},
+          kNone_SkFilterQuality, 1, false },
+        { [context] { return create_gpu_image(context); },
+          {{SkMatrix::I(), kNone_SkFilterQuality, 0}},
+          kNone_SkFilterQuality, 1, false },
         // Create a texture image in a another GrContext.
         { [testContext, otherContextInfo] {
             otherContextInfo.testContext()->makeCurrent();
             sk_sp<SkImage> otherContextImage = create_gpu_image(otherContextInfo.grContext());
             testContext->makeCurrent();
             return otherContextImage;
-          }, {{}}, kNone_SkFilterQuality, 1, false },
+          }, {{SkMatrix::I(), kNone_SkFilterQuality, 0}},
+        kNone_SkFilterQuality, 1, false },
         // Create an image that is too large to upload.
-        { create_image_large,    {{}}, kNone_SkFilterQuality, 1, false },
+        { create_image_large,    {{SkMatrix::I(), kNone_SkFilterQuality, 0}},
+          kNone_SkFilterQuality, 1, false },
         // Create an image that is too large, but is scaled to an acceptable size.
         { create_image_large, {{SkMatrix::I(), kMedium_SkFilterQuality, 4}},
           kMedium_SkFilterQuality, 16, true},
@@ -892,10 +942,14 @@ DEF_GPUTEST_FOR_RENDERING_CONTEXTS(DeferredTextureImage, reporter, ctxInfo) {
 
     for (auto testCase : testCases) {
         sk_sp<SkImage> image(testCase.fImageFactory());
+        if (!image) {
+            ERRORF(reporter, "Failed to create image!");
+            continue;
+        }
+
         size_t size = image->getDeferredTextureImageData(*proxy, testCase.fParams.data(),
                                                          static_cast<int>(testCase.fParams.size()),
-                                                         nullptr);
-
+                                                         nullptr, SkSourceGammaTreatment::kIgnore);
         static const char *const kFS[] = { "fail", "succeed" };
         if (SkToBool(size) != testCase.fExpectation) {
             ERRORF(reporter,  "This image was expected to %s but did not.",
@@ -906,12 +960,12 @@ DEF_GPUTEST_FOR_RENDERING_CONTEXTS(DeferredTextureImage, reporter, ctxInfo) {
             void* misaligned = reinterpret_cast<void*>(reinterpret_cast<intptr_t>(buffer) + 3);
             if (image->getDeferredTextureImageData(*proxy, testCase.fParams.data(),
                                                    static_cast<int>(testCase.fParams.size()),
-                                                   misaligned)) {
+                                                   misaligned, SkSourceGammaTreatment::kIgnore)) {
                 ERRORF(reporter, "Should fail when buffer is misaligned.");
             }
             if (!image->getDeferredTextureImageData(*proxy, testCase.fParams.data(),
                                                     static_cast<int>(testCase.fParams.size()),
-                                                    buffer)) {
+                                                    buffer, SkSourceGammaTreatment::kIgnore)) {
                 ERRORF(reporter, "deferred image size succeeded but creation failed.");
             } else {
                 for (auto budgeted : { SkBudgeted::kNo, SkBudgeted::kYes }) {
@@ -921,9 +975,9 @@ DEF_GPUTEST_FOR_RENDERING_CONTEXTS(DeferredTextureImage, reporter, ctxInfo) {
                     if (newImage) {
                         // Scale the image in software for comparison.
                         SkImageInfo scaled_info = SkImageInfo::MakeN32(
-                                image->width() / testCase.fExpectedScaleFactor,
-                                image->height() / testCase.fExpectedScaleFactor,
-                                image->isOpaque() ? kOpaque_SkAlphaType : kPremul_SkAlphaType);
+                                                    image->width() / testCase.fExpectedScaleFactor,
+                                                    image->height() / testCase.fExpectedScaleFactor,
+                                                    image->alphaType());
                         SkAutoPixmapStorage scaled;
                         scaled.alloc(scaled_info);
                         image->scalePixels(scaled, testCase.fExpectedQuality);
@@ -943,3 +997,57 @@ DEF_GPUTEST_FOR_RENDERING_CONTEXTS(DeferredTextureImage, reporter, ctxInfo) {
     }
 }
 #endif
+
+///////////////////////////////////////////////////////////////////////////////////////////////////
+
+static void make_all_premul(SkBitmap* bm) {
+    bm->allocPixels(SkImageInfo::MakeN32(256, 256, kPremul_SkAlphaType));
+    for (int a = 0; a < 256; ++a) {
+        for (int r = 0; r < 256; ++r) {
+            // make all valid premul combinations
+            int c = SkTMin(a, r);
+            *bm->getAddr32(a, r) = SkPackARGB32(a, c, c, c);
+        }
+    }
+}
+
+static bool equal(const SkBitmap& a, const SkBitmap& b) {
+    SkASSERT(a.width() == b.width());
+    SkASSERT(a.height() == b.height());
+    for (int y = 0; y < a.height(); ++y) {
+        if (0 != memcmp(a.getAddr32(0, y), b.getAddr32(0, y), a.width() * sizeof(SkPMColor))) {
+            return false;
+        }
+    }
+    return true;
+}
+
+DEF_TEST(image_roundtrip_encode, reporter) {
+    SkBitmap bm0;
+    make_all_premul(&bm0);
+
+    auto img0 = SkImage::MakeFromBitmap(bm0);
+    sk_sp<SkData> data(img0->encode(SkImageEncoder::kPNG_Type, 100));
+    auto img1 = SkImage::MakeFromEncoded(data);
+
+    SkBitmap bm1;
+    bm1.allocPixels(SkImageInfo::MakeN32(256, 256, kPremul_SkAlphaType));
+    img1->readPixels(bm1.info(), bm1.getPixels(), bm1.rowBytes(), 0, 0);
+
+    REPORTER_ASSERT(reporter, equal(bm0, bm1));
+}
+
+DEF_TEST(image_roundtrip_premul, reporter) {
+    SkBitmap bm0;
+    make_all_premul(&bm0);
+
+    SkBitmap bm1;
+    bm1.allocPixels(SkImageInfo::MakeN32(256, 256, kUnpremul_SkAlphaType));
+    bm0.readPixels(bm1.info(), bm1.getPixels(), bm1.rowBytes(), 0, 0);
+
+    SkBitmap bm2;
+    bm2.allocPixels(SkImageInfo::MakeN32(256, 256, kPremul_SkAlphaType));
+    bm1.readPixels(bm2.info(), bm2.getPixels(), bm2.rowBytes(), 0, 0);
+
+    REPORTER_ASSERT(reporter, equal(bm0, bm2));
+}

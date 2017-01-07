@@ -8,9 +8,7 @@
 #include <iterator>
 #include <ostream>
 #include <sstream>
-#include <vector>
 
-#include "base/compiler_specific.h"
 #include "base/json/json_writer.h"
 #include "base/logging.h"
 #include "base/strings/stringprintf.h"
@@ -24,16 +22,17 @@
 #include "chrome/browser/ui/webui/signin/login_ui_test_utils.h"
 #include "chrome/common/channel_info.h"
 #include "chrome/common/chrome_switches.h"
-#include "components/browser_sync/browser/profile_sync_service.h"
+#include "components/browser_sync/profile_sync_service.h"
 #include "components/invalidation/impl/p2p_invalidation_service.h"
 #include "components/signin/core/browser/profile_oauth2_token_service.h"
 #include "components/signin/core/browser/signin_manager_base.h"
-#include "components/sync_driver/about_sync_util.h"
+#include "components/sync/base/progress_marker_map.h"
+#include "components/sync/driver/about_sync_util.h"
+#include "components/sync/engine/sync_string_conversions.h"
 #include "google_apis/gaia/gaia_constants.h"
-#include "sync/internal_api/public/base/progress_marker_map.h"
-#include "sync/internal_api/public/util/sync_string_conversions.h"
 
-using syncer::sessions::SyncSessionSnapshot;
+using browser_sync::ProfileSyncService;
+using syncer::SyncCycleSnapshot;
 
 namespace {
 
@@ -192,6 +191,14 @@ bool ProfileSyncServiceHarness::SetupSync(
   // Notify ProfileSyncService that we are done with configuration.
   FinishSyncSetup();
 
+  if ((signin_type_ == SigninType::UI_SIGNIN) &&
+      !login_ui_test_utils::DismissSyncConfirmationDialog(
+          chrome::FindBrowserWithProfile(profile_),
+          base::TimeDelta::FromSeconds(30))) {
+    LOG(ERROR) << "Failed to dismiss sync confirmation dialog.";
+    return false;
+  }
+
   // Set an implicit passphrase for encryption if an explicit one hasn't already
   // been set. If an explicit passphrase has been set, immediately return false,
   // since a decryption passphrase is required.
@@ -221,32 +228,26 @@ bool ProfileSyncServiceHarness::AwaitMutualSyncCycleCompletion(
 }
 
 bool ProfileSyncServiceHarness::AwaitGroupSyncCycleCompletion(
-    std::vector<ProfileSyncServiceHarness*>& partners) {
+    const std::vector<ProfileSyncServiceHarness*>& partners) {
   return AwaitQuiescence(partners);
 }
 
 // static
 bool ProfileSyncServiceHarness::AwaitQuiescence(
-    std::vector<ProfileSyncServiceHarness*>& clients) {
+    const std::vector<ProfileSyncServiceHarness*>& clients) {
   std::vector<ProfileSyncService*> services;
   if (clients.empty()) {
     return true;
   }
 
-  for (std::vector<ProfileSyncServiceHarness*>::iterator it = clients.begin();
-       it != clients.end(); ++it) {
-    services.push_back((*it)->service());
+  for (const ProfileSyncServiceHarness* harness : clients) {
+    services.push_back(harness->service());
   }
-  QuiesceStatusChangeChecker checker(services);
-  checker.Wait();
-  return !checker.TimedOut();
+  return QuiesceStatusChangeChecker(services).Wait();
 }
 
 bool ProfileSyncServiceHarness::AwaitBackendInitialization() {
-  BackendInitializeChecker checker(service());
-  checker.Wait();
-
-  if (checker.TimedOut()) {
+  if (!BackendInitializeChecker(service()).Wait()) {
     LOG(ERROR) << "BackendInitializeChecker timed out.";
     return false;
   }
@@ -272,10 +273,7 @@ bool ProfileSyncServiceHarness::AwaitBackendInitialization() {
 }
 
 bool ProfileSyncServiceHarness::AwaitSyncSetupCompletion() {
-  SyncSetupChecker checker(service());
-  checker.Wait();
-
-  if (checker.TimedOut()) {
+  if (!SyncSetupChecker(service()).Wait()) {
     LOG(ERROR) << "SyncSetupChecker timed out.";
     return false;
   }
@@ -309,12 +307,12 @@ void ProfileSyncServiceHarness::FinishSyncSetup() {
   service()->SetFirstSetupComplete();
 }
 
-SyncSessionSnapshot ProfileSyncServiceHarness::GetLastSessionSnapshot() const {
+SyncCycleSnapshot ProfileSyncServiceHarness::GetLastCycleSnapshot() const {
   DCHECK(service() != NULL) << "Sync service has not yet been set up.";
   if (service()->IsSyncActive()) {
-    return service()->GetLastSessionSnapshot();
+    return service()->GetLastCycleSnapshot();
   }
-  return SyncSessionSnapshot();
+  return SyncCycleSnapshot();
 }
 
 bool ProfileSyncServiceHarness::EnableSyncForDatatype(
@@ -430,7 +428,7 @@ std::string ProfileSyncServiceHarness::GetClientInfoString(
   std::stringstream os;
   os << profile_debug_name_ << ": " << message << ": ";
   if (service()) {
-    const SyncSessionSnapshot& snap = GetLastSessionSnapshot();
+    const SyncCycleSnapshot& snap = GetLastCycleSnapshot();
     ProfileSyncService::Status status;
     service()->QueryDetailedSyncStatus(&status);
     // Capture select info from the sync session snapshot and syncer status.
@@ -466,7 +464,7 @@ bool ProfileSyncServiceHarness::IsTypePreferred(syncer::ModelType type) {
 
 std::string ProfileSyncServiceHarness::GetServiceStatus() {
   std::unique_ptr<base::DictionaryValue> value(
-      sync_driver::sync_ui_util::ConstructAboutInformation(
+      syncer::sync_ui_util::ConstructAboutInformation(
           service(), service()->signin(), chrome::GetChannel()));
   std::string service_status;
   base::JSONWriter::WriteWithOptions(

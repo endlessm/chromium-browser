@@ -261,7 +261,9 @@ JumpList::JumpListData::JumpListData() {}
 JumpList::JumpListData::~JumpListData() {}
 
 JumpList::JumpList(Profile* profile)
-    : profile_(profile),
+    : RefcountedKeyedService(content::BrowserThread::GetTaskRunnerForThread(
+          content::BrowserThread::UI)),
+      profile_(profile),
       jumplist_data_(new base::RefCountedData<JumpListData>),
       task_id_(base::CancelableTaskTracker::kBadTaskId),
       weak_ptr_factory_(this) {
@@ -287,14 +289,9 @@ JumpList::JumpList(Profile* profile)
     // your profile is empty. Ask TopSites to update itself when jumplist is
     // initialized.
     top_sites->SyncWithHistory();
-    registrar_.reset(new content::NotificationRegistrar);
     // Register as TopSitesObserver so that we can update ourselves when the
     // TopSites changes.
     top_sites->AddObserver(this);
-    // Register for notification when profile is destroyed to ensure that all
-    // observers are detatched at that time.
-    registrar_->Add(this, chrome::NOTIFICATION_PROFILE_DESTROYED,
-                    content::Source<Profile>(profile_));
   }
   tab_restore_service->AddObserver(this);
   pref_change_registrar_.reset(new PrefChangeRegistrar);
@@ -312,15 +309,6 @@ JumpList::~JumpList() {
 // static
 bool JumpList::Enabled() {
   return JumpListUpdater::IsEnabled();
-}
-
-void JumpList::Observe(int type,
-                       const content::NotificationSource& source,
-                       const content::NotificationDetails& details) {
-  DCHECK(CalledOnValidThread());
-  DCHECK_EQ(chrome::NOTIFICATION_PROFILE_DESTROYED, type);
-  // Profile was destroyed, do clean-up.
-  Terminate();
 }
 
 void JumpList::CancelPendingUpdate() {
@@ -343,10 +331,14 @@ void JumpList::Terminate() {
         TopSitesFactory::GetForProfile(profile_);
     if (top_sites)
       top_sites->RemoveObserver(this);
-    registrar_.reset();
     pref_change_registrar_.reset();
   }
   profile_ = NULL;
+}
+
+void JumpList::ShutdownOnUIThread() {
+  DCHECK(CalledOnValidThread());
+  Terminate();
 }
 
 void JumpList::OnMostVisitedURLsAvailable(
@@ -399,18 +391,17 @@ void JumpList::TabRestoreServiceChanged(sessions::TabRestoreService* service) {
   const int kRecentlyClosedCount = 4;
   sessions::TabRestoreService* tab_restore_service =
       TabRestoreServiceFactory::GetForProfile(profile_);
-  const sessions::TabRestoreService::Entries& entries =
-      tab_restore_service->entries();
-  for (sessions::TabRestoreService::Entries::const_iterator it =
-           entries.begin();
-       it != entries.end(); ++it) {
-    const sessions::TabRestoreService::Entry* entry = *it;
-    if (entry->type == sessions::TabRestoreService::TAB) {
-      AddTab(static_cast<const sessions::TabRestoreService::Tab*>(entry),
-             &temp_list, kRecentlyClosedCount);
-    } else if (entry->type == sessions::TabRestoreService::WINDOW) {
-      AddWindow(static_cast<const sessions::TabRestoreService::Window*>(entry),
-                &temp_list, kRecentlyClosedCount);
+  for (const auto& entry : tab_restore_service->entries()) {
+    switch (entry->type) {
+      case sessions::TabRestoreService::TAB:
+        AddTab(static_cast<const sessions::TabRestoreService::Tab&>(*entry),
+               &temp_list, kRecentlyClosedCount);
+        break;
+      case sessions::TabRestoreService::WINDOW:
+        AddWindow(
+            static_cast<const sessions::TabRestoreService::Window&>(*entry),
+            &temp_list, kRecentlyClosedCount);
+        break;
     }
   }
   // Lock recently_closed_pages and copy temp_list into it.
@@ -427,7 +418,7 @@ void JumpList::TabRestoreServiceChanged(sessions::TabRestoreService* service) {
 void JumpList::TabRestoreServiceDestroyed(
     sessions::TabRestoreService* service) {}
 
-bool JumpList::AddTab(const sessions::TabRestoreService::Tab* tab,
+bool JumpList::AddTab(const sessions::TabRestoreService::Tab& tab,
                       ShellLinkItemList* list,
                       size_t max_items) {
   DCHECK(CalledOnValidThread());
@@ -439,7 +430,7 @@ bool JumpList::AddTab(const sessions::TabRestoreService::Tab* tab,
 
   scoped_refptr<ShellLinkItem> link = CreateShellLink();
   const sessions::SerializedNavigationEntry& current_navigation =
-      tab->navigations.at(tab->current_navigation_index);
+      tab.navigations.at(tab.current_navigation_index);
   std::string url = current_navigation.virtual_url().spec();
   link->GetCommandLine()->AppendArgNative(base::UTF8ToWide(url));
   link->GetCommandLine()->AppendSwitchASCII(
@@ -454,17 +445,17 @@ bool JumpList::AddTab(const sessions::TabRestoreService::Tab* tab,
   return true;
 }
 
-void JumpList::AddWindow(const sessions::TabRestoreService::Window* window,
+void JumpList::AddWindow(const sessions::TabRestoreService::Window& window,
                          ShellLinkItemList* list,
                          size_t max_items) {
   DCHECK(CalledOnValidThread());
 
   // This code enumerates al the tabs in the given window object and add their
   // URLs and titles to the list.
-  DCHECK(!window->tabs.empty());
+  DCHECK(!window.tabs.empty());
 
-  for (size_t i = 0; i < window->tabs.size(); ++i) {
-    if (!AddTab(&window->tabs[i], list, max_items))
+  for (const auto& tab : window.tabs) {
+    if (!AddTab(*tab, list, max_items))
       return;
   }
 }

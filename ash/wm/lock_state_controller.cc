@@ -10,11 +10,10 @@
 
 #include "ash/cancel_mode.h"
 #include "ash/common/accessibility_delegate.h"
-#include "ash/common/ash_switches.h"
+#include "ash/common/shell_delegate.h"
 #include "ash/common/shell_window_ids.h"
 #include "ash/common/wm_shell.h"
 #include "ash/shell.h"
-#include "ash/shell_delegate.h"
 #include "ash/wm/session_state_animator.h"
 #include "ash/wm/session_state_animator_impl.h"
 #include "base/bind.h"
@@ -31,11 +30,8 @@
 
 #if defined(OS_CHROMEOS)
 #include "base/sys_info.h"
-#include "media/audio/sounds/sounds_manager.h"
-#endif
-
-#if defined(OS_CHROMEOS)
-using media::SoundsManager;
+#include "chromeos/dbus/dbus_thread_manager.h"
+#include "chromeos/dbus/session_manager_client.h"
 #endif
 
 #define UMA_HISTOGRAM_LOCK_TIMES(name, sample)                     \
@@ -98,18 +94,6 @@ LockStateController::~LockStateController() {
 void LockStateController::SetDelegate(
     std::unique_ptr<LockStateControllerDelegate> delegate) {
   delegate_ = std::move(delegate);
-}
-
-void LockStateController::AddObserver(LockStateObserver* observer) {
-  observers_.AddObserver(observer);
-}
-
-void LockStateController::RemoveObserver(LockStateObserver* observer) {
-  observers_.RemoveObserver(observer);
-}
-
-bool LockStateController::HasObserver(const LockStateObserver* observer) const {
-  return observers_.HasObserver(observer);
 }
 
 void LockStateController::StartLockAnimation(bool shutdown_after_lock) {
@@ -214,7 +198,7 @@ void LockStateController::SetLockScreenDisplayedCallback(
 
 void LockStateController::OnHostCloseRequested(
     const aura::WindowTreeHost* host) {
-  Shell::GetInstance()->delegate()->Exit();
+  WmShell::Get()->delegate()->Exit();
 }
 
 void LockStateController::OnLoginStateChanged(LoginStatus status) {
@@ -316,7 +300,7 @@ void LockStateController::StartRealShutdownTimer(bool with_animation_time) {
 
 #if defined(OS_CHROMEOS)
   base::TimeDelta sound_duration =
-      WmShell::Get()->GetAccessibilityDelegate()->PlayShutdownSound();
+      WmShell::Get()->accessibility_delegate()->PlayShutdownSound();
   sound_duration =
       std::min(sound_duration,
                base::TimeDelta::FromMilliseconds(kMaxShutdownSoundDurationMs));
@@ -333,7 +317,7 @@ void LockStateController::OnRealPowerTimeout() {
   DCHECK(shutting_down_);
 #if defined(OS_CHROMEOS)
   if (!base::SysInfo::IsRunningOnChromeOS()) {
-    ShellDelegate* delegate = Shell::GetInstance()->delegate();
+    ShellDelegate* delegate = WmShell::Get()->delegate();
     if (delegate) {
       delegate->Exit();
       return;
@@ -379,15 +363,14 @@ void LockStateController::StartImmediatePreLockAnimation(
   animator_->StartAnimation(SessionStateAnimator::LOCK_SCREEN_CONTAINERS,
                             SessionStateAnimator::ANIMATION_HIDE_IMMEDIATELY,
                             SessionStateAnimator::ANIMATION_SPEED_IMMEDIATE);
-  AnimateBackgroundAppearanceIfNecessary(
+  AnimateWallpaperAppearanceIfNecessary(
       SessionStateAnimator::ANIMATION_SPEED_MOVE_WINDOWS, animation_sequence);
 
   animation_sequence->EndSequence();
 
   DispatchCancelMode();
-  FOR_EACH_OBSERVER(
-      LockStateObserver, observers_,
-      OnLockStateEvent(LockStateObserver::EVENT_LOCK_ANIMATION_STARTED));
+  WmShell::Get()->OnLockStateEvent(
+      LockStateObserver::EVENT_LOCK_ANIMATION_STARTED);
 }
 
 void LockStateController::StartCancellablePreLockAnimation() {
@@ -411,13 +394,12 @@ void LockStateController::StartCancellablePreLockAnimation() {
   animator_->StartAnimation(SessionStateAnimator::LOCK_SCREEN_CONTAINERS,
                             SessionStateAnimator::ANIMATION_HIDE_IMMEDIATELY,
                             SessionStateAnimator::ANIMATION_SPEED_IMMEDIATE);
-  AnimateBackgroundAppearanceIfNecessary(
+  AnimateWallpaperAppearanceIfNecessary(
       SessionStateAnimator::ANIMATION_SPEED_UNDOABLE, animation_sequence);
 
   DispatchCancelMode();
-  FOR_EACH_OBSERVER(
-      LockStateObserver, observers_,
-      OnLockStateEvent(LockStateObserver::EVENT_PRELOCK_ANIMATION_STARTED));
+  WmShell::Get()->OnLockStateEvent(
+      LockStateObserver::EVENT_PRELOCK_ANIMATION_STARTED);
   animation_sequence->EndSequence();
 }
 
@@ -436,7 +418,7 @@ void LockStateController::CancelPreLockAnimation() {
   animation_sequence->StartAnimation(
       SessionStateAnimator::LAUNCHER, SessionStateAnimator::ANIMATION_FADE_IN,
       SessionStateAnimator::ANIMATION_SPEED_UNDO_MOVE_WINDOWS);
-  AnimateBackgroundHidingIfNecessary(
+  AnimateWallpaperHidingIfNecessary(
       SessionStateAnimator::ANIMATION_SPEED_UNDO_MOVE_WINDOWS,
       animation_sequence);
 
@@ -482,7 +464,7 @@ void LockStateController::StartUnlockAnimationAfterUIDestroyed() {
   animation_sequence->StartAnimation(
       SessionStateAnimator::LAUNCHER, SessionStateAnimator::ANIMATION_FADE_IN,
       SessionStateAnimator::ANIMATION_SPEED_MOVE_WINDOWS);
-  AnimateBackgroundHidingIfNecessary(
+  AnimateWallpaperHidingIfNecessary(
       SessionStateAnimator::ANIMATION_SPEED_MOVE_WINDOWS, animation_sequence);
   animation_sequence->EndSequence();
 }
@@ -508,7 +490,11 @@ void LockStateController::PreLockAnimationFinished(bool request_lock) {
     WmShell::Get()->RecordUserMetricsAction(
         shutdown_after_lock_ ? UMA_ACCEL_LOCK_SCREEN_POWER_BUTTON
                              : UMA_ACCEL_LOCK_SCREEN_LOCK_BUTTON);
-    delegate_->RequestLockScreen();
+#if defined(OS_CHROMEOS)
+    chromeos::DBusThreadManager::Get()
+        ->GetSessionManagerClient()
+        ->RequestLockScreen();
+#endif
   }
 
   base::TimeDelta timeout =
@@ -532,9 +518,8 @@ void LockStateController::PreLockAnimationFinished(bool request_lock) {
 void LockStateController::PostLockAnimationFinished() {
   animating_lock_ = false;
   VLOG(1) << "PostLockAnimationFinished";
-  FOR_EACH_OBSERVER(
-      LockStateObserver, observers_,
-      OnLockStateEvent(LockStateObserver::EVENT_LOCK_ANIMATION_FINISHED));
+  WmShell::Get()->OnLockStateEvent(
+      LockStateObserver::EVENT_LOCK_ANIMATION_FINISHED);
   if (!lock_screen_displayed_callback_.is_null()) {
     lock_screen_displayed_callback_.Run();
     lock_screen_displayed_callback_.Reset();
@@ -553,48 +538,45 @@ void LockStateController::UnlockAnimationAfterUIDestroyedFinished() {
 void LockStateController::StoreUnlockedProperties() {
   if (!unlocked_properties_) {
     unlocked_properties_.reset(new UnlockedStateProperties());
-    unlocked_properties_->background_is_hidden =
-        animator_->IsBackgroundHidden();
+    unlocked_properties_->wallpaper_is_hidden = animator_->IsWallpaperHidden();
   }
-  if (unlocked_properties_->background_is_hidden) {
-    // Hide background so that it can be animated later.
-    animator_->StartAnimation(SessionStateAnimator::DESKTOP_BACKGROUND,
+  if (unlocked_properties_->wallpaper_is_hidden) {
+    // Hide wallpaper so that it can be animated later.
+    animator_->StartAnimation(SessionStateAnimator::WALLPAPER,
                               SessionStateAnimator::ANIMATION_HIDE_IMMEDIATELY,
                               SessionStateAnimator::ANIMATION_SPEED_IMMEDIATE);
-    animator_->ShowBackground();
+    animator_->ShowWallpaper();
   }
 }
 
 void LockStateController::RestoreUnlockedProperties() {
   if (!unlocked_properties_)
     return;
-  if (unlocked_properties_->background_is_hidden) {
-    animator_->HideBackground();
-    // Restore background visibility.
-    animator_->StartAnimation(SessionStateAnimator::DESKTOP_BACKGROUND,
+  if (unlocked_properties_->wallpaper_is_hidden) {
+    animator_->HideWallpaper();
+    // Restore wallpaper visibility.
+    animator_->StartAnimation(SessionStateAnimator::WALLPAPER,
                               SessionStateAnimator::ANIMATION_FADE_IN,
                               SessionStateAnimator::ANIMATION_SPEED_IMMEDIATE);
   }
   unlocked_properties_.reset();
 }
 
-void LockStateController::AnimateBackgroundAppearanceIfNecessary(
+void LockStateController::AnimateWallpaperAppearanceIfNecessary(
     SessionStateAnimator::AnimationSpeed speed,
     SessionStateAnimator::AnimationSequence* animation_sequence) {
-  if (unlocked_properties_.get() &&
-      unlocked_properties_->background_is_hidden) {
-    animation_sequence->StartAnimation(SessionStateAnimator::DESKTOP_BACKGROUND,
+  if (unlocked_properties_.get() && unlocked_properties_->wallpaper_is_hidden) {
+    animation_sequence->StartAnimation(SessionStateAnimator::WALLPAPER,
                                        SessionStateAnimator::ANIMATION_FADE_IN,
                                        speed);
   }
 }
 
-void LockStateController::AnimateBackgroundHidingIfNecessary(
+void LockStateController::AnimateWallpaperHidingIfNecessary(
     SessionStateAnimator::AnimationSpeed speed,
     SessionStateAnimator::AnimationSequence* animation_sequence) {
-  if (unlocked_properties_.get() &&
-      unlocked_properties_->background_is_hidden) {
-    animation_sequence->StartAnimation(SessionStateAnimator::DESKTOP_BACKGROUND,
+  if (unlocked_properties_.get() && unlocked_properties_->wallpaper_is_hidden) {
+    animation_sequence->StartAnimation(SessionStateAnimator::WALLPAPER,
                                        SessionStateAnimator::ANIMATION_FADE_OUT,
                                        speed);
   }

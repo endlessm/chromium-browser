@@ -504,16 +504,17 @@ CommandHandler.COMMANDS_['format'] = /** @type {Command} */ ({
   canExecute: function(event, fileManager) {
     var directoryModel = fileManager.directoryModel;
     var root = CommandUtil.getCommandEntry(event.target);
-    // |root| is null for unrecognized volumes. Regard such volumes as writable
-    // so that the format command is enabled.
-    var isReadOnly = root && fileManager.isOnReadonlyDirectory();
+    // |root| is null for unrecognized volumes. Enable format command for such
+    // volumes.
+    var isUnrecognizedVolume = (root == null);
     // See the comment in execute() for why doing this.
     if (!root)
       root = directoryModel.getCurrentDirEntry();
     var location = root && fileManager.volumeManager.getLocationInfo(root);
+    var writable = location && !location.isReadOnly;
     var removable = location && location.rootType ===
         VolumeManagerCommon.RootType.REMOVABLE;
-    event.canExecute = removable && !isReadOnly;
+    event.canExecute = removable && (isUnrecognizedVolume || writable);
     event.command.setHidden(!removable);
   }
 });
@@ -1053,6 +1054,36 @@ CommandHandler.COMMANDS_['open-with'] = /** @type {Command} */ ({
     var canExecute = fileManager.taskController.canExecuteMoreActions();
     event.canExecute = canExecute;
     event.command.setHidden(!canExecute);
+  }
+});
+
+/**
+ * Displays QuickView for current selection.
+ * @type {Command}
+ */
+CommandHandler.COMMANDS_['get-info'] = /** @type {Command} */ ({
+  /**
+   * @param {!Event} event Command event.
+   * @param {!FileManager} fileManager fileManager to use.
+   */
+  execute: function(event, fileManager) {
+    // 'get-info' command is executed by 'command' event handler in
+    // QuickViewController.
+  },
+  /**
+   * @param {!Event} event Command event.
+   * @param {!FileManager} fileManager FileManager to use.
+   */
+  canExecute: function(event, fileManager) {
+    var entries = CommandUtil.getCommandEntries(event.target);
+    if (entries.length === 0) {
+      event.canExecute = false;
+      event.command.setHidden(true);
+      return;
+    }
+
+    event.canExecute =  entries.length === 1;
+    event.command.setHidden(false);
   }
 });
 

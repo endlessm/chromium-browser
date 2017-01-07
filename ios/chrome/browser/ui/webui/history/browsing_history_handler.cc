@@ -20,16 +20,18 @@
 #include "base/values.h"
 #include "components/bookmarks/browser/bookmark_model.h"
 #include "components/bookmarks/browser/bookmark_utils.h"
-#include "components/browser_sync/browser/profile_sync_service.h"
-#include "components/browsing_data_ui/history_notice_utils.h"
+#include "components/browser_sync/profile_sync_service.h"
+#include "components/browsing_data/core/history_notice_utils.h"
 #include "components/history/core/browser/history_service.h"
 #include "components/history/core/browser/history_types.h"
 #include "components/history/core/browser/top_sites.h"
 #include "components/history/core/browser/web_history_service.h"
 #include "components/keyed_service/core/service_access_type.h"
 #include "components/strings/grit/components_strings.h"
-#include "components/sync_driver/device_info.h"
-#include "components/sync_driver/device_info_tracker.h"
+#include "components/sync/device_info/device_info.h"
+#include "components/sync/device_info/device_info_tracker.h"
+#include "components/sync/protocol/history_delete_directive_specifics.pb.h"
+#include "components/sync/protocol/sync_enums.pb.h"
 #include "components/url_formatter/url_formatter.h"
 #include "ios/chrome/browser/bookmarks/bookmark_model_factory.h"
 #include "ios/chrome/browser/browser_state/chrome_browser_state.h"
@@ -42,10 +44,8 @@
 #include "ios/chrome/browser/sync/ios_chrome_profile_sync_service_factory.h"
 #include "ios/chrome/browser/ui/show_privacy_settings_util.h"
 #include "ios/chrome/browser/ui/webui/history/favicon_source.h"
-#include "ios/public/provider/web/web_ui_ios.h"
 #include "ios/web/public/url_data_source_ios.h"
-#include "sync/protocol/history_delete_directive_specifics.pb.h"
-#include "sync/protocol/sync_enums.pb.h"
+#include "ios/web/public/webui/web_ui_ios.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/l10n/time_format.h"
 
@@ -101,7 +101,7 @@ bool IsLocalOnlyResult(const BrowsingHistoryHandler::HistoryEntry& entry) {
 
 // Gets the name and type of a device for the given sync client ID.
 // |name| and |type| are out parameters.
-void GetDeviceNameAndType(const ProfileSyncService* sync_service,
+void GetDeviceNameAndType(const browser_sync::ProfileSyncService* sync_service,
                           const std::string& client_id,
                           std::string* name,
                           std::string* type) {
@@ -111,7 +111,7 @@ void GetDeviceNameAndType(const ProfileSyncService* sync_service,
   DCHECK(sync_service->GetDeviceInfoTracker());
   DCHECK(sync_service->GetDeviceInfoTracker()->IsSyncing());
 
-  std::unique_ptr<sync_driver::DeviceInfo> device_info =
+  std::unique_ptr<syncer::DeviceInfo> device_info =
       sync_service->GetDeviceInfoTracker()->GetDeviceInfo(client_id);
   if (device_info.get()) {
     *name = device_info->client_name();
@@ -195,7 +195,7 @@ std::unique_ptr<base::DictionaryValue>
 BrowsingHistoryHandler::HistoryEntry::ToValue(
     BookmarkModel* bookmark_model,
     SupervisedUserService* supervised_user_service,
-    const ProfileSyncService* sync_service) const {
+    const browser_sync::ProfileSyncService* sync_service) const {
   std::unique_ptr<base::DictionaryValue> result(new base::DictionaryValue());
   SetUrlAndTitle(result.get());
 
@@ -282,7 +282,7 @@ void BrowsingHistoryHandler::RegisterMessages() {
           original_browser_state, ServiceAccessType::EXPLICIT_ACCESS);
   scoped_refptr<history::TopSites> top_sites =
       ios::TopSitesFactory::GetForBrowserState(original_browser_state);
-  sync_driver::SyncService* sync_service =
+  syncer::SyncService* sync_service =
       IOSChromeProfileSyncServiceFactory::GetForBrowserState(
           original_browser_state);
   web::URLDataSourceIOS::Add(
@@ -370,11 +370,11 @@ void BrowsingHistoryHandler::QueryHistory(
         FROM_HERE, base::TimeDelta::FromSeconds(kWebHistoryTimeoutSeconds),
         this, &BrowsingHistoryHandler::WebHistoryTimeout);
 
-    ProfileSyncService* sync_service =
+    browser_sync::ProfileSyncService* sync_service =
         IOSChromeProfileSyncServiceFactory::GetInstance()->GetForBrowserState(
             browser_state);
     // Test the existence of other forms of browsing history.
-    browsing_data_ui::ShouldShowNoticeAboutOtherFormsOfBrowsingHistory(
+    browsing_data::ShouldShowNoticeAboutOtherFormsOfBrowsingHistory(
         sync_service, web_history,
         base::Bind(
             &BrowsingHistoryHandler::OtherFormsOfBrowsingHistoryQueryComplete,
@@ -591,7 +591,7 @@ void BrowsingHistoryHandler::ReturnResultsToFrontEnd() {
       ios::ChromeBrowserState::FromWebUIIOS(web_ui());
   BookmarkModel* bookmark_model =
       ios::BookmarkModelFactory::GetForBrowserState(browser_state);
-  ProfileSyncService* sync_service =
+  browser_sync::ProfileSyncService* sync_service =
       IOSChromeProfileSyncServiceFactory::GetForBrowserState(browser_state);
 
   // Combine the local and remote results into |query_results_|, and remove
@@ -801,7 +801,11 @@ void BrowsingHistoryHandler::SetQueryTimeInMonths(
   exploded.day_of_month = 1;
 
   if (offset == 0) {
-    options->begin_time = base::Time::FromLocalExploded(exploded);
+    if (!base::Time::FromLocalExploded(exploded, &options->begin_time)) {
+      // This file will be deprecated soon. No need to implement failure
+      // handling here.
+      NOTIMPLEMENTED();
+    }
 
     // Set the end time of this first search to null (which will
     // show results from the future, should the user's clock have
@@ -815,12 +819,20 @@ void BrowsingHistoryHandler::SetQueryTimeInMonths(
     exploded.month -= offset - 1;
     // Set the correct year.
     NormalizeMonths(&exploded);
-    options->end_time = base::Time::FromLocalExploded(exploded);
+    if (!base::Time::FromLocalExploded(exploded, &options->end_time)) {
+      // This file will be deprecated soon. No need to implement failure
+      // handling here.
+      NOTIMPLEMENTED();
+    }
 
     exploded.month -= 1;
     // Set the correct year
     NormalizeMonths(&exploded);
-    options->begin_time = base::Time::FromLocalExploded(exploded);
+    if (!base::Time::FromLocalExploded(exploded, &options->begin_time)) {
+      // This file will be deprecated soon. No need to implement failure
+      // handling here.
+      NOTIMPLEMENTED();
+    }
   }
 }
 

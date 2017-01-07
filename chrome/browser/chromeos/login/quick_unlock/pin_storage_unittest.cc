@@ -4,10 +4,11 @@
 
 #include "chrome/browser/chromeos/login/quick_unlock/pin_storage.h"
 #include "chrome/browser/chromeos/login/quick_unlock/pin_storage_factory.h"
-
+#include "chrome/browser/chromeos/login/quick_unlock/quick_unlock_utils.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/test/base/testing_profile.h"
 #include "components/prefs/pref_service.h"
+#include "content/public/test/test_browser_thread_bundle.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace {
@@ -15,7 +16,12 @@ namespace {
 class PinStorageUnitTest : public testing::Test {
  protected:
   PinStorageUnitTest() : profile_(new TestingProfile()) {}
+  ~PinStorageUnitTest() override {}
 
+  // testing::Test:
+  void SetUp() override { chromeos::EnableQuickUnlockForTesting(); }
+
+  content::TestBrowserThreadBundle thread_bundle_;
   std::unique_ptr<TestingProfile> profile_;
 
   DISALLOW_COPY_AND_ASSIGN(PinStorageUnitTest);

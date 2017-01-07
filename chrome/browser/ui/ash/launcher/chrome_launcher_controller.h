@@ -14,8 +14,10 @@
 #include "chrome/browser/ui/app_list/app_list_controller_delegate.h"
 #include "chrome/browser/ui/ash/launcher/chrome_launcher_app_menu_item.h"
 #include "chrome/browser/ui/ash/launcher/chrome_launcher_types.h"
+#include "chrome/browser/ui/ash/launcher/settings_window_observer.h"
 #include "extensions/common/constants.h"
 
+class AccountId;
 class ArcAppDeferredLauncherController;
 class Browser;
 class BrowserShortcutLauncherItemController;
@@ -23,7 +25,7 @@ class GURL;
 class LauncherItemController;
 
 namespace ash {
-class Shelf;
+class WmShelf;
 }
 
 namespace content {
@@ -78,8 +80,7 @@ class ChromeLauncherController {
   virtual void SetItemStatus(ash::ShelfID id, ash::ShelfItemStatus status) = 0;
 
   // Updates the controller associated with id (which should be a shortcut).
-  // |controller| will be owned by the |ChromeLauncherController| and then
-  // passed on to |ShelfItemDelegateManager|.
+  // Takes ownership of |controller|.
   // TODO(skuhne): Pass in scoped_ptr to make ownership clear.
   virtual void SetItemController(ash::ShelfID id,
                                  LauncherItemController* controller) = 0;
@@ -234,8 +235,8 @@ class ChromeLauncherController {
   // shelf cannot be performed here, this is only a probability used for
   // animation predictions.
   virtual bool ShelfBoundsChangesProbablyWithUser(
-      ash::Shelf* shelf,
-      const std::string& user_id) const = 0;
+      ash::WmShelf* shelf,
+      const AccountId& account_id) const = 0;
 
   // Called when the user profile is fully loaded and ready to switch to.
   virtual void OnUserProfileReadyToSwitch(Profile* profile) = 0;
@@ -248,6 +249,8 @@ class ChromeLauncherController {
 
  private:
   static ChromeLauncherController* instance_;
+
+  SettingsWindowObserver settings_window_observer_;
 
   DISALLOW_COPY_AND_ASSIGN(ChromeLauncherController);
 };

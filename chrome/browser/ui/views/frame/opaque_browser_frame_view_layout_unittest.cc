@@ -60,7 +60,7 @@ class TestLayoutDelegate : public OpaqueBrowserFrameViewLayoutDelegate {
     return show_caption_buttons_;
   }
   bool IsRegularOrGuestSession() const override { return true; }
-  gfx::ImageSkia GetOTRAvatarIcon() const override {
+  gfx::ImageSkia GetIncognitoAvatarIcon() const override {
     return gfx::ImageSkia(gfx::ImageSkiaRep(gfx::Size(40, 29), 1.0f));
   }
   bool IsMaximized() const override { return maximized_; }
@@ -74,7 +74,6 @@ class TestLayoutDelegate : public OpaqueBrowserFrameViewLayoutDelegate {
   gfx::Size GetTabstripPreferredSize() const override {
     return IsTabStripVisible() ? gfx::Size(78, 29) : gfx::Size();
   }
-  int GetToolbarLeadingCornerClientWidth() const override { return 0; }
 
  private:
   base::string16 window_title_;

@@ -5,7 +5,7 @@
 import logging
 import sys
 
-from catapult_base import cloud_storage  # pylint: disable=import-error
+from py_utils import cloud_storage  # pylint: disable=import-error
 
 from telemetry.core import exceptions
 from telemetry.core import profiling_controller
@@ -269,6 +269,10 @@ class Browser(app.App):
     """Ensure the browser application is moved to the foreground."""
     return self._browser_backend.Foreground()
 
+  def Background(self):
+    """Ensure the browser application is moved to the background."""
+    return self._browser_backend.Background()
+
   def GetStandardOutput(self):
     return self._browser_backend.GetStandardOutput()
 
@@ -277,6 +281,26 @@ class Browser(app.App):
 
   def GetStackTrace(self):
     return self._browser_backend.GetStackTrace()
+
+  def GetMostRecentMinidumpPath(self):
+    """Returns the path to the most recent minidump."""
+    return self._browser_backend.GetMostRecentMinidumpPath()
+
+  def GetAllMinidumpPaths(self):
+    """Returns all minidump paths available in the backend."""
+    return self._browser_backend.GetAllMinidumpPaths()
+
+  def GetAllUnsymbolizedMinidumpPaths(self):
+    """Returns paths to all minidumps that have not already been
+    symbolized."""
+    return self._browser_backend.GetAllUnsymbolizedMinidumpPaths()
+
+  def SymbolizeMinidump(self, minidump_path):
+    """Given a minidump path, this method returns a tuple with the
+    first value being whether or not the minidump was able to be
+    symbolized and the second being that symbolized dump when true
+    and error message when false."""
+    return self._browser_backend.SymbolizeMinidump(minidump_path)
 
   @property
   def supports_system_info(self):

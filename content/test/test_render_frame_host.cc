@@ -13,14 +13,18 @@
 #include "content/browser/frame_host/render_frame_host_delegate.h"
 #include "content/browser/web_contents/web_contents_impl.h"
 #include "content/common/frame_messages.h"
+#include "content/common/frame_owner_properties.h"
+#include "content/public/browser/navigation_throttle.h"
 #include "content/public/browser/stream_handle.h"
 #include "content/public/common/browser_side_navigation_policy.h"
 #include "content/public/common/url_constants.h"
-#include "content/test/browser_side_navigation_test_utils.h"
+#include "content/public/test/browser_side_navigation_test_utils.h"
 #include "content/test/test_navigation_url_loader.h"
 #include "content/test/test_render_view_host.h"
+#include "mojo/public/cpp/bindings/interface_request.h"
 #include "net/base/load_flags.h"
 #include "third_party/WebKit/public/platform/WebPageVisibilityState.h"
+#include "third_party/WebKit/public/platform/modules/bluetooth/web_bluetooth.mojom.h"
 #include "third_party/WebKit/public/web/WebSandboxFlags.h"
 #include "third_party/WebKit/public/web/WebTreeScopeType.h"
 #include "ui/base/page_transition_types.h"
@@ -88,7 +92,7 @@ TestRenderFrameHost* TestRenderFrameHost::AppendChild(
   OnCreateChildFrame(GetProcess()->GetNextRoutingID(),
                      blink::WebTreeScopeType::Document, frame_name,
                      frame_unique_name, blink::WebSandboxFlags::None,
-                     blink::WebFrameOwnerProperties());
+                     FrameOwnerProperties());
   return static_cast<TestRenderFrameHost*>(
       child_creation_observer_.last_created_frame());
 }
@@ -105,6 +109,7 @@ void TestRenderFrameHost::SimulateNavigationStart(const GURL& url) {
 
   OnDidStartLoading(true);
   OnDidStartProvisionalLoad(url, base::TimeTicks::Now());
+  SimulateWillStartRequest(ui::PAGE_TRANSITION_LINK);
 }
 
 void TestRenderFrameHost::SimulateRedirect(const GURL& new_url) {
@@ -226,6 +231,22 @@ void TestRenderFrameHost::SimulateSwapOutACK() {
   OnSwappedOut();
 }
 
+void TestRenderFrameHost::NavigateAndCommitRendererInitiated(
+    int page_id,
+    bool did_create_new_entry,
+    const GURL& url) {
+  SendRendererInitiatedNavigationRequest(url, false);
+  // PlzNavigate: If no network request is needed by the navigation, then there
+  // will be no NavigationRequest, nor is it necessary to simulate the network
+  // stack commit.
+  if (frame_tree_node()->navigation_request())
+    PrepareForCommit();
+  bool browser_side_navigation = IsBrowserSideNavigationEnabled();
+  CHECK(!browser_side_navigation || is_loading());
+  CHECK(!browser_side_navigation || !frame_tree_node()->navigation_request());
+  SendNavigate(page_id, 0, did_create_new_entry, url);
+}
+
 void TestRenderFrameHost::SendNavigate(int page_id,
                                        int nav_entry_id,
                                        bool did_create_new_entry,
@@ -289,6 +310,7 @@ void TestRenderFrameHost::SendNavigateWithParameters(
   // so we keep a copy of it to use below.
   GURL url_copy(url);
   OnDidStartProvisionalLoad(url_copy, base::TimeTicks::Now());
+  SimulateWillStartRequest(transition);
 
   FrameHostMsg_DidCommitProvisionalLoad_Params params;
   params.page_id = page_id;
@@ -309,6 +331,26 @@ void TestRenderFrameHost::SendNavigateWithParameters(
 
   // Simulate Blink assigning an item sequence number to the navigation.
   params.item_sequence_number = base::Time::Now().ToDoubleT() * 1000000;
+
+  // When the user hits enter in the Omnibox without changing the URL, Blink
+  // behaves similarly to a reload and does not change the item and document
+  // sequence numbers. Simulate this behavior here too.
+  if (transition == ui::PAGE_TRANSITION_TYPED) {
+    const NavigationEntryImpl* entry =
+        static_cast<NavigationEntryImpl*>(frame_tree_node()
+                                              ->navigator()
+                                              ->GetController()
+                                              ->GetLastCommittedEntry());
+    if (entry && entry->GetURL() == url) {
+      FrameNavigationEntry* frame_entry =
+          entry->GetFrameEntry(frame_tree_node());
+      if (frame_entry) {
+        params.item_sequence_number = frame_entry->item_sequence_number();
+        params.document_sequence_number =
+            frame_entry->document_sequence_number();
+      }
+    }
+  }
 
   // In most cases, the origin will match the URL's origin.  Tests that need to
   // check corner cases (like about:blank) should specify the origin param
@@ -337,22 +379,6 @@ void TestRenderFrameHost::SendNavigateWithParams(
     FrameHostMsg_DidCommitProvisionalLoad_Params* params) {
   FrameHostMsg_DidCommitProvisionalLoad msg(GetRoutingID(), *params);
   OnDidCommitProvisionalLoad(msg);
-}
-
-void TestRenderFrameHost::NavigateAndCommitRendererInitiated(
-    int page_id,
-    bool did_create_new_entry,
-    const GURL& url) {
-  SendRendererInitiatedNavigationRequest(url, false);
-  // PlzNavigate: If no network request is needed by the navigation, then there
-  // will be no NavigationRequest, nor is it necessary to simulate the network
-  // stack commit.
-  if (frame_tree_node()->navigation_request())
-    PrepareForCommit();
-  bool browser_side_navigation = IsBrowserSideNavigationEnabled();
-  CHECK(!browser_side_navigation || is_loading());
-  CHECK(!browser_side_navigation || !frame_tree_node()->navigation_request());
-  SendNavigate(page_id, 0, did_create_new_entry, url);
 }
 
 void TestRenderFrameHost::SendRendererInitiatedNavigationRequest(
@@ -399,6 +425,8 @@ void TestRenderFrameHost::PrepareForCommitWithServerRedirect(
   // PlzNavigate
   NavigationRequest* request = frame_tree_node_->navigation_request();
   CHECK(request);
+  bool have_to_make_network_request = ShouldMakeNetworkRequestForURL(
+      request->common_params().url);
 
   // Simulate a beforeUnload ACK from the renderer if the browser is waiting for
   // it. If it runs it will update the request state.
@@ -406,6 +434,9 @@ void TestRenderFrameHost::PrepareForCommitWithServerRedirect(
     static_cast<TestRenderFrameHost*>(frame_tree_node()->current_frame_host())
         ->SendBeforeUnloadACK(true);
   }
+
+  if (!have_to_make_network_request)
+    return;  // |request| is destructed by now.
 
   CHECK(request->state() == NavigationRequest::STARTED);
 
@@ -424,6 +455,21 @@ void TestRenderFrameHost::PrepareForCommitWithServerRedirect(
   url_loader->CallOnResponseStarted(response, MakeEmptyStream(), nullptr);
 }
 
+void TestRenderFrameHost::PrepareForCommitIfNecessary() {
+  if (!IsBrowserSideNavigationEnabled() ||
+      frame_tree_node()->navigation_request()) {
+    PrepareForCommit();
+  }
+}
+
+WebBluetoothServiceImpl*
+TestRenderFrameHost::CreateWebBluetoothServiceForTesting() {
+  WebBluetoothServiceImpl* service =
+      RenderFrameHostImpl::CreateWebBluetoothService(
+          blink::mojom::WebBluetoothServiceRequest());
+  return service;
+}
+
 int32_t TestRenderFrameHost::ComputeNextPageID() {
   const NavigationEntryImpl* entry = static_cast<NavigationEntryImpl*>(
       frame_tree_node()->navigator()->GetController()->GetPendingEntry());
@@ -437,6 +483,17 @@ int32_t TestRenderFrameHost::ComputeNextPageID() {
     page_id = web_contents->GetMaxPageIDForSiteInstance(GetSiteInstance()) + 1;
   }
   return page_id;
+}
+
+void TestRenderFrameHost::SimulateWillStartRequest(
+    ui::PageTransition transition) {
+  // PlzNavigate: NavigationHandle::WillStartRequest has already been called at
+  // this point.
+  if (!navigation_handle() || IsBrowserSideNavigationEnabled())
+    return;
+  navigation_handle()->CallWillStartRequestForTesting(
+      false /* is_post */, Referrer(GURL(), blink::WebReferrerPolicyDefault),
+      true /* user_gesture */, transition, false /* is_external_protocol */);
 }
 
 }  // namespace content

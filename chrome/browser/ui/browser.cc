@@ -16,7 +16,7 @@
 #include "base/location.h"
 #include "base/logging.h"
 #include "base/macros.h"
-#include "base/metrics/histogram.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/process/process_info.h"
 #include "base/profiler/scoped_tracker.h"
 #include "base/single_thread_task_runner.h"
@@ -36,10 +36,8 @@
 #include "chrome/browser/background/background_contents_service.h"
 #include "chrome/browser/background/background_contents_service_factory.h"
 #include "chrome/browser/banners/app_banner_manager_desktop.h"
-#include "chrome/browser/banners/app_banner_manager_emulation.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/browser_shutdown.h"
-#include "chrome/browser/character_encoding.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/content_settings/tab_specific_content_settings.h"
 #include "chrome/browser/custom_handlers/protocol_handler_registry.h"
@@ -68,6 +66,7 @@
 #include "chrome/browser/memory/tab_manager_web_contents_data.h"
 #include "chrome/browser/notifications/notification_ui_manager.h"
 #include "chrome/browser/pepper_broker_infobar_delegate.h"
+#include "chrome/browser/permissions/permission_request_manager.h"
 #include "chrome/browser/prefs/incognito_mode_prefs.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_destroyer.h"
@@ -85,7 +84,7 @@
 #include "chrome/browser/sync/sync_ui_util.h"
 #include "chrome/browser/tab_contents/retargeting_details.h"
 #include "chrome/browser/tab_contents/tab_util.h"
-#include "chrome/browser/task_management/web_contents_tags.h"
+#include "chrome/browser/task_manager/web_contents_tags.h"
 #include "chrome/browser/themes/theme_service.h"
 #include "chrome/browser/themes/theme_service_factory.h"
 #include "chrome/browser/translate/chrome_translate_client.h"
@@ -123,6 +122,7 @@
 #include "chrome/browser/ui/global_error/global_error.h"
 #include "chrome/browser/ui/global_error/global_error_service.h"
 #include "chrome/browser/ui/global_error/global_error_service_factory.h"
+#include "chrome/browser/ui/javascript_dialogs/javascript_dialog_tab_helper.h"
 #include "chrome/browser/ui/location_bar/location_bar.h"
 #include "chrome/browser/ui/media_utils.h"
 #include "chrome/browser/ui/search/search_delegate.h"
@@ -143,7 +143,6 @@
 #include "chrome/browser/ui/unload_controller.h"
 #include "chrome/browser/ui/validation_message_bubble.h"
 #include "chrome/browser/ui/website_settings/chooser_bubble_delegate.h"
-#include "chrome/browser/ui/website_settings/permission_bubble_manager.h"
 #include "chrome/browser/ui/webui/signin/login_ui_service.h"
 #include "chrome/browser/ui/webui/signin/login_ui_service_factory.h"
 #include "chrome/browser/ui/window_sizer/window_sizer.h"
@@ -153,16 +152,15 @@
 #include "chrome/common/custom_handlers/protocol_handler.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/profiling.h"
-#include "chrome/common/search_types.h"
+#include "chrome/common/search/search_types.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/grit/chromium_strings.h"
 #include "chrome/grit/generated_resources.h"
 #include "chrome/grit/locale_settings.h"
-#include "components/app_modal/javascript_dialog_manager.h"
 #include "components/bookmarks/browser/bookmark_model.h"
 #include "components/bookmarks/browser/bookmark_utils.h"
 #include "components/bookmarks/common/bookmark_pref_names.h"
-#include "components/browser_sync/browser/profile_sync_service.h"
+#include "components/browser_sync/profile_sync_service.h"
 #include "components/bubble/bubble_controller.h"
 #include "components/content_settings/core/browser/host_content_settings_map.h"
 #include "components/favicon/content/content_favicon_driver.h"
@@ -191,13 +189,13 @@
 #include "content/public/browser/render_widget_host.h"
 #include "content/public/browser/render_widget_host_view.h"
 #include "content/public/browser/site_instance.h"
+#include "content/public/browser/ssl_status.h"
 #include "content/public/browser/user_metrics.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/content_constants.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/common/page_zoom.h"
 #include "content/public/common/renderer_preferences.h"
-#include "content/public/common/ssl_status.h"
 #include "content/public/common/webplugininfo.h"
 #include "extensions/browser/extension_prefs.h"
 #include "extensions/browser/extension_registry.h"
@@ -229,8 +227,7 @@
 #endif
 
 #if defined(USE_ASH)
-#include "ash/common/ash_switches.h"
-#include "ash/shell.h"
+#include "ash/shell.h"  // nogncheck
 #endif
 
 using base::TimeDelta;
@@ -416,11 +413,6 @@ Browser::Browser(const CreateParams& params)
       base::Bind(&Browser::UpdateBookmarkBarState, base::Unretained(this),
                  BOOKMARK_BAR_STATE_CHANGE_PREF_CHANGE));
 
-  // NOTE: These prefs all need to be explicitly destroyed in the destructor
-  // or you'll get a nasty surprise when you run the incognito tests.
-  encoding_auto_detect_.Init(prefs::kWebKitUsesUniversalDetector,
-                             profile_->GetPrefs());
-
   if (search::IsInstantExtendedAPIEnabled() && is_type_tabbed())
     instant_controller_.reset(new BrowserInstantController(this));
 
@@ -497,8 +489,6 @@ Browser::~Browser() {
 
   profile_pref_registrar_.RemoveAll();
 
-  encoding_auto_detect_.Destroy();
-
   // Destroy BrowserExtensionWindowController before the incognito profile
   // is destroyed to make sure the chrome.windows.onRemoved event is sent.
   extension_window_controller_.reset();
@@ -508,7 +498,7 @@ Browser::~Browser() {
   instant_controller_.reset();
 
   if (profile_->IsOffTheRecord() &&
-      !BrowserList::IsOffTheRecordSessionActiveForProfile(profile_)) {
+      !BrowserList::IsIncognitoSessionActiveForProfile(profile_)) {
     if (profile_->IsGuestSession()) {
 // ChromeOS handles guest data independently.
 #if !defined(OS_CHROMEOS)
@@ -829,38 +819,6 @@ bool Browser::CanSupportWindowFeature(WindowFeature feature) const {
   return SupportsWindowFeatureImpl(feature, false);
 }
 
-void Browser::ToggleEncodingAutoDetect() {
-  content::RecordAction(UserMetricsAction("AutoDetectChange"));
-  encoding_auto_detect_.SetValue(!encoding_auto_detect_.GetValue());
-  // If "auto detect" is turned on, then any current override encoding
-  // is cleared. This also implicitly performs a reload.
-  // OTOH, if "auto detect" is turned off, we don't change the currently
-  // active encoding.
-  if (encoding_auto_detect_.GetValue()) {
-    WebContents* contents = tab_strip_model_->GetActiveWebContents();
-    if (contents)
-      contents->ResetOverrideEncoding();
-  }
-}
-
-void Browser::OverrideEncoding(int encoding_id) {
-  content::RecordAction(UserMetricsAction("OverrideEncoding"));
-  const std::string selected_encoding =
-      CharacterEncoding::GetCanonicalEncodingNameByCommandId(encoding_id);
-  WebContents* contents = tab_strip_model_->GetActiveWebContents();
-  if (!selected_encoding.empty() && contents)
-     contents->SetOverrideEncoding(selected_encoding);
-  // Update the list of recently selected encodings.
-  std::string new_selected_encoding_list;
-  if (CharacterEncoding::UpdateRecentlySelectedEncoding(
-        profile_->GetPrefs()->GetString(prefs::kRecentlySelectedEncoding),
-        encoding_id,
-        &new_selected_encoding_list)) {
-    profile_->GetPrefs()->SetString(prefs::kRecentlySelectedEncoding,
-                                    new_selected_encoding_list);
-  }
-}
-
 void Browser::OpenFile() {
   content::RecordAction(UserMetricsAction("OpenFile"));
   select_file_dialog_ = ui::SelectFileDialog::Create(
@@ -890,9 +848,11 @@ void Browser::UpdateDownloadShelfVisibility(bool visible) {
 
 ///////////////////////////////////////////////////////////////////////////////
 
-void Browser::UpdateUIForNavigationInTab(WebContents* contents,
-                                         ui::PageTransition transition,
-                                         bool user_initiated) {
+void Browser::UpdateUIForNavigationInTab(
+    WebContents* contents,
+    ui::PageTransition transition,
+    chrome::NavigateParams::WindowAction action,
+    bool user_initiated) {
   tab_strip_model_->TabNavigating(contents, transition);
 
   bool contents_is_selected =
@@ -915,8 +875,10 @@ void Browser::UpdateUIForNavigationInTab(WebContents* contents,
   // navigating away from the new tab page.
   ScheduleUIUpdate(contents, content::INVALIDATE_TYPE_URL);
 
-  if (contents_is_selected)
+  if (contents_is_selected &&
+      (window()->IsActive() || action == chrome::NavigateParams::SHOW_WINDOW)) {
     contents->SetInitialFocus();
+  }
 }
 
 void Browser::ShowModalSigninWindow(profiles::BubbleViewMode mode,
@@ -930,6 +892,10 @@ void Browser::CloseModalSigninWindow() {
 
 void Browser::ShowModalSyncConfirmationWindow() {
   signin_view_controller_.ShowModalSyncConfirmationDialog(this);
+}
+
+void Browser::ShowModalSigninErrorWindow() {
+  signin_view_controller_.ShowModalSigninErrorDialog(this);
 }
 
 void Browser::RegisterKeepAlive() {
@@ -950,7 +916,8 @@ WebContents* Browser::OpenURL(const OpenURLParams& params) {
 ///////////////////////////////////////////////////////////////////////////////
 // Browser, TabStripModelObserver implementation:
 
-void Browser::TabInsertedAt(WebContents* contents,
+void Browser::TabInsertedAt(TabStripModel* tab_strip_model,
+                            WebContents* contents,
                             int index,
                             bool foreground) {
   SetAsDelegate(contents, true);
@@ -1049,9 +1016,8 @@ void Browser::ActiveTabChanged(WebContents* old_contents,
   // Discarded tabs always get reloaded.
   // TODO(georgesak): Validate the usefulness of this. And if needed then move
   // to TabManager.
-  if (g_browser_process->GetTabManager() &&
-      g_browser_process->GetTabManager()->IsTabDiscarded(new_contents))
-    chrome::Reload(this, CURRENT_TAB);
+  if (g_browser_process->GetTabManager()->IsTabDiscarded(new_contents))
+    chrome::Reload(this, WindowOpenDisposition::CURRENT_TAB);
 
   // If we have any update pending, do it now.
   if (chrome_updater_factory_.HasWeakPtrs() && old_contents)
@@ -1124,8 +1090,7 @@ void Browser::TabReplacedAt(TabStripModel* tab_strip_model,
       SessionServiceFactory::GetForProfile(profile_);
   if (session_service)
     session_service->TabClosing(old_contents);
-  TabInsertedAt(new_contents,
-                index,
+  TabInsertedAt(tab_strip_model, new_contents, index,
                 (index == tab_strip_model_->active_index()));
 
   if (!new_contents->GetController().IsInitialBlankNavigation()) {
@@ -1143,7 +1108,9 @@ void Browser::TabReplacedAt(TabStripModel* tab_strip_model,
   }
 }
 
-void Browser::TabPinnedStateChanged(WebContents* contents, int index) {
+void Browser::TabPinnedStateChanged(TabStripModel* tab_strip_model,
+                                    WebContents* contents,
+                                    int index) {
   SessionService* session_service =
       SessionServiceFactory::GetForProfileIfExisting(profile());
   if (session_service) {
@@ -1315,16 +1282,19 @@ content::SecurityStyle Browser::GetSecurityStyle(
   ChromeSecurityStateModelClient* model_client =
       ChromeSecurityStateModelClient::FromWebContents(web_contents);
   DCHECK(model_client);
-  return model_client->GetSecurityStyle(model_client->GetSecurityInfo(),
+  security_state::SecurityStateModel::SecurityInfo security_info;
+  model_client->GetSecurityInfo(&security_info);
+  return model_client->GetSecurityStyle(security_info,
                                         security_style_explanations);
 }
 
 void Browser::ShowCertificateViewerInDevTools(
-    content::WebContents* web_contents, int cert_id) {
+    content::WebContents* web_contents,
+    scoped_refptr<net::X509Certificate> certificate) {
   DevToolsWindow* devtools_window =
       DevToolsWindow::GetInstanceForInspectedWebContents(web_contents);
   if (devtools_window)
-    devtools_window->ShowCertificateViewer(cert_id);
+    devtools_window->ShowCertificateViewer(certificate);
 }
 
 std::unique_ptr<content::BluetoothChooser> Browser::RunBluetoothChooser(
@@ -1349,9 +1319,9 @@ std::unique_ptr<content::BluetoothChooser> Browser::RunBluetoothChooser(
 }
 
 void Browser::RequestAppBannerFromDevTools(content::WebContents* web_contents) {
-  banners::AppBannerManagerEmulation::CreateForWebContents(web_contents);
-  banners::AppBannerManagerEmulation* manager =
-      banners::AppBannerManagerEmulation::FromWebContents(web_contents);
+  banners::AppBannerManagerDesktop::CreateForWebContents(web_contents);
+  banners::AppBannerManagerDesktop* manager =
+      banners::AppBannerManagerDesktop::FromWebContents(web_contents);
   manager->RequestAppBanner(web_contents->GetLastCommittedURL(), true);
 }
 
@@ -1406,10 +1376,10 @@ WebContents* Browser::OpenURLFromTab(WebContents* source,
     popup_blocker_helper = PopupBlockerTabHelper::FromWebContents(source);
 
   if (popup_blocker_helper) {
-    if ((params.disposition == NEW_POPUP ||
-         params.disposition == NEW_FOREGROUND_TAB ||
-         params.disposition == NEW_BACKGROUND_TAB ||
-         params.disposition == NEW_WINDOW) &&
+    if ((params.disposition == WindowOpenDisposition::NEW_POPUP ||
+         params.disposition == WindowOpenDisposition::NEW_FOREGROUND_TAB ||
+         params.disposition == WindowOpenDisposition::NEW_BACKGROUND_TAB ||
+         params.disposition == WindowOpenDisposition::NEW_WINDOW) &&
         !params.user_gesture &&
         !base::CommandLine::ForCurrentProcess()->HasSwitch(
             switches::kDisablePopupBlocking)) {
@@ -1630,6 +1600,7 @@ bool Browser::ShouldCreateWebContents(
 }
 
 void Browser::WebContentsCreated(WebContents* source_contents,
+                                 int opener_render_process_id,
                                  int opener_render_frame_id,
                                  const std::string& frame_name,
                                  const GURL& target_url,
@@ -1641,11 +1612,12 @@ void Browser::WebContentsCreated(WebContents* source_contents,
   TabHelpers::AttachTabHelpers(new_contents);
 
   // Make the tab show up in the task manager.
-  task_management::WebContentsTags::CreateForTabContents(new_contents);
+  task_manager::WebContentsTags::CreateForTabContents(new_contents);
 
   // Notify.
   RetargetingDetails details;
   details.source_web_contents = source_contents;
+  details.source_render_process_id = opener_render_process_id;
   details.source_render_frame_id = opener_render_frame_id;
   details.target_url = target_url;
   details.target_web_contents = new_contents;
@@ -1677,7 +1649,7 @@ void Browser::DidNavigateMainFramePostCommit(WebContents* web_contents) {
 
 content::JavaScriptDialogManager* Browser::GetJavaScriptDialogManager(
     WebContents* source) {
-  return app_modal::JavaScriptDialogManager::GetInstance();
+  return JavaScriptDialogTabHelper::FromWebContents(source);
 }
 
 content::ColorChooser* Browser::OpenColorChooser(
@@ -1763,10 +1735,10 @@ void Browser::RegisterProtocolHandler(WebContents* web_contents,
     window_->GetLocationBar()->UpdateContentSettingsIcons();
   }
 
-  PermissionBubbleManager* bubble_manager =
-      PermissionBubbleManager::FromWebContents(web_contents);
-  if (bubble_manager) {
-    bubble_manager->AddRequest(
+  PermissionRequestManager* permission_request_manager =
+      PermissionRequestManager::FromWebContents(web_contents);
+  if (permission_request_manager) {
+    permission_request_manager->AddRequest(
         new RegisterProtocolHandlerPermissionRequest(registry, handler,
                                                      url, user_gesture));
   }
@@ -1980,8 +1952,8 @@ void Browser::FileSelectedWithExtraInfo(const ui::SelectedFileInfo& file_info,
   if (url.is_empty())
     return;
 
-  OpenURL(OpenURLParams(
-      url, Referrer(), CURRENT_TAB, ui::PAGE_TRANSITION_TYPED, false));
+  OpenURL(OpenURLParams(url, Referrer(), WindowOpenDisposition::CURRENT_TAB,
+                        ui::PAGE_TRANSITION_TYPED, false));
 }
 
 ///////////////////////////////////////////////////////////////////////////////

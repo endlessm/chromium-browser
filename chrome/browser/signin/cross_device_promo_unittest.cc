@@ -36,6 +36,7 @@
 #include "components/variations/entropy_provider.h"
 #include "components/variations/variations_associated_data.h"
 #include "content/public/test/test_browser_thread_bundle.h"
+#include "google_apis/gaia/gaia_constants.h"
 #include "google_apis/gaia/gaia_urls.h"
 #include "net/url_request/test_url_fetcher_factory.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -163,7 +164,8 @@ void CrossDevicePromoTest::ResetFieldTrialList() {
   // a DCHECK.
   field_trial_list_.reset();
   field_trial_list_.reset(
-      new base::FieldTrialList(new metrics::SHA1EntropyProvider("foo")));
+      new base::FieldTrialList(
+          base::MakeUnique<metrics::SHA1EntropyProvider>("foo")));
   variations::testing::ClearAllVariationParams();
 }
 
@@ -323,7 +325,7 @@ TEST_F(CrossDevicePromoTest, TrackAccountsInCookie) {
   cookie_manager_service()->set_list_accounts_stale_for_testing(true);
   cookie_manager_service()->SetListAccountsResponseOneAccount("f@bar.com", "1");
   EXPECT_FALSE(cookie_manager_service()->ListAccounts(
-      &accounts, nullptr));
+      &accounts, nullptr, GaiaConstants::kChromeSource));
   base::RunLoop().RunUntilIdle();
 
   base::Time after_setting_cookies = base::Time::Now();
@@ -340,7 +342,7 @@ TEST_F(CrossDevicePromoTest, TrackAccountsInCookie) {
   cookie_manager_service()->set_list_accounts_stale_for_testing(true);
   cookie_manager_service()->SetListAccountsResponseOneAccount("f@bar.com", "1");
   EXPECT_FALSE(cookie_manager_service()->ListAccounts(
-      &accounts, nullptr));
+      &accounts, nullptr, GaiaConstants::kChromeSource));
   base::RunLoop().RunUntilIdle();
 
   EXPECT_TRUE(prefs()->HasPrefPath(
@@ -353,7 +355,7 @@ TEST_F(CrossDevicePromoTest, TrackAccountsInCookie) {
   cookie_manager_service()->set_list_accounts_stale_for_testing(true);
   cookie_manager_service()->SetListAccountsResponseWebLoginRequired();
   EXPECT_FALSE(cookie_manager_service()->ListAccounts(
-      &accounts, nullptr));
+      &accounts, nullptr, GaiaConstants::kChromeSource));
   base::RunLoop().RunUntilIdle();
 
   EXPECT_TRUE(prefs()->HasPrefPath(
@@ -369,7 +371,7 @@ TEST_F(CrossDevicePromoTest, TrackAccountsInCookie) {
   cookie_manager_service()->set_list_accounts_stale_for_testing(true);
   cookie_manager_service()->SetListAccountsResponseNoAccounts();
   EXPECT_FALSE(cookie_manager_service()->ListAccounts(
-      &accounts, nullptr));
+      &accounts, nullptr, GaiaConstants::kChromeSource));
   base::RunLoop().RunUntilIdle();
 
   EXPECT_FALSE(prefs()->HasPrefPath(
@@ -394,7 +396,7 @@ TEST_F(CrossDevicePromoTest, SingleAccountEligibility) {
     cookie_manager_service()->set_list_accounts_stale_for_testing(true);
     cookie_manager_service()->SetListAccountsResponseOneAccount("a@b.com", "1");
     EXPECT_FALSE(cookie_manager_service()->ListAccounts(
-        &accounts, nullptr));
+        &accounts, nullptr, GaiaConstants::kChromeSource));
     base::RunLoop().RunUntilIdle();
 
     EXPECT_FALSE(promo()->CheckPromoEligibilityForTesting());
@@ -423,7 +425,7 @@ TEST_F(CrossDevicePromoTest, NumDevicesEligibility) {
   cookie_manager_service()->SetListAccountsResponseOneAccount("f@bar.com", "1");
   std::vector<gaia::ListedAccount> accounts;
   EXPECT_FALSE(cookie_manager_service()->ListAccounts(
-      &accounts, nullptr));
+      &accounts, nullptr, GaiaConstants::kChromeSource));
   base::RunLoop().RunUntilIdle();
 
   // Ensure we appropriate schedule a check for device activity.
@@ -500,7 +502,7 @@ TEST_F(CrossDevicePromoTest, ThrottleDeviceActivityCall) {
   cookie_manager_service()->SetListAccountsResponseOneAccount("f@bar.com", "1");
   std::vector<gaia::ListedAccount> accounts;
   EXPECT_FALSE(cookie_manager_service()->ListAccounts(
-      &accounts, nullptr));
+      &accounts, nullptr, GaiaConstants::kChromeSource));
   base::RunLoop().RunUntilIdle();
 
   // Ensure device activity fetches get throttled.
@@ -524,7 +526,7 @@ TEST_F(CrossDevicePromoTest, NumDevicesKnown) {
   cookie_manager_service()->SetListAccountsResponseOneAccount("f@bar.com", "1");
   std::vector<gaia::ListedAccount> accounts;
   EXPECT_FALSE(cookie_manager_service()->ListAccounts(
-      &accounts, nullptr));
+      &accounts, nullptr, GaiaConstants::kChromeSource));
   base::RunLoop().RunUntilIdle();
   prefs()->SetInt64(prefs::kCrossDevicePromoNextFetchListDevicesTime,
                     InTwoHours());
@@ -556,7 +558,7 @@ TEST_F(CrossDevicePromoTest, FetchDeviceResults) {
   cookie_manager_service()->SetListAccountsResponseOneAccount("f@bar.com", "1");
   std::vector<gaia::ListedAccount> accounts;
   EXPECT_FALSE(cookie_manager_service()->ListAccounts(
-      &accounts, nullptr));
+      &accounts, nullptr, GaiaConstants::kChromeSource));
   base::RunLoop().RunUntilIdle();
   prefs()->SetInt64(prefs::kCrossDevicePromoNextFetchListDevicesTime,
                     base::Time::Now().ToInternalValue());

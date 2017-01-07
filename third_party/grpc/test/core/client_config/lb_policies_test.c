@@ -135,7 +135,7 @@ static void drain_cq(grpc_completion_queue *cq) {
 }
 
 static void kill_server(const servers_fixture *f, size_t i) {
-  gpr_log(GPR_INFO, "KILLING SERVER %d", i);
+  gpr_log(GPR_INFO, "KILLING SERVER %" PRIuPTR, i);
   GPR_ASSERT(f->servers[i] != NULL);
   grpc_server_shutdown_and_notify(f->servers[i], f->cq, tag(10000));
   GPR_ASSERT(
@@ -157,7 +157,7 @@ typedef struct request_data {
 static void revive_server(const servers_fixture *f, request_data *rdata,
                           size_t i) {
   int got_port;
-  gpr_log(GPR_INFO, "RAISE AGAIN SERVER %d", i);
+  gpr_log(GPR_INFO, "RAISE AGAIN SERVER %" PRIuPTR, i);
   GPR_ASSERT(f->servers[i] == NULL);
 
   gpr_log(GPR_DEBUG, "revive: %s", f->servers_hostports[i]);
@@ -311,7 +311,7 @@ static int *perform_request(servers_fixture *f, grpc_channel *client,
             .type != GRPC_QUEUE_TIMEOUT) {
       GPR_ASSERT(ev.type == GRPC_OP_COMPLETE);
       read_tag = ((int)(intptr_t)ev.tag);
-      gpr_log(GPR_DEBUG, "EVENT: success:%d, type:%d, tag:%d iter:%d",
+      gpr_log(GPR_DEBUG, "EVENT: success:%d, type:%d, tag:%d iter:%" PRIuPTR,
               ev.success, ev.type, read_tag, iter_num);
       if (ev.success && read_tag >= 1000) {
         GPR_ASSERT(s_idx == -1); /* only one server must reply */
@@ -351,9 +351,9 @@ static int *perform_request(servers_fixture *f, grpc_channel *client,
                                                        ops, (size_t)(op - ops),
                                                        tag(102), NULL));
 
-      cq_expect_completion(cqv, tag(102), 1);
+      CQ_EXPECT_COMPLETION(cqv, tag(102), 1);
       if (!completed_client) {
-        cq_expect_completion(cqv, tag(1), 1);
+        CQ_EXPECT_COMPLETION(cqv, tag(1), 1);
       }
       cq_verify(cqv);
 
@@ -376,7 +376,7 @@ static int *perform_request(servers_fixture *f, grpc_channel *client,
     } else { /* no response from server */
       grpc_call_cancel(c, NULL);
       if (!completed_client) {
-        cq_expect_completion(cqv, tag(1), 1);
+        CQ_EXPECT_COMPLETION(cqv, tag(1), 1);
         cq_verify(cqv);
       }
     }
@@ -576,7 +576,7 @@ static void test_ping() {
   client = create_client(f);
 
   grpc_channel_ping(client, f->cq, tag(0), NULL);
-  cq_expect_completion(cqv, tag(0), 0);
+  CQ_EXPECT_COMPLETION(cqv, tag(0), 0);
 
   /* check that we're still in idle, and start connecting */
   GPR_ASSERT(grpc_channel_check_connectivity_state(client, 1) ==
@@ -586,7 +586,7 @@ static void test_ping() {
   while (state != GRPC_CHANNEL_READY) {
     grpc_channel_watch_connectivity_state(
         client, state, GRPC_TIMEOUT_SECONDS_TO_DEADLINE(3), f->cq, tag(99));
-    cq_expect_completion(cqv, tag(99), 1);
+    CQ_EXPECT_COMPLETION(cqv, tag(99), 1);
     cq_verify(cqv);
     state = grpc_channel_check_connectivity_state(client, 0);
     GPR_ASSERT(state == GRPC_CHANNEL_READY ||
@@ -596,7 +596,7 @@ static void test_ping() {
 
   for (i = 1; i <= 5; i++) {
     grpc_channel_ping(client, f->cq, tag(i), NULL);
-    cq_expect_completion(cqv, tag(i), 1);
+    CQ_EXPECT_COMPLETION(cqv, tag(i), 1);
     cq_verify(cqv);
   }
   gpr_free(rdata.call_details);
@@ -643,7 +643,8 @@ static void print_failed_expectations(const int *expected_connection_sequence,
                                       const size_t num_iters) {
   size_t i;
   for (i = 0; i < num_iters; i++) {
-    gpr_log(GPR_ERROR, "FAILURE: Iter (expected, actual): %d (%d, %d)", i,
+    gpr_log(GPR_ERROR,
+            "FAILURE: Iter (expected, actual): %" PRIuPTR " (%d, %d)", i,
             expected_connection_sequence[i % expected_seq_length],
             actual_connection_sequence[i]);
   }
@@ -726,8 +727,8 @@ static void verify_total_carnage_round_robin(
     const int actual = actual_connection_sequence[i];
     const int expected = -1;
     if (actual != expected) {
-      gpr_log(GPR_ERROR, "FAILURE: expected %d, actual %d at iter %d", expected,
-              actual, i);
+      gpr_log(GPR_ERROR, "FAILURE: expected %d, actual %d at iter %" PRIuPTR,
+              expected, actual, i);
       abort();
     }
   }

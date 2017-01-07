@@ -14,7 +14,7 @@
 #include "components/policy/core/common/policy_map.h"
 #include "components/policy/core/common/policy_types.h"
 #include "components/policy/core/common/schema.h"
-#include "policy/policy_constants.h"
+#include "components/policy/policy_constants.h"
 
 #if defined(ENABLE_EXTENSIONS)
 #include "extensions/common/value_builder.h"
@@ -181,16 +181,15 @@ TEST_F(ManagedBookmarksPolicyHandlerTest, WrongPolicyType) {
   PolicyMap policy;
   // The expected type is base::ListValue, but this policy sets it as an
   // unparsed base::StringValue. Any type other than ListValue should fail.
-  policy.Set(
-      key::kManagedBookmarks, POLICY_LEVEL_MANDATORY, POLICY_SCOPE_USER,
-      POLICY_SOURCE_CLOUD,
-      base::WrapUnique(new base::StringValue("["
-                                             "  {"
-                                             "    \"name\": \"Google\","
-                                             "    \"url\": \"google.com\""
-                                             "  },"
-                                             "]")),
-      nullptr);
+  policy.Set(key::kManagedBookmarks, POLICY_LEVEL_MANDATORY, POLICY_SCOPE_USER,
+             POLICY_SOURCE_CLOUD,
+             base::MakeUnique<base::StringValue>("["
+                                                 "  {"
+                                                 "    \"name\": \"Google\","
+                                                 "    \"url\": \"google.com\""
+                                                 "  },"
+                                                 "]"),
+             nullptr);
   UpdateProviderPolicy(policy);
   EXPECT_FALSE(store_->GetValue(bookmarks::prefs::kManagedBookmarks, NULL));
 }

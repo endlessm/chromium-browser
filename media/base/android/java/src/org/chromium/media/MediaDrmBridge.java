@@ -25,9 +25,10 @@ import java.util.UUID;
 
 /**
  * A wrapper of the android MediaDrm class. Each MediaDrmBridge manages multiple
- * sessions for a single MediaSourcePlayer.
+ * sessions for AndroidVideoDecodeAccelerators and MediaCodecAudioDecoders.
  */
 @JNINamespace("media")
+@MainDex
 @SuppressLint("WrongConstant")
 @TargetApi(Build.VERSION_CODES.KITKAT)
 public class MediaDrmBridge {
@@ -752,9 +753,8 @@ public class MediaDrmBridge {
             return;
         }
 
-        // TODO(xhwang): DCHECK this now that prefixed EME is deprecated.
-        // https://crbug.com/249976
         if (!sessionExists(sessionId)) {
+            assert false; // Should never happen.
             onPromiseRejected(
                     promiseId, "Invalid session in updateSession: " + bytesToHexString(sessionId));
             return;
@@ -913,8 +913,7 @@ public class MediaDrmBridge {
                     : MediaDrm.KeyRequest.REQUEST_TYPE_RENEWAL;
         }
 
-        nativeOnSessionMessage(mNativeMediaDrmBridge, sessionId, requestType, request.getData(),
-                request.getDefaultUrl());
+        nativeOnSessionMessage(mNativeMediaDrmBridge, sessionId, requestType, request.getData());
     }
 
     private void onSessionClosed(final byte[] sessionId) {
@@ -934,12 +933,6 @@ public class MediaDrmBridge {
     private void onSessionExpirationUpdate(final byte[] sessionId, final long expirationTime) {
         if (isNativeMediaDrmBridgeValid()) {
             nativeOnSessionExpirationUpdate(mNativeMediaDrmBridge, sessionId, expirationTime);
-        }
-    }
-
-    private void onLegacySessionError(final byte[] sessionId, final String errorMessage) {
-        if (isNativeMediaDrmBridgeValid()) {
-            nativeOnLegacySessionError(mNativeMediaDrmBridge, sessionId, errorMessage);
         }
     }
 
@@ -980,8 +973,6 @@ public class MediaDrmBridge {
                     if (request != null) {
                         onSessionMessage(sessionId, request);
                     } else {
-                        onLegacySessionError(sessionId,
-                                "MediaDrm EVENT_KEY_REQUIRED: Failed to generate request.");
                         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
                             onSessionKeysChange(sessionId,
                                     getDummyKeysInfo(MediaDrm.KeyStatus.STATUS_INTERNAL_ERROR)
@@ -994,7 +985,6 @@ public class MediaDrmBridge {
                     break;
                 case MediaDrm.EVENT_KEY_EXPIRED:
                     Log.d(TAG, "MediaDrm.EVENT_KEY_EXPIRED");
-                    onLegacySessionError(sessionId, "MediaDrm EVENT_KEY_EXPIRED.");
                     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
                         onSessionKeysChange(sessionId,
                                 getDummyKeysInfo(MediaDrm.KeyStatus.STATUS_EXPIRED).toArray(),
@@ -1056,15 +1046,13 @@ public class MediaDrmBridge {
     private native void nativeOnPromiseRejected(
             long nativeMediaDrmBridge, long promiseId, String errorMessage);
 
-    private native void nativeOnSessionMessage(long nativeMediaDrmBridge, byte[] sessionId,
-            int requestType, byte[] message, String destinationUrl);
+    private native void nativeOnSessionMessage(
+            long nativeMediaDrmBridge, byte[] sessionId, int requestType, byte[] message);
     private native void nativeOnSessionClosed(long nativeMediaDrmBridge, byte[] sessionId);
     private native void nativeOnSessionKeysChange(long nativeMediaDrmBridge, byte[] sessionId,
             Object[] keysInfo, boolean hasAdditionalUsableKey);
     private native void nativeOnSessionExpirationUpdate(
             long nativeMediaDrmBridge, byte[] sessionId, long expirationTime);
-    private native void nativeOnLegacySessionError(
-            long nativeMediaDrmBridge, byte[] sessionId, String errorMessage);
 
     private native void nativeOnResetDeviceCredentialsCompleted(
             long nativeMediaDrmBridge, boolean success);

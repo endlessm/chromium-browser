@@ -9,9 +9,9 @@
 #include "chrome/browser/ui/startup/default_browser_prompt.h"
 #include "chrome/grit/chromium_strings.h"
 #include "chrome/grit/generated_resources.h"
+#include "chrome/grit/theme_resources.h"
 #include "components/infobars/core/infobar.h"
 #include "content/public/browser/user_metrics.h"
-#include "grit/theme_resources.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/gfx/vector_icons_public.h"
 
@@ -57,6 +57,7 @@ DefaultBrowserInfoBarDelegate::DefaultBrowserInfoBarDelegate(Profile* profile)
     : ConfirmInfoBarDelegate(),
       profile_(profile),
       should_expire_(false),
+      action_taken_(false),
       weak_factory_(this) {
   // We want the info-bar to stick-around for few seconds and then be hidden
   // on the next navigation after that.
@@ -66,7 +67,15 @@ DefaultBrowserInfoBarDelegate::DefaultBrowserInfoBarDelegate(Profile* profile)
       base::TimeDelta::FromSeconds(8));
 }
 
-DefaultBrowserInfoBarDelegate::~DefaultBrowserInfoBarDelegate() = default;
+DefaultBrowserInfoBarDelegate::~DefaultBrowserInfoBarDelegate() {
+  if (!action_taken_) {
+    content::RecordAction(
+        base::UserMetricsAction("DefaultBrowserInfoBar_Ignore"));
+    UMA_HISTOGRAM_ENUMERATION("DefaultBrowser.InfoBar.UserInteraction",
+                              IGNORE_INFO_BAR,
+                              NUM_INFO_BAR_USER_INTERACTION_TYPES);
+  }
+}
 
 void DefaultBrowserInfoBarDelegate::AllowExpiry() {
   should_expire_ = true;
@@ -88,34 +97,24 @@ DefaultBrowserInfoBarDelegate::GetIdentifier() const {
   return DEFAULT_BROWSER_INFOBAR_DELEGATE;
 }
 
-int DefaultBrowserInfoBarDelegate::GetIconId() const {
-  return IDR_PRODUCT_LOGO_32;
-}
-
 gfx::VectorIconId DefaultBrowserInfoBarDelegate::GetVectorIconId() const {
-#if defined(OS_MACOSX) || defined(OS_ANDROID)
-  return gfx::VectorIconId::VECTOR_ICON_NONE;
-#else
   return gfx::VectorIconId::CHROME_PRODUCT;
-#endif
 }
 
 #if defined(OS_WIN)
 gfx::Image DefaultBrowserInfoBarDelegate::GetIcon() const {
   // Experiment for the chrome product icon used on the default browser
   // prompt.
-  if (ui::MaterialDesignController::IsModeMaterial()) {
-    std::string icon_color = variations::GetVariationParamValue(
-        kDefaultBrowserPromptStyle, "IconColor");
-    if (icon_color == "Colored") {
-      return ResourceBundle::GetSharedInstance().GetNativeImageNamed(
-          IDR_PRODUCT_LOGO_16);
-    }
-    if ((icon_color == "Blue") && (GetInfoBarType() == WARNING_TYPE)) {
-      // WARNING_TYPE infobars use orange icons by default.
-      return gfx::Image(
-          gfx::CreateVectorIcon(GetVectorIconId(), 16, gfx::kGoogleBlue500));
-    }
+  std::string icon_color = variations::GetVariationParamValue(
+      kDefaultBrowserPromptStyle, "IconColor");
+  if (icon_color == "Colored") {
+    return ResourceBundle::GetSharedInstance().GetNativeImageNamed(
+        IDR_PRODUCT_LOGO_16);
+  }
+  if ((icon_color == "Blue") && (GetInfoBarType() == WARNING_TYPE)) {
+    // WARNING_TYPE infobars use orange icons by default.
+    return gfx::Image(
+        gfx::CreateVectorIcon(GetVectorIconId(), 16, gfx::kGoogleBlue500));
   }
   return ConfirmInfoBarDelegate::GetIcon();
 }
@@ -127,10 +126,14 @@ bool DefaultBrowserInfoBarDelegate::ShouldExpire(
 }
 
 void DefaultBrowserInfoBarDelegate::InfoBarDismissed() {
+  action_taken_ = true;
+  // |profile_| may be null in tests.
+  if (profile_)
+    chrome::DefaultBrowserPromptDeclined(profile_);
   content::RecordAction(
       base::UserMetricsAction("DefaultBrowserInfoBar_Dismiss"));
   UMA_HISTOGRAM_ENUMERATION("DefaultBrowser.InfoBar.UserInteraction",
-                            IGNORE_INFO_BAR,
+                            DISMISS_INFO_BAR,
                             NUM_INFO_BAR_USER_INTERACTION_TYPES);
 }
 
@@ -138,22 +141,14 @@ base::string16 DefaultBrowserInfoBarDelegate::GetMessageText() const {
   return l10n_util::GetStringUTF16(IDS_DEFAULT_BROWSER_INFOBAR_SHORT_TEXT);
 }
 
+int DefaultBrowserInfoBarDelegate::GetButtons() const {
+  return BUTTON_OK;
+}
+
 base::string16 DefaultBrowserInfoBarDelegate::GetButtonLabel(
     InfoBarButton button) const {
-#if defined(OS_WIN)
-  // On Windows 10, the "OK" button opens the Windows Settings application,
-  // through which the user must make their default browser choice.
-  const int kSetAsDefaultButtonMessageId =
-      base::win::GetVersion() >= base::win::VERSION_WIN10
-          ? IDS_DEFAULT_BROWSER_INFOBAR_OK_BUTTON_LABEL_WIN_10
-          : IDS_DEFAULT_BROWSER_INFOBAR_OK_BUTTON_LABEL;
-#else
-  const int kSetAsDefaultButtonMessageId =
-      IDS_DEFAULT_BROWSER_INFOBAR_OK_BUTTON_LABEL;
-#endif
-  return l10n_util::GetStringUTF16(
-      button == BUTTON_OK ? kSetAsDefaultButtonMessageId
-                          : IDS_DEFAULT_BROWSER_INFOBAR_CANCEL_BUTTON_LABEL);
+  DCHECK_EQ(BUTTON_OK, button);
+  return l10n_util::GetStringUTF16(IDS_DEFAULT_BROWSER_INFOBAR_OK_BUTTON_LABEL);
 }
 
 // Setting an app as the default browser doesn't require elevation directly, but
@@ -164,6 +159,7 @@ bool DefaultBrowserInfoBarDelegate::OKButtonTriggersUACPrompt() const {
 }
 
 bool DefaultBrowserInfoBarDelegate::Accept() {
+  action_taken_ = true;
   content::RecordAction(
       base::UserMetricsAction("DefaultBrowserInfoBar_Accept"));
   UMA_HISTOGRAM_ENUMERATION("DefaultBrowser.InfoBar.UserInteraction",
@@ -187,18 +183,6 @@ bool DefaultBrowserInfoBarDelegate::Accept() {
   // and it will be automatically freed once all its tasks have finished.
   CreateDefaultBrowserWorker(set_as_default_callback)->StartSetAsDefault();
   return close_infobar;
-}
-
-bool DefaultBrowserInfoBarDelegate::Cancel() {
-  // This can get reached in tests where profile_ is null.
-  if (profile_)
-    chrome::DefaultBrowserPromptDeclined(profile_);
-  content::RecordAction(
-      base::UserMetricsAction("DefaultBrowserInfoBar_Cancel"));
-  UMA_HISTOGRAM_ENUMERATION("DefaultBrowser.InfoBar.UserInteraction",
-                            CANCEL_INFO_BAR,
-                            NUM_INFO_BAR_USER_INTERACTION_TYPES);
-  return true;
 }
 
 scoped_refptr<shell_integration::DefaultBrowserWorker>

@@ -7,6 +7,7 @@ package org.chromium.content.browser;
 import android.test.suitebuilder.annotation.MediumTest;
 
 import org.chromium.base.test.util.Feature;
+import org.chromium.base.test.util.RetryOnFailure;
 
 /**
  * Test suite for click listener validation in content detection.
@@ -15,10 +16,10 @@ public class ClickListenerTest extends ContentDetectionTestBase {
 
     @MediumTest
     @Feature({"ContentDetection", "TabContents"})
+    @RetryOnFailure
     public void testClickContentOnLink() throws Throwable {
         startActivityWithTestUrl(
                 "content/test/data/android/content_detection/click_listeners.html");
-        assertWaitForPageScaleFactorMatch(1.0f);
 
         // Clicks on addresses in links should change the url.
         scrollAndTapNavigatingOut("linktest");
@@ -30,7 +31,6 @@ public class ClickListenerTest extends ContentDetectionTestBase {
     public void testClickContentOnJSListener1() throws Throwable {
         startActivityWithTestUrl(
                 "content/test/data/android/content_detection/click_listeners.html");
-        assertWaitForPageScaleFactorMatch(1.0f);
 
         // Clicks on addresses in elements listening to click events should be
         // processed normally without address detection.
@@ -43,7 +43,6 @@ public class ClickListenerTest extends ContentDetectionTestBase {
     public void testClickContentOnJSListener2() throws Throwable {
         startActivityWithTestUrl(
                 "content/test/data/android/content_detection/click_listeners.html");
-        assertWaitForPageScaleFactorMatch(1.0f);
 
         // Same as previous test, but using addEventListener instead of onclick.
         scrollAndTapNavigatingOut("clicktest2");

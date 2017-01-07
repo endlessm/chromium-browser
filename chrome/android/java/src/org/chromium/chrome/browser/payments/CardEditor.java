@@ -11,6 +11,7 @@ import android.util.Pair;
 
 import org.chromium.base.Callback;
 import org.chromium.chrome.R;
+import org.chromium.chrome.browser.autofill.CreditCardScanner;
 import org.chromium.chrome.browser.autofill.PersonalDataManager;
 import org.chromium.chrome.browser.autofill.PersonalDataManager.AutofillProfile;
 import org.chromium.chrome.browser.autofill.PersonalDataManager.CreditCard;
@@ -19,6 +20,7 @@ import org.chromium.chrome.browser.payments.ui.EditorFieldModel;
 import org.chromium.chrome.browser.payments.ui.EditorFieldModel.EditorFieldValidator;
 import org.chromium.chrome.browser.payments.ui.EditorModel;
 import org.chromium.chrome.browser.preferences.autofill.AutofillProfileBridge.DropdownKeyValue;
+import org.chromium.content.browser.ContentViewCore;
 import org.chromium.content_public.browser.WebContents;
 
 import java.text.SimpleDateFormat;
@@ -39,7 +41,8 @@ import javax.annotation.Nullable;
  * A credit card editor. Can be used for editing both local and server credit cards. Everything in
  * local cards can be edited. For server cards, only the billing address is editable.
  */
-public class CardEditor extends EditorBase<AutofillPaymentInstrument> {
+public class CardEditor extends EditorBase<AutofillPaymentInstrument>
+        implements CreditCardScanner.Delegate {
     /** Description of a card type. */
     private static class CardTypeInfo {
         /** The identifier for the drawable resource of the card type, e.g., R.drawable.pr_visa. */
@@ -61,7 +64,7 @@ public class CardEditor extends EditorBase<AutofillPaymentInstrument> {
             this.icon = icon;
             this.description = description;
         }
-    };
+    }
 
     /** The dropdown key that indicates absence of billing address. */
     private static final String BILLING_ADDRESS_NONE = "";
@@ -74,10 +77,8 @@ public class CardEditor extends EditorBase<AutofillPaymentInstrument> {
 
     /**
      * The map from GUIDs to profiles that can be used for billing address. This cache avoids
-     * re-reading profiles from disk, which may have changed due to sync, for example. Note that
-     * this cache prevents the user from adding a shipping address and then immediately using it as
-     * a billing address. This is consistent with the rest of the PaymentRequest UI, because adding
-     * a billing address does not enable its immediate use as a shipping address either.
+     * re-reading profiles from disk, which may have changed due to sync, for example.
+     * updateBillingAddress() updates this cache.
      */
     private final Map<String, AutofillProfile> mProfilesForBillingAddress;
 
@@ -117,6 +118,12 @@ public class CardEditor extends EditorBase<AutofillPaymentInstrument> {
     @Nullable private EditorFieldModel mYearField;
     @Nullable private EditorFieldModel mBillingAddressField;
     @Nullable private EditorFieldModel mSaveCardCheckbox;
+    @Nullable private CreditCardScanner mCardScanner;
+    @Nullable private EditorFieldValidator mCardExpirationMonthValidator;
+    private boolean mCanScan;
+    private boolean mIsScanning;
+    private int mCurrentMonth;
+    private int mCurrentYear;
 
     /**
      * Builds a credit card editor.
@@ -135,7 +142,8 @@ public class CardEditor extends EditorBase<AutofillPaymentInstrument> {
         mAddressEditor = addressEditor;
         mObserverForTest = observerForTest;
 
-        List<AutofillProfile> profiles = PersonalDataManager.getInstance().getProfilesForSettings();
+        List<AutofillProfile> profiles = PersonalDataManager.getInstance().getProfilesToSuggest(
+                true /* includeName */);
         mProfilesForBillingAddress = new HashMap<>();
         for (int i = 0; i < profiles.size(); i++) {
             AutofillProfile profile = profiles.get(i);
@@ -261,9 +269,8 @@ public class CardEditor extends EditorBase<AutofillPaymentInstrument> {
 
         // The title of the editor depends on whether we're adding a new card or editing an existing
         // card.
-        final EditorModel editor = new EditorModel(mContext.getString(isNewCard
-                ? R.string.autofill_create_credit_card
-                : R.string.autofill_edit_credit_card));
+        final EditorModel editor = new EditorModel(mContext.getString(
+                isNewCard ? R.string.payments_create_card : R.string.payments_edit_card));
 
         if (card.getIsLocal()) {
             Calendar calendar = null;
@@ -318,10 +325,21 @@ public class CardEditor extends EditorBase<AutofillPaymentInstrument> {
     }
 
     /**
+     * Adds the given billing address to the list of billing addresses. If the address is already
+     * known, then updates the existing address. Should be called before opening the card editor.
+     *
+     * @param billingAddress The billing address to add or update. Should not be null. Should be
+     *                       complete.
+     */
+    public void updateBillingAddress(AutofillAddress billingAddress) {
+        mProfilesForBillingAddress.put(billingAddress.getIdentifier(), billingAddress.getProfile());
+    }
+
+    /**
      * Adds the following fields to the editor.
      *
      * [ accepted card types hint images     ]
-     * [ card number                         ]
+     * [ card number              [ocr icon] ]
      * [ name on card                        ]
      * [ expiration month ][ expiration year ]
      */
@@ -340,6 +358,14 @@ public class CardEditor extends EditorBase<AutofillPaymentInstrument> {
         }
         editor.addField(mIconHint);
 
+        // Card scanner is expensive to query.
+        if (mCardScanner == null) {
+            mCardScanner = CreditCardScanner.create(mContext,
+                    ContentViewCore.fromWebContents(mWebContents).getWindowAndroid(),
+                    this);
+            mCanScan = mCardScanner.canScan();
+        }
+
         // Card number is validated.
         if (mNumberField == null) {
             mNumberField = EditorFieldModel.createTextInput(
@@ -349,6 +375,17 @@ public class CardEditor extends EditorBase<AutofillPaymentInstrument> {
                     mContext.getString(R.string.payments_field_required_validation_message),
                     mContext.getString(R.string.payments_card_number_invalid_validation_message),
                     null);
+            if (mCanScan) {
+                mNumberField.addActionIcon(R.drawable.ic_photo_camera,
+                        R.string.autofill_scan_credit_card, new Runnable() {
+                            @Override
+                            public void run() {
+                                if (mIsScanning) return;
+                                mIsScanning = true;
+                                mCardScanner.scan();
+                            }
+                        });
+            }
         }
         mNumberField.setValue(card.getNumber());
         editor.addField(mNumberField);
@@ -366,10 +403,42 @@ public class CardEditor extends EditorBase<AutofillPaymentInstrument> {
 
         // Expiration month dropdown.
         if (mMonthField == null) {
+            mCurrentYear = calendar.get(Calendar.YEAR);
+            // The month in calendar is 0 based but the month value is 1 based.
+            mCurrentMonth = calendar.get(Calendar.MONTH) + 1;
+
+            if (mCardExpirationMonthValidator == null) {
+                mCardExpirationMonthValidator = new EditorFieldValidator() {
+                    @Override
+                    public boolean isValid(@Nullable CharSequence monthValue) {
+                        CharSequence yearValue = mYearField.getValue();
+                        if (monthValue == null || yearValue == null) return false;
+
+                        int month = Integer.parseInt(monthValue.toString());
+                        int year = Integer.parseInt(yearValue.toString());
+
+                        return year > mCurrentYear
+                              || (year == mCurrentYear && month >= mCurrentMonth);
+                    }
+                };
+            }
+
             mMonthField = EditorFieldModel.createDropdown(
                     mContext.getString(R.string.autofill_credit_card_editor_expiration_date),
-                    buildMonthDropdownKeyValues(calendar));
+                    buildMonthDropdownKeyValues(calendar),
+                    mCardExpirationMonthValidator,
+                    mContext.getString(
+                          R.string.payments_card_expiration_invalid_validation_message));
             mMonthField.setIsFullLine(false);
+
+            if (mObserverForTest != null) {
+                mMonthField.setDropdownCallback(new Callback<Pair<String, Runnable>>() {
+                    @Override
+                    public void onResult(final Pair<String, Runnable> eventData) {
+                        mObserverForTest.onPaymentRequestServiceExpirationMonthChange();
+                    }
+                });
+            }
         }
         if (mMonthField.getDropdownKeys().contains(card.getMonth())) {
             mMonthField.setValue(card.getMonth());
@@ -396,7 +465,7 @@ public class CardEditor extends EditorBase<AutofillPaymentInstrument> {
         List<DropdownKeyValue> result = new ArrayList<>();
 
         Locale locale = Locale.getDefault();
-        SimpleDateFormat keyFormatter = new SimpleDateFormat("MM", locale);
+        SimpleDateFormat keyFormatter = new SimpleDateFormat("M", locale);
         SimpleDateFormat valueFormatter = new SimpleDateFormat("MMMM (MM)", locale);
 
         calendar.set(Calendar.DAY_OF_MONTH, 1);
@@ -443,7 +512,7 @@ public class CardEditor extends EditorBase<AutofillPaymentInstrument> {
     private void addBillingAddressDropdown(EditorModel editor, final CreditCard card) {
         final List<DropdownKeyValue> billingAddresses = new ArrayList<>();
         billingAddresses.add(new DropdownKeyValue(BILLING_ADDRESS_NONE,
-                mContext.getString(R.string.autofill_billing_address_select_prompt)));
+                mContext.getString(R.string.select)));
 
         for (Map.Entry<String, AutofillProfile> address : mProfilesForBillingAddress.entrySet()) {
             // Key is profile GUID. Value is profile label.
@@ -553,5 +622,25 @@ public class CardEditor extends EditorBase<AutofillPaymentInstrument> {
         if (mSaveCardCheckbox != null && mSaveCardCheckbox.isChecked()) {
             card.setGUID(pdm.setCreditCard(card));
         }
+    }
+
+    @Override
+    public void onScanCompleted(
+            String cardHolderName, String cardNumber, int expirationMonth, int expirationYear) {
+        if (!TextUtils.isEmpty(cardHolderName)) mNameField.setValue(cardHolderName);
+        if (!TextUtils.isEmpty(cardNumber)) mNumberField.setValue(cardNumber);
+        if (expirationYear >= 2000) mYearField.setValue(Integer.toString(expirationYear));
+
+        if (expirationMonth >= 1 && expirationMonth <= 12) {
+            mMonthField.setValue(Integer.toString(expirationMonth));
+        }
+
+        mEditorView.update();
+        mIsScanning = false;
+    }
+
+    @Override
+    public void onScanCancelled() {
+        mIsScanning = false;
     }
 }

@@ -16,7 +16,7 @@
 #include "base/strings/stringprintf.h"
 #include "chrome/browser/extensions/extension_action.h"
 #include "chrome/browser/extensions/extension_browsertest.h"
-#include "chrome/browser/extensions/extension_util.h"
+#include "chrome/browser/extensions/scripting_permissions_modifier.h"
 #include "chrome/browser/extensions/tab_helper.h"
 #include "chrome/browser/extensions/test_extension_dir.h"
 #include "chrome/browser/ui/browser.h"
@@ -163,7 +163,7 @@ const Extension* ExtensionActionRunnerBrowserTest::CreateExtension(
                  injection_type == CONTENT_SCRIPT ? kContentScriptSource
                                                   : kBackgroundScriptSource);
 
-  const Extension* extension = LoadExtension(dir->unpacked_path());
+  const Extension* extension = LoadExtension(dir->UnpackedPath());
   if (extension) {
     test_extension_dirs_.push_back(std::move(dir));
     extensions_.push_back(extension);
@@ -425,7 +425,8 @@ IN_PROC_BROWSER_TEST_F(ExtensionActionRunnerBrowserTest,
   EXPECT_FALSE(inject_success_listener.was_satisfied());
 
   // Enable the extension to run on all urls.
-  util::SetAllowedScriptingOnAllUrls(extension->id(), profile(), true);
+  ScriptingPermissionsModifier modifier(profile(), extension);
+  modifier.SetAllowedOnAllUrls(true);
   EXPECT_TRUE(RunAllPendingInRenderer(web_contents));
 
   // Navigate again - this time, the extension should execute immediately (and
@@ -437,7 +438,7 @@ IN_PROC_BROWSER_TEST_F(ExtensionActionRunnerBrowserTest,
 
   // Revoke all urls permissions.
   inject_success_listener.Reset();
-  util::SetAllowedScriptingOnAllUrls(extension->id(), profile(), false);
+  modifier.SetAllowedOnAllUrls(false);
   EXPECT_TRUE(RunAllPendingInRenderer(web_contents));
 
   // Re-navigate; the extension should again need permission to run.
@@ -472,8 +473,8 @@ IN_PROC_BROWSER_TEST_F(ExtensionActionRunnerBrowserTest,
   // Wire up the runner to automatically accept the bubble to prompt for page
   // refresh.
   runner->set_default_bubble_close_action_for_testing(
-      base::WrapUnique(new ToolbarActionsBarBubbleDelegate::CloseAction(
-          ToolbarActionsBarBubbleDelegate::CLOSE_EXECUTE)));
+      base::MakeUnique<ToolbarActionsBarBubbleDelegate::CloseAction>(
+          ToolbarActionsBarBubbleDelegate::CLOSE_EXECUTE));
 
   content::NavigationEntry* entry =
       web_contents->GetController().GetLastCommittedEntry();
@@ -508,8 +509,8 @@ IN_PROC_BROWSER_TEST_F(ExtensionActionRunnerBrowserTest,
   const int next_nav_id =
       web_contents->GetController().GetLastCommittedEntry()->GetUniqueID();
   runner->set_default_bubble_close_action_for_testing(
-      base::WrapUnique(new ToolbarActionsBarBubbleDelegate::CloseAction(
-          ToolbarActionsBarBubbleDelegate::CLOSE_DISMISS_USER_ACTION)));
+      base::MakeUnique<ToolbarActionsBarBubbleDelegate::CloseAction>(
+          ToolbarActionsBarBubbleDelegate::CLOSE_DISMISS_USER_ACTION));
 
   // Try running the extension. Nothing should happen, because the user
   // didn't agree to refresh the page. The extension should still want to run.
@@ -523,8 +524,8 @@ IN_PROC_BROWSER_TEST_F(ExtensionActionRunnerBrowserTest,
 
   // Repeat with a dismissal from bubble deactivation - same story.
   runner->set_default_bubble_close_action_for_testing(
-      base::WrapUnique(new ToolbarActionsBarBubbleDelegate::CloseAction(
-          ToolbarActionsBarBubbleDelegate::CLOSE_DISMISS_DEACTIVATION)));
+      base::MakeUnique<ToolbarActionsBarBubbleDelegate::CloseAction>(
+          ToolbarActionsBarBubbleDelegate::CLOSE_DISMISS_DEACTIVATION));
   runner->RunAction(extension, true);
   base::RunLoop().RunUntilIdle();
   EXPECT_TRUE(content::WaitForLoadStop(web_contents));

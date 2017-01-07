@@ -9,6 +9,8 @@ import android.annotation.TargetApi;
 import android.app.Activity;
 import android.app.SearchManager;
 import android.app.assist.AssistStructure.ViewNode;
+import android.content.ClipData;
+import android.content.ClipDescription;
 import android.content.ClipboardManager;
 import android.content.ContentResolver;
 import android.content.Context;
@@ -25,12 +27,13 @@ import android.os.SystemClock;
 import android.provider.Browser;
 import android.text.TextUtils;
 import android.util.Pair;
-import android.util.TypedValue;
 import android.view.ActionMode;
+import android.view.DragEvent;
 import android.view.HapticFeedbackConstants;
 import android.view.InputDevice;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
+import android.view.Surface;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.ViewStructure;
@@ -43,9 +46,7 @@ import android.view.animation.AnimationUtils;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputConnection;
 import android.view.inputmethod.InputMethodManager;
-import android.widget.FrameLayout;
 
-import org.chromium.base.ApiCompatibilityUtils;
 import org.chromium.base.CommandLine;
 import org.chromium.base.Log;
 import org.chromium.base.ObserverList;
@@ -56,7 +57,6 @@ import org.chromium.base.annotations.CalledByNative;
 import org.chromium.base.annotations.JNINamespace;
 import org.chromium.base.metrics.RecordUserAction;
 import org.chromium.content.R;
-import org.chromium.content.browser.ScreenOrientationListener.ScreenOrientationObserver;
 import org.chromium.content.browser.accessibility.BrowserAccessibilityManager;
 import org.chromium.content.browser.accessibility.captioning.CaptioningBridgeFactory;
 import org.chromium.content.browser.accessibility.captioning.SystemCaptioningBridge;
@@ -67,6 +67,7 @@ import org.chromium.content.browser.input.ImeAdapter;
 import org.chromium.content.browser.input.InputMethodManagerWrapper;
 import org.chromium.content.browser.input.JoystickScrollProvider;
 import org.chromium.content.browser.input.JoystickZoomProvider;
+import org.chromium.content.browser.input.LGEmailActionModeWorkaround;
 import org.chromium.content.browser.input.LegacyPastePopupMenu;
 import org.chromium.content.browser.input.PastePopupMenu;
 import org.chromium.content.browser.input.PastePopupMenu.PastePopupMenuDelegate;
@@ -85,7 +86,7 @@ import org.chromium.ui.base.DeviceFormFactor;
 import org.chromium.ui.base.ViewAndroidDelegate;
 import org.chromium.ui.base.WindowAndroid;
 import org.chromium.ui.base.ime.TextInputType;
-import org.chromium.ui.gfx.DeviceDisplayInfo;
+import org.chromium.ui.display.DisplayAndroid.DisplayAndroidObserver;
 import org.chromium.ui.touch_selection.SelectionEventType;
 
 import java.lang.annotation.Annotation;
@@ -93,10 +94,8 @@ import java.lang.ref.WeakReference;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Map.Entry;
 
 /**
  * Provides a Java-side 'wrapper' around a WebContent (native) instance.
@@ -104,9 +103,10 @@ import java.util.Map.Entry;
  * being tied to the view system.
  */
 @JNINamespace("content")
-public class ContentViewCore implements AccessibilityStateChangeListener, ScreenOrientationObserver,
-                                        SystemCaptioningBridge.SystemCaptioningBridgeListener {
-    private static final String TAG = "cr.ContentViewCore";
+public class ContentViewCore implements AccessibilityStateChangeListener, DisplayAndroidObserver,
+                                        SystemCaptioningBridge.SystemCaptioningBridgeListener,
+                                        WindowAndroidProvider {
+    private static final String TAG = "cr_ContentViewCore";
 
     // Used to avoid enabling zooming in / out if resulting zooming will
     // produce little visible difference.
@@ -144,157 +144,6 @@ public class ContentViewCore implements AccessibilityStateChangeListener, Screen
     // on the interface object. Note we use HashSet rather than Set as the native side
     // expects HashSet (no bindings for interfaces).
     private final HashSet<Object> mRetainedJavaScriptObjects = new HashSet<Object>();
-
-    /**
-     * A {@link ViewAndroidDelegate} that delegates to the current container view.
-     *
-     * <p>This delegate handles the replacement of container views transparently so
-     * that clients can safely hold to instances of this class.
-     */
-    private static class ContentViewAndroidDelegate implements ViewAndroidDelegate {
-        /**
-         * Represents the position of an anchor view.
-         */
-        @VisibleForTesting
-        private static class Position {
-            private final float mX;
-            private final float mY;
-            private final float mWidth;
-            private final float mHeight;
-
-            public Position(float x, float y, float width, float height) {
-                mX = x;
-                mY = y;
-                mWidth = width;
-                mHeight = height;
-            }
-        }
-
-        private final RenderCoordinates mRenderCoordinates;
-
-        /**
-         * The current container view. This view can be updated with
-         * {@link #updateCurrentContainerView()}. This needs to be a WeakReference
-         * because ViewAndroidDelegate is held strongly native side, which otherwise
-         * indefinitely prevents Android WebView from being garbage collected.
-         */
-        private WeakReference<ViewGroup> mCurrentContainerView;
-
-        /**
-         * List of anchor views stored in the order in which they were acquired mapped
-         * to their position.
-         */
-        private final Map<View, Position> mAnchorViews = new LinkedHashMap<View, Position>();
-
-        ContentViewAndroidDelegate(ViewGroup containerView, RenderCoordinates renderCoordinates) {
-            mRenderCoordinates = renderCoordinates;
-            mCurrentContainerView = new WeakReference<>(containerView);
-        }
-
-        @Override
-        public View acquireAnchorView() {
-            ViewGroup containerView = mCurrentContainerView.get();
-            if (containerView == null) return null;
-            View anchorView = new View(containerView.getContext());
-            mAnchorViews.put(anchorView, null);
-            containerView.addView(anchorView);
-            return anchorView;
-        }
-
-        @Override
-        public void setAnchorViewPosition(
-                View view, float x, float y, float width, float height) {
-            mAnchorViews.put(view, new Position(x, y, width, height));
-            doSetAnchorViewPosition(view, x, y, width, height);
-        }
-
-        @SuppressWarnings("deprecation")  // AbsoluteLayout
-        private void doSetAnchorViewPosition(
-                View view, float x, float y, float width, float height) {
-            if (view.getParent() == null) {
-                // Ignore. setAnchorViewPosition has been called after the anchor view has
-                // already been released.
-                return;
-            }
-            ViewGroup containerView = mCurrentContainerView.get();
-            if (containerView == null) {
-                return;
-            }
-            assert view.getParent() == containerView;
-
-            float scale =
-                    (float) DeviceDisplayInfo.create(containerView.getContext()).getDIPScale();
-
-            // The anchor view should not go outside the bounds of the ContainerView.
-            int leftMargin = Math.round(x * scale);
-            int topMargin = Math.round(mRenderCoordinates.getContentOffsetYPix() + y * scale);
-            int scaledWidth = Math.round(width * scale);
-            // ContentViewCore currently only supports these two container view types.
-            if (containerView instanceof FrameLayout) {
-                int startMargin;
-                if (ApiCompatibilityUtils.isLayoutRtl(containerView)) {
-                    startMargin =
-                            containerView.getMeasuredWidth() - Math.round((width + x) * scale);
-                } else {
-                    startMargin = leftMargin;
-                }
-                if (scaledWidth + startMargin > containerView.getWidth()) {
-                    scaledWidth = containerView.getWidth() - startMargin;
-                }
-                FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
-                        scaledWidth, Math.round(height * scale));
-                ApiCompatibilityUtils.setMarginStart(lp, startMargin);
-                lp.topMargin = topMargin;
-                view.setLayoutParams(lp);
-            } else if (containerView instanceof android.widget.AbsoluteLayout) {
-                // This fixes the offset due to a difference in
-                // scrolling model of WebView vs. Chrome.
-                // TODO(sgurun) fix this to use mContainerViewAtCreation.getScroll[X/Y]()
-                // as it naturally accounts for scroll differences between
-                // these models.
-                leftMargin += mRenderCoordinates.getScrollXPixInt();
-                topMargin += mRenderCoordinates.getScrollYPixInt();
-
-                android.widget.AbsoluteLayout.LayoutParams lp =
-                        new android.widget.AbsoluteLayout.LayoutParams(
-                            scaledWidth, (int) (height * scale), leftMargin, topMargin);
-                view.setLayoutParams(lp);
-            } else {
-                Log.e(TAG, "Unknown layout %s", containerView.getClass().getName());
-            }
-        }
-
-        @Override
-        public void releaseAnchorView(View anchorView) {
-            mAnchorViews.remove(anchorView);
-            ViewGroup containerView = mCurrentContainerView.get();
-            if (containerView != null) {
-                containerView.removeView(anchorView);
-            }
-        }
-
-        /**
-         * Updates (or sets for the first time) the current container view to which
-         * this class delegates. Existing anchor views are transferred from the old to
-         * the new container view.
-         */
-        void updateCurrentContainerView(ViewGroup containerView) {
-            ViewGroup oldContainerView = mCurrentContainerView.get();
-            mCurrentContainerView = new WeakReference<>(containerView);
-            for (Entry<View, Position> entry : mAnchorViews.entrySet()) {
-                View anchorView = entry.getKey();
-                Position position = entry.getValue();
-                if (oldContainerView != null) {
-                    oldContainerView.removeView(anchorView);
-                }
-                containerView.addView(anchorView);
-                if (position != null) {
-                    doSetAnchorViewPosition(anchorView,
-                            position.mX, position.mY, position.mWidth, position.mHeight);
-                }
-            }
-        }
-    }
 
     /**
      * A {@link WebContentsObserver} that listens to frame navigation events.
@@ -359,6 +208,8 @@ public class ContentViewCore implements AccessibilityStateChangeListener, Screen
     /**
      * Returns interval between consecutive animation frames.
      */
+    // TODO(crbug.com/635567): Fix this properly.
+    @SuppressLint("ParcelCreator")
     private static class SystemAnimationIntervalProvider implements AnimationIntervalProvider {
         @Override
         public long getLastAnimationFrameInterval() {
@@ -370,6 +221,8 @@ public class ContentViewCore implements AccessibilityStateChangeListener, Screen
      * {@ResultReceiver} passed in InputMethodManager#showSoftInput}. We need this to scroll to the
      * editable node at the right timing, which is after input method window shows up.
      */
+    // TODO(crbug.com/635567): Fix this properly.
+    @SuppressLint("ParcelCreator")
     private static class ShowKeyboardResultReceiver extends ResultReceiver {
 
         // Unfortunately, the memory life cycle of ResultReceiver object, once passed in
@@ -465,6 +318,7 @@ public class ContentViewCore implements AccessibilityStateChangeListener, Screen
     }
 
     private final Context mContext;
+    private final String mProductVersion;
     private ViewGroup mContainerView;
     private InternalAccessDelegate mContainerViewInternals;
     private WebContents mWebContents;
@@ -475,6 +329,7 @@ public class ContentViewCore implements AccessibilityStateChangeListener, Screen
     // Native pointer to C++ ContentViewCoreImpl object which will be set by nativeInit().
     private long mNativeContentViewCore = 0;
 
+    private boolean mAttachedToWindow;
     private final ObserverList<GestureStateListener> mGestureStateListeners;
     private final RewindableIterator<GestureStateListener> mGestureStateListenersIterator;
     private ZoomControlsDelegate mZoomControlsDelegate;
@@ -501,6 +356,7 @@ public class ContentViewCore implements AccessibilityStateChangeListener, Screen
     private int mPhysicalBackingWidthPix;
     private int mPhysicalBackingHeightPix;
     private int mTopControlsHeightPix;
+    private int mBottomControlsHeightPix;
     private boolean mTopControlsShrinkBlinkSize;
 
     // Cached copy of all positions and scales as reported by the renderer.
@@ -527,6 +383,8 @@ public class ContentViewCore implements AccessibilityStateChangeListener, Screen
     private boolean mUnselectAllOnActionModeDismiss;
     private boolean mPreserveSelectionOnNextLossOfFocus;
     private WebActionModeCallback.ActionHandler mActionHandler;
+
+    // Selection rectangle in DIP.
     private final Rect mSelectionRect = new Rect();
 
     // Whether native accessibility, i.e. without any script injection, is allowed.
@@ -571,16 +429,11 @@ public class ContentViewCore implements AccessibilityStateChangeListener, Screen
     // sequence, so this will also be true for the duration of a pinch gesture.
     private boolean mTouchScrollInProgress;
 
-    // Multiplier that determines how many (device) pixels to scroll per mouse
-    // wheel tick. Defaults to the preferred list item height.
-    private float mWheelScrollFactorInPixels;
-
     // The outstanding fling start events that hasn't got fling end yet. It may be > 1 because
     // onNativeFlingStopped() is called asynchronously.
     private int mPotentiallyActiveFlingCount;
 
     private SmartClipDataListener mSmartClipDataListener = null;
-    private final ObserverList<ContainerViewObserver> mContainerViewObservers;
 
     /**
      * PID used to indicate an invalid render process.
@@ -602,7 +455,7 @@ public class ContentViewCore implements AccessibilityStateChangeListener, Screen
     private boolean mFullscreenRequiredForOrientationLock = true;
 
     // A ViewAndroidDelegate that delegates to the current container view.
-    private ContentViewAndroidDelegate mViewAndroidDelegate;
+    private ViewAndroidDelegate mViewAndroidDelegate;
 
     // A flag to determine if we enable hover feature or not.
     private Boolean mEnableTouchHover;
@@ -613,6 +466,9 @@ public class ContentViewCore implements AccessibilityStateChangeListener, Screen
     // NOTE: This object will not be released by Android framework until the matching
     // ResultReceiver in the InputMethodService (IME app) gets gc'ed.
     private ShowKeyboardResultReceiver mShowKeyboardResultReceiver;
+
+    // The list of observers that are notified when ContentViewCore changes its WindowAndroid.
+    private final ObserverList<WindowAndroidChangedObserver> mWindowAndroidChangedObservers;
 
     /**
      * @param webContents The {@link WebContents} to find a {@link ContentViewCore} of.
@@ -629,24 +485,18 @@ public class ContentViewCore implements AccessibilityStateChangeListener, Screen
      *
      * @param context The context used to create this.
      */
-    public ContentViewCore(Context context) {
+    public ContentViewCore(Context context, String productVersion) {
         mContext = context;
+        mProductVersion = productVersion;
         mRenderCoordinates = new RenderCoordinates();
         mJoystickScrollProvider = new JoystickScrollProvider(this);
-        float deviceScaleFactor = getContext().getResources().getDisplayMetrics().density;
-        String forceScaleFactor = CommandLine.getInstance().getSwitchValue(
-                ContentSwitches.FORCE_DEVICE_SCALE_FACTOR);
-        if (forceScaleFactor != null) {
-            deviceScaleFactor = Float.valueOf(forceScaleFactor);
-        }
-        mRenderCoordinates.setDeviceScaleFactor(deviceScaleFactor);
         mAccessibilityManager = (AccessibilityManager)
                 getContext().getSystemService(Context.ACCESSIBILITY_SERVICE);
         mSystemCaptioningBridge = CaptioningBridgeFactory.getSystemCaptioningBridge(mContext);
         mGestureStateListeners = new ObserverList<GestureStateListener>();
         mGestureStateListenersIterator = mGestureStateListeners.rewindableIterator();
 
-        mContainerViewObservers = new ObserverList<ContainerViewObserver>();
+        mWindowAndroidChangedObservers = new ObserverList<WindowAndroidChangedObserver>();
     }
 
     /**
@@ -674,9 +524,20 @@ public class ContentViewCore implements AccessibilityStateChangeListener, Screen
     /**
      * @return The WindowAndroid associated with this ContentViewCore.
      */
+    @Override
     public WindowAndroid getWindowAndroid() {
         if (mNativeContentViewCore == 0) return null;
         return nativeGetJavaWindowAndroid(mNativeContentViewCore);
+    }
+
+    @Override
+    public void addWindowAndroidChangedObserver(WindowAndroidChangedObserver observer) {
+        mWindowAndroidChangedObservers.addObserver(observer);
+    }
+
+    @Override
+    public void removeWindowAndroidChangedObserver(WindowAndroidChangedObserver observer) {
+        mWindowAndroidChangedObservers.removeObserver(observer);
     }
 
     /**
@@ -698,20 +559,12 @@ public class ContentViewCore implements AccessibilityStateChangeListener, Screen
     }
 
     /**
-     * Returns a delegate that can be used to add and remove views from the current
-     * container view. Clients can safely hold to instances of this class as it handles the
-     * replacement of container views transparently.
-     *
-     * NOTE: Use with care, as not all ContentViewCore users setup their container view in the same
-     * way. In particular, the Android WebView has limitations on what implementation details can
-     * be provided via a child view, as they are visible in the API and could introduce
-     * compatibility breaks with existing applications. If in doubt, contact the
-     * android_webview/OWNERS
-     *
-     * @return A ViewAndroidDelegate that can be used to add and remove views.
+     * Sets the height of the bottom controls. If necessary, triggers a renderer resize.
      */
-    public ViewAndroidDelegate getViewAndroidDelegate() {
-        return mViewAndroidDelegate;
+    public void setBottomControlsHeight(int bottomControlHeightPix) {
+        if (mBottomControlsHeightPix == bottomControlHeightPix) return;
+        mBottomControlsHeightPix = bottomControlHeightPix;
+        if (mNativeContentViewCore != 0) nativeWasResized(mNativeContentViewCore);
     }
 
     @VisibleForTesting
@@ -774,8 +627,17 @@ public class ContentViewCore implements AccessibilityStateChangeListener, Screen
     }
 
     /**
+     * Returns the context used to obtain display density (ratio of physical pixels to DIP).
+     */
+    private Context getDisplayContext(WindowAndroid window) {
+        Context displayContext = null;
+        if (window != null) displayContext = window.getContext().get();
+        return displayContext != null ? displayContext : mContext;
+    }
+
+    /**
      *
-     * @param containerView The view that will act as a container for all views created by this.
+     * @param viewDelegate Delegate to add/remove anchor views.
      * @param internalDispatcher Handles dispatching all hidden or super methods to the
      *                           containerView.
      * @param webContents A WebContents instance to connect to.
@@ -790,21 +652,24 @@ public class ContentViewCore implements AccessibilityStateChangeListener, Screen
     // to set the private browsing mode at a later point for the WebView implementation.
     // Note that the caller remains the owner of the nativeWebContents and is responsible for
     // deleting it after destroying the ContentViewCore.
-    public void initialize(ViewGroup containerView, InternalAccessDelegate internalDispatcher,
-            WebContents webContents, WindowAndroid windowAndroid) {
-        createContentViewAndroidDelegate();
-        setContainerView(containerView);
+    public void initialize(ViewAndroidDelegate viewDelegate,
+            InternalAccessDelegate internalDispatcher, WebContents webContents,
+            WindowAndroid windowAndroid) {
+        mViewAndroidDelegate = viewDelegate;
+        setContainerView(viewDelegate.getContainerView());
         long windowNativePointer = windowAndroid.getNativePointer();
         assert windowNativePointer != 0;
 
         mZoomControlsDelegate = NO_OP_ZOOM_CONTROLS_DELEGATE;
-
-        mNativeContentViewCore = nativeInit(
-                webContents, mViewAndroidDelegate, windowNativePointer, mRetainedJavaScriptObjects);
+        mNativeContentViewCore = nativeInit(webContents, mViewAndroidDelegate, windowNativePointer,
+                mRetainedJavaScriptObjects);
         mWebContents = nativeGetWebContentsAndroid(mNativeContentViewCore);
 
         setContainerViewInternals(internalDispatcher);
+
         mRenderCoordinates.reset();
+        mRenderCoordinates.setDeviceScaleFactor(getDisplayContext(windowAndroid));
+
         initPopupZoomer(mContext);
         mImeAdapter = createImeAdapter();
         attachImeAdapter();
@@ -818,6 +683,7 @@ public class ContentViewCore implements AccessibilityStateChangeListener, Screen
      * @param windowAndroid The new {@link WindowAndroid} for this {@link ContentViewCore}.
      */
     public void updateWindowAndroid(WindowAndroid windowAndroid) {
+        removeDisplayAndroidObserver();
         long windowNativePointer = windowAndroid == null ? 0 : windowAndroid.getNativePointer();
         nativeUpdateWindowAndroid(mNativeContentViewCore, windowNativePointer);
 
@@ -825,11 +691,29 @@ public class ContentViewCore implements AccessibilityStateChangeListener, Screen
         // Clean up cached popups that may have been created with an old activity.
         mSelectPopup = null;
         mPastePopupMenu = null;
+
+        mRenderCoordinates.setDeviceScaleFactor(getDisplayContext(windowAndroid));
+        addDisplayAndroidObserverIfNeeded();
+
+        for (WindowAndroidChangedObserver observer : mWindowAndroidChangedObservers) {
+            observer.onWindowAndroidChanged(windowAndroid);
+        }
     }
 
-    @VisibleForTesting
-    public void createContentViewAndroidDelegate() {
-        mViewAndroidDelegate = new ContentViewAndroidDelegate(mContainerView, mRenderCoordinates);
+    private void addDisplayAndroidObserverIfNeeded() {
+        if (!mAttachedToWindow) return;
+        WindowAndroid windowAndroid = getWindowAndroid();
+        if (windowAndroid != null) {
+            windowAndroid.getDisplay().addObserver(this);
+            onRotationChanged(windowAndroid.getDisplay().getRotation());
+        }
+    }
+
+    private void removeDisplayAndroidObserver() {
+        WindowAndroid windowAndroid = getWindowAndroid();
+        if (windowAndroid != null) {
+            windowAndroid.getDisplay().removeObserver(this);
+        }
     }
 
     /**
@@ -861,21 +745,9 @@ public class ContentViewCore implements AccessibilityStateChangeListener, Screen
 
             mContainerView = containerView;
             mContainerView.setClickable(true);
-            mViewAndroidDelegate.updateCurrentContainerView(mContainerView);
-            for (ContainerViewObserver observer : mContainerViewObservers) {
-                observer.onContainerViewChanged(mContainerView);
-            }
         } finally {
             TraceEvent.end("ContentViewCore.setContainerView");
         }
-    }
-
-    public void addContainerViewObserver(ContainerViewObserver observer) {
-        mContainerViewObservers.addObserver(observer);
-    }
-
-    public void removeContainerViewObserver(ContainerViewObserver observer) {
-        mContainerViewObservers.removeObserver(observer);
     }
 
     @CalledByNative
@@ -969,6 +841,7 @@ public class ContentViewCore implements AccessibilityStateChangeListener, Screen
      * onDetachedFromWindow() which is guaranteed to be called in Android WebView.
      */
     public void destroy() {
+        removeDisplayAndroidObserver();
         if (mNativeContentViewCore != 0) {
             nativeOnJavaContentViewCoreDestroyed(mNativeContentViewCore);
         }
@@ -992,8 +865,6 @@ public class ContentViewCore implements AccessibilityStateChangeListener, Screen
             mGestureStateListenersIterator.next().onDestroyed();
         }
         mGestureStateListeners.clear();
-        ScreenOrientationListener.getInstance().removeObserver(this);
-        mContainerViewObservers.clear();
         hidePopupsAndPreserveSelection();
         mPastePopupMenu = null;
 
@@ -1006,15 +877,6 @@ public class ContentViewCore implements AccessibilityStateChangeListener, Screen
      */
     public boolean isAlive() {
         return mNativeContentViewCore != 0;
-    }
-
-    /**
-     * This is only useful for passing over JNI to native code that requires ContentViewCore*.
-     * @return native ContentViewCore pointer.
-     */
-    @CalledByNative
-    long getNativeContentViewCore() {
-        return mNativeContentViewCore;
     }
 
     public void setContentViewClient(ContentViewClient client) {
@@ -1094,6 +956,11 @@ public class ContentViewCore implements AccessibilityStateChangeListener, Screen
     @CalledByNative
     public int getTopControlsHeightPix() {
         return mTopControlsHeightPix;
+    }
+
+    @CalledByNative
+    public int getBottomControlsHeightPix() {
+        return mBottomControlsHeightPix;
     }
 
     /**
@@ -1270,13 +1137,13 @@ public class ContentViewCore implements AccessibilityStateChangeListener, Screen
 
     @SuppressWarnings("unused")
     @CalledByNative
-    private void onFlingStartEventConsumed(int vx, int vy) {
+    private void onFlingStartEventConsumed() {
         mPotentiallyActiveFlingCount++;
         setTouchScrollInProgress(false);
         for (mGestureStateListenersIterator.rewind();
                     mGestureStateListenersIterator.hasNext();) {
             mGestureStateListenersIterator.next().onFlingStartGesture(
-                    vx, vy, computeVerticalScrollOffset(), computeVerticalScrollExtent());
+                    computeVerticalScrollOffset(), computeVerticalScrollExtent());
         }
     }
 
@@ -1326,10 +1193,10 @@ public class ContentViewCore implements AccessibilityStateChangeListener, Screen
 
     @SuppressWarnings("unused")
     @CalledByNative
-    private void onSingleTapEventAck(boolean consumed, int x, int y) {
+    private void onSingleTapEventAck(boolean consumed) {
         for (mGestureStateListenersIterator.rewind();
                 mGestureStateListenersIterator.hasNext();) {
-            mGestureStateListenersIterator.next().onSingleTap(consumed, x, y);
+            mGestureStateListenersIterator.next().onSingleTap(consumed);
         }
         hidePastePopup();
     }
@@ -1463,6 +1330,7 @@ public class ContentViewCore implements AccessibilityStateChangeListener, Screen
         hidePopups();
     }
 
+    @CalledByNative
     private void hidePopupsAndPreserveSelection() {
         mUnselectAllOnActionModeDismiss = false;
         hidePopups();
@@ -1501,9 +1369,10 @@ public class ContentViewCore implements AccessibilityStateChangeListener, Screen
      */
     @SuppressWarnings("javadoc")
     public void onAttachedToWindow() {
+        mAttachedToWindow = true;
+        addDisplayAndroidObserverIfNeeded();
         setAccessibilityState(mAccessibilityManager.isEnabled());
         updateTextSelectionUI(true);
-        ScreenOrientationListener.getInstance().addObserver(this, mContext);
         GamepadList.onAttachedToWindow(mContext);
         mAccessibilityManager.addAccessibilityStateChangeListener(this);
         mSystemCaptioningBridge.addListener(this);
@@ -1533,10 +1402,10 @@ public class ContentViewCore implements AccessibilityStateChangeListener, Screen
     @SuppressWarnings("javadoc")
     @SuppressLint("MissingSuperCall")
     public void onDetachedFromWindow() {
+        mAttachedToWindow = false;
         mImeAdapter.onViewDetachedFromWindow();
         mZoomControlsDelegate.dismissZoomPicker();
-
-        ScreenOrientationListener.getInstance().removeObserver(this);
+        removeDisplayAndroidObserver();
         GamepadList.onDetachedFromWindow();
         mAccessibilityManager.removeAccessibilityStateChangeListener(this);
 
@@ -1763,7 +1632,7 @@ public class ContentViewCore implements AccessibilityStateChangeListener, Screen
                             event.getX(), event.getY(),
                             event.getAxisValue(MotionEvent.AXIS_HSCROLL),
                             event.getAxisValue(MotionEvent.AXIS_VSCROLL),
-                            getWheelScrollFactorInPixels());
+                            mRenderCoordinates.getWheelScrollFactor());
 
                     mContainerView.removeCallbacks(mFakeMouseMoveRunnable);
                     // Send a delayed onMouseMove event so that we end
@@ -1791,12 +1660,13 @@ public class ContentViewCore implements AccessibilityStateChangeListener, Screen
     }
 
     /**
-     * Sets the current amount to offset incoming touch events by.  This is used to handle content
-     * moving and not lining up properly with the android input system.
+     * Sets the current amount to offset incoming touch events by (including MotionEvent and
+     * DragEvent). This is used to handle content moving and not lining up properly with the
+     * android input system.
      * @param dx The X offset in pixels to shift touch events.
      * @param dy The Y offset in pixels to shift touch events.
      */
-    public void setCurrentMotionEventOffsets(float dx, float dy) {
+    public void setCurrentTouchEventOffsets(float dx, float dy) {
         mCurrentTouchOffsetX = dx;
         mCurrentTouchOffsetY = dy;
     }
@@ -2125,11 +1995,16 @@ public class ContentViewCore implements AccessibilityStateChangeListener, Screen
                 }
 
                 @Override
-                public void onGetContentRect(Rect outRect) {
+                public void onGetContentRect(Rect outRectPix) {
+                    final float deviceScale = mRenderCoordinates.getDeviceScaleFactor();
+                    outRectPix.set((int) (mSelectionRect.left * deviceScale),
+                            (int) (mSelectionRect.top * deviceScale),
+                            (int) (mSelectionRect.right * deviceScale),
+                            (int) (mSelectionRect.bottom * deviceScale));
+
                     // The selection coordinates are relative to the content viewport, but we need
                     // coordinates relative to the containing View.
-                    outRect.set(mSelectionRect);
-                    outRect.offset(0, (int) mRenderCoordinates.getContentOffsetYPix());
+                    outRectPix.offset(0, (int) mRenderCoordinates.getContentOffsetYPix());
                 }
 
                 @Override
@@ -2179,15 +2054,19 @@ public class ContentViewCore implements AccessibilityStateChangeListener, Screen
         if (mContainerView.getParent() != null) {
             assert mWebContents != null;
             ActionMode actionMode = startActionMode(allowFallbackIfFloatingActionModeCreationFails);
-            if (actionMode != null) mActionMode = new WebActionMode(actionMode, mContainerView);
+            if (actionMode != null) {
+                // This is to work around an LGE email issue. See crbug.com/651706 for more details.
+                LGEmailActionModeWorkaround.runIfNecessary(mContext, actionMode);
+                mActionMode = new WebActionMode(actionMode, mContainerView);
+            }
         }
         mUnselectAllOnActionModeDismiss = true;
         if (mActionMode == null) {
             // There is no ActionMode, so remove the selection.
             clearSelection();
         } else {
-            // TODO(jdduke): Refactor ContentViewClient.onContextualActionBarShown to be aware of
-            // non-action-bar (i.e., floating) ActionMode instances, crbug.com/524666.
+            // TODO(jdduke): Refactor ContentViewClient.onContextualActionBarShown to be aware
+            // of non-action-bar (i.e., floating) ActionMode instances, crbug.com/524666.
             if (!supportsFloatingActionMode()) {
                 getContentViewClient().onContextualActionBarShown();
             }
@@ -2269,6 +2148,7 @@ public class ContentViewCore implements AccessibilityStateChangeListener, Screen
         return mHasInsertion;
     }
 
+    // All coordinates are in DIP.
     @CalledByNative
     private void onSelectionEvent(
             int eventType, int xAnchor, int yAnchor, int left, int top, int right, int bottom) {
@@ -2355,7 +2235,10 @@ public class ContentViewCore implements AccessibilityStateChangeListener, Screen
                 assert false : "Invalid selection event type.";
         }
         if (mContextualSearchClient != null) {
-            mContextualSearchClient.onSelectionEvent(eventType, xAnchor, yAnchor);
+            final float deviceScale = mRenderCoordinates.getDeviceScaleFactor();
+            int xAnchorPix = (int) (xAnchor * deviceScale);
+            int yAnchorPix = (int) (yAnchor * deviceScale);
+            mContextualSearchClient.onSelectionEvent(eventType, xAnchorPix, yAnchorPix);
         }
     }
 
@@ -2375,7 +2258,8 @@ public class ContentViewCore implements AccessibilityStateChangeListener, Screen
             float pageScaleFactor, float minPageScaleFactor, float maxPageScaleFactor,
             float contentWidth, float contentHeight,
             float viewportWidth, float viewportHeight,
-            float controlsOffsetYCss, float contentOffsetYCss,
+            float topControlsHeightDp, float topControlsShownRatio,
+            float bottomControlsHeightDp, float bottomControlsShownRatio,
             boolean isMobileOptimizedHint,
             boolean hasInsertionMarker, boolean isInsertionMarkerVisible,
             float insertionMarkerHorizontal, float insertionMarkerTop,
@@ -2389,7 +2273,9 @@ public class ContentViewCore implements AccessibilityStateChangeListener, Screen
                 mViewportWidthPix / (deviceScale * pageScaleFactor));
         contentHeight = Math.max(contentHeight,
                 mViewportHeightPix / (deviceScale * pageScaleFactor));
-        final float contentOffsetYPix = mRenderCoordinates.fromDipToPix(contentOffsetYCss);
+        final float topBarShownPix = topControlsHeightDp * deviceScale * topControlsShownRatio;
+        final float bottomBarShownPix = bottomControlsHeightDp * deviceScale
+                * bottomControlsShownRatio;
 
         final boolean contentSizeChanged =
                 contentWidth != mRenderCoordinates.getContentWidthCss()
@@ -2403,8 +2289,10 @@ public class ContentViewCore implements AccessibilityStateChangeListener, Screen
                 pageScaleChanged
                 || scrollOffsetX != mRenderCoordinates.getScrollX()
                 || scrollOffsetY != mRenderCoordinates.getScrollY();
-        final boolean contentOffsetChanged =
-                contentOffsetYPix != mRenderCoordinates.getContentOffsetYPix();
+        final boolean topBarChanged = Float.compare(topBarShownPix,
+                mRenderCoordinates.getContentOffsetYPix()) != 0;
+        final boolean bottomBarChanged = Float.compare(bottomBarShownPix, mRenderCoordinates
+                .getContentOffsetYPixBottom()) != 0;
 
         final boolean needHidePopupZoomer = contentSizeChanged || scrollChanged;
         final boolean needUpdateZoomControls = scaleLimitsChanged || scrollChanged;
@@ -2424,9 +2312,9 @@ public class ContentViewCore implements AccessibilityStateChangeListener, Screen
                 contentWidth, contentHeight,
                 viewportWidth, viewportHeight,
                 pageScaleFactor, minPageScaleFactor, maxPageScaleFactor,
-                contentOffsetYPix);
+                topBarShownPix, bottomBarShownPix);
 
-        if (scrollChanged || contentOffsetChanged) {
+        if (scrollChanged || topBarChanged) {
             for (mGestureStateListenersIterator.rewind();
                     mGestureStateListenersIterator.hasNext();) {
                 mGestureStateListenersIterator.next().onScrollOffsetOrExtentChanged(
@@ -2437,11 +2325,14 @@ public class ContentViewCore implements AccessibilityStateChangeListener, Screen
 
         if (needUpdateZoomControls) mZoomControlsDelegate.updateZoomControls();
 
-        // Update offsets for fullscreen.
-        final float controlsOffsetPix = controlsOffsetYCss * deviceScale;
-        // TODO(aelias): Remove last argument after downstream removes it.
-        getContentViewClient().onOffsetsForFullscreenChanged(
-                controlsOffsetPix, contentOffsetYPix);
+        if (topBarChanged) {
+            float topBarTranslate = topBarShownPix - topControlsHeightDp * deviceScale;
+            getContentViewClient().onTopControlsChanged(topBarTranslate, topBarShownPix);
+        }
+        if (bottomBarChanged) {
+            float bottomBarTranslate = bottomControlsHeightDp * deviceScale - bottomBarShownPix;
+            getContentViewClient().onBottomControlsChanged(bottomBarTranslate, bottomBarShownPix);
+        }
 
         if (mBrowserAccessibilityManager != null) {
             mBrowserAccessibilityManager.notifyFrameInfoInitialized();
@@ -2502,6 +2393,7 @@ public class ContentViewCore implements AccessibilityStateChangeListener, Screen
 
     /**
      * Called (from native) when the <select> popup needs to be shown.
+     * @param anchorView View anchored for popup.
      * @param nativeSelectPopupSourceFrame The native RenderFrameHost that owns the popup.
      * @param items           Items to show.
      * @param enabled         POPUP_ITEM_TYPEs for items.
@@ -2510,7 +2402,7 @@ public class ContentViewCore implements AccessibilityStateChangeListener, Screen
      */
     @SuppressWarnings("unused")
     @CalledByNative
-    private void showSelectPopup(long nativeSelectPopupSourceFrame, Rect bounds, String[] items,
+    private void showSelectPopup(View anchorView, long nativeSelectPopupSourceFrame, String[] items,
             int[] enabled, boolean multiple, int[] selectedIndices, boolean rightAligned) {
         if (mContainerView.getParent() == null || mContainerView.getVisibility() != View.VISIBLE) {
             mNativeSelectPopupSourceFrame = nativeSelectPopupSourceFrame;
@@ -2528,7 +2420,7 @@ public class ContentViewCore implements AccessibilityStateChangeListener, Screen
         }
         if (DeviceFormFactor.isTablet(mContext) && !multiple && !isTouchExplorationEnabled()) {
             mSelectPopup = new SelectPopupDropdown(
-                    this, popupItems, bounds, selectedIndices, rightAligned);
+                    this, anchorView, popupItems, selectedIndices, rightAligned);
         } else {
             if (getWindowAndroid() == null) return;
             Context windowContext = getWindowAndroid().getContext().get();
@@ -2625,17 +2517,6 @@ public class ContentViewCore implements AccessibilityStateChangeListener, Screen
 
     @SuppressWarnings("unused")
     @CalledByNative
-    private boolean showPastePopupWithFeedback(int x, int y) {
-        if (showPastePopup(x, y)) {
-            if (mWebContents != null) mWebContents.onContextMenuOpened();
-            return true;
-        } else {
-            return false;
-        }
-    }
-
-    @SuppressWarnings("unused")
-    @CalledByNative
     private void performLongPressHapticFeedback() {
         mContainerView.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
     }
@@ -2646,21 +2527,26 @@ public class ContentViewCore implements AccessibilityStateChangeListener, Screen
         return false;
     }
 
-    private boolean showPastePopup(int x, int y) {
+    // Coordinates are in DIP.
+    @CalledByNative
+    private void showPastePopup(int x, int y) {
         if (mContainerView.getParent() == null || mContainerView.getVisibility() != View.VISIBLE) {
-            return false;
+            return;
         }
 
-        if (!mHasInsertion || !canPaste()) return false;
-        final float contentOffsetYPix = mRenderCoordinates.getContentOffsetYPix();
+        if (!mHasInsertion || (!supportsFloatingActionMode() && !canPaste())) return;
+
         PastePopupMenu pastePopupMenu = getPastePopup();
-        if (pastePopupMenu == null) return false;
+        if (pastePopupMenu == null) return;
+
+        final float deviceScale = mRenderCoordinates.getDeviceScaleFactor();
+        final int xPix = (int) (x * deviceScale);
+        final int yPix = (int) (y * deviceScale);
+        final float topControlsShownPix = mRenderCoordinates.getContentOffsetYPix();
         try {
-            pastePopupMenu.show(x, (int) (y + contentOffsetYPix));
+            pastePopupMenu.show(xPix, (int) (yPix + topControlsShownPix));
         } catch (WindowManager.BadTokenException e) {
-            return false;
         }
-        return true;
     }
 
     private void hidePastePopup() {
@@ -2674,11 +2560,6 @@ public class ContentViewCore implements AccessibilityStateChangeListener, Screen
                 public void paste() {
                     mWebContents.paste();
                     dismissTextHandles();
-                }
-
-                @Override
-                public void onDismiss() {
-                    if (mWebContents != null) mWebContents.onContextMenuClosed();
                 }
             };
             Context windowContext = getWindowAndroid().getContext().get();
@@ -3081,7 +2962,7 @@ public class ContentViewCore implements AccessibilityStateChangeListener, Screen
             @Override
             public void onAccessibilitySnapshot(AccessibilitySnapshotNode root) {
                 viewRoot.setClassName("");
-                viewRoot.setHint(mContentViewClient.getProductVersion());
+                viewRoot.setHint(mProductVersion);
                 if (root == null) {
                     viewRoot.asyncCommit();
                     return;
@@ -3277,6 +3158,57 @@ public class ContentViewCore implements AccessibilityStateChangeListener, Screen
     }
 
     /**
+     * @see View#onDragEvent(DragEvent)
+     */
+    // TODO(hush): uncomment below when we build with API 24.
+    // @TargetApi(Build.VERSION_CODES.N)
+    public boolean onDragEvent(DragEvent event) {
+        if (mNativeContentViewCore == 0 || Build.VERSION.SDK_INT <= Build.VERSION_CODES.M) {
+            return false;
+        }
+
+        ClipDescription clipDescription = event.getClipDescription();
+
+        // text/* will match text/uri-list, text/html, text/plain.
+        String[] mimeTypes =
+                clipDescription == null ? new String[0] : clipDescription.filterMimeTypes("text/*");
+
+        if (event.getAction() == DragEvent.ACTION_DRAG_STARTED) {
+            // TODO(hush): support dragging more than just text.
+            return mimeTypes != null && mimeTypes.length > 0
+                    && nativeIsTouchDragDropEnabled(mNativeContentViewCore);
+        }
+
+        StringBuilder content = new StringBuilder("");
+        if (event.getAction() == DragEvent.ACTION_DROP) {
+            // TODO(hush): obtain dragdrop permissions (via reflection?), when dragging files into
+            // Chrome/WebView is supported. Not necessary to do so for now, because only text
+            // dragging is supported.
+            ClipData clipData = event.getClipData();
+            final int itemCount = clipData.getItemCount();
+            for (int i = 0; i < itemCount; i++) {
+                ClipData.Item item = clipData.getItemAt(i);
+                content.append(item.coerceToStyledText(mContainerView.getContext()));
+            }
+        }
+
+        int[] locationOnScreen = new int[2];
+        mContainerView.getLocationOnScreen(locationOnScreen);
+
+        float xPix = event.getX() + mCurrentTouchOffsetX;
+        float yPix = event.getY() + mCurrentTouchOffsetY;
+
+        int xCss = (int) mRenderCoordinates.fromPixToDip(xPix);
+        int yCss = (int) mRenderCoordinates.fromPixToDip(yPix);
+        int screenXCss = (int) mRenderCoordinates.fromPixToDip(xPix + locationOnScreen[0]);
+        int screenYCss = (int) mRenderCoordinates.fromPixToDip(yPix + locationOnScreen[1]);
+
+        nativeOnDragEvent(mNativeContentViewCore, event.getAction(), xCss, yCss, screenXCss,
+                screenYCss, mimeTypes, content.toString());
+        return true;
+    }
+
+    /**
      * Offer a long press gesture to the embedding View, primarily for WebView compatibility.
      *
      * @return true if the embedder handled the event.
@@ -3301,32 +3233,6 @@ public class ContentViewCore implements AccessibilityStateChangeListener, Screen
         if (potentiallyActiveFlingCount > 0) updateGestureStateListener(GestureEventType.FLING_END);
     }
 
-    private float getWheelScrollFactorInPixels() {
-        if (mWheelScrollFactorInPixels == 0) {
-            TypedValue outValue = new TypedValue();
-            // This is the same attribute used by Android Views to scale wheel
-            // event motion into scroll deltas.
-            if (mContext.getTheme().resolveAttribute(
-                        android.R.attr.listPreferredItemHeight, outValue, true)) {
-                mWheelScrollFactorInPixels =
-                        outValue.getDimension(mContext.getResources().getDisplayMetrics());
-            } else {
-                // If attribute retrieval fails, just use a sensible default.
-                mWheelScrollFactorInPixels = 64 * mRenderCoordinates.getDeviceScaleFactor();
-            }
-        }
-        return mWheelScrollFactorInPixels;
-    }
-
-    ContentVideoViewEmbedder getContentVideoViewEmbedder() {
-        return getContentViewClient().getContentVideoViewEmbedder();
-    }
-
-    @CalledByNative
-    private boolean shouldBlockMediaRequest(String url) {
-        return getContentViewClient().shouldBlockMediaRequest(url);
-    }
-
     @CalledByNative
     private void onNativeFlingStopped() {
         // Note that mTouchScrollInProgress should normally be false at this
@@ -3338,16 +3244,35 @@ public class ContentViewCore implements AccessibilityStateChangeListener, Screen
     }
 
     @Override
-    public void onScreenOrientationChanged(int orientation) {
+    public void onRotationChanged(int rotation) {
         // ActionMode#invalidate() won't be able to re-layout the floating
-        // action mode menu items according to the new orientation. So Chrome
+        // action mode menu items according to the new rotation. So Chrome
         // has to re-create the action mode.
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && mActionMode != null) {
             hidePopupsAndPreserveSelection();
             showSelectActionMode(true);
         }
 
-        sendOrientationChangeEvent(orientation);
+        int rotationDegrees = 0;
+        switch (rotation) {
+            case Surface.ROTATION_0:
+                rotationDegrees = 0;
+                break;
+            case Surface.ROTATION_90:
+                rotationDegrees = 90;
+                break;
+            case Surface.ROTATION_180:
+                rotationDegrees = 180;
+                break;
+            case Surface.ROTATION_270:
+                rotationDegrees = -90;
+                break;
+            default:
+                throw new IllegalStateException(
+                        "Display.getRotation() shouldn't return that value");
+        }
+
+        sendOrientationChangeEvent(rotationDegrees);
     }
 
     /**
@@ -3469,9 +3394,6 @@ public class ContentViewCore implements AccessibilityStateChangeListener, Screen
     private native void nativePinchBy(long nativeContentViewCoreImpl, long timeMs,
             float anchorX, float anchorY, float deltaScale);
 
-    private native void nativeSelectBetweenCoordinates(
-            long nativeContentViewCoreImpl, float x1, float y1, float x2, float y2);
-
     private native void nativeDismissTextHandles(long nativeContentViewCoreImpl);
     private native void nativeSetTextHandlesTemporarilyHidden(
             long nativeContentViewCoreImpl, boolean hidden);
@@ -3515,4 +3437,7 @@ public class ContentViewCore implements AccessibilityStateChangeListener, Screen
             int x, int y, int w, int h);
 
     private native void nativeSetBackgroundOpaque(long nativeContentViewCoreImpl, boolean opaque);
+    private native boolean nativeIsTouchDragDropEnabled(long nativeContentViewCoreImpl);
+    private native void nativeOnDragEvent(long nativeContentViewCoreImpl, int action, int x, int y,
+            int screenX, int screenY, String[] mimeTypes, String content);
 }

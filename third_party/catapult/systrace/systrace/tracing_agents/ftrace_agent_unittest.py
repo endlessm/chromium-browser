@@ -1,13 +1,16 @@
 #!/usr/bin/env python
 
-# Copyright (c) 2015 The Chromium Authors. All rights reserved.
+# Copyright 2015 The Chromium Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
 import unittest
 import logging
+
+from systrace import decorators
 from systrace import run_systrace
 from systrace.tracing_agents import ftrace_agent
+
 
 SYSTRACE_HOST_CMD_DEFAULT = ['./systrace.py', '--target=linux']
 FT_DIR = "/sys/kernel/debug/tracing/"
@@ -40,6 +43,7 @@ def make_test_io_interface(permitted_files):
 
 class FtraceAgentTest(unittest.TestCase):
 
+  @decorators.HostOnlyTest
   def test_avail_categories(self):
     # sched only has required events
     permitted_files = {
@@ -65,6 +69,7 @@ class FtraceAgentTest(unittest.TestCase):
     agent = ftrace_agent.FtraceAgent(io_interface)
     self.assertEqual(['disk'], agent._avail_categories())
 
+  @decorators.HostOnlyTest
   def test_tracing_bootstrap(self):
     workq_event_path = FT_EVENT_DIR + "workqueue/enable"
     permitted_files = {
@@ -97,6 +102,7 @@ class FtraceAgentTest(unittest.TestCase):
     # confirm buffer size is reset to 1
     self.assertEqual(permitted_files[FT_BUFFER_SIZE], "1")
 
+  @decorators.HostOnlyTest
   def test_tracing_event_enable_disable(self):
     # turn on irq tracing
     ipi_event_path = FT_EVENT_DIR + "ipi/enable"
@@ -108,11 +114,12 @@ class FtraceAgentTest(unittest.TestCase):
     io_interface = make_test_io_interface(permitted_files)
     systrace_cmd = SYSTRACE_HOST_CMD_DEFAULT + ["irq"]
     options, categories = run_systrace.parse_options(systrace_cmd)
+    options.ftrace_categories = categories
     agent = ftrace_agent.FtraceAgent(io_interface)
     self.assertEqual(['irq'], agent._avail_categories())
 
     # confirm all the event nodes are turned on during tracing
-    agent.StartAgentTracing(options, categories)
+    agent.StartAgentTracing(options)
     self.assertEqual(permitted_files[irq_event_path], "1")
     self.assertEqual(permitted_files[ipi_event_path], "1")
 
@@ -122,12 +129,13 @@ class FtraceAgentTest(unittest.TestCase):
     self.assertEqual(permitted_files[irq_event_path], "0")
     self.assertEqual(permitted_files[ipi_event_path], "0")
 
+  @decorators.HostOnlyTest
   def test_buffer_size(self):
     systrace_cmd = SYSTRACE_HOST_CMD_DEFAULT + ['-b', '16000']
     options, categories = run_systrace.parse_options(systrace_cmd)
     agent = ftrace_agent.FtraceAgent()
-    agent._options = options
-    agent._categories = categories
+    agent._config = options
+    agent._config.atrace_categories = categories
     self.assertEqual(agent._get_trace_buffer_size(), 16000)
 
 if __name__ == "__main__":

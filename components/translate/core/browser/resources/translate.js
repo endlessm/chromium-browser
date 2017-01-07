@@ -258,12 +258,18 @@ cr.googleTranslate = (function() {
         lib = google.translate.TranslateService({
           // translateApiKey is predefined by translate_script.cc.
           'key': translateApiKey,
+          'serverParams': serverParams,
+          'timeInfo': gtTimeInfo,
           'useSecureConnection': true
         });
         translateApiKey = undefined;
+        serverParams = undefined;
+        gtTimeInfo = undefined;
       } catch (err) {
         errorCode = ERROR['INITIALIZATION_ERROR'];
         translateApiKey = undefined;
+        serverParams = undefined;
+        gtTimeInfo = undefined;
         return;
       }
       // The TranslateService is not available immediately as it needs to start
@@ -292,7 +298,7 @@ cr.googleTranslate = (function() {
      */
     onLoadJavascript: function(url) {
       // securityOrigin is predefined by translate_script.cc.
-      if (url.indexOf(securityOrigin) != 0) {
+      if (!url.startsWith(securityOrigin)) {
         console.error('Translate: ' + url + ' is not allowed to load.');
         errorCode = ERROR['BAD_ORIGIN'];
         return;

@@ -3,6 +3,8 @@ include_rules = [
   "+cc",
   "-chrome",
   "+content/public",
+  "+mojo/edk/embedder",
   "+net",
+  "+ui/android",
   "+ui/gfx",
 ]

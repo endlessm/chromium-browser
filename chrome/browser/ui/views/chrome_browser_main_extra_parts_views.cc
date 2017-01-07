@@ -9,19 +9,19 @@
 #include "components/constrained_window/constrained_window_views.h"
 
 #if defined(USE_AURA)
-#include "ui/display/screen.h"
-#include "ui/views/widget/desktop_aura/desktop_screen.h"
-#include "ui/wm/core/wm_state.h"
-#endif
-
-#if defined(USE_AURA) && defined(MOJO_SHELL_CLIENT)
-#include "components/mus/public/cpp/input_devices/input_device_client.h"
-#include "components/mus/public/interfaces/input_devices/input_device_server.mojom.h"
-#include "content/public/common/mojo_shell_connection.h"
+#include "base/run_loop.h"
+#include "content/public/browser/browser_thread.h"
+#include "content/public/common/service_manager_connection.h"
 #include "services/shell/public/cpp/connector.h"
 #include "services/shell/runner/common/client_util.h"
+#include "services/ui/public/cpp/gpu_service.h"
+#include "services/ui/public/cpp/input_devices/input_device_client.h"
+#include "services/ui/public/interfaces/input_devices/input_device_server.mojom.h"
+#include "ui/display/screen.h"
 #include "ui/views/mus/window_manager_connection.h"
-#endif
+#include "ui/views/widget/desktop_aura/desktop_screen.h"
+#include "ui/wm/core/wm_state.h"
+#endif  // defined(USE_AURA)
 
 ChromeBrowserMainExtraPartsViews::ChromeBrowserMainExtraPartsViews() {
 }
@@ -45,25 +45,32 @@ void ChromeBrowserMainExtraPartsViews::ToolkitInitialized() {
 
 void ChromeBrowserMainExtraPartsViews::PreCreateThreads() {
 #if defined(USE_AURA) && !defined(OS_CHROMEOS)
-  display::Screen::SetScreenInstance(views::CreateDesktopScreen());
+  // The screen may have already been set in test initialization.
+  if (!display::Screen::GetScreen())
+    display::Screen::SetScreenInstance(views::CreateDesktopScreen());
 #endif
 }
 
-void ChromeBrowserMainExtraPartsViews::PreProfileInit() {
-#if defined(USE_AURA) && defined(MOJO_SHELL_CLIENT)
-  content::MojoShellConnection* mojo_shell_connection =
-      content::MojoShellConnection::GetForProcess();
-  if (mojo_shell_connection && shell::ShellIsRemote()) {
-    input_device_client_.reset(new mus::InputDeviceClient());
-    mus::mojom::InputDeviceServerPtr server;
-    mojo_shell_connection->GetConnector()->ConnectToInterface("mojo:mus",
-                                                              &server);
+void ChromeBrowserMainExtraPartsViews::ServiceManagerConnectionStarted(
+    content::ServiceManagerConnection* connection) {
+  DCHECK(connection);
+#if defined(USE_AURA)
+  if (shell::ShellIsRemote()) {
+    // TODO(rockot): Remove the blocking wait for init.
+    // http://crbug.com/594852.
+    base::RunLoop wait_loop;
+    connection->SetInitializeHandler(wait_loop.QuitClosure());
+    wait_loop.Run();
+
+    input_device_client_.reset(new ui::InputDeviceClient());
+    ui::mojom::InputDeviceServerPtr server;
+    connection->GetConnector()->ConnectToInterface("service:ui", &server);
     input_device_client_->Connect(std::move(server));
 
     window_manager_connection_ = views::WindowManagerConnection::Create(
-        mojo_shell_connection->GetConnector(),
-        mojo_shell_connection->GetIdentity());
+        connection->GetConnector(), connection->GetIdentity(),
+        content::BrowserThread::GetTaskRunnerForThread(
+            content::BrowserThread::IO));
   }
-#endif  // defined(USE_AURA) && defined(MOJO_SHELL_CLIENT)
-  ChromeBrowserMainExtraParts::PreProfileInit();
+#endif  // defined(USE_AURA)
 }

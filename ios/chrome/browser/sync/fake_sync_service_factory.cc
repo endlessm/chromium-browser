@@ -9,7 +9,7 @@
 #include "base/memory/singleton.h"
 #include "components/keyed_service/core/keyed_service.h"
 #include "components/keyed_service/ios/browser_state_dependency_manager.h"
-#include "components/sync_driver/fake_sync_service.h"
+#include "components/sync/driver/fake_sync_service.h"
 #include "ios/chrome/browser/browser_state/chrome_browser_state.h"
 
 namespace {
@@ -18,12 +18,10 @@ class KeyedFakeSyncService : public KeyedService {
  public:
   KeyedFakeSyncService() {}
 
-  sync_driver::FakeSyncService* fake_sync_service() {
-    return &fake_sync_service_;
-  }
+  syncer::FakeSyncService* fake_sync_service() { return &fake_sync_service_; }
 
  private:
-  sync_driver::FakeSyncService fake_sync_service_;
+  syncer::FakeSyncService fake_sync_service_;
 };
 
 }  // namespace
@@ -36,7 +34,7 @@ FakeSyncServiceFactory* FakeSyncServiceFactory::GetInstance() {
 }
 
 // static
-sync_driver::FakeSyncService* FakeSyncServiceFactory::GetForBrowserState(
+syncer::FakeSyncService* FakeSyncServiceFactory::GetForBrowserState(
     ios::ChromeBrowserState* browser_state) {
   return static_cast<KeyedFakeSyncService*>(
              FakeSyncServiceFactory::GetInstance()->GetServiceForBrowserState(
@@ -45,8 +43,7 @@ sync_driver::FakeSyncService* FakeSyncServiceFactory::GetForBrowserState(
 }
 
 // static
-sync_driver::FakeSyncService*
-FakeSyncServiceFactory::GetForBrowserStateIfExists(
+syncer::FakeSyncService* FakeSyncServiceFactory::GetForBrowserStateIfExists(
     ios::ChromeBrowserState* browser_state) {
   return static_cast<KeyedFakeSyncService*>(
              FakeSyncServiceFactory::GetInstance()->GetServiceForBrowserState(

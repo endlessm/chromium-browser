@@ -115,7 +115,9 @@ void VersionUpdaterWin::OnError(GoogleUpdateErrorCode error_code,
 
 void VersionUpdaterWin::BeginUpdateCheckOnFileThread(
     bool install_update_if_possible) {
-  BeginUpdateCheck(content::BrowserThread::GetMessageLoopProxyForThread(
+  // Disconnect from any previous attempts to avoid redundant callbacks.
+  weak_factory_.InvalidateWeakPtrs();
+  BeginUpdateCheck(content::BrowserThread::GetTaskRunnerForThread(
                        content::BrowserThread::FILE),
                    g_browser_process->GetApplicationLocale(),
                    install_update_if_possible, owner_widget_,

@@ -6,7 +6,7 @@
 #include "build/build_config.h"
 #include "chrome/app/chrome_command_ids.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/task_management/task_manager_browsertest_util.h"
+#include "chrome/browser/task_manager/task_manager_browsertest_util.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_commands.h"
 #include "chrome/browser/ui/browser_dialogs.h"
@@ -28,11 +28,11 @@
 #include "ui/aura/window_tree_host.h"
 #endif
 
-using task_management::browsertest_util::MatchAboutBlankTab;
-using task_management::browsertest_util::MatchAnyPrint;
-using task_management::browsertest_util::MatchAnyTab;
-using task_management::browsertest_util::MatchPrint;
-using task_management::browsertest_util::WaitForTaskManagerRows;
+using task_manager::browsertest_util::MatchAboutBlankTab;
+using task_manager::browsertest_util::MatchAnyPrint;
+using task_manager::browsertest_util::MatchAnyTab;
+using task_manager::browsertest_util::MatchPrint;
+using task_manager::browsertest_util::WaitForTaskManagerRows;
 
 namespace {
 
@@ -56,11 +56,13 @@ IN_PROC_BROWSER_TEST_F(PrintPreviewTest, PrintCommands) {
 
   ASSERT_TRUE(chrome::IsCommandEnabled(browser(), IDC_PRINT));
 
-#if defined(ENABLE_BASIC_PRINTING)
+#if defined(ENABLE_BASIC_PRINTING) && !defined(OS_CHROMEOS)
+  // This is analagous to ENABLE_BASIC_PRINT_DIALOG but helps to verify
+  // that it is defined as expected.
   bool is_basic_print_expected = true;
 #else
   bool is_basic_print_expected = false;
-#endif  // ENABLE_BASIC_PRINTING
+#endif
 
   ASSERT_EQ(is_basic_print_expected,
             chrome::IsCommandEnabled(browser(), IDC_BASIC_PRINT));
@@ -75,7 +77,7 @@ IN_PROC_BROWSER_TEST_F(PrintPreviewTest, PrintCommands) {
 
   content::TestNavigationObserver reload_observer(
       browser()->tab_strip_model()->GetActiveWebContents());
-  chrome::Reload(browser(), CURRENT_TAB);
+  chrome::Reload(browser(), WindowOpenDisposition::CURRENT_TAB);
   reload_observer.Wait();
 
   ASSERT_TRUE(chrome::IsCommandEnabled(browser(), IDC_PRINT));
@@ -129,7 +131,7 @@ IN_PROC_BROWSER_TEST_F(PrintPreviewTest, DISABLED_NoCrashOnCloseWithOtherTabs) {
   Print();
 
   ui_test_utils::NavigateToURLWithDisposition(
-      browser(), GURL("about:blank"), NEW_FOREGROUND_TAB,
+      browser(), GURL("about:blank"), WindowOpenDisposition::NEW_FOREGROUND_TAB,
       ui_test_utils::BROWSER_TEST_WAIT_FOR_NAVIGATION);
 
   browser()->tab_strip_model()->ActivateTabAt(0, true);

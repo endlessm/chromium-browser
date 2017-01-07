@@ -37,10 +37,10 @@ cursors.Unit = {
   /** A leaf node. */
   NODE: 'node',
 
-  /** A leaf DOM-node. */
-  DOM_NODE: 'dom_node',
-
-  /** Formed by a set of leaf nodes that are inline. */
+  /**
+   * A node or in line textbox that immediately precedes or follows a visual
+   *     line break.
+   */
   LINE: 'line'
 };
 
@@ -97,12 +97,37 @@ cursors.Cursor.fromNode = function(node) {
 cursors.Cursor.prototype = {
   /**
    * Returns true if |rhs| is equal to this cursor.
+   * Use this for strict equality between cursors.
    * @param {!cursors.Cursor} rhs
    * @return {boolean}
    */
   equals: function(rhs) {
     return this.node === rhs.node &&
         this.index === rhs.index;
+  },
+
+  /**
+   * Returns true if |rhs| is equal to this cursor.
+   * Use this for loose equality between cursors where specific character-based
+   * indicies do not matter such as when processing node-targeted events.
+   * @param {!cursors.Cursor} rhs
+   * @return {boolean}
+   */
+  contentEquals: function(rhs) {
+    // First, normalize the two nodes so they both point to the first non-text
+    // node.
+    var lNode = this.node;
+    var rNode = rhs.node;
+    while (lNode && (lNode.role == RoleType.inlineTextBox ||
+        lNode.role == RoleType.staticText))
+      lNode = lNode.parent;
+    while (rNode && (rNode.role == RoleType.inlineTextBox ||
+        rNode.role == RoleType.staticText))
+      rNode = rNode.parent;
+
+    // Ignore indicies for now.
+
+    return lNode === rNode && lNode != undefined;
   },
 
   /**
@@ -130,25 +155,45 @@ cursors.Cursor.prototype = {
     return this.index_;
   },
 
+
   /**
-   * An index appropriate for making selections.
+   * A node appropriate for making selections.
+   * @return {AutomationNode}
+   * @private
+   */
+  get selectionNode_() {
+    if (!this.node)
+      return null;
+
+    if (this.node.role == RoleType.inlineTextBox)
+      return this.node.parent;
+
+    return this.node;
+  },
+
+  /**
+   * An index appropriate for making selections.  If this cursor has a
+   * cursors.NODE_INDEX index, the selection index is a node offset e.g. the
+   * index in parent. If not, the index is a character offset.
    * @return {number}
    * @private
    */
   get selectionIndex_() {
-    if (this.index_ == cursors.NODE_INDEX)
-      return 0;
-
     var adjustedIndex = this.index_;
-
     if (this.node.role == RoleType.inlineTextBox) {
+      if (adjustedIndex == cursors.NODE_INDEX)
+        adjustedIndex = 0;
+
       var sibling = this.node.previousSibling;
       while (sibling) {
         adjustedIndex += sibling.name.length;
         sibling = sibling.previousSibling;
       }
+    } else if (this.index_ == cursors.NODE_INDEX) {
+      // Indicies of this kind are buggy. Set it to 0 (different than the DOM
+      // index in parent convention).
+      adjustedIndex = 0;
     }
-
     return adjustedIndex;
   },
 
@@ -182,8 +227,7 @@ cursors.Cursor.prototype = {
     var newNode = originalNode;
     var newIndex = this.index_;
 
-    if ((unit != Unit.NODE || unit != Unit.DOM_NODE) &&
-        newIndex === cursors.NODE_INDEX)
+    if (unit != Unit.NODE && newIndex === cursors.NODE_INDEX)
       newIndex = 0;
 
     switch (unit) {
@@ -271,16 +315,13 @@ cursors.Cursor.prototype = {
         }
         break;
       case Unit.NODE:
-      case Unit.DOM_NODE:
         switch (movement) {
           case Movement.BOUND:
             newIndex = dir == Dir.FORWARD ? this.getText().length - 1 : 0;
             break;
           case Movement.DIRECTIONAL:
-            var pred = unit == Unit.NODE ?
-                AutomationPredicate.leaf : AutomationPredicate.object;
             newNode = AutomationUtil.findNextNode(
-                newNode, dir, pred) || originalNode;
+                newNode, dir, AutomationPredicate.object) || originalNode;
             newIndex = cursors.NODE_INDEX;
             break;
         }
@@ -351,8 +392,14 @@ cursors.WrappingCursor.prototype = {
       return this;
 
     // Regular movement.
-    if (!AutomationPredicate.root(this.node) || dir == Dir.FORWARD)
+    if (!AutomationPredicate.root(this.node) ||
+        dir == Dir.FORWARD ||
+        movement == Movement.BOUND)
       result = cursors.Cursor.prototype.move.call(this, unit, movement, dir);
+
+    // Moving to the bounds of a unit never wraps.
+    if (movement == Movement.BOUND)
+      return new cursors.WrappingCursor(result.node, result.index);
 
     // There are two cases for wrapping:
     // 1. moving forwards from the last element.
@@ -362,7 +409,7 @@ cursors.WrappingCursor.prototype = {
     // For 2, place range on the root (if not already there). If at root,
     // try to descend to the first leaf-like object.
     if (movement == Movement.DIRECTIONAL && result.equals(this)) {
-      var pred = unit == Unit.DOM_NODE ?
+      var pred = unit == Unit.NODE ?
           AutomationPredicate.object : AutomationPredicate.leaf;
       var endpoint = this.node;
       if (!endpoint)
@@ -458,12 +505,24 @@ cursors.Range.getDirection = function(rangeA, rangeB) {
 cursors.Range.prototype = {
   /**
    * Returns true if |rhs| is equal to this range.
+   * Use this for strict equality between ranges.
    * @param {!cursors.Range} rhs
    * @return {boolean}
    */
   equals: function(rhs) {
     return this.start_.equals(rhs.start) &&
         this.end_.equals(rhs.end);
+  },
+
+  /**
+   * Returns true if |rhs| is equal to this range.
+   * Use this for loose equality between ranges.
+   * @param {!cursors.Range} rhs
+   * @return {boolean}
+   */
+  contentEquals: function(rhs) {
+    return this.start_.contentEquals(rhs.start) &&
+        this.end_.contentEquals(rhs.end);
   },
 
   /**
@@ -532,7 +591,6 @@ cursors.Range.prototype = {
         newEnd = newStart.move(unit, Movement.BOUND, Dir.FORWARD);
         break;
       case Unit.NODE:
-      case Unit.DOM_NODE:
         newStart = newStart.move(unit, Movement.DIRECTIONAL, dir);
         newEnd = newStart;
         break;
@@ -546,36 +604,27 @@ cursors.Range.prototype = {
    * Select the text contained within this range.
    */
   select: function() {
-    var start = this.start.node;
-    var end = this.end.node;
+    var startNode = this.start.selectionNode_;
+    var endNode = this.end.selectionNode_;
 
-    if (!start || !end)
+    if (!startNode || !endNode)
       return;
 
-    // Find the most common root.
-    var uniqueAncestors = AutomationUtil.getUniqueAncestors(start, end);
-    var mcr = start.root;
-    if (uniqueAncestors) {
-      var common = uniqueAncestors.pop().parent;
-      if (common)
-        mcr = common.root;
-    }
-
-    if (!mcr || mcr.role == RoleType.desktop)
-      return;
-
-    if (mcr === start.root && mcr === end.root) {
-      start = start.role == RoleType.inlineTextBox ? start.parent : start;
-      end = end.role == RoleType.inlineTextBox ? end.parent : end;
-
-      if (!start || !end)
-        return;
+    // Only allow selections within the same web tree.
+    if (startNode.root &&
+        startNode.root.role == RoleType.rootWebArea &&
+        startNode.root == endNode.root) {
+      // We want to adjust to select the entire node for node offsets;
+      // otherwise, use the plain character offset.
+      var startIndex = this.start.selectionIndex_;
+      var endIndex = this.end.index == cursors.NODE_INDEX ?
+          this.end.selectionIndex_ + 1 : this.end.selectionIndex_;
 
       chrome.automation.setDocumentSelection(
-          { anchorObject: start,
-            anchorOffset: this.start.selectionIndex_,
-            focusObject: end,
-            focusOffset: this.end.selectionIndex_ }
+          { anchorObject: startNode,
+            anchorOffset: startIndex,
+            focusObject: endNode,
+            focusOffset: endIndex }
       );
     }
   },

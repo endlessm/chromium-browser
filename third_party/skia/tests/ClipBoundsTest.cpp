@@ -8,7 +8,7 @@
 #include "Test.h"
 // This is a GR test
 #if SK_SUPPORT_GPU
-#include "GrClipMaskManager.h"
+#include "GrClipStackClip.h"
 #include "GrContext.h"
 
 // Ensure that the 'getConservativeBounds' calls are returning bounds clamped
@@ -26,7 +26,7 @@ DEF_GPUTEST_FOR_RENDERING_CONTEXTS(GrClipBounds, reporter, ctxInfo) {
     // create a clip stack that will (trivially) reduce to a single rect that
     // is larger than the screen
     SkClipStack stack;
-    stack.clipDevRect(clipRect, SkRegion::kReplace_Op, false);
+    stack.clipRect(clipRect, SkMatrix::I(), SkCanvas::kReplace_Op, false);
 
     bool isIntersectionOfRects = true;
     SkRect devStackBounds;

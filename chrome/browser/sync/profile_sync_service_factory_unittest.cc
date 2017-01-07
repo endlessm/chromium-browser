@@ -7,19 +7,21 @@
 #include <stddef.h>
 
 #include <memory>
+#include <vector>
 
 #include "base/command_line.h"
 #include "build/build_config.h"
 #include "chrome/test/base/testing_profile.h"
-#include "components/browser_sync/browser/profile_sync_service.h"
-#include "components/browser_sync/common/browser_sync_switches.h"
-#include "components/sync_driver/data_type_controller.h"
+#include "components/browser_sync/browser_sync_switches.h"
+#include "components/browser_sync/profile_sync_service.h"
+#include "components/sync/base/model_type.h"
+#include "components/sync/driver/data_type_controller.h"
 #include "content/public/test/test_browser_thread_bundle.h"
-#include "sync/internal_api/public/base/model_type.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/app_list/app_list_switches.h"
 
-using sync_driver::DataTypeController;
+using browser_sync::ProfileSyncService;
+using syncer::DataTypeController;
 
 class ProfileSyncServiceFactoryTest : public testing::Test {
  protected:
@@ -45,12 +47,11 @@ class ProfileSyncServiceFactoryTest : public testing::Test {
 #endif
     datatypes.push_back(syncer::EXTENSIONS);
     datatypes.push_back(syncer::EXTENSION_SETTINGS);
-    datatypes.push_back(syncer::PREFERENCES);
     datatypes.push_back(syncer::SEARCH_ENGINES);
     datatypes.push_back(syncer::THEMES);
     datatypes.push_back(syncer::SUPERVISED_USERS);
     datatypes.push_back(syncer::SUPERVISED_USER_SHARED_SETTINGS);
-#endif // !OS_ANDROID
+#endif  // !OS_ANDROID
 
     // Common types.
     datatypes.push_back(syncer::AUTOFILL);
@@ -63,6 +64,7 @@ class ProfileSyncServiceFactoryTest : public testing::Test {
     datatypes.push_back(syncer::FAVICON_IMAGES);
     datatypes.push_back(syncer::HISTORY_DELETE_DIRECTIVES);
     datatypes.push_back(syncer::PASSWORDS);
+    datatypes.push_back(syncer::PREFERENCES);
     datatypes.push_back(syncer::PRIORITY_PREFERENCES);
     datatypes.push_back(syncer::SESSIONS);
     datatypes.push_back(syncer::PROXY_TABS);

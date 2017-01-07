@@ -17,6 +17,7 @@
 #include "base/memory/singleton.h"
 #include "base/path_service.h"
 #include "base/strings/string_number_conversions.h"
+#include "base/strings/string_util.h"
 #include "base/synchronization/cancellation_flag.h"
 #include "base/synchronization/waitable_event.h"
 #include "base/sys_info.h"
@@ -41,13 +42,12 @@ const char* kCrosSystemTool[] = { "/usr/bin/crossystem" };
 const char kCrosSystemEq[] = "=";
 const char kCrosSystemDelim[] = "\n";
 const char kCrosSystemCommentDelim[] = "#";
-const char kCrosSystemUnknownValue[] = "(error)";
+const char kCrosSystemValueError[] = "(error)";
 
 const char kHardwareClassCrosSystemKey[] = "hwid";
-const char kUnknownHardwareClass[] = "unknown";
+const char kHardwareClassValueUnknown[] = "unknown";
 
-// File to get system vendor information from.
-const char kSystemVendorFile[] = "/sys/class/dmi/id/sys_vendor";
+const char kIsVmCrosSystemKey[] = "inside_vm";
 
 // Key/value delimiters of machine hardware info file. machine-info is generated
 // only for OOBE and enterprise enrollment and may not be present. See
@@ -80,6 +80,26 @@ const base::CommandLine::CharType kOemManifestFilePath[] =
 const char kKeyboardsPath[] = "keyboards";
 const char kLocalesPath[] = "locales";
 const char kTimeZonesPath[] = "time_zones";
+
+// These are the machine serial number keys that we check in order until we
+// find a non-empty serial number. The VPD spec says the serial number should be
+// in the "serial_number" key for v2+ VPDs. However, legacy devices used a
+// different key to report their serial number, which we fall back to if
+// "serial_number" is not present.
+//
+// Product_S/N is still special-cased due to inconsistencies with serial
+// numbers on Lumpy devices: On these devices, serial_number is identical to
+// Product_S/N with an appended checksum. Unfortunately, the sticker on the
+// packaging doesn't include that checksum either (the sticker on the device
+// does though!). The former sticker is the source of the serial number used by
+// device management service, so we prefer Product_S/N over serial number to
+// match the server.
+const char* const kMachineInfoSerialNumberKeys[] = {
+    "Product_S/N",     // Lumpy/Alex devices
+    kSerialNumberKey,  // VPD v2+ devices
+    "Product_SN",      // Mario
+    "sn",              // old ZGB devices (more recent ones use serial_number)
+};
 
 // Gets ListValue from given |dictionary| by given |key| and (unless |result| is
 // nullptr) sets |result| to a string with all list values joined by ','.
@@ -158,7 +178,9 @@ const char kFirmwareTypeValueDeveloper[] = "developer";
 const char kFirmwareTypeValueNonchrome[] = "nonchrome";
 const char kFirmwareTypeValueNormal[] = "normal";
 const char kHardwareClassKey[] = "hardware_class";
-const char kSystemVendorKey[] = "system_vendor";
+const char kIsVmKey[] = "is_vm";
+const char kIsVmValueTrue[] = "1";
+const char kIsVmValueFalse[] = "0";
 const char kOffersCouponCodeKey[] = "ubind_attribute";
 const char kOffersGroupCodeKey[] = "gbind_attribute";
 const char kRlzBrandCodeKey[] = "rlz_brand_code";
@@ -166,6 +188,7 @@ const char kWriteProtectSwitchBootKey[] = "wpsw_boot";
 const char kWriteProtectSwitchBootValueOff[] = "0";
 const char kWriteProtectSwitchBootValueOn[] = "1";
 const char kRegionKey[] = "region";
+const char kSerialNumberKey[] = "serial_number";
 const char kInitialLocaleKey[] = "initial_locale";
 const char kInitialTimezoneKey[] = "initial_timezone";
 const char kKeyboardLayoutKey[] = "keyboard_layout";
@@ -191,6 +214,10 @@ class StatisticsProviderImpl : public StatisticsProvider {
                            std::string* result) override;
   bool GetMachineFlag(const std::string& name, bool* result) override;
   void Shutdown() override;
+
+  // Returns true when Chrome OS is running in a VM. NOTE: if crossystem is not
+  // installed it will return false even if Chrome OS is running in a VM.
+  bool IsRunningOnVm() override;
 
   static StatisticsProviderImpl* GetInstance();
 
@@ -375,6 +402,13 @@ void StatisticsProviderImpl::Shutdown() {
   cancellation_flag_.Set();  // Cancel any pending loads
 }
 
+bool StatisticsProviderImpl::IsRunningOnVm() {
+  if (!base::SysInfo::IsRunningOnChromeOS())
+    return false;
+  std::string is_vm;
+  return GetMachineStatistic(kIsVmKey, &is_vm) && is_vm == kIsVmValueTrue;
+}
+
 StatisticsProviderImpl::StatisticsProviderImpl()
     : load_statistics_started_(false),
       on_statistics_loaded_(base::WaitableEvent::ResetPolicy::MANUAL,
@@ -447,12 +481,6 @@ void StatisticsProviderImpl::LoadMachineStatistics(bool load_oem_manifest) {
     }
   }
 
-  if (base::SysInfo::IsRunningOnChromeOS()) {
-    std::string system_vendor;
-    base::ReadFileToString(base::FilePath(kSystemVendorFile), &system_vendor);
-    machine_info_[kSystemVendorKey] = system_vendor;
-  }
-
   parser.GetNameValuePairsFromFile(machine_info_path,
                                    kMachineHardwareInfoEq,
                                    kMachineHardwareInfoDelim);
@@ -466,10 +494,22 @@ void StatisticsProviderImpl::LoadMachineStatistics(bool load_oem_manifest) {
   // Ensure that the hardware class key is present with the expected
   // key name, and if it couldn't be retrieved, that the value is "unknown".
   std::string hardware_class = machine_info_[kHardwareClassCrosSystemKey];
-  if (hardware_class.empty() || hardware_class == kCrosSystemUnknownValue)
-    machine_info_[kHardwareClassKey] = kUnknownHardwareClass;
-  else
+  if (hardware_class.empty() || hardware_class == kCrosSystemValueError) {
+    machine_info_[kHardwareClassKey] = kHardwareClassValueUnknown;
+  } else {
     machine_info_[kHardwareClassKey] = hardware_class;
+  }
+
+  if (base::SysInfo::IsRunningOnChromeOS()) {
+    // By default, assume that this is *not* a VM. If crossystem is not present,
+    // report that we are not in a VM.
+    machine_info_[kIsVmKey] = kIsVmValueFalse;
+    const auto is_vm_iter = machine_info_.find(kIsVmCrosSystemKey);
+    if (is_vm_iter != machine_info_.end() &&
+        is_vm_iter->second == kIsVmValueTrue) {
+      machine_info_[kIsVmKey] = kIsVmValueTrue;
+    }
+  }
 
   if (load_oem_manifest) {
     // If kAppOemManifestFile switch is specified, load OEM Manifest file.
@@ -558,8 +598,14 @@ StatisticsProviderImpl* StatisticsProviderImpl::GetInstance() {
       base::DefaultSingletonTraits<StatisticsProviderImpl>>::get();
 }
 
-bool StatisticsProvider::HasMachineStatistic(const std::string& name) {
-  return GetMachineStatistic(name, nullptr);
+std::string StatisticsProvider::GetEnterpriseMachineID() {
+  std::string machine_id;
+  for (const char* key : kMachineInfoSerialNumberKeys) {
+    if (GetMachineStatistic(key, &machine_id) && !machine_id.empty()) {
+      break;
+    }
+  }
+  return machine_id;
 }
 
 static StatisticsProvider* g_test_statistics_provider = NULL;

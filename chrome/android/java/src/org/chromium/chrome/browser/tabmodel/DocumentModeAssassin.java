@@ -106,16 +106,16 @@ public class DocumentModeAssassin {
     private static final int TAB_MODEL_INDEX = 0;
 
     /** SharedPreference values to determine whether user had document mode turned on. */
-    private static final String OPT_OUT_STATE = "opt_out_state";
+    static final String OPT_OUT_STATE = "opt_out_state";
     private static final int OPT_IN_TO_DOCUMENT_MODE = 0;
     private static final int OPT_OUT_STATE_UNSET = -1;
-    private static final int OPTED_OUT_OF_DOCUMENT_MODE = 2;
+    static final int OPTED_OUT_OF_DOCUMENT_MODE = 2;
 
     /**
      * Preference that denotes that Chrome has attempted to migrate from tabbed mode to document
      * mode. Indicates that the user may be in document mode.
      */
-    public static final String MIGRATION_ON_UPGRADE_ATTEMPTED = "migration_on_upgrade_attempted";
+    static final String MIGRATION_ON_UPGRADE_ATTEMPTED = "migration_on_upgrade_attempted";
 
     /** Creates and holds the Singleton. */
     private static class LazyHolder {
@@ -353,13 +353,16 @@ public class DocumentModeAssassin {
                     // If an old tab state file still exists when we run migration in TPS, then it
                     // will overwrite the new tab state file that our document tabs migrated to.
                     File oldMetadataFile = new File(
-                            getTabbedDataDirectory(), TabPersistentStore.SAVED_STATE_FILE);
+                            getTabbedDataDirectory(),
+                            TabbedModeTabPersistencePolicy.LEGACY_SAVED_STATE_FILE);
                     if (oldMetadataFile.exists() && !oldMetadataFile.delete()) {
                         Log.e(TAG, "Failed to delete old tab state file: " + oldMetadataFile);
                     }
 
                     TabPersistentStore.saveListToFile(
-                            getTabbedDataDirectory(), TAB_MODEL_INDEX, mSerializedMetadata);
+                            getTabbedDataDirectory(),
+                            TabbedModeTabPersistencePolicy.getStateFileName(TAB_MODEL_INDEX),
+                            mSerializedMetadata);
                     return true;
                 } else {
                     return false;
@@ -561,7 +564,7 @@ public class DocumentModeAssassin {
 
     /** @return Where tabbed mode data is stored. */
     protected File getTabbedDataDirectory() {
-        return TabPersistentStore.getOrCreateStateDirectory();
+        return TabbedModeTabPersistencePolicy.getOrCreateTabbedModeStateDirectory();
     }
 
     /** @return True if the user is not in document mode. */
@@ -584,8 +587,8 @@ public class DocumentModeAssassin {
                 StrictMode.ThreadPolicy oldPolicy = StrictMode.allowThreadDiskReads();
                 try {
                     File newMetadataFile = new File(
-                            TabPersistentStore.getOrCreateStateDirectory(),
-                            TabPersistentStore.getStateFileName(TAB_MODEL_INDEX));
+                            TabbedModeTabPersistencePolicy.getOrCreateTabbedModeStateDirectory(),
+                            TabbedModeTabPersistencePolicy.getStateFileName(TAB_MODEL_INDEX));
                     newMetadataFileExists = newMetadataFile.exists();
                 } finally {
                     StrictMode.setThreadPolicy(oldPolicy);
@@ -613,4 +616,3 @@ public class DocumentModeAssassin {
         sharedPreferencesEditor.apply();
     }
 }
-

@@ -14,6 +14,7 @@ import operator
 from chromite.cbuildbot import config_lib
 from chromite.cbuildbot import constants
 
+from chromite.lib import metrics
 
 site_config = config_lib.GetConfig()
 
@@ -41,7 +42,7 @@ assert len(_PRECQ_STATUS_TO_ACTION) == len(_PRECQ_ACTION_TO_STATUS), \
 
 CL_ACTION_COLUMNS = ['id', 'build_id', 'action', 'reason',
                      'build_config', 'change_number', 'patch_number',
-                     'change_source', 'timestamp']
+                     'change_source', 'timestamp', 'buildbucket_id']
 
 _CLActionTuple = collections.namedtuple('_CLActionTuple', CL_ACTION_COLUMNS)
 
@@ -78,8 +79,13 @@ class CLAction(_CLActionTuple):
   """An action or history log entry for a particular CL."""
 
   @classmethod
+  def GetCLAction(cls, **kwargs):
+    kwargs.setdefault('buildbucket_id', None)
+    return CLAction(**kwargs)
+
+  @classmethod
   def FromGerritPatchAndAction(cls, change, action, reason=None,
-                               timestamp=None):
+                               timestamp=None, buildbucket_id=None):
     """Creates a CLAction instance from a change and action.
 
     Args:
@@ -87,10 +93,12 @@ class CLAction(_CLActionTuple):
       action: An action string.
       reason: Optional reason string.
       timestamp: Optional datetime.datetime timestamp.
+      buildbucket_id: Optional buildbucket_id
     """
     return CLAction(None, None, action, reason, None,
                     int(change.gerrit_number), int(change.patch_number),
-                    BoolToChangeSource(change.internal), timestamp)
+                    BoolToChangeSource(change.internal), timestamp,
+                    buildbucket_id)
 
   @classmethod
   def FromMetadataEntry(cls, entry):
@@ -106,7 +114,8 @@ class CLAction(_CLActionTuple):
                     int(change_dict['gerrit_number']),
                     int(change_dict['patch_number']),
                     BoolToChangeSource(change_dict['internal']),
-                    entry[2])
+                    entry[2],
+                    None)
 
   def AsMetadataEntry(self):
     """Get a tuple representation, suitable for metadata.json."""
@@ -243,6 +252,64 @@ def ActionsForPatch(change, action_history):
 
   return actions_for_patch
 
+
+def ActionsForOldPatches(change, action_history):
+  """Get CL actions for old patches.
+
+  Args:
+    change: GerritPatch instance.
+    action_history: List of CLActions.
+
+  Returns:
+    List of CLActions of 'change' with smaller patch_number.
+  """
+  patch_number = int(change.patch_number)
+  change_number = int(change.gerrit_number)
+  change_source = BoolToChangeSource(change.internal)
+
+  actions_for_old_patches = [a for a in action_history
+                             if (a.change_source == change_source and
+                                 a.change_number == change_number and
+                                 a.patch_number < patch_number)]
+  return actions_for_old_patches
+
+
+def GetOldPreCQBuildActions(change, action_history,
+                            min_timestamp=datetime.datetime.min):
+  """Get old pre-cq build actions.
+
+  Args:
+    change: GerritPatch instance.
+    action_history: List of CLActions.
+    min_timestamp: Minimum timestamp requirement for the cl actions.
+
+  Returns:
+    CL actions for pre-cq runs which were launched after min_timestamp
+    and not cancelled.
+  """
+  if not isinstance(min_timestamp, datetime.datetime):
+    raise ValueError(" %s type %s isn't an instance of datetime.datetime."
+                     % (min_timestamp, type(min_timestamp)))
+
+  actions_for_old_patches = ActionsForOldPatches(change, action_history)
+  cancelled_builds = GetCancelledPreCQBuilds(action_history)
+
+  old_pre_cq_build_actions = [
+      a for a in actions_for_old_patches
+      if (a.action == constants.CL_ACTION_TRYBOT_LAUNCHING and
+          a.buildbucket_id is not None and
+          a.buildbucket_id not in cancelled_builds and
+          a.timestamp is not None and
+          a.timestamp > min_timestamp)]
+
+  return old_pre_cq_build_actions
+
+def GetCancelledPreCQBuilds(action_history):
+  """Get buildbucket_id set of cancelled pre-cq builds."""
+  return set([a.buildbucket_id
+              for a in action_history
+              if a.buildbucket_id is not None and
+              a.action == constants.CL_ACTION_TRYBOT_CANCELLED])
 
 def GetRequeuedOrSpeculative(change, action_history, is_speculative):
   """For a |change| get either a requeued or speculative action if necessary.
@@ -963,3 +1030,57 @@ class CLActionHistory(object):
       return self._per_cl_actions[cl_or_patch]
     else:
       return self._per_patch_actions[cl_or_patch]
+
+
+def RecordSubmissionMetrics(action_history, submitted_change_strategies):
+  """Record submission metrics in monarch.
+
+  Args:
+    submitted_change_strategies: A dictionary from changes to submission
+        strategies. These changes will have their handling times recorded
+        in monarch.
+    action_history: A CLActionHistory instance for all cl actions for all
+        changes in submitted_change_strategies.
+  """
+  handling_time_metric = metrics.SecondsDistribution(
+      constants.MON_CL_HANDLE_TIME)
+  precq_time_metric = metrics.SecondsDistribution(
+      constants.MON_CL_PRECQ_TIME)
+  wait_time_metric = metrics.SecondsDistribution(
+      constants.MON_CL_WAIT_TIME)
+  cq_run_time_metric = metrics.SecondsDistribution(
+      constants.MON_CL_CQRUN_TIME)
+  false_rejection_metric = metrics.CumulativeSmallIntegerDistribution(
+      constants.MON_CL_FALSE_REJ)
+  false_rejection_count_metric = metrics.Counter(
+      constants.MON_CL_FALSE_REJ_COUNT)
+
+  precq_false_rejections = action_history.GetFalseRejections(
+      bot_type=constants.PRE_CQ)
+  cq_false_rejections = action_history.GetFalseRejections(
+      bot_type=constants.CQ)
+
+  for change, strategy in submitted_change_strategies.iteritems():
+    strategy = strategy or ''
+    handling_time = GetCLHandlingTime(change, action_history)
+    precq_time = GetPreCQTime(change, action_history)
+    wait_time = GetCQWaitTime(change, action_history)
+    run_time = GetCQRunTime(change, action_history)
+
+    fields = {'submission_strategy': strategy}
+
+    handling_time_metric.add(handling_time, fields=fields)
+    precq_time_metric.add(precq_time, fields=fields)
+    wait_time_metric.add(wait_time, fields=fields)
+    cq_run_time_metric.add(run_time, fields=fields)
+
+    rejection_types = (
+        (constants.PRE_CQ, precq_false_rejections),
+        (constants.CQ, cq_false_rejections),
+    )
+
+    for by, rej in rejection_types:
+      rejections = rej.get(change, [])
+      f = dict(fields, rejected_by=by)
+      false_rejection_metric.add(len(rejections), fields=f)
+      false_rejection_count_metric.increment_by(len(rejections), fields=f)

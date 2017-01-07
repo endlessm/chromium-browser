@@ -65,9 +65,9 @@ class DownloadDangerPromptTest : public InProcessBrowserTest {
   void OpenNewTab() {
     ui_test_utils::NavigateToURLWithDisposition(
         browser(), GURL("about:blank"),
-        NEW_FOREGROUND_TAB,
+        WindowOpenDisposition::NEW_FOREGROUND_TAB,
         ui_test_utils::BROWSER_TEST_WAIT_FOR_TAB |
-        ui_test_utils::BROWSER_TEST_WAIT_FOR_NAVIGATION);
+            ui_test_utils::BROWSER_TEST_WAIT_FOR_NAVIGATION);
   }
 
   void SetUpExpectations(
@@ -156,7 +156,8 @@ class DownloadDangerPromptTest : public InProcessBrowserTest {
         &download_,
         browser()->tab_strip_model()->GetActiveWebContents(),
         from_download_api,
-        base::Bind(&DownloadDangerPromptTest::PromptCallback, this));
+        base::Bind(&DownloadDangerPromptTest::PromptCallback,
+                   base::Unretained(this)));
     content::RunAllPendingInMessageLoop();
   }
 

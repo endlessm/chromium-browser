@@ -238,6 +238,22 @@ void KioskAppManager::InitSession(Profile* profile,
   app_session_->Init(profile, app_id);
 }
 
+void KioskAppManager::AddAppForTest(
+    const std::string& app_id,
+    const AccountId& account_id,
+    const GURL& update_url,
+    const std::string& required_platform_version) {
+  for (auto it = apps_.begin(); it != apps_.end(); ++it) {
+    if ((*it)->app_id() == app_id) {
+      apps_.erase(it);
+      break;
+    }
+  }
+
+  apps_.emplace_back(KioskAppData::CreateForTest(
+      this, app_id, account_id, update_url, required_platform_version));
+}
+
 void KioskAppManager::EnableConsumerKioskAutoLaunch(
     const KioskAppManager::EnableKioskAutoLaunchCallback& callback) {
   policy::BrowserPolicyConnectorChromeOS* connector =
@@ -270,11 +286,11 @@ bool KioskAppManager::IsConsumerKioskDeviceWithAutoLaunch() {
 
 void KioskAppManager::OnLockDevice(
     const KioskAppManager::EnableKioskAutoLaunchCallback& callback,
-    policy::EnterpriseInstallAttributes::LockResult result) {
+    InstallAttributes::LockResult result) {
   if (callback.is_null())
     return;
 
-  callback.Run(result == policy::EnterpriseInstallAttributes::LOCK_SUCCESS);
+  callback.Run(result == InstallAttributes::LOCK_SUCCESS);
 }
 
 void KioskAppManager::OnOwnerFileChecked(
@@ -303,8 +319,7 @@ void KioskAppManager::OnReadImmutableAttributes(
       CONSUMER_KIOSK_AUTO_LAUNCH_DISABLED;
   policy::BrowserPolicyConnectorChromeOS* connector =
       g_browser_process->platform_part()->browser_policy_connector_chromeos();
-  policy::EnterpriseInstallAttributes* attributes =
-      connector->GetInstallAttributes();
+  InstallAttributes* attributes = connector->GetInstallAttributes();
   switch (attributes->GetMode()) {
     case policy::DEVICE_MODE_NOT_SET: {
       if (!base::SysInfo::IsRunningOnChromeOS()) {
@@ -716,9 +731,9 @@ void KioskAppManager::UpdateAppData() {
       std::string version;
       GetCachedCrx(it->kiosk_app_id, &cached_crx, &version);
 
-      apps_.push_back(base::WrapUnique(
-          new KioskAppData(this, it->kiosk_app_id, account_id,
-                           GURL(it->kiosk_app_update_url), cached_crx)));
+      apps_.push_back(base::MakeUnique<KioskAppData>(
+          this, it->kiosk_app_id, account_id, GURL(it->kiosk_app_update_url),
+          cached_crx));
       apps_.back()->Load();
     }
     CancelDelayedCryptohomeRemoval(cryptohome::Identification(account_id));

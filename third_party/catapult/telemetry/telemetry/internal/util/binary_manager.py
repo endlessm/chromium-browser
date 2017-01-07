@@ -5,8 +5,8 @@
 import logging
 import os
 
-from catapult_base import binary_manager
-from catapult_base import dependency_util
+from py_utils import binary_manager
+from py_utils import dependency_util
 import dependency_manager
 from devil import devil_env
 
@@ -19,8 +19,8 @@ TELEMETRY_PROJECT_CONFIG = os.path.join(
     util.GetTelemetryDir(), 'telemetry', 'internal', 'binary_dependencies.json')
 
 
-CHROME_BINARY_CONFIG = os.path.join(util.GetCatapultDir(), 'catapult_base',
-                                    'catapult_base', 'chrome_binaries.json')
+CHROME_BINARY_CONFIG = os.path.join(util.GetCatapultDir(), 'common', 'py_utils',
+                                    'py_utils', 'chrome_binaries.json')
 
 
 BATTOR_BINARY_CONFIG = os.path.join(util.GetCatapultDir(), 'common', 'battor',
@@ -95,11 +95,19 @@ def FetchBinaryDepdencies(platform, client_configs,
   target_platform = '%s_%s' % (platform.GetOSName(), platform.GetArchName())
   dep_manager.PrefetchPaths(target_platform)
 
+  host_platform = None
+  fetch_devil_deps = False
   if platform.GetOSName() == 'android':
     host_platform = '%s_%s' % (
         platform_module.GetHostPlatform().GetOSName(),
         platform_module.GetHostPlatform().GetArchName())
     dep_manager.PrefetchPaths(host_platform)
+    # TODO(aiolos): this is a hack to prefetch the devil deps.
+    if host_platform == 'linux_x86_64':
+      fetch_devil_deps = True
+    else:
+      logging.error('Devil only supports 64 bit linux as a host platform. '
+                    'Android tests may fail.')
 
   if fetch_reference_chrome_binary:
     _FetchReferenceBrowserBinary(platform)
@@ -117,9 +125,20 @@ def FetchBinaryDepdencies(platform, client_configs,
         list(dependency_manager.BaseConfig(c) for c in client_configs))
     try:
       manager.PrefetchPaths(target_platform)
+      if host_platform is not None:
+        manager.PrefetchPaths(host_platform)
+
     except dependency_manager.NoPathFoundError as e:
       logging.error('Error when trying to prefetch paths for %s: %s',
                     target_platform, e.message)
+
+  # TODO(aiolos, jbudorick): we should have a devil pre-fetch API to call here
+  # and/or switch devil to use the same platform names so we can include it in
+  # the primary loop.
+  if fetch_devil_deps:
+    devil_env.config.Initialize()
+    devil_env.config._dm.PrefetchPaths(target_platform)
+    devil_env.config._dm.PrefetchPaths('linux2_x86_64')
 
 
 def _FetchReferenceBrowserBinary(platform):

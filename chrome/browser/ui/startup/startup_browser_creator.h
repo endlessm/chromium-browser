@@ -108,6 +108,8 @@ class StartupBrowserCreator {
   friend class CloudPrintProxyPolicyTest;
   friend class CloudPrintProxyPolicyStartupTest;
   friend class StartupBrowserCreatorImpl;
+  // TODO(crbug.com/642442): Remove this when first_run_tabs gets refactored.
+  friend class StartupTabProviderImpl;
   FRIEND_TEST_ALL_PREFIXES(StartupBrowserCreatorTest,
                            ReadingWasRestartedAfterNormalStart);
   FRIEND_TEST_ALL_PREFIXES(StartupBrowserCreatorTest,
@@ -178,5 +180,22 @@ bool HasPendingUncleanExit(Profile* profile);
 // startup.
 base::FilePath GetStartupProfilePath(const base::FilePath& user_data_dir,
                                      const base::CommandLine& command_line);
+
+#if !defined(OS_CHROMEOS) && !defined(OS_ANDROID)
+// Returns the profile that should be loaded on process startup. This is either
+// the profile returned by GetStartupProfilePath, or the guest profile if the
+// above profile is locked. The guest profile denotes that we should open the
+// user manager. Returns null if the above profile cannot be opened. In case of
+// opening the user manager, returns null if either the guest profile or the
+// system profile cannot be opened.
+Profile* GetStartupProfile(const base::FilePath& user_data_dir,
+                           const base::CommandLine& command_line);
+
+// Returns the profile that should be loaded on process startup when
+// GetStartupProfile() returns null. As with GetStartupProfile(), returning the
+// guest profile means the caller should open the user manager. This may return
+// null if neither any profile nor the user manager can be opened.
+Profile* GetFallbackStartupProfile();
+#endif  // !defined(OS_CHROMEOS) && !defined(OS_ANDROID)
 
 #endif  // CHROME_BROWSER_UI_STARTUP_STARTUP_BROWSER_CREATOR_H_

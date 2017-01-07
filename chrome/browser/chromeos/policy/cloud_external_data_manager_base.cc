@@ -39,9 +39,9 @@ namespace {
 // Fetch data for at most two external data references at the same time.
 const int kMaxParallelFetches = 2;
 
-// Allows policies to reference |max_external_data_size_for_testing| bytes of
+// Allows policies to reference |g_max_external_data_size_for_testing| bytes of
 // external data even if no |max_size| was specified in policy_templates.json.
-int max_external_data_size_for_testing = 0;
+int g_max_external_data_size_for_testing = 0;
 
 }  // namespace
 
@@ -164,7 +164,7 @@ CloudExternalDataManagerBase::Backend::Backend(
 
 void CloudExternalDataManagerBase::Backend::SetExternalDataStore(
     std::unique_ptr<CloudExternalDataStore> external_data_store) {
-  external_data_store_.reset(external_data_store.release());
+  external_data_store_ = std::move(external_data_store);
   if (metadata_set_ && external_data_store_)
     external_data_store_->Prune(metadata_);
 }
@@ -237,7 +237,7 @@ bool CloudExternalDataManagerBase::Backend::OnDownloadSuccess(
   const FetchCallbackList& pending_callbacks = pending_downloads_[policy];
   for (FetchCallbackList::const_iterator it = pending_callbacks.begin();
        it != pending_callbacks.end(); ++it) {
-    RunCallback(*it, base::WrapUnique(new std::string(data)));
+    RunCallback(*it, base::MakeUnique<std::string>(data));
   }
   pending_downloads_.erase(policy);
   return true;
@@ -302,8 +302,8 @@ void CloudExternalDataManagerBase::Backend::FetchAll() {
 
 size_t CloudExternalDataManagerBase::Backend::GetMaxExternalDataSize(
     const std::string& policy) const {
-  if (max_external_data_size_for_testing)
-    return max_external_data_size_for_testing;
+  if (g_max_external_data_size_for_testing)
+    return g_max_external_data_size_for_testing;
 
   // Look up the maximum size that the data referenced by |policy| can have in
   // get_policy_details, which is constructed from the information in
@@ -443,7 +443,7 @@ void CloudExternalDataManagerBase::Fetch(
 // static
 void CloudExternalDataManagerBase::SetMaxExternalDataSizeForTesting(
     int max_size) {
-  max_external_data_size_for_testing = max_size;
+  g_max_external_data_size_for_testing = max_size;
 }
 
 void CloudExternalDataManagerBase::FetchAll() {

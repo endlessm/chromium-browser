@@ -4,10 +4,10 @@
 
 #include "ash/common/wm/always_on_top_controller.h"
 
+#include "ash/aura/wm_root_window_controller_aura.h"
 #include "ash/aura/wm_window_aura.h"
 #include "ash/common/shell_window_ids.h"
 #include "ash/common/wm/workspace/workspace_layout_manager.h"
-#include "ash/common/wm/workspace/workspace_layout_manager_delegate.h"
 #include "ash/root_window_controller.h"
 #include "ash/shell.h"
 #include "ash/test/ash_test_base.h"
@@ -39,8 +39,7 @@ class VirtualKeyboardAlwaysOnTopControllerTest : public AshTestBase {
 class TestLayoutManager : public WorkspaceLayoutManager {
  public:
   explicit TestLayoutManager(WmWindow* window)
-      : WorkspaceLayoutManager(window, nullptr),
-        keyboard_bounds_changed_(false) {}
+      : WorkspaceLayoutManager(window), keyboard_bounds_changed_(false) {}
 
   ~TestLayoutManager() override {}
 
@@ -69,7 +68,7 @@ TEST_F(VirtualKeyboardAlwaysOnTopControllerTest, NotifyKeyboardBoundsChanged) {
       new TestLayoutManager(WmWindowAura::Get(always_on_top_container));
   RootWindowController* controller = Shell::GetPrimaryRootWindowController();
   AlwaysOnTopController* always_on_top_controller =
-      controller->always_on_top_controller();
+      controller->wm_root_window_controller()->always_on_top_controller();
   always_on_top_controller->SetLayoutManagerForTest(base::WrapUnique(manager));
   // Activate keyboard. This triggers keyboard listeners to be registered.
   controller->ActivateKeyboard(keyboard_controller);

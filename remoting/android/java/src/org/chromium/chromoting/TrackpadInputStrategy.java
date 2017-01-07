@@ -4,7 +4,7 @@
 
 package org.chromium.chromoting;
 
-import android.graphics.Point;
+import android.graphics.PointF;
 import android.view.MotionEvent;
 
 /**
@@ -24,9 +24,7 @@ public class TrackpadInputStrategy implements InputStrategyInterface {
         mRenderData = renderData;
         mInjector = injector;
 
-        synchronized (mRenderData) {
-            mRenderData.drawCursor = true;
-        }
+        mRenderData.drawCursor = true;
     }
 
     @Override
@@ -62,13 +60,13 @@ public class TrackpadInputStrategy implements InputStrategyInterface {
     }
 
     @Override
-    public DesktopView.InputFeedbackType getShortPressFeedbackType() {
-        return DesktopView.InputFeedbackType.NONE;
+    public RenderStub.InputFeedbackType getShortPressFeedbackType() {
+        return RenderStub.InputFeedbackType.NONE;
     }
 
     @Override
-    public DesktopView.InputFeedbackType getLongPressFeedbackType() {
-        return DesktopView.InputFeedbackType.SMALL_ANIMATION;
+    public RenderStub.InputFeedbackType getLongPressFeedbackType() {
+        return RenderStub.InputFeedbackType.LONG_TRACKPAD_ANIMATION;
     }
 
     @Override
@@ -76,9 +74,7 @@ public class TrackpadInputStrategy implements InputStrategyInterface {
         return true;
     }
 
-    private Point getCursorPosition() {
-        synchronized (mRenderData) {
-            return mRenderData.getCursorPosition();
-        }
+    private PointF getCursorPosition() {
+        return mRenderData.getCursorPosition();
     }
 }

@@ -41,8 +41,8 @@ class BrowserNonClientFrameView : public views::NonClientFrameView,
   // Returns the amount that the theme background should be inset.
   virtual int GetThemeBackgroundXInset() const = 0;
 
-  // Retrieves the icon to use in the frame to indicate an OTR window.
-  gfx::ImageSkia GetOTRAvatarIcon() const;
+  // Retrieves the icon to use in the frame to indicate an incognito window.
+  gfx::ImageSkia GetIncognitoAvatarIcon() const;
 
   // Returns COLOR_TOOLBAR_TOP_SEPARATOR[,_INACTIVE] depending on the activation
   // state of the window.
@@ -94,6 +94,10 @@ class BrowserNonClientFrameView : public views::NonClientFrameView,
   views::View* profile_indicator_icon() {
     return profile_indicator_icon_;
   }
+
+  // views::NonClientFrameView:
+  bool DoesIntersectRect(const views::View* target,
+                         const gfx::Rect& rect) const override;
 
  private:
   // views::NonClientFrameView:

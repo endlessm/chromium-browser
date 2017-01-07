@@ -7,9 +7,9 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/webui/supervised_user_internals_message_handler.h"
 #include "chrome/common/url_constants.h"
+#include "chrome/grit/browser_resources.h"
 #include "content/public/browser/web_ui.h"
 #include "content/public/browser/web_ui_data_source.h"
-#include "grit/browser_resources.h"
 
 namespace {
 
@@ -22,6 +22,7 @@ content::WebUIDataSource* CreateSupervisedUserInternalsHTMLSource() {
   source->AddResourcePath("supervised_user_internals.css",
                           IDR_SUPERVISED_USER_INTERNALS_CSS);
   source->SetDefaultResource(IDR_SUPERVISED_USER_INTERNALS_HTML);
+  source->DisableI18nAndUseGzipForAllPaths();
   return source;
 }
 

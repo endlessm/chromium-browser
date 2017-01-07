@@ -10,7 +10,6 @@
 #include "chrome/browser/plugins/chrome_plugin_service_filter.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/common/render_messages.h"
-#include "components/content_settings/content/common/content_settings_messages.h"
 #include "content/public/browser/permission_type.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_process_host.h"
@@ -175,18 +174,21 @@ void ChromeWebViewPermissionHelperDelegate::OnPointerLockPermissionResponse(
 void ChromeWebViewPermissionHelperDelegate::RequestGeolocationPermission(
     int bridge_id,
     const GURL& requesting_frame,
+    bool user_gesture,
     const base::Callback<void(bool)>& callback) {
   base::DictionaryValue request_info;
   request_info.SetString(guest_view::kUrl, requesting_frame.spec());
+  request_info.SetBoolean(guest_view::kUserGesture, user_gesture);
 
   // It is safe to hold an unretained pointer to
   // ChromeWebViewPermissionHelperDelegate because this callback is called from
   // ChromeWebViewPermissionHelperDelegate::SetPermission.
   const WebViewPermissionHelper::PermissionResponseCallback
-      permission_callback = base::Bind(&ChromeWebViewPermissionHelperDelegate::
-                                           OnGeolocationPermissionResponse,
-                                       weak_factory_.GetWeakPtr(), bridge_id,
-                                       base::Bind(&CallbackWrapper, callback));
+      permission_callback =
+          base::Bind(&ChromeWebViewPermissionHelperDelegate::
+                         OnGeolocationPermissionResponse,
+                     weak_factory_.GetWeakPtr(), bridge_id, user_gesture,
+                     base::Bind(&CallbackWrapper, callback));
   int request_id = web_view_permission_helper()->RequestPermission(
       WEB_VIEW_PERMISSION_TYPE_GEOLOCATION,
       request_info,
@@ -197,6 +199,7 @@ void ChromeWebViewPermissionHelperDelegate::RequestGeolocationPermission(
 
 void ChromeWebViewPermissionHelperDelegate::OnGeolocationPermissionResponse(
     int bridge_id,
+    bool user_gesture,
     const base::Callback<void(blink::mojom::PermissionStatus)>& callback,
     bool allow,
     const std::string& user_input) {
@@ -231,6 +234,7 @@ void ChromeWebViewPermissionHelperDelegate::OnGeolocationPermissionResponse(
           ->embedder_web_contents()
           ->GetLastCommittedURL()
           .GetOrigin(),
+      user_gesture,
       callback);
 }
 

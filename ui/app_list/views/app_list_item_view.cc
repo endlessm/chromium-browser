@@ -14,12 +14,9 @@
 #include "ui/app_list/app_list_item.h"
 #include "ui/app_list/app_list_switches.h"
 #include "ui/app_list/views/apps_grid_view.h"
-#include "ui/app_list/views/cached_label.h"
-#include "ui/app_list/views/progress_bar_view.h"
 #include "ui/base/dragdrop/drag_utils.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/resource/resource_bundle.h"
-#include "ui/base/ui_base_switches_util.h"
 #include "ui/compositor/layer.h"
 #include "ui/compositor/scoped_layer_animation_settings.h"
 #include "ui/gfx/animation/throb_animation.h"
@@ -35,6 +32,7 @@
 #include "ui/views/controls/image_view.h"
 #include "ui/views/controls/label.h"
 #include "ui/views/controls/menu/menu_runner.h"
+#include "ui/views/controls/progress_bar.h"
 #include "ui/views/drag_controller.h"
 
 namespace app_list {
@@ -48,11 +46,6 @@ const int kIconTitleSpacing = 6;
 const int kFolderPreviewRadius = 40;
 
 const int kLeftRightPaddingChars = 1;
-
-#if !defined(OS_WIN)
-// Scale to transform the icon when a drag starts.
-const float kDraggingIconScale = 1.5f;
-#endif
 
 // Delay in milliseconds of when the dragging UI should be shown for mouse drag.
 const int kMouseDragUIDelayInMs = 200;
@@ -84,8 +77,8 @@ AppListItemView::AppListItemView(AppsGridView* apps_grid_view,
       item_weak_(item),
       apps_grid_view_(apps_grid_view),
       icon_(new views::ImageView),
-      title_(new CachedLabel),
-      progress_bar_(new ProgressBarView),
+      title_(new views::Label),
+      progress_bar_(new views::ProgressBar),
       ui_state_(UI_STATE_NORMAL),
       touch_dragging_(false),
       shadow_animator_(this),
@@ -105,7 +98,6 @@ AppListItemView::AppListItemView(AppsGridView* apps_grid_view,
   static const gfx::FontList font_list = GetFontList();
   title_->SetFontList(font_list);
   title_->SetHorizontalAlignment(gfx::ALIGN_LEFT);
-  title_->Invalidate();
   SetTitleSubpixelAA();
 
   AddChildView(icon_);
@@ -161,23 +153,6 @@ void AppListItemView::SetUIState(UIState ui_state) {
     case UI_STATE_DROPPING_IN_FOLDER:
       break;
   }
-#if !defined(OS_WIN)
-  ui::ScopedLayerAnimationSettings settings(layer()->GetAnimator());
-  switch (ui_state_) {
-    case UI_STATE_NORMAL:
-      layer()->SetTransform(gfx::Transform());
-      break;
-    case UI_STATE_DRAGGING: {
-      const gfx::Rect bounds(layer()->bounds().size());
-      layer()->SetTransform(gfx::GetScaleTransform(
-          bounds.CenterPoint(),
-          kDraggingIconScale));
-      break;
-    }
-    case UI_STATE_DROPPING_IN_FOLDER:
-      break;
-  }
-#endif  // !OS_WIN
 
   SetTitleSubpixelAA();
   SchedulePaint();
@@ -195,10 +170,6 @@ void AppListItemView::SetTouchDragging(bool touch_dragging) {
 void AppListItemView::OnMouseDragTimer() {
   DCHECK(apps_grid_view_->IsDraggedView(this));
   SetUIState(UI_STATE_DRAGGING);
-}
-
-void AppListItemView::Prerender() {
-  title_->PaintToBackingImage();
 }
 
 void AppListItemView::CancelContextMenu() {
@@ -230,7 +201,6 @@ void AppListItemView::SetAsAttemptedFolderTarget(bool is_target_folder) {
 void AppListItemView::SetItemName(const base::string16& display_name,
                                   const base::string16& full_name) {
   title_->SetText(display_name);
-  title_->Invalidate();
 
   tooltip_text_ = display_name == full_name ? base::string16() : full_name;
 
@@ -302,13 +272,8 @@ void AppListItemView::OnPaint(gfx::Canvas* canvas) {
     return;
 
   gfx::Rect rect(GetContentsBounds());
-  if (apps_grid_view_->IsSelectedView(this)) {
+  if (apps_grid_view_->IsSelectedView(this))
     canvas->FillRect(rect, kSelectedColor);
-  } else if (is_highlighted_ && !is_installing_ &&
-             !app_list::switches::IsExperimentalAppListEnabled()) {
-    canvas->FillRect(rect, kHighlightedColor);
-    return;
-  }
 
   if (ui_state_ == UI_STATE_DROPPING_IN_FOLDER) {
     DCHECK(apps_grid_view_->model()->folders_enabled());
@@ -334,33 +299,22 @@ void AppListItemView::ShowContextMenuForView(views::View* source,
 
   if (!apps_grid_view_->IsSelectedView(this))
     apps_grid_view_->ClearAnySelectedView();
-  context_menu_runner_.reset(
-      new views::MenuRunner(menu_model, views::MenuRunner::HAS_MNEMONICS));
-  if (context_menu_runner_->RunMenuAt(GetWidget(),
-                                      NULL,
-                                      gfx::Rect(point, gfx::Size()),
-                                      views::MENU_ANCHOR_TOPLEFT,
-                                      source_type) ==
-      views::MenuRunner::MENU_DELETED) {
-    return;
-  }
+  context_menu_runner_.reset(new views::MenuRunner(
+      menu_model, views::MenuRunner::HAS_MNEMONICS | views::MenuRunner::ASYNC));
+  context_menu_runner_->RunMenuAt(GetWidget(), NULL,
+                                  gfx::Rect(point, gfx::Size()),
+                                  views::MENU_ANCHOR_TOPLEFT, source_type);
 }
 
 void AppListItemView::StateChanged() {
-  if (app_list::switches::IsExperimentalAppListEnabled()) {
-    if (state() == STATE_HOVERED || state() == STATE_PRESSED) {
-      shadow_animator_.animation()->Show();
-    } else {
-      shadow_animator_.animation()->Hide();
-    }
-  }
-
   if (state() == STATE_HOVERED || state() == STATE_PRESSED) {
+    shadow_animator_.animation()->Show();
     // Show the hover/tap highlight: for tap, lighter highlight replaces darker
     // keyboard selection; for mouse hover, keyboard selection takes precedence.
     if (!apps_grid_view_->IsSelectedView(this) || state() == STATE_PRESSED)
       SetItemIsHighlighted(true);
   } else {
+    shadow_animator_.animation()->Hide();
     SetItemIsHighlighted(false);
     if (item_weak_)
       item_weak_->set_highlighted(false);
@@ -407,16 +361,6 @@ bool AppListItemView::OnKeyPressed(const ui::KeyEvent& event) {
 void AppListItemView::OnMouseReleased(const ui::MouseEvent& event) {
   CustomButton::OnMouseReleased(event);
   apps_grid_view_->EndDrag(false);
-}
-
-void AppListItemView::OnMouseCaptureLost() {
-  // We don't cancel the dag on mouse capture lost for windows as entering a
-  // synchronous drag causes mouse capture to be lost and pressing escape
-  // dismisses the app list anyway.
-#if !defined(OS_WIN)
-  CustomButton::OnMouseCaptureLost();
-  apps_grid_view_->EndDrag(true);
-#endif
 }
 
 bool AppListItemView::OnMouseDragged(const ui::MouseEvent& event) {
@@ -466,14 +410,14 @@ void AppListItemView::OnGestureEvent(ui::GestureEvent* event) {
       }
       break;
     case ui::ET_GESTURE_TAP_DOWN:
-      if (::switches::IsTouchFeedbackEnabled() && state() != STATE_DISABLED) {
+      if (state() != STATE_DISABLED) {
         SetState(STATE_PRESSED);
         event->SetHandled();
       }
       break;
     case ui::ET_GESTURE_TAP:
     case ui::ET_GESTURE_TAP_CANCEL:
-      if (::switches::IsTouchFeedbackEnabled() && state() != STATE_DISABLED)
+      if (state() != STATE_DISABLED)
         SetState(STATE_NORMAL);
       break;
     case ui::ET_GESTURE_LONG_PRESS:
@@ -551,7 +495,6 @@ void AppListItemView::SetTitleSubpixelAA() {
     title_->SetBackgroundColor(0);
     title_->set_background(NULL);
   }
-  title_->Invalidate();
   title_->SchedulePaint();
 }
 

@@ -9,7 +9,7 @@
 #include "chrome/browser/ui/search/search_model_observer.h"
 #include "chrome/browser/ui/search/search_tab_helper.h"
 #include "chrome/common/chrome_switches.h"
-#include "chrome/common/search_types.h"
+#include "chrome/common/search/search_types.h"
 #include "chrome/test/base/chrome_render_view_host_test_harness.h"
 
 namespace {
@@ -125,7 +125,7 @@ TEST_F(SearchModelTest, UpdateSearchModelMode) {
   mock_observer.VerifySearchModelStates(expected_old_state, expected_new_state);
   mock_observer.VerifyNotificationCount(1);
 
-  search_mode.mode = SearchMode::MODE_SEARCH_RESULTS;
+  search_mode.mode = SearchMode::MODE_SEARCH_SUGGESTIONS;
   expected_old_state = expected_new_state;
   expected_new_state.mode = search_mode;
   model->SetMode(search_mode);

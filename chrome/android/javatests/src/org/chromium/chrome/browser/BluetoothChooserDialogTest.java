@@ -6,17 +6,17 @@ package org.chromium.chrome.browser;
 
 import android.Manifest;
 import android.app.Dialog;
-import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.location.LocationManager;
 import android.test.MoreAsserts;
-import android.test.suitebuilder.annotation.SmallTest;
+import android.test.suitebuilder.annotation.LargeTest;
 import android.view.View;
 import android.widget.Button;
 import android.widget.ListView;
 
 import org.chromium.base.ThreadUtils;
+import org.chromium.base.test.util.RetryOnFailure;
 import org.chromium.chrome.R;
 import org.chromium.chrome.test.ChromeActivityTestCaseBase;
 import org.chromium.components.location.LocationUtils;
@@ -35,6 +35,7 @@ import java.util.concurrent.Callable;
 /**
  * Tests for the BluetoothChooserDialog class.
  */
+@RetryOnFailure
 public class BluetoothChooserDialogTest extends ChromeActivityTestCaseBase<ChromeActivity> {
     /**
      * Works like the BluetoothChooserDialog class, but records calls to native methods instead of
@@ -170,7 +171,7 @@ public class BluetoothChooserDialogTest extends ChromeActivityTestCaseBase<Chrom
         return message.replaceAll("</?[^>]*link[^>]*>", "");
     }
 
-    @SmallTest
+    @LargeTest
     public void testCancel() throws InterruptedException {
         ItemChooserDialog itemChooser = mChooserDialog.mItemChooserDialog;
         Dialog dialog = itemChooser.getDialogForTesting();
@@ -202,7 +203,7 @@ public class BluetoothChooserDialogTest extends ChromeActivityTestCaseBase<Chrom
         assertEquals("", mChooserDialog.mFinishedDeviceId);
     }
 
-    @SmallTest
+    @LargeTest
     public void testSelectItem() throws InterruptedException {
         Dialog dialog = mChooserDialog.mItemChooserDialog.getDialogForTesting();
 
@@ -215,8 +216,8 @@ public class BluetoothChooserDialogTest extends ChromeActivityTestCaseBase<Chrom
         ThreadUtils.runOnUiThreadBlocking(new Runnable() {
             @Override
             public void run() {
-                mChooserDialog.addDevice("id-1", "Name 1");
-                mChooserDialog.addDevice("id-2", "Name 2");
+                mChooserDialog.addOrUpdateDevice("id-1", "Name 1");
+                mChooserDialog.addOrUpdateDevice("id-2", "Name 2");
             }
         });
 
@@ -224,8 +225,7 @@ public class BluetoothChooserDialogTest extends ChromeActivityTestCaseBase<Chrom
         // the progress spinner should disappear, the Commit button should still
         // be disabled (since nothing's selected), and the list view should
         // show.
-        assertEquals(removeLinkTags(getActivity().getString(
-                R.string.bluetooth_not_seeing_it_idle_some_found)),
+        assertEquals(removeLinkTags(getActivity().getString(R.string.bluetooth_not_seeing_it)),
                 statusView.getText().toString());
         assertFalse(button.isEnabled());
         assertEquals(View.VISIBLE, items.getVisibility());
@@ -238,7 +238,7 @@ public class BluetoothChooserDialogTest extends ChromeActivityTestCaseBase<Chrom
         assertEquals("id-2", mChooserDialog.mFinishedDeviceId);
     }
 
-    @SmallTest
+    @LargeTest
     public void testNoLocationPermission() throws InterruptedException {
         ItemChooserDialog itemChooser = mChooserDialog.mItemChooserDialog;
         Dialog dialog = itemChooser.getDialogForTesting();
@@ -303,7 +303,7 @@ public class BluetoothChooserDialogTest extends ChromeActivityTestCaseBase<Chrom
         mChooserDialog.closeDialog();
     }
 
-    @SmallTest
+    @LargeTest
     public void testNoLocationServices() throws InterruptedException {
         ItemChooserDialog itemChooser = mChooserDialog.mItemChooserDialog;
         Dialog dialog = itemChooser.getDialogForTesting();
@@ -394,14 +394,14 @@ public class BluetoothChooserDialogTest extends ChromeActivityTestCaseBase<Chrom
         public boolean mLocationGranted = false;
 
         @Override
-        public boolean hasAndroidLocationPermission(Context context) {
+        public boolean hasAndroidLocationPermission() {
             return mLocationGranted;
         }
 
         public boolean mSystemLocationSettingsEnabled = true;
 
         @Override
-        public boolean isSystemLocationSettingEnabled(Context context) {
+        public boolean isSystemLocationSettingEnabled() {
             return mSystemLocationSettingsEnabled;
         }
     }

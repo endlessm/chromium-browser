@@ -27,7 +27,6 @@ namespace ui {
 class UIResourceProvider;
 }
 
-namespace chrome {
 namespace android {
 
 class ThumbnailLayer;
@@ -77,7 +76,6 @@ class TabContentManager : public ThumbnailCacheObserver {
   void CacheTab(JNIEnv* env,
                 const base::android::JavaParamRef<jobject>& obj,
                 const base::android::JavaParamRef<jobject>& tab,
-                const base::android::JavaParamRef<jobject>& content_view_core,
                 jfloat thumbnail_scale);
   void CacheTabWithBitmap(JNIEnv* env,
                           const base::android::JavaParamRef<jobject>& obj,
@@ -127,6 +125,5 @@ class TabContentManager : public ThumbnailCacheObserver {
 bool RegisterTabContentManager(JNIEnv* env);
 
 }  // namespace android
-}  // namespace chrome
 
 #endif  // CHROME_BROWSER_ANDROID_COMPOSITOR_TAB_CONTENT_MANAGER_H_

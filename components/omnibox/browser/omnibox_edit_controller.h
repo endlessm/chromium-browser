@@ -7,6 +7,7 @@
 
 #include "base/macros.h"
 #include "base/strings/string16.h"
+#include "components/omnibox/browser/autocomplete_match_type.h"
 #include "ui/base/page_transition_types.h"
 #include "ui/base/window_open_disposition.h"
 #include "url/gurl.h"
@@ -21,7 +22,8 @@ class OmniboxEditController {
  public:
   virtual void OnAutocompleteAccept(const GURL& destination_url,
                                     WindowOpenDisposition disposition,
-                                    ui::PageTransition transition);
+                                    ui::PageTransition transition,
+                                    AutocompleteMatchType::Type match_type);
 
   virtual void OnInputInProgress(bool in_progress) = 0;
 
@@ -29,9 +31,6 @@ class OmniboxEditController {
   // of the views around the edit, including the text of the edit and the
   // status of any keyword- or hint-related state.
   virtual void OnChanged() = 0;
-
-  // Shows the URL.
-  virtual void ShowURL() = 0;
 
   virtual ToolbarModel* GetToolbarModel() = 0;
   virtual const ToolbarModel* GetToolbarModel() const = 0;

@@ -4,6 +4,9 @@
 
 package org.chromium.chrome.browser.signin;
 
+import android.annotation.SuppressLint;
+import android.app.DialogFragment;
+import android.app.Fragment;
 import android.app.FragmentManager;
 import android.content.Context;
 import android.support.annotation.IntDef;
@@ -86,6 +89,28 @@ public class ConfirmSyncDataStateMachine
         stateMachine.progress();
     }
 
+    /**
+     * If any of the dialogs used by this state machine are shown, cancel them. If this state
+     * machine is running and a dialog is being shown, the given
+     * {@link ConfirmImportSyncDataDialog.Listener#onCancel())} is called.
+     */
+    public static void cancelAllDialogs(FragmentManager fragmentManager) {
+        cancelDialog(fragmentManager,
+                ConfirmImportSyncDataDialog.CONFIRM_IMPORT_SYNC_DATA_DIALOG_TAG);
+        cancelDialog(fragmentManager,
+                ConfirmManagedSyncDataDialog.CONFIRM_IMPORT_SYNC_DATA_DIALOG_TAG);
+    }
+
+    private static void cancelDialog(FragmentManager fragmentManager, String tag) {
+        Fragment fragment = fragmentManager.findFragmentByTag(tag);
+
+        if (fragment == null) return;
+        DialogFragment dialogFragment = (DialogFragment) fragment;
+
+        if (dialogFragment.getDialog() == null) return;
+        dialogFragment.getDialog().cancel();
+    }
+
     private ConfirmSyncDataStateMachine(String oldAccountName, String newAccountName,
             ImportSyncType importSyncType, FragmentManager fragmentManager, Context context,
             ConfirmImportSyncDataDialog.Listener callback) {
@@ -108,6 +133,8 @@ public class ConfirmSyncDataStateMachine
      * entire flow is over, if it is answered positively one of the onConfirm functions is called
      * and this function is called again.
      */
+    // TODO(crbug.com/635567): Fix this properly.
+    @SuppressLint("SwitchIntDef")
     private void progress() {
         switch (mState) {
             case BEFORE_OLD_ACCOUNT_DIALOG:

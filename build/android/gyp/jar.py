@@ -8,6 +8,7 @@ import optparse
 import os
 import shutil
 import sys
+import tempfile
 
 from util import build_utils
 
@@ -21,7 +22,7 @@ _RESOURCE_CLASSES = [
 
 
 def Jar(class_files, classes_dir, jar_path, manifest_file=None,
-        provider_configurations=None):
+        provider_configurations=None, additional_files=None):
   jar_path = os.path.abspath(jar_path)
 
   # The paths of the files in the jar will be the same as they are passed in to
@@ -29,37 +30,49 @@ def Jar(class_files, classes_dir, jar_path, manifest_file=None,
   # options.classes_dir so the .class file paths in the jar are correct.
   jar_cwd = classes_dir
   class_files_rel = [os.path.relpath(f, jar_cwd) for f in class_files]
-  jar_cmd = ['jar', 'cf0', jar_path]
-  if manifest_file:
-    jar_cmd[1] += 'm'
-    jar_cmd.append(os.path.abspath(manifest_file))
-  jar_cmd.extend(class_files_rel)
+  with tempfile.NamedTemporaryFile(suffix='.jar') as tmp_jar:
+    jar_cmd = ['jar', 'cf0', tmp_jar.name]
+    if manifest_file:
+      jar_cmd[1] += 'm'
+      jar_cmd.append(os.path.abspath(manifest_file))
+    jar_cmd.extend(class_files_rel)
 
-  if provider_configurations:
-    service_dir = os.path.join(jar_cwd, 'META-INF', 'services')
-    if not os.path.exists(service_dir):
-      os.makedirs(service_dir)
-    for config in provider_configurations:
-      config_jar_path = os.path.join(service_dir, os.path.basename(config))
-      shutil.copy(config, config_jar_path)
-      jar_cmd.append(os.path.relpath(config_jar_path, jar_cwd))
+    for filepath, jar_filepath in additional_files or []:
+      full_jar_filepath = os.path.join(jar_cwd, jar_filepath)
+      jar_dir = os.path.dirname(full_jar_filepath)
+      if not os.path.exists(jar_dir):
+        os.makedirs(jar_dir)
+      shutil.copy(filepath, full_jar_filepath)
+      jar_cmd.append(jar_filepath)
 
-  if not class_files_rel:
-    empty_file = os.path.join(classes_dir, '.empty')
-    build_utils.Touch(empty_file)
-    jar_cmd.append(os.path.relpath(empty_file, jar_cwd))
-  build_utils.CheckOutput(jar_cmd, cwd=jar_cwd)
-  build_utils.Touch(jar_path, fail_if_missing=True)
+    if provider_configurations:
+      service_dir = os.path.join(jar_cwd, 'META-INF', 'services')
+      if not os.path.exists(service_dir):
+        os.makedirs(service_dir)
+      for config in provider_configurations:
+        config_jar_path = os.path.join(service_dir, os.path.basename(config))
+        shutil.copy(config, config_jar_path)
+        jar_cmd.append(os.path.relpath(config_jar_path, jar_cwd))
+
+    if not class_files_rel:
+      empty_file = os.path.join(classes_dir, '.empty')
+      build_utils.Touch(empty_file)
+      jar_cmd.append(os.path.relpath(empty_file, jar_cwd))
+    build_utils.CheckOutput(jar_cmd, cwd=jar_cwd)
+
+    # Zeros out timestamps so that builds are hermetic.
+    build_utils.MergeZips(jar_path, [tmp_jar.name])
 
 
 def JarDirectory(classes_dir, jar_path, manifest_file=None, predicate=None,
-                 provider_configurations=None):
+                 provider_configurations=None, additional_files=None):
   class_files = build_utils.FindInDirectory(classes_dir, '*.class')
   if predicate:
     class_files = [f for f in class_files if predicate(f)]
 
   Jar(class_files, classes_dir, jar_path, manifest_file=manifest_file,
-      provider_configurations=provider_configurations)
+      provider_configurations=provider_configurations,
+      additional_files=additional_files)
 
 
 def main():
@@ -68,9 +81,9 @@ def main():
   parser.add_option('--input-jar', help='Jar to include .class files from')
   parser.add_option('--jar-path', help='Jar output path.')
   parser.add_option('--excluded-classes',
-      help='GYP list of .class file patterns to exclude from the jar.')
+      help='GN list of .class file patterns to exclude from the jar.')
   parser.add_option('--strip-resource-classes-for',
-      help='GYP list of java package names exclude R.class files in.')
+      help='GN list of java package names exclude R.class files in.')
   parser.add_option('--stamp', help='Path to touch on success.')
 
   args = build_utils.ExpandFileArgs(sys.argv[1:])
@@ -80,10 +93,10 @@ def main():
 
   excluded_classes = []
   if options.excluded_classes:
-    excluded_classes = build_utils.ParseGypList(options.excluded_classes)
+    excluded_classes = build_utils.ParseGnList(options.excluded_classes)
 
   if options.strip_resource_classes_for:
-    packages = build_utils.ParseGypList(options.strip_resource_classes_for)
+    packages = build_utils.ParseGnList(options.strip_resource_classes_for)
     excluded_classes.extend(p.replace('.', '/') + '/' + f
                             for p in packages for f in _RESOURCE_CLASSES)
 

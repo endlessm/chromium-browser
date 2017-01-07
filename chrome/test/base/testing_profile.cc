@@ -75,6 +75,8 @@
 #include "components/policy/core/common/schema.h"
 #include "components/prefs/testing_pref_store.h"
 #include "components/proxy_config/pref_proxy_config_tracker.h"
+#include "components/sync/api/fake_sync_change_processor.h"
+#include "components/sync/api/sync_error_factory_mock.h"
 #include "components/syncable_prefs/pref_service_mock_factory.h"
 #include "components/syncable_prefs/pref_service_syncable.h"
 #include "components/syncable_prefs/testing_pref_service_syncable.h"
@@ -94,8 +96,6 @@
 #include "net/url_request/url_request_context.h"
 #include "net/url_request/url_request_context_getter.h"
 #include "net/url_request/url_request_test_util.h"
-#include "sync/api/fake_sync_change_processor.h"
-#include "sync/api/sync_error_factory_mock.h"
 #include "testing/gmock/include/gmock/gmock.h"
 
 #if defined(ENABLE_EXTENSIONS)
@@ -122,6 +122,11 @@
 #include "chrome/browser/supervised_user/supervised_user_pref_store.h"
 #include "chrome/browser/supervised_user/supervised_user_settings_service.h"
 #include "chrome/browser/supervised_user/supervised_user_settings_service_factory.h"
+#endif
+
+#if BUILDFLAG(ANDROID_JAVA_UI)
+#include "chrome/browser/android/offline_pages/offline_page_model_factory.h"
+#include "components/offline_pages/stub_offline_page_model.h"
 #endif
 
 using base::Time;
@@ -182,7 +187,7 @@ class TestExtensionURLRequestContextGetter
   }
   scoped_refptr<base::SingleThreadTaskRunner> GetNetworkTaskRunner()
       const override {
-    return BrowserThread::GetMessageLoopProxyForThread(BrowserThread::IO);
+    return BrowserThread::GetTaskRunnerForThread(BrowserThread::IO);
   }
 
  protected:
@@ -194,18 +199,17 @@ class TestExtensionURLRequestContextGetter
 
 std::unique_ptr<KeyedService> BuildHistoryService(
     content::BrowserContext* context) {
-  Profile* profile = Profile::FromBrowserContext(context);
-  return base::WrapUnique(new history::HistoryService(
-      base::WrapUnique(new ChromeHistoryClient(
-          BookmarkModelFactory::GetForProfile(profile))),
-      base::WrapUnique(new history::ContentVisitDelegate(profile))));
+  return base::MakeUnique<history::HistoryService>(
+      base::MakeUnique<ChromeHistoryClient>(
+          BookmarkModelFactory::GetForBrowserContext(context)),
+      base::MakeUnique<history::ContentVisitDelegate>(context));
 }
 
 std::unique_ptr<KeyedService> BuildInMemoryURLIndex(
     content::BrowserContext* context) {
   Profile* profile = Profile::FromBrowserContext(context);
   std::unique_ptr<InMemoryURLIndex> in_memory_url_index(
-      new InMemoryURLIndex(BookmarkModelFactory::GetForProfile(profile),
+      new InMemoryURLIndex(BookmarkModelFactory::GetForBrowserContext(profile),
                            HistoryServiceFactory::GetForProfile(
                                profile, ServiceAccessType::IMPLICIT_ACCESS),
                            TemplateURLServiceFactory::GetForProfile(profile),
@@ -219,31 +223,38 @@ std::unique_ptr<KeyedService> BuildBookmarkModel(
     content::BrowserContext* context) {
   Profile* profile = Profile::FromBrowserContext(context);
   std::unique_ptr<BookmarkModel> bookmark_model(
-      new BookmarkModel(base::WrapUnique(new ChromeBookmarkClient(
-          profile, ManagedBookmarkServiceFactory::GetForProfile(profile)))));
-  bookmark_model->Load(profile->GetPrefs(),
-                       profile->GetPath(),
+      new BookmarkModel(base::MakeUnique<ChromeBookmarkClient>(
+          profile, ManagedBookmarkServiceFactory::GetForProfile(profile))));
+  bookmark_model->Load(profile->GetPrefs(), profile->GetPath(),
                        profile->GetIOTaskRunner(),
-                       content::BrowserThread::GetMessageLoopProxyForThread(
+                       content::BrowserThread::GetTaskRunnerForThread(
                            content::BrowserThread::UI));
   return std::move(bookmark_model);
 }
 
 void TestProfileErrorCallback(WebDataServiceWrapper::ErrorType error_type,
-                              sql::InitStatus status) {
+                              sql::InitStatus status,
+                              const std::string& diagnostics) {
   NOTREACHED();
 }
 
 std::unique_ptr<KeyedService> BuildWebDataService(
     content::BrowserContext* context) {
   const base::FilePath& context_path = context->GetPath();
-  return base::WrapUnique(new WebDataServiceWrapper(
+  return base::MakeUnique<WebDataServiceWrapper>(
       context_path, g_browser_process->GetApplicationLocale(),
-      BrowserThread::GetMessageLoopProxyForThread(BrowserThread::UI),
-      BrowserThread::GetMessageLoopProxyForThread(BrowserThread::DB),
+      BrowserThread::GetTaskRunnerForThread(BrowserThread::UI),
+      BrowserThread::GetTaskRunnerForThread(BrowserThread::DB),
       sync_start_util::GetFlareForSyncableService(context_path),
-      &TestProfileErrorCallback));
+      &TestProfileErrorCallback);
 }
+
+#if BUILDFLAG(ANDROID_JAVA_UI)
+std::unique_ptr<KeyedService> BuildOfflinePageModel(
+    content::BrowserContext* context) {
+  return base::MakeUnique<offline_pages::StubOfflinePageModel>();
+}
+#endif
 
 }  // namespace
 
@@ -269,7 +280,7 @@ TestingProfile::TestingProfile()
       delegate_(NULL),
       profile_name_(kTestingProfile) {
   CreateTempProfileDir();
-  profile_path_ = temp_dir_.path();
+  profile_path_ = temp_dir_.GetPath();
 
   Init();
   FinishInit();
@@ -352,7 +363,7 @@ TestingProfile::TestingProfile(
   // If no profile path was supplied, create one.
   if (profile_path_.empty()) {
     CreateTempProfileDir();
-    profile_path_ = temp_dir_.path();
+    profile_path_ = temp_dir_.GetPath();
   }
 
   // Set any testing factories prior to initializing the services.
@@ -533,6 +544,11 @@ TestingProfile::~TestingProfile() {
 
   if (pref_proxy_config_tracker_.get())
     pref_proxy_config_tracker_->DetachFromPrefService();
+
+  // Shutdown storage partitions before we post a task to delete
+  // the resource context.
+  ShutdownStoragePartitions();
+
   // Failing a post == leaks == heapcheck failure. Make that an immediate test
   // failure.
   if (resource_context_) {
@@ -606,6 +622,10 @@ void TestingProfile::CreateBookmarkModel(bool delete_file) {
     base::FilePath path = GetPath().Append(bookmarks::kBookmarksFileName);
     base::DeleteFile(path, false);
   }
+#if BUILDFLAG(ANDROID_JAVA_UI)
+  offline_pages::OfflinePageModelFactory::GetInstance()->SetTestingFactory(
+      this, BuildOfflinePageModel);
+#endif
   ManagedBookmarkServiceFactory::GetInstance()->SetTestingFactory(
       this, ManagedBookmarkServiceFactory::GetDefaultFactory());
   // This creates the BookmarkModel.
@@ -646,9 +666,9 @@ base::FilePath TestingProfile::GetPath() const {
 
 std::unique_ptr<content::ZoomLevelDelegate>
 TestingProfile::CreateZoomLevelDelegate(const base::FilePath& partition_path) {
-  return base::WrapUnique(new ChromeZoomLevelPrefs(
+  return base::MakeUnique<ChromeZoomLevelPrefs>(
       GetPrefs(), GetPath(), partition_path,
-      zoom::ZoomEventManager::GetForBrowserContext(this)->GetWeakPtr()));
+      zoom::ZoomEventManager::GetForBrowserContext(this)->GetWeakPtr());
 }
 
 scoped_refptr<base::SequencedTaskRunner> TestingProfile::GetIOTaskRunner() {
@@ -684,7 +704,8 @@ bool TestingProfile::IsOffTheRecord() const {
 
 void TestingProfile::SetOffTheRecordProfile(std::unique_ptr<Profile> profile) {
   DCHECK(!IsOffTheRecord());
-  DCHECK_EQ(this, profile->GetOriginalProfile());
+  if (profile)
+    DCHECK_EQ(this, profile->GetOriginalProfile());
   incognito_profile_ = std::move(profile);
 }
 
@@ -863,8 +884,11 @@ content::PushMessagingService* TestingProfile::GetPushMessagingService() {
   return NULL;
 }
 
-bool TestingProfile::IsSameProfile(Profile *p) {
-  return this == p;
+bool TestingProfile::IsSameProfile(Profile *profile) {
+  if (this == profile)
+    return true;
+  Profile* otr_profile = incognito_profile_.get();
+  return otr_profile && profile == otr_profile;
 }
 
 base::Time TestingProfile::GetStartTime() const {
@@ -953,7 +977,7 @@ net::URLRequestContextGetter* TestingProfile::CreateRequestContext(
     content::ProtocolHandlerMap* protocol_handlers,
     content::URLRequestInterceptorScopedVector request_interceptors) {
   return new net::TestURLRequestContextGetter(
-            BrowserThread::GetMessageLoopProxyForThread(BrowserThread::IO));
+      BrowserThread::GetTaskRunnerForThread(BrowserThread::IO));
 }
 
 net::URLRequestContextGetter*

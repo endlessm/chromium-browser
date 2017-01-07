@@ -7,6 +7,7 @@
 #include <windows.h>  // NOLINT
 #include <shlwapi.h>  // NOLINT
 #include <stddef.h>
+#include <stdint.h>
 #include <userenv.h>  // NOLINT
 
 #include <memory>
@@ -31,7 +32,6 @@
 #include "chrome/app/chrome_watcher_client_win.h"
 #include "chrome/app/chrome_watcher_command_line_win.h"
 #include "chrome/app/file_pre_reader_win.h"
-#include "chrome/app/kasko_client.h"
 #include "chrome/chrome_watcher/chrome_watcher_main_api.h"
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/chrome_paths.h"
@@ -43,16 +43,13 @@
 #include "chrome/installer/util/install_util.h"
 #include "chrome/installer/util/module_util_win.h"
 #include "chrome/installer/util/util_constants.h"
-#include "components/crash/content/app/crash_reporter_client.h"
-#include "components/crash/content/app/crashpad.h"
-#include "components/startup_metric_utils/common/pre_read_field_trial_utils_win.h"
 #include "content/public/app/sandbox_helper_win.h"
 #include "content/public/common/content_switches.h"
 #include "sandbox/win/src/sandbox.h"
 
 namespace {
 // The entry point signature of chrome.dll.
-typedef int (*DLL_MAIN)(HINSTANCE, sandbox::SandboxInterfaceInfo*);
+typedef int (*DLL_MAIN)(HINSTANCE, sandbox::SandboxInterfaceInfo*, int64_t);
 
 typedef void (*RelaunchChromeBrowserWithNewCommandLineIfNeededFunc)();
 
@@ -60,20 +57,7 @@ typedef void (*RelaunchChromeBrowserWithNewCommandLineIfNeededFunc)();
 // reference to the loaded module on success, or null on error.
 HMODULE LoadModuleWithDirectory(const base::FilePath& module) {
   ::SetCurrentDirectoryW(module.DirName().value().c_str());
-
-  const startup_metric_utils::PreReadOptions pre_read_options =
-      startup_metric_utils::GetPreReadOptions();
-
-  // If enabled by the PreRead field trial, pre-read the binary to avoid a lot
-  // of random IO. Don't pre-read the binary if it is chrome_child.dll and the
-  // |pre_read_chrome_child_in_browser| option is enabled; the binary should
-  // already have been pre-read by the browser process in that case.
-  if (pre_read_options.pre_read &&
-      (!pre_read_options.pre_read_chrome_child_in_browser ||
-       module.BaseName().value() != installer::kChromeChildDll)) {
-    PreReadFile(module, pre_read_options);
-  }
-
+  PreReadFile(module);
   return ::LoadLibraryExW(module.value().c_str(), nullptr,
                           LOAD_WITH_ALTERED_SEARCH_PATH);
 }
@@ -90,6 +74,10 @@ void ClearDidRun(const base::FilePath& dll_path) {
 
 typedef int (*InitMetro)();
 
+bool ProcessTypeUsesMainDll(const std::string& process_type) {
+  return process_type.empty() || process_type == switches::kServiceProcess;
+}
+
 }  // namespace
 
 //=============================================================================
@@ -103,7 +91,7 @@ MainDllLoader::~MainDllLoader() {
 
 HMODULE MainDllLoader::Load(base::FilePath* module) {
   const base::char16* dll_name = nullptr;
-  if (process_type_ == switches::kServiceProcess || process_type_.empty()) {
+  if (ProcessTypeUsesMainDll(process_type_)) {
     dll_name = installer::kChromeDll;
   } else if (process_type_ == switches::kWatcherProcess) {
     dll_name = kChromeWatcherDll;
@@ -132,7 +120,8 @@ HMODULE MainDllLoader::Load(base::FilePath* module) {
 
 // Launching is a matter of loading the right dll and calling the entry point.
 // Derived classes can add custom code in the OnBeforeLaunch callback.
-int MainDllLoader::Launch(HINSTANCE instance) {
+int MainDllLoader::Launch(HINSTANCE instance,
+                          base::TimeTicks exe_entry_point_ticks) {
   const base::CommandLine& cmd_line = *base::CommandLine::ForCurrentProcess();
   process_type_ = cmd_line.GetSwitchValueASCII(switches::kProcessType);
 
@@ -182,7 +171,8 @@ int MainDllLoader::Launch(HINSTANCE instance) {
   OnBeforeLaunch(process_type_, file);
   DLL_MAIN chrome_main =
       reinterpret_cast<DLL_MAIN>(::GetProcAddress(dll_, "ChromeMain"));
-  int rc = chrome_main(instance, &sandbox_info);
+  int rc = chrome_main(instance, &sandbox_info,
+                       exe_entry_point_ticks.ToInternalValue());
   rc = OnBeforeExit(rc, file);
   return rc;
 }
@@ -195,11 +185,12 @@ void MainDllLoader::RelaunchChromeBrowserWithNewCommandLineIfNeeded() {
       reinterpret_cast<RelaunchChromeBrowserWithNewCommandLineIfNeededFunc>(
           ::GetProcAddress(dll_,
                            "RelaunchChromeBrowserWithNewCommandLineIfNeeded"));
-  if (!relaunch_function) {
-    LOG(ERROR) << "Could not find exported function "
-               << "RelaunchChromeBrowserWithNewCommandLineIfNeeded";
-  } else {
+  if (relaunch_function) {
     relaunch_function();
+  } else if (ProcessTypeUsesMainDll(process_type_)) {
+    LOG(DFATAL) << "Could not find exported function "
+                << "RelaunchChromeBrowserWithNewCommandLineIfNeeded "
+                << "(" << process_type_ << " process)";
   }
 }
 
@@ -214,9 +205,6 @@ class ChromeDllLoader : public MainDllLoader {
 
  private:
   std::unique_ptr<ChromeWatcherClient> chrome_watcher_client_;
-#if BUILDFLAG(ENABLE_KASKO)
-  std::unique_ptr<KaskoClient> kasko_client_;
-#endif
 };
 
 void ChromeDllLoader::OnBeforeLaunch(const std::string& process_type,
@@ -224,35 +212,12 @@ void ChromeDllLoader::OnBeforeLaunch(const std::string& process_type,
   if (process_type.empty()) {
     RecordDidRun(dll_path);
 
-    // Launch the watcher process if stats collection consent has been granted.
-    if (crash_reporter::GetUploadsEnabled()) {
-      base::FilePath exe_path;
-      if (PathService::Get(base::FILE_EXE, &exe_path)) {
-        chrome_watcher_client_.reset(new ChromeWatcherClient(
-            base::Bind(&GenerateChromeWatcherCommandLine, exe_path)));
-        if (chrome_watcher_client_->LaunchWatcher()) {
-#if BUILDFLAG(ENABLE_KASKO)
-          kasko::api::MinidumpType minidump_type = kasko::api::SMALL_DUMP_TYPE;
-          if (base::CommandLine::ForCurrentProcess()->HasSwitch(
-                  switches::kFullMemoryCrashReport)) {
-            minidump_type = kasko::api::FULL_DUMP_TYPE;
-          } else {
-            // TODO(scottmg): Point this at the common global one when it's
-            // moved back into the .exe. http://crbug.com/546288.
-            ChromeCrashReporterClient chrome_crash_client;
-            bool is_per_user_install = chrome_crash_client.GetIsPerUserInstall(
-                exe_path.value());
-            if (chrome_crash_client.GetShouldDumpLargerDumps(
-                    is_per_user_install)) {
-              minidump_type = kasko::api::LARGER_DUMP_TYPE;
-            }
-          }
-
-          kasko_client_.reset(
-              new KaskoClient(chrome_watcher_client_.get(), minidump_type));
-#endif  // BUILDFLAG(ENABLE_KASKO)
-        }
-      }
+    // Launch the watcher process.
+    base::FilePath exe_path;
+    if (PathService::Get(base::FILE_EXE, &exe_path)) {
+      chrome_watcher_client_.reset(new ChromeWatcherClient(
+          base::Bind(&GenerateChromeWatcherCommandLine, exe_path)));
+      chrome_watcher_client_->LaunchWatcher();
     }
   } else {
     // Set non-browser processes up to be killed by the system after the browser
@@ -273,9 +238,6 @@ int ChromeDllLoader::OnBeforeExit(int return_code,
     ClearDidRun(dll_path);
   }
 
-#if BUILDFLAG(ENABLE_KASKO)
-  kasko_client_.reset();
-#endif
   chrome_watcher_client_.reset();
 
   return return_code;

@@ -15,11 +15,33 @@ ChromeIdentityService::~ChromeIdentityService() {
                     OnChromeIdentityServiceWillBeDestroyed());
 }
 
-ChromeIdentityInteractionManager*
-ChromeIdentityService::CreateChromeIdentityInteractionManager(
+void ChromeIdentityService::DismissDialogs() {}
+
+bool ChromeIdentityService::HandleApplicationOpenURL(UIApplication* application,
+                                                     NSURL* url,
+                                                     NSDictionary* options) {
+  return false;
+}
+
+base::scoped_nsobject<UINavigationController>
+ChromeIdentityService::NewAccountDetails(
+    ChromeIdentity* identity,
+    id<ChromeIdentityBrowserOpener> browser_opener) {
+  return base::scoped_nsobject<UINavigationController>();
+}
+
+base::scoped_nsobject<UINavigationController>
+ChromeIdentityService::NewWebAndAppSettingDetails(
+    ChromeIdentity* identity,
+    id<ChromeIdentityBrowserOpener> browser_opener) {
+  return base::scoped_nsobject<UINavigationController>();
+}
+
+base::scoped_nsobject<ChromeIdentityInteractionManager>
+ChromeIdentityService::NewChromeIdentityInteractionManager(
     ios::ChromeBrowserState* browser_state,
     id<ChromeIdentityInteractionManagerDelegate> delegate) const {
-  return [[[ChromeIdentityInteractionManager alloc] init] autorelease];
+  return base::scoped_nsobject<ChromeIdentityInteractionManager>();
 }
 
 bool ChromeIdentityService::IsValidIdentity(ChromeIdentity* identity) const {

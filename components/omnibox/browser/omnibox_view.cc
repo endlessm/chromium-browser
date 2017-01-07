@@ -92,14 +92,9 @@ gfx::VectorIconId OmniboxView::GetVectorIcon() const {
   if (!IsEditingOrEmpty())
     return controller_->GetToolbarModel()->GetVectorIcon();
 
-  // Reuse the dropdown icons...
-  gfx::VectorIconId id = AutocompleteMatch::TypeToVectorIcon(
+  return AutocompleteMatch::TypeToVectorIcon(
       model_ ? model_->CurrentTextType()
              : AutocompleteMatchType::URL_WHAT_YOU_TYPED);
-  // but use a different version for the HTTP icon.
-  return (id == gfx::VectorIconId::OMNIBOX_HTTP)
-             ? gfx::VectorIconId::LOCATION_BAR_HTTP
-             : id;
 #else
   NOTIMPLEMENTED();
   return gfx::VectorIconId::VECTOR_ICON_NONE;
@@ -117,26 +112,7 @@ void OmniboxView::SetUserText(const base::string16& text,
   SetWindowTextAndCaretPos(text, text.length(), update_popup, true);
 }
 
-void OmniboxView::ShowURL() {
-  SetFocus();
-  controller_->GetToolbarModel()->set_url_replacement_enabled(false);
-  model_->UpdatePermanentText();
-  RevertWithoutResettingSearchTermReplacement();
-  SelectAll(true);
-}
-
-void OmniboxView::HideURL() {
-  controller_->GetToolbarModel()->set_url_replacement_enabled(true);
-  model_->UpdatePermanentText();
-  RevertWithoutResettingSearchTermReplacement();
-}
-
 void OmniboxView::RevertAll() {
-  controller_->GetToolbarModel()->set_url_replacement_enabled(true);
-  RevertWithoutResettingSearchTermReplacement();
-}
-
-void OmniboxView::RevertWithoutResettingSearchTermReplacement() {
   CloseOmniboxPopup();
   if (model_.get())
     model_->Revert();

@@ -9,11 +9,12 @@
 #include <string>
 #include <vector>
 
+#include "base/callback.h"
 #include "base/observer_list.h"
+#include "ios/chrome/browser/reading_list/reading_list_entry.h"
 #include "ios/chrome/browser/reading_list/reading_list_model_observer.h"
 
 class GURL;
-class ReadingListEntry;
 class ReadingListModel;
 
 namespace ios {
@@ -56,6 +57,13 @@ class ReadingListModel {
   virtual const ReadingListEntry& GetUnreadEntryAtIndex(size_t index) const = 0;
   virtual const ReadingListEntry& GetReadEntryAtIndex(size_t index) const = 0;
 
+  // Synchronously calls the |callback| with entry associated with this |url|.
+  // Does nothing if there is no entry associated.
+  // Returns whether the callback has been called.
+  virtual bool CallbackEntryURL(
+      const GURL& url,
+      base::Callback<void(const ReadingListEntry&)> callback) const = 0;
+
   // Adds |url| at the top of the unread entries, and removes entries with the
   // same |url| from everywhere else if they exist. The addition may be
   // asynchronous, and the data will be available only once the observers are
@@ -71,6 +79,15 @@ class ReadingListModel {
   // the reading list and read, move it to the top of unread if it is not here
   // already. This may trigger deletion of old read entries.
   virtual void MarkReadByURL(const GURL& url) = 0;
+
+  // Methods to mutate an entry. Will locate the relevant entry by URL. Does
+  // nothing if the entry is not found.
+  virtual void SetEntryTitle(const GURL& url, const std::string& title) = 0;
+  virtual void SetEntryDistilledURL(const GURL& url,
+                                    const GURL& distilled_url) = 0;
+  virtual void SetEntryDistilledState(
+      const GURL& url,
+      ReadingListEntry::DistillationState state) = 0;
 
   // Observer registration methods.
   void AddObserver(ReadingListModelObserver* observer);

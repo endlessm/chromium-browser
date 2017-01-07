@@ -20,8 +20,8 @@
 #include "chrome/test/base/testing_browser_process.h"
 #include "chromeos/settings/cros_settings_names.h"
 #include "components/policy/core/common/cloud/cloud_policy_constants.h"
+#include "components/policy/proto/device_management_backend.pb.h"
 #include "content/public/test/test_browser_thread.h"
-#include "policy/proto/device_management_backend.pb.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace em = enterprise_management;
@@ -40,7 +40,7 @@ class CrosSettingsTest : public testing::Test {
 
   void TearDown() override {
     ASSERT_TRUE(expected_props_.empty());
-    STLDeleteValues(&expected_props_);
+    base::STLDeleteValues(&expected_props_);
   }
 
   void FetchPref(const std::string& pref) {
@@ -122,7 +122,7 @@ TEST_F(CrosSettingsTest, SetWhitelist) {
   // Setting the whitelist should also switch the value of
   // kAccountsPrefAllowNewUser to false.
   base::ListValue whitelist;
-  whitelist.Append(new base::StringValue("me@owner"));
+  whitelist.AppendString("me@owner");
   AddExpectation(kAccountsPrefAllowNewUser, new base::FundamentalValue(false));
   AddExpectation(kAccountsPrefUsers, whitelist.DeepCopy());
   SetPref(kAccountsPrefUsers, &whitelist);
@@ -189,7 +189,7 @@ TEST_F(CrosSettingsTest, SetWhitelistAndNoNewUsers) {
   // Setting the whitelist should allow us to set kAccountsPrefAllowNewUser to
   // false (which is the implicit value too).
   base::ListValue whitelist;
-  whitelist.Append(new base::StringValue("me@owner"));
+  whitelist.AppendString("me@owner");
   AddExpectation(kAccountsPrefUsers, whitelist.DeepCopy());
   AddExpectation(kAccountsPrefAllowNewUser, new base::FundamentalValue(false));
   SetPref(kAccountsPrefUsers, &whitelist);
@@ -217,10 +217,10 @@ TEST_F(CrosSettingsTest, SetEphemeralUsersEnabled) {
 
 TEST_F(CrosSettingsTest, FindEmailInList) {
   base::ListValue list;
-  list.Append(new base::StringValue("user@example.com"));
-  list.Append(new base::StringValue("nodomain"));
-  list.Append(new base::StringValue("with.dots@gmail.com"));
-  list.Append(new base::StringValue("Upper@example.com"));
+  list.AppendString("user@example.com");
+  list.AppendString("nodomain");
+  list.AppendString("with.dots@gmail.com");
+  list.AppendString("Upper@example.com");
 
   CrosSettings* cs = &settings_;
   cs->Set(kAccountsPrefUsers, list);
@@ -248,8 +248,8 @@ TEST_F(CrosSettingsTest, FindEmailInList) {
 
 TEST_F(CrosSettingsTest, FindEmailInListWildcard) {
   base::ListValue list;
-  list.Append(new base::StringValue("user@example.com"));
-  list.Append(new base::StringValue("*@example.com"));
+  list.AppendString("user@example.com");
+  list.AppendString("*@example.com");
 
   CrosSettings* cs = &settings_;
   cs->Set(kAccountsPrefUsers, list);

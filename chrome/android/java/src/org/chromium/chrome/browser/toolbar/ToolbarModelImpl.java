@@ -18,6 +18,7 @@ import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.toolbar.ToolbarModel.ToolbarModelDelegate;
 import org.chromium.components.dom_distiller.core.DomDistillerService;
 import org.chromium.components.dom_distiller.core.DomDistillerUrlUtils;
+import org.chromium.components.security_state.ConnectionSecurityLevel;
 import org.chromium.content_public.browser.WebContents;
 
 /**
@@ -87,6 +88,8 @@ class ToolbarModelImpl extends ToolbarModel implements ToolbarDataProvider, Tool
 
     @Override
     public String getText() {
+        if (mTab != null && mTab.isBlimpTab()) return mTab.getUrl().trim();
+
         String displayText = super.getText();
 
         if (mTab == null || mTab.isFrozen()) return displayText;
@@ -105,8 +108,9 @@ class ToolbarModelImpl extends ToolbarModel implements ToolbarDataProvider, Tool
                 displayText =
                         DomDistillerTabUtils.getFormattedUrlFromOriginalDistillerUrl(originalUrl);
             }
-        } else if (mTab.isOfflinePage()) {
-            String originalUrl = mTab.getOfflinePageOriginalUrl();
+        } else if (mTab.isOfflinePage()
+                && mTab.getSecurityLevel() == ConnectionSecurityLevel.NONE) {
+            String originalUrl = mTab.getOriginalUrl();
             displayText = OfflinePageUtils.stripSchemeFromOnlineUrl(
                   DomDistillerTabUtils.getFormattedUrlFromOriginalDistillerUrl(originalUrl));
         }

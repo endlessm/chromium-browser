@@ -65,7 +65,6 @@ Para obtener más información sobre la privacidad, consulta la política de pri
 <translation id="2359808026110333948">Continuar</translation>
 <translation id="2366718077645204424">No se puede establecer la conexión con el host. Probablemente esto se deba a la configuración de la red que usas.</translation>
 <translation id="2370754117186920852"><ph name="OPTIONAL_OFFLINE_REASON" /> Última vez en línea <ph name="RELATIVE_TIMESTAMP" /></translation>
-<translation id="2498359688066513246">Ayuda y comentarios</translation>
 <translation id="2499160551253595098">Ayúdanos a mejorar la aplicación Escritorio remoto de Chrome permitiéndonos recopilar estadísticas de uso e informes sobre fallos.</translation>
 <translation id="2512228156274966424">NOTA: Para asegurarte de que todas las combinaciones de teclas para acceso directo estén disponibles, puedes configurar Escritorio remoto de Chrome en "Abrir como ventana".</translation>
 <translation id="2540992418118313681">¿Quieres compartir esta computadora con otro usuario para que la vea y la controle?</translation>
@@ -74,7 +73,6 @@ Para obtener más información sobre la privacidad, consulta la política de pri
 <translation id="2676780859508944670">Operación en curso…</translation>
 <translation id="2699970397166997657">Chromoting</translation>
 <translation id="2747641796667576127">Las actualizaciones de software, por lo general, se realizan de forma automática, pero puede haber errores en casos excepcionales. La actualización del software no debe tardar más de unos minutos y se puede hacer mientras estás conectado a tu computadora de forma remota.</translation>
-<translation id="2813770873348017932">Las conexiones con la computadora remota se bloquearon temporalmente porque alguien intentó conectarse con ella a través de un PIN no válido. Vuelve a intentarlo más tarde.</translation>
 <translation id="2841013758207633010">Hora</translation>
 <translation id="2851674870054673688">Una vez que se haya ingresado el código, se iniciará la sesión compartida.</translation>
 <translation id="2851754573186462851">Chromium App Streaming</translation>
@@ -149,7 +147,6 @@ Chromoting</translation>
 <translation id="4573676252416618192">Host del Escritorio
 remoto de Chrome</translation>
 <translation id="4619978527973181021">Aceptar e instalar</translation>
-<translation id="4647791084836149355">Mostrar vista de Cardboard</translation>
 <translation id="4703302905453407178">Un componente requerido dejó de funcionar. Informa este problema ante los programadores.</translation>
 <translation id="4703799847237267011">Se cerró tu sesión en Chromoting.</translation>
 <translation id="4736223761657662401">Historial de conexiones</translation>
@@ -210,7 +207,6 @@ remoto de Chrome</translation>
 <translation id="6284412385303060032">Se cerró el host que se ejecuta en la pantalla de acceso de la consola para poder admitir el modo de cortina. Por lo tanto, se cambió a un host que se ejecuta en una sesión específica de usuario.</translation>
 <translation id="629730747756840877">Cuenta</translation>
 <translation id="6304318647555713317">Cliente</translation>
-<translation id="6324708100353784493">Habilitaste el modo de integración de Google Cardboard. Para utilizar este modo, coloca tu dispositivo en un visor compatible con Google Cardboard.</translation>
 <translation id="6381670701864002291">Tengo otro problema.</translation>
 <translation id="6398765197997659313">Salir de pantalla completa</translation>
 <translation id="6408143143164565232">• Escucha audio de computadoras Windows o Linux.
@@ -236,6 +232,7 @@ remoto de Chrome</translation>
 <translation id="6930242544192836755">Duración</translation>
 <translation id="6939719207673461467">Mostrar u ocultar teclado</translation>
 <translation id="6944854424004126054">Restaurar ventana</translation>
+<translation id="6963936880795878952">Las conexiones con la computadora remota se bloquearon temporalmente porque alguien intentó conectarse a ella con un PIN no válido. Vuelve a intentarlo más tarde.</translation>
 <translation id="6965382102122355670">Aceptar</translation>
 <translation id="6985691951107243942">¿Realmente deseas inhabilitar las conexiones remotas con <ph name="HOSTNAME" />? Si te arrepientes, tendrás que ir a esa computadora para volver a habilitar las conexiones.</translation>
 <translation id="6998989275928107238">A</translation>
@@ -266,6 +263,7 @@ remoto de Chrome</translation>
 <translation id="7948001860594368197">Opciones de pantalla</translation>
 <translation id="7970576581263377361">Se produjo un error de autenticación. Vuelve a acceder a Chromium.</translation>
 <translation id="7981525049612125370">La sesión remota expiró.</translation>
+<translation id="8041089156583427627">Enviar comentario</translation>
 <translation id="8041721485428375115">Al descargar el instalador del host de Escritorio remoto de Chrome, aceptas las <ph name="LINK_BEGIN" />Condiciones del servicio<ph name="LINK_END" /> de Google.</translation>
 <translation id="8073845705237259513">Para utilizar el escritorio remoto de Chrome, debes agregar una cuenta de Google en el dispositivo.</translation>
 <translation id="80739703311984697">El host remoto requiere la autenticación de un sitio web de terceros. Para continuar, debes otorgar permisos adicionales a Chromoting para acceder a la siguiente dirección:</translation>
@@ -289,6 +287,7 @@ remoto de Chrome</translation>
 <translation id="8548209692293300397">Accediste previamente como <ph name="USER_NAME" /> (<ph name="USER_EMAIL" />). Para acceder a las computadoras en esa cuenta, <ph name="LINK_BEGIN" />accede a Google Chrome<ph name="LINK_END" /> con esa cuenta y vuelve a instalar Escritorio remoto de Chrome.</translation>
 <translation id="8642984861538780905">Aceptable</translation>
 <translation id="8712909229180978490">No puedo ver mis archivos guardados en línea en Google Drive.</translation>
+<translation id="8743328882720071828">¿Deseas permitir que <ph name="CLIENT_USERNAME" /> vea y controle tu computadora?</translation>
 <translation id="8759753423332885148">Más información</translation>
 <translation id="8791202241915690908">Descarga el instalador del host de Chromoting</translation>
 <translation id="894763922177556086">Buena</translation>

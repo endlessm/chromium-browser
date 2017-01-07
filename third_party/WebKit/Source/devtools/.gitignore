@@ -6,3 +6,7 @@
 *.vcproj*
 *.vcxproj*
 *.xcodeproj*
+node_modules
+config.gypi
+npm-debug.log
+/release

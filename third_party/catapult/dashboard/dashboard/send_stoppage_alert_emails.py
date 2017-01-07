@@ -7,11 +7,10 @@
 from google.appengine.api import mail
 from google.appengine.ext import ndb
 
-from dashboard import datastore_hooks
 from dashboard import email_template
-from dashboard import request_handler
-from dashboard import test_owner
-from dashboard import utils
+from dashboard.common import datastore_hooks
+from dashboard.common import request_handler
+from dashboard.common import utils
 from dashboard.models import sheriff
 from dashboard.models import stoppage_alert
 
@@ -21,7 +20,6 @@ _HTML_BODY_TEMPLATE = """
   <tr><th>Last rev</th><th>Test</th><th>Stdio</th></tr>
   %(alert_rows)s
 </table>
-<p>Relevant test owners: %(test_owners)s</p>
 <p>It is possible that the test has been failing, or that the test was
 disabled on purpose and we should remove monitoring. It is also possible
 that the test has been renamed and the monitoring should be updated.
@@ -37,8 +35,6 @@ _TEXT_BODY_TEMPLATE = """
 Tests that have not received data in some time:
 %(alert_rows)s
 
-Relevant test owners: %(test_owners)s
-
 It is possible that the test has been failing, or that the test was
 disabled on purpose and we should remove monitoring. It is also possible
 that the test has been renamed and the monitoring should be updated.
@@ -53,7 +49,7 @@ _TEXT_ALERT_ROW_TEMPLATE = """
 """
 _BUG_TEMPLATE_URL = (
     'https://code.google.com/p/chromium/issues/entry'
-    '?labels=Pri-1,Performance-Waterfall,Performance-Sheriff,'
+    '?labels=Pri-1,Performance-Waterfall,'
     'Type-Bug-Regression,OS-?&comment=Tests affected:'
     '&summary=No+data+received+for+<tests>+since+<rev>'
     'cc=%s')
@@ -84,13 +80,12 @@ def _SendStoppageAlertEmail(sheriff_entity):
   if not stoppage_alerts:
     return
   alert_dicts = [_AlertRowDict(a) for a in stoppage_alerts]
-  test_owners = _TestOwners(stoppage_alerts)
   mail.send_mail(
       sender='gasper-alerts@google.com',
       to=email_template.GetSheriffEmails(sheriff_entity),
       subject=_Subject(sheriff_entity, stoppage_alerts),
-      body=_TextBody(alert_dicts, test_owners),
-      html=_HtmlBody(alert_dicts, test_owners))
+      body=_TextBody(alert_dicts),
+      html=_HtmlBody(alert_dicts))
   for alert in stoppage_alerts:
     alert.mail_sent = True
   ndb.put_multi(stoppage_alerts)
@@ -117,23 +112,21 @@ def _Subject(sheriff_entity, stoppage_alerts):
   return template % (sheriff_entity.stoppage_alert_delay, len(stoppage_alerts))
 
 
-def _HtmlBody(alert_dicts, test_owners):
+def _HtmlBody(alert_dicts):
   """Returns the HTML body for an email about stoppage alerts."""
   html_alerts = '\n'.join(_HTML_ALERT_ROW_TEMPLATE % a for a in alert_dicts)
   return _HTML_BODY_TEMPLATE % {
       'alert_rows': html_alerts,
-      'bug_template_link': _BUG_TEMPLATE_URL % test_owners,
-      'test_owners': test_owners,
+      'bug_template_link': _BUG_TEMPLATE_URL,
   }
 
 
-def _TextBody(alert_dicts, test_owners):
+def _TextBody(alert_dicts):
   """Returns the text body for an email about stoppage alerts."""
   text_alerts = '\n'.join(_TEXT_ALERT_ROW_TEMPLATE % a for a in alert_dicts)
   return _TEXT_BODY_TEMPLATE % {
       'alert_rows': text_alerts,
-      'bug_template_link': _BUG_TEMPLATE_URL % test_owners,
-      'test_owners': test_owners,
+      'bug_template_link': _BUG_TEMPLATE_URL,
   }
 
 
@@ -152,12 +145,3 @@ def _StdioLink(alert):
   """Returns a list of stdio log links for the given stoppage alerts."""
   row = alert.row.get()
   return getattr(row, 'a_stdio_uri', None)
-
-
-def _TestOwners(stoppage_alerts):
-  """Returns a list of test owners for the given alerts."""
-  def SuitePath(alert):
-    path_parts = utils.TestPath(alert.GetTestMetadataKey()).split('/')
-    return '%s/%s' % (path_parts[0], path_parts[2])
-  test_owners = test_owner.GetOwners([SuitePath(a) for a in stoppage_alerts])
-  return ','.join(test_owners)

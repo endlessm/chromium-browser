@@ -7,6 +7,7 @@ package org.chromium.chrome.browser.payments;
 import android.content.DialogInterface;
 import android.test.suitebuilder.annotation.MediumTest;
 
+import org.chromium.base.test.util.Feature;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.autofill.AutofillTestHelper;
 import org.chromium.chrome.browser.autofill.PersonalDataManager.AutofillProfile;
@@ -40,6 +41,7 @@ public class PaymentRequestIncompleteContactDetailsTest extends PaymentRequestTe
 
     /** Attempt to update the contact information with invalid data and cancel the transaction. */
     @MediumTest
+    @Feature({"Payments"})
     public void testEditIncompleteContactAndCancel()
             throws InterruptedException, ExecutionException, TimeoutException {
         triggerUIAndWait(mReadyForInput);
@@ -47,13 +49,14 @@ public class PaymentRequestIncompleteContactDetailsTest extends PaymentRequestTe
         clickInContactInfoAndWait(R.id.payments_first_radio_button, mReadyToEdit);
         setTextInEditorAndWait(new String[] {"---", "jane.jones"}, mEditorTextUpdate);
         clickInEditorAndWait(R.id.payments_edit_done_button, mEditorValidationError);
-        clickInEditorAndWait(R.id.payments_edit_cancel_button, mReadyToClose);
+        clickInEditorAndWait(R.id.payments_edit_cancel_button, mReadyForInput);
         clickAndWait(R.id.close_button, mDismissed);
         expectResultContains(new String[] {"Request cancelled"});
     }
 
     /** Update the contact information with valid data and provide that to the merchant. */
     @MediumTest
+    @Feature({"Payments"})
     public void testEditIncompleteContactAndPay()
             throws InterruptedException, ExecutionException, TimeoutException {
         triggerUIAndWait(mReadyForInput);

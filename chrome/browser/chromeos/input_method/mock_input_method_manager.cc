@@ -252,5 +252,15 @@ void MockInputMethodManager::ImeMenuActivationChanged(bool is_active) {}
 void MockInputMethodManager::NotifyImeMenuItemsChanged(
     const std::string& engine_id,
     const std::vector<InputMethodManager::MenuItem>& items) {}
+
+void MockInputMethodManager::MaybeNotifyImeMenuActivationChanged() {}
+
+void MockInputMethodManager::OverrideKeyboardUrlRef(const std::string& keyset) {
+}
+
+bool MockInputMethodManager::IsEmojiHandwritingVoiceOnImeMenuEnabled() {
+  return false;
+}
+
 }  // namespace input_method
 }  // namespace chromeos

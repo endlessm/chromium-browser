@@ -14,6 +14,7 @@ import android.content.res.Configuration;
 import android.graphics.drawable.Drawable;
 import android.os.Bundle;
 import android.provider.Settings;
+import android.support.v4.content.ContextCompat;
 import android.support.v4.graphics.drawable.DrawableCompat;
 import android.support.v4.widget.DrawerLayout;
 import android.support.v7.app.ActionBarDrawerToggle;
@@ -31,13 +32,10 @@ import android.widget.LinearLayout;
 import android.widget.ListView;
 import android.widget.Toast;
 
-import org.chromium.base.ApiCompatibilityUtils;
 import org.chromium.base.Log;
-import org.chromium.chromoting.NavigationMenuAdapter.NavigationMenuItem;
 import org.chromium.chromoting.accountswitcher.AccountSwitcher;
 import org.chromium.chromoting.accountswitcher.AccountSwitcherFactory;
 import org.chromium.chromoting.base.OAuthTokenFetcher;
-import org.chromium.chromoting.help.CreditsActivity;
 import org.chromium.chromoting.help.HelpContext;
 import org.chromium.chromoting.help.HelpSingleton;
 import org.chromium.chromoting.jni.Client;
@@ -64,9 +62,6 @@ public class Chromoting extends AppCompatActivity implements ConnectionListener,
 
     /** Result code used for starting {@link DesktopActivity}. */
     public static final int DESKTOP_ACTIVITY = 0;
-
-    /** Result code used for starting {@link CardboardDesktopActivity}. */
-    public static final int CARDBOARD_DESKTOP_ACTIVITY = 1;
 
     /** Preference names for storing selected and recent accounts. */
     private static final String PREFERENCE_SELECTED_ACCOUNT = "account_name";
@@ -112,6 +107,12 @@ public class Chromoting extends AppCompatActivity implements ConnectionListener,
     private DrawerLayout mDrawerLayout;
 
     private ActionBarDrawerToggle mDrawerToggle;
+
+    /**
+     * Task to be run after the navigation drawer is closed. Can be null. This is used to run
+     * Help/Feedback tasks which require a screenshot with the drawer closed.
+     */
+    private Runnable mPendingDrawerCloseTask;
 
     private AccountSwitcher mAccountSwitcher;
 
@@ -172,32 +173,42 @@ public class Chromoting extends AppCompatActivity implements ConnectionListener,
         mProgressView.setVisibility(View.GONE);
     }
 
-    private ListView createNavigationMenu() {
-        ListView navigationMenu = (ListView) getLayoutInflater()
-                .inflate(R.layout.navigation_list, null);
+    private void runPendingDrawerCloseTask() {
+        // Avoid potential recursion problems by null-ing the task first.
+        Runnable task = mPendingDrawerCloseTask;
+        mPendingDrawerCloseTask = null;
+        if (task != null) {
+            task.run();
+        }
+    }
 
-        NavigationMenuItem helpItem = new NavigationMenuItem(R.menu.help_list_item,
-                new Runnable() {
-                    @Override
-                    public void run() {
-                        HelpSingleton.getInstance().launchHelp(Chromoting.this,
-                                HelpContext.HOST_LIST);
-                    }
-                });
+    private void closeDrawerThenRun(Runnable task) {
+        mPendingDrawerCloseTask = task;
+        if (mDrawerLayout.isDrawerOpen(Gravity.START)) {
+            mDrawerLayout.closeDrawer(Gravity.START);
+        } else {
+            runPendingDrawerCloseTask();
+        }
+    }
 
-        NavigationMenuItem creditsItem = new NavigationMenuItem(R.menu.credits_list_item,
-                new Runnable() {
-                    @Override
-                    public void run() {
-                        startActivity(new Intent(Chromoting.this, CreditsActivity.class));
-                    }
-                });
+    /** Closes any navigation drawer, then shows the Help screen. */
+    public void launchHelp(final HelpContext helpContext) {
+        closeDrawerThenRun(new Runnable() {
+            @Override
+            public void run() {
+                HelpSingleton.getInstance().launchHelp(Chromoting.this, helpContext);
+            }
+        });
+    }
 
-        NavigationMenuItem[] navigationMenuItems = { helpItem, creditsItem };
-        NavigationMenuAdapter adapter = new NavigationMenuAdapter(this, navigationMenuItems);
-        navigationMenu.setAdapter(adapter);
-        navigationMenu.setOnItemClickListener(adapter);
-        return navigationMenu;
+    /** Closes any navigation drawer, then shows the Feedback screen. */
+    public void launchFeedback() {
+        closeDrawerThenRun(new Runnable() {
+            @Override
+            public void run() {
+                HelpSingleton.getInstance().launchFeedback(Chromoting.this);
+            }
+        });
     }
 
     /**
@@ -233,8 +244,14 @@ public class Chromoting extends AppCompatActivity implements ConnectionListener,
 
         mDrawerLayout = (DrawerLayout) findViewById(R.id.drawer_layout);
         mDrawerToggle = new ActionBarDrawerToggle(this, mDrawerLayout, toolbar,
-                R.string.open_navigation_drawer, R.string.close_navigation_drawer);
-        mDrawerLayout.setDrawerListener(mDrawerToggle);
+                R.string.open_navigation_drawer, R.string.close_navigation_drawer) {
+            @Override
+            public void onDrawerClosed(View drawerView) {
+                super.onDrawerClosed(drawerView);
+                runPendingDrawerCloseTask();
+            }
+        };
+        mDrawerLayout.addDrawerListener(mDrawerToggle);
 
         // Disable the hamburger icon animation. This is more complex than it ought to be.
         // The animation can be customized by tweaking some style parameters - see
@@ -265,13 +282,13 @@ public class Chromoting extends AppCompatActivity implements ConnectionListener,
 
         // Set the three-line icon instead of the default which is a tinted arrow icon.
         getSupportActionBar().setDisplayHomeAsUpEnabled(true);
-        Drawable menuIcon = ApiCompatibilityUtils.getDrawable(getResources(), R.drawable.ic_menu);
+        Drawable menuIcon = ContextCompat.getDrawable(this, R.drawable.ic_menu);
         DrawableCompat.setTint(menuIcon.mutate(),
                 ChromotingUtil.getColorAttribute(this, R.attr.colorControlNormal));
         getSupportActionBar().setHomeAsUpIndicator(menuIcon);
 
         mAccountSwitcher = AccountSwitcherFactory.getInstance().createAccountSwitcher(this, this);
-        mAccountSwitcher.setNavigation(createNavigationMenu());
+        mAccountSwitcher.setNavigation(NavigationMenuAdapter.createNavigationMenu(this));
         LinearLayout navigationDrawer = (LinearLayout) findViewById(R.id.navigation_drawer);
         mAccountSwitcher.setDrawer(navigationDrawer);
         View switcherView = mAccountSwitcher.getView();
@@ -473,7 +490,7 @@ public class Chromoting extends AppCompatActivity implements ConnectionListener,
     /** Called when the user touches hyperlinked text. */
     @Override
     public void onClick(View view) {
-        HelpSingleton.getInstance().launchHelp(this, HelpContext.HOST_SETUP);
+        launchHelp(HelpContext.HOST_SETUP);
     }
 
     private void onDeleteHostClicked(int hostIndex) {

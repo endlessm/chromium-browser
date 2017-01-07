@@ -8,7 +8,7 @@
 #import <AppKit/AppKit.h>
 
 #import "base/mac/scoped_nsobject.h"
-#include "chrome/browser/media/desktop_media_list.h"
+#include "chrome/browser/media/webrtc/desktop_media_list.h"
 
 // Stores the data representing a |DesktopMediaPicker| source for displaying in
 // a |IKImageBrowserView|. Implements the |IKImageBrowserItem| informal
@@ -20,7 +20,10 @@
   base::scoped_nsobject<NSString> imageTitle_;
   base::scoped_nsobject<NSImage> image_;
   NSUInteger imageVersion_;
+  BOOL titleHidden_;
 }
+
+@property(assign, nonatomic) BOOL titleHidden;
 
 // Designated initializer.
 // |sourceID| is the corresponding source's ID as provided by the media list.

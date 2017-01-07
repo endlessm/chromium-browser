@@ -65,7 +65,6 @@ Adatvédelmi információkért tekintse meg a Google adatvédelmi irányelveit (
 <translation id="2359808026110333948">Folytatás</translation>
 <translation id="2366718077645204424">A gazdagép nem érhető el. Ez valószínűleg az Ön által használt hálózat konfigurációja miatt van.</translation>
 <translation id="2370754117186920852"><ph name="OPTIONAL_OFFLINE_REASON" />  Legutóbb észlelve az interneten: <ph name="RELATIVE_TIMESTAMP" />.</translation>
-<translation id="2498359688066513246">Súgó és visszajelzés</translation>
 <translation id="2499160551253595098">Segítsen fejleszteni a Chrome távoliasztal-szolgáltatást azáltal, hogy rendelkezésünkre bocsátja a használati statisztikákat és hibajelentéseket.</translation>
 <translation id="2512228156274966424">MEGJEGYZÉS: ha biztosítani akarja valamennyi billentyűkód elérhetőségét, konfigurálja a Chrome távoliasztal-szolgáltatást a „Megnyitás ablakban” lehetőséggel.</translation>
 <translation id="2540992418118313681">Meg szeretné osztani a számítógép megtekintését és vezérlését egy másik felhasználóval?</translation>
@@ -74,7 +73,6 @@ Adatvédelmi információkért tekintse meg a Google adatvédelmi irányelveit (
 <translation id="2676780859508944670">Feldolgozás…</translation>
 <translation id="2699970397166997657">Chromoting</translation>
 <translation id="2747641796667576127">A szoftverfrissítések általában automatikusan történnek, ám egyes ritka esetekben sikertelenek lehetnek. A szoftverfrissítés nem szokott pár percnél több időt igénybe venni, és a számítógéphez távolról csatlakozva is elvégezhető.</translation>
-<translation id="2813770873348017932">A távoli számítógéphez való csatlakozás ideiglenesen le van tiltva, mert valaki érvénytelen PIN kóddal próbált csatlakozni hozzá. Kérjük, próbálja újra később.</translation>
 <translation id="2841013758207633010">Idő</translation>
 <translation id="2851674870054673688">Miután beírják a kódot, megkezdődik a megosztási munkamenet.</translation>
 <translation id="2851754573186462851">Chromium alkalmazás internetes megjelenítése</translation>
@@ -149,7 +147,6 @@ gazdagép</translation>
 <translation id="4573676252416618192">Chrome távoliasztal-szolgáltatási
 gazdagép</translation>
 <translation id="4619978527973181021">Elfogadás és telepítés</translation>
-<translation id="4647791084836149355">Cardboard-nézet megjelenítése</translation>
 <translation id="4703302905453407178">Egy szükséges összetevő működése leállt. Jelentse a problémát a fejlesztőknek.</translation>
 <translation id="4703799847237267011">Chromoting munkamenete befejeződött.</translation>
 <translation id="4736223761657662401">Kapcsolatelőzmények</translation>
@@ -210,7 +207,6 @@ gazdagép</translation>
 <translation id="6284412385303060032">A konzol logikai képernyőjén futó gazdagép leállt, hogy támogassa a rejtett üzemmódot úgy, hogy felhasználóspecifikus munkamenetben futó gazdagépre váltott.</translation>
 <translation id="629730747756840877">Fiók</translation>
 <translation id="6304318647555713317">Kliens</translation>
-<translation id="6324708100353784493">Engedélyezte a Google Cardboard integrációs módot. A mód használatához helyezze be eszközét egy Google Cardboarddal kompatibilis szemüvegbe.</translation>
 <translation id="6381670701864002291">Valami más.</translation>
 <translation id="6398765197997659313">Kilépés a teljes képernyős módból</translation>
 <translation id="6408143143164565232">• Audió hallgatása Windows vagy Linux rendszerű számítógépről.
@@ -236,6 +232,7 @@ gazdagép</translation>
 <translation id="6930242544192836755">Időtartam</translation>
 <translation id="6939719207673461467">Billentyűzet megjelenítése/elrejtése.</translation>
 <translation id="6944854424004126054">Ablak visszaállítása</translation>
+<translation id="6963936880795878952">A távoli számítógéphez való csatlakozás ideiglenesen le van tiltva, mert valaki érvénytelen PIN-kóddal próbált csatlakozni hozzá. Kérjük, próbálja újra később.</translation>
 <translation id="6965382102122355670">OK</translation>
 <translation id="6985691951107243942">Biztosan le szeretné tiltani a távoli kapcsolatokat a(z) <ph name="HOSTNAME" /> gazdagéppel? Ha meggondolja magát, akkor azon a számítógépen kell majd újból engedélyeznie a kapcsolatokat.</translation>
 <translation id="6998989275928107238">Címzett</translation>
@@ -266,6 +263,7 @@ gazdagép</translation>
 <translation id="7948001860594368197">Képernyő-beállítások</translation>
 <translation id="7970576581263377361">A hitelesítés nem sikerült. Kérjük, jelentkezzen be újra a Chromiumba.</translation>
 <translation id="7981525049612125370">A távoli munkamenet lejárt.</translation>
+<translation id="8041089156583427627">Visszajelzés küldése</translation>
 <translation id="8041721485428375115">A Chrome távoliasztal-szolgáltatási gazdagép-telepítő letöltésével elfogadja a Google <ph name="LINK_BEGIN" />Általános Szerződési Feltételeit<ph name="LINK_END" />.</translation>
 <translation id="8073845705237259513">A Chrome távoliasztal-szolgáltatás használatához adjon hozzá eszközéhez egy Google-fiókot.</translation>
 <translation id="80739703311984697">A távoli gazdagép hitelesítést kér egy harmadik féltől származó webhelyhez. A folytatáshoz további engedélyeket kell adnia a Chromoting szolgáltatásnak a cím eléréséhez:</translation>
@@ -289,6 +287,7 @@ gazdagép</translation>
 <translation id="8548209692293300397">Korábban <ph name="USER_NAME" /> (<ph name="USER_EMAIL" />) felhasználóként jelentkezett be. A fiók számítógépeinek eléréséhez <ph name="LINK_BEGIN" />jelentkezzen be a Google Chrome-ba<ph name="LINK_END" /> az adott fiókkal, majd telepítse újra a Chrome távoliasztal-szolgáltatást.</translation>
 <translation id="8642984861538780905">Közepes</translation>
 <translation id="8712909229180978490">Nem látom a mentett fájlokat online, a Google Drive-on.</translation>
+<translation id="8743328882720071828">Szeretné engedélyezni <ph name="CLIENT_USERNAME" /> számára, hogy lássa és irányítsa a számítógépet?</translation>
 <translation id="8759753423332885148">További információ.</translation>
 <translation id="8791202241915690908">Chromoting gazdagép-telepítő letöltése</translation>
 <translation id="894763922177556086">Jó</translation>

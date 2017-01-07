@@ -260,12 +260,19 @@ public class LayoutManagerDocument extends LayoutManager
         String url = tab.getUrl();
         boolean isNativePage = url != null && url.startsWith(UrlConstants.CHROME_NATIVE_SCHEME);
         int themeColor = tab.getThemeColor();
-        boolean canUseLiveTexture =
-                tab.getContentViewCore() != null && !tab.isShowingSadTab() && !isNativePage;
-        layoutTab.initFromHost(tab.getBackgroundColor(), tab.shouldStall(), canUseLiveTexture,
-                themeColor, ColorUtils.getTextBoxColorForToolbarBackground(
+        // TODO(xingliu): Remove this override themeColor for Blimp tabs. See crbug.com/644774.
+        if (tab.isBlimpTab() && tab.getBlimpContents() != null) {
+            themeColor = tab.getBlimpContents().getThemeColor();
+        }
+
+        boolean canUseLiveTexture = tab.isBlimpTab()
+                || tab.getContentViewCore() != null && !tab.isShowingSadTab() && !isNativePage;
+
+        boolean needsUpdate = layoutTab.initFromHost(tab.getBackgroundColor(), tab.shouldStall(),
+                canUseLiveTexture, themeColor, ColorUtils.getTextBoxColorForToolbarBackground(
                                     mContext.getResources(), tab, themeColor),
                 ColorUtils.getTextBoxAlphaForToolbarBackground(tab));
+        if (needsUpdate) requestUpdate();
 
         mHost.requestRender();
     }
@@ -395,8 +402,7 @@ public class LayoutManagerDocument extends LayoutManager
             FullscreenManager manager = mHost.getFullscreenManager();
             if (getActiveLayout() != mStaticLayout
                     || !FeatureUtilities.isDocumentModeEligible(mHost.getContext())
-                    || !DeviceClassManager.enableToolbarSwipe(
-                               FeatureUtilities.isDocumentMode(mHost.getContext()))
+                    || !DeviceClassManager.enableToolbarSwipe()
                     || (manager != null && manager.getPersistentFullscreenMode())) {
                 return false;
             }

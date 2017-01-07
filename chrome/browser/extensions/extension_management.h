@@ -12,7 +12,6 @@
 #include "base/containers/scoped_ptr_hash_map.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
-#include "base/memory/scoped_vector.h"
 #include "base/memory/singleton.h"
 #include "base/observer_list.h"
 #include "base/values.h"
@@ -20,7 +19,7 @@
 #include "components/keyed_service/core/keyed_service.h"
 #include "components/prefs/pref_change_registrar.h"
 #include "extensions/browser/management_policy.h"
-#include "extensions/common/extension.h"
+#include "extensions/common/extension_id.h"
 #include "extensions/common/manifest.h"
 
 class GURL;
@@ -40,6 +39,7 @@ struct GlobalSettings;
 }  // namespace internal
 
 class APIPermissionSet;
+class Extension;
 class PermissionSet;
 
 // Tracks the management policies that affect extensions and provides interfaces
@@ -81,7 +81,8 @@ class ExtensionManagement : public KeyedService {
 
   // Get the list of ManagementPolicy::Provider controlled by extension
   // management policy settings.
-  std::vector<ManagementPolicy::Provider*> GetProviders() const;
+  const std::vector<std::unique_ptr<ManagementPolicy::Provider>>& GetProviders()
+      const;
 
   // Checks if extensions are blacklisted by default, by policy. When true,
   // this means that even extensions without an ID should be blacklisted (e.g.
@@ -186,7 +187,7 @@ class ExtensionManagement : public KeyedService {
 
   base::ObserverList<Observer, true> observer_list_;
   PrefChangeRegistrar pref_change_registrar_;
-  ScopedVector<ManagementPolicy::Provider> providers_;
+  std::vector<std::unique_ptr<ManagementPolicy::Provider>> providers_;
 
   DISALLOW_COPY_AND_ASSIGN(ExtensionManagement);
 };

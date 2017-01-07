@@ -5,9 +5,9 @@
 import unittest
 import os
 
-from perf_insights.mre import function_handle
-from perf_insights.mre import failure
-from perf_insights.mre import job as job_module
+from tracing.mre import function_handle
+from tracing.mre import failure
+from tracing.mre import job as job_module
 
 from telemetry import page
 from telemetry import story
@@ -47,9 +47,7 @@ class TranslateCommonValuesTest(unittest.TestCase):
             'value': 42
         },
         'name': 'foo',
-        'options': {
-            'description': 'desc'
-        }
+        'description': 'desc'
     }
 
     v = common_value_helpers.TranslateScalarValue(scalar_value, p)

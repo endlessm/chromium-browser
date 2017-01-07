@@ -4,6 +4,7 @@
 
 #include "android_webview/browser/aw_ssl_host_state_delegate.h"
 
+#include "base/callback.h"
 #include "net/base/hash_value.h"
 
 using content::SSLHostStateDelegate;
@@ -55,13 +56,17 @@ AwSSLHostStateDelegate::AwSSLHostStateDelegate() {
 AwSSLHostStateDelegate::~AwSSLHostStateDelegate() {
 }
 
-void AwSSLHostStateDelegate::HostRanInsecureContent(const std::string& host,
-                                                    int pid) {
+void AwSSLHostStateDelegate::HostRanInsecureContent(
+    const std::string& host,
+    int child_id,
+    InsecureContentType content_type) {
   // Intentional no-op for Android WebView.
 }
 
-bool AwSSLHostStateDelegate::DidHostRunInsecureContent(const std::string& host,
-                                                       int pid) const {
+bool AwSSLHostStateDelegate::DidHostRunInsecureContent(
+    const std::string& host,
+    int child_id,
+    InsecureContentType content_type) const {
   // Intentional no-op for Android WebView.
   return false;
 }
@@ -72,8 +77,22 @@ void AwSSLHostStateDelegate::AllowCert(const std::string& host,
   cert_policy_for_host_[host].Allow(cert, error);
 }
 
-void AwSSLHostStateDelegate::Clear() {
-  cert_policy_for_host_.clear();
+void AwSSLHostStateDelegate::Clear(
+    const base::Callback<bool(const std::string&)>& host_filter) {
+  if (host_filter.is_null()) {
+    cert_policy_for_host_.clear();
+    return;
+  }
+
+  for (auto it = cert_policy_for_host_.begin();
+       it != cert_policy_for_host_.end();) {
+    auto next_it = std::next(it);
+
+    if (host_filter.Run(it->first))
+      cert_policy_for_host_.erase(it);
+
+    it = next_it;
+  }
 }
 
 SSLHostStateDelegate::CertJudgment AwSSLHostStateDelegate::QueryPolicy(

@@ -14,9 +14,9 @@ import org.chromium.base.ThreadUtils;
 import org.chromium.base.VisibleForTesting;
 import org.chromium.base.annotations.CalledByNative;
 import org.chromium.base.annotations.JNINamespace;
-import org.chromium.sync.notifier.InvalidationClientNameProvider;
-import org.chromium.sync.notifier.InvalidationIntentProtocol;
-import org.chromium.sync.notifier.InvalidationPreferences;
+import org.chromium.components.sync.notifier.InvalidationClientNameProvider;
+import org.chromium.components.sync.notifier.InvalidationIntentProtocol;
+import org.chromium.components.sync.notifier.InvalidationPreferences;
 
 /**
  * Wrapper for invalidations::InvalidationServiceAndroid.
@@ -69,7 +69,8 @@ public class InvalidationService {
         Account account = invalidationPreferences.getSavedSyncedAccount();
         Intent registerIntent = InvalidationIntentProtocol.createRegisterIntent(
                 account, objectSources, objectNames);
-        registerIntent.setClass(mContext, InvalidationClientService.class);
+        registerIntent.setClass(
+                mContext, InvalidationClientService.getRegisteredClass());
         mContext.startService(registerIntent);
     }
 

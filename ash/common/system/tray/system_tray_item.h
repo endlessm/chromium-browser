@@ -7,7 +7,7 @@
 
 #include "ash/ash_export.h"
 #include "ash/common/login_status.h"
-#include "ash/common/shelf/shelf_types.h"
+#include "ash/public/cpp/shelf_types.h"
 #include "base/macros.h"
 
 namespace views {
@@ -121,8 +121,9 @@ class ASH_EXPORT SystemTrayItem {
   // currently-shown view is for this item.
   void SetDetailedViewCloseDelay(int for_seconds);
 
-  // Hides the detailed view for this item.
-  void HideDetailedView();
+  // Hides the detailed view for this item. Disable hiding animation if
+  // |animate| is false.
+  void HideDetailedView(bool animate);
 
   // Shows a notification for this item.
   void ShowNotificationView();

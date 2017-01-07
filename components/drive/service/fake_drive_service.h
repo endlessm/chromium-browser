@@ -11,6 +11,7 @@
 
 #include "base/files/file_path.h"
 #include "base/macros.h"
+#include "base/observer_list.h"
 #include "base/threading/thread_checker.h"
 #include "components/drive/service/drive_service_interface.h"
 
@@ -122,9 +123,6 @@ class FakeDriveService : public DriveServiceInterface {
   const base::FilePath& last_cancelled_file() const {
     return last_cancelled_file_;
   }
-
-  // Returns the (fake) URL for the link.
-  static GURL GetFakeLinkUrl(const std::string& resource_id);
 
   // Sets the printf format for constructing the response of AuthorizeApp().
   // The format string must include two %s that are to be filled with

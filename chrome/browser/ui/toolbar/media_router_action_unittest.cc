@@ -14,11 +14,11 @@
 #include "chrome/grit/generated_resources.h"
 #include "content/public/browser/site_instance.h"
 #include "content/public/test/test_utils.h"
-#include "grit/theme_resources.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "ui/base/l10n/l10n_util.h"
-#include "ui/base/resource/resource_bundle.h"
+#include "ui/gfx/color_palette.h"
 #include "ui/gfx/image/image_unittest_util.h"
+#include "ui/gfx/paint_vector_icon.h"
 
 using content::WebContents;
 using media_router::MediaRouterDialogControllerImpl;
@@ -44,6 +44,18 @@ class TestMediaRouterAction : public MediaRouterAction {
         platform_delegate_(nullptr) {}
   ~TestMediaRouterAction() override {}
 
+  // MediaRouterAction:
+  void ActiveTabChanged(content::WebContents* old_contents,
+                        content::WebContents* new_contents,
+                        int index,
+                        int reason) override {
+    // This would be null if |controller_| hasn't been set.
+    if (GetMediaRouterDialogController()) {
+      MediaRouterAction::ActiveTabChanged(old_contents, new_contents, index,
+                                          reason);
+    }
+  }
+
   void SetMediaRouterDialogController(
       MediaRouterDialogControllerImpl* controller) {
     DCHECK(controller);
@@ -51,11 +63,11 @@ class TestMediaRouterAction : public MediaRouterAction {
   }
 
  private:
+  // MediaRouterAction:
   MediaRouterDialogControllerImpl* GetMediaRouterDialogController()
       override {
     return controller_;
   }
-
   MediaRouterActionPlatformDelegate* GetPlatformDelegate() override {
     return platform_delegate_;
   }
@@ -98,22 +110,19 @@ class MediaRouterActionUnitTest : public MediaRouterTest {
             -1)),
         fake_source1_("fakeSource1"),
         fake_source2_("fakeSource2"),
-        active_icon_(ui::ResourceBundle::GetSharedInstance().GetImageNamed(
-            IDR_MEDIA_ROUTER_ACTIVE_ICON)),
-        error_icon_(ui::ResourceBundle::GetSharedInstance().GetImageNamed(
-            IDR_MEDIA_ROUTER_ERROR_ICON)),
-        idle_icon_(ui::ResourceBundle::GetSharedInstance().GetImageNamed(
-            IDR_MEDIA_ROUTER_IDLE_ICON)),
-        warning_icon_(ui::ResourceBundle::GetSharedInstance().GetImageNamed(
-            IDR_MEDIA_ROUTER_WARNING_ICON)) {}
+        active_icon_(GetIcon(gfx::VectorIconId::MEDIA_ROUTER_ACTIVE)),
+        error_icon_(GetIcon(gfx::VectorIconId::MEDIA_ROUTER_ERROR)),
+        idle_icon_(GetIcon(gfx::VectorIconId::MEDIA_ROUTER_IDLE)),
+        warning_icon_(GetIcon(gfx::VectorIconId::MEDIA_ROUTER_WARNING)) {}
 
   ~MediaRouterActionUnitTest() override {}
 
   // MediaRouterTest:
   void SetUp() override {
     MediaRouterTest::SetUp();
-    toolbar_model_ = extensions::extension_action_test_util::
-        CreateToolbarModelForProfileWithoutWaitingForReady(profile());
+    toolbar_model_ =
+        extensions::extension_action_test_util::CreateToolbarModelForProfile(
+            profile());
 
     // browser() will only be valid once BrowserWithTestWindowTest::SetUp()
     // has run.
@@ -136,9 +145,14 @@ class MediaRouterActionUnitTest : public MediaRouterTest {
   }
 
   void TearDown() override {
-    browser_action_test_util_.reset();
     action_.reset();
+    browser_action_test_util_.reset();
     MediaRouterTest::TearDown();
+  }
+
+  gfx::Image GetIcon(gfx::VectorIconId icon_id) {
+    return gfx::Image(gfx::CreateVectorIcon(
+        icon_id, MediaRouterAction::GetIconColor(icon_id)));
   }
 
   TestMediaRouterAction* action() { return action_.get(); }
@@ -323,37 +337,35 @@ TEST_F(MediaRouterActionUnitTest, IconPressedState) {
   chrome::NewTab(browser());
   EXPECT_EQ(1, browser()->tab_strip_model()->count());
 
-  // Create a reference to initiator contents.
-  WebContents* initiator_ =
-      browser()->tab_strip_model()->GetActiveWebContents();
-
-  MediaRouterDialogControllerImpl::CreateForWebContents(initiator_);
-  MediaRouterDialogControllerImpl* dialog_controller_ =
-      MediaRouterDialogControllerImpl::FromWebContents(initiator_);
-  ASSERT_TRUE(dialog_controller_);
+  WebContents* initiator = browser()->tab_strip_model()->GetActiveWebContents();
+  MediaRouterDialogControllerImpl::CreateForWebContents(initiator);
+  MediaRouterDialogControllerImpl* dialog_controller =
+      MediaRouterDialogControllerImpl::FromWebContents(initiator);
+  ASSERT_TRUE(dialog_controller);
 
   // Sets the controller to use for TestMediaRouterAction.
-  action()->SetMediaRouterDialogController(dialog_controller_);
+  action()->SetMediaRouterDialogController(dialog_controller);
 
   // Create a ToolbarActionViewDelegate to use for MediaRouterAction.
   std::unique_ptr<MockToolbarActionViewDelegate> mock_delegate(
       new MockToolbarActionViewDelegate());
 
-  EXPECT_CALL(*mock_delegate, GetCurrentWebContents()).WillOnce(
-      testing::Return(initiator_));
-  EXPECT_CALL(*mock_delegate, OnPopupClosed()).Times(1);
+  EXPECT_CALL(*mock_delegate, GetCurrentWebContents())
+      .WillOnce(testing::Return(initiator));
   action()->SetDelegate(mock_delegate.get());
 
   EXPECT_CALL(*mock_delegate, OnPopupShown(true)).Times(1);
   action()->ExecuteAction(true);
+  EXPECT_TRUE(dialog_controller->IsShowingMediaRouterDialog());
 
   // Pressing the icon while the popup is shown should close the popup
   EXPECT_CALL(*mock_delegate, OnPopupClosed()).Times(1);
   action()->ExecuteAction(true);
+  EXPECT_FALSE(dialog_controller->IsShowingMediaRouterDialog());
 
   EXPECT_CALL(*mock_delegate, OnPopupShown(true)).Times(1);
-  dialog_controller_->CreateMediaRouterDialog();
+  dialog_controller->CreateMediaRouterDialog();
 
   EXPECT_CALL(*mock_delegate, OnPopupClosed()).Times(1);
-  dialog_controller_->HideMediaRouterDialog();
+  dialog_controller->HideMediaRouterDialog();
 }

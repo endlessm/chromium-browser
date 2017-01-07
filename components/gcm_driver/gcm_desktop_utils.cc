@@ -13,7 +13,7 @@
 #include "components/gcm_driver/gcm_client_factory.h"
 #include "components/gcm_driver/gcm_driver.h"
 #include "components/gcm_driver/gcm_driver_desktop.h"
-#include "components/sync_driver/sync_util.h"
+#include "components/sync/driver/sync_util.h"
 #include "url/gurl.h"
 
 namespace gcm {
@@ -53,27 +53,30 @@ GCMClient::ChromeChannel GetChannel(version_info::Channel channel) {
       return GCMClient::CHANNEL_BETA;
     case version_info::Channel::STABLE:
       return GCMClient::CHANNEL_STABLE;
-    default:
-      NOTREACHED();
-      return GCMClient::CHANNEL_UNKNOWN;
   }
+  NOTREACHED();
+  return GCMClient::CHANNEL_UNKNOWN;
 }
 
 std::string GetVersion() {
   return version_info::GetVersionNumber();
 }
 
-GCMClient::ChromeBuildInfo GetChromeBuildInfo(version_info::Channel channel) {
+GCMClient::ChromeBuildInfo GetChromeBuildInfo(
+    version_info::Channel channel,
+    const std::string& product_category_for_subtypes) {
   GCMClient::ChromeBuildInfo chrome_build_info;
   chrome_build_info.platform = GetPlatform();
   chrome_build_info.channel = GetChannel(channel);
   chrome_build_info.version = GetVersion();
+  chrome_build_info.product_category_for_subtypes =
+      product_category_for_subtypes;
   return chrome_build_info;
 }
 
 std::string GetChannelStatusRequestUrl(version_info::Channel channel) {
-  GURL sync_url(GetSyncServiceURL(*base::CommandLine::ForCurrentProcess(),
-                                  channel));
+  GURL sync_url(syncer::GetSyncServiceURL(
+      *base::CommandLine::ForCurrentProcess(), channel));
   return sync_url.spec() + kChannelStatusRelativePath;
 }
 
@@ -81,7 +84,7 @@ std::string GetUserAgent(version_info::Channel channel) {
   // TODO(pavely): Fix hardcoded is_tablet value in following call to
   // MakeUserAgentForSync. Current implementation returns iPhone UserAgent for
   // iPad devices.
-  return MakeUserAgentForSync(channel, false);
+  return syncer::MakeUserAgentForSync(channel, false);
 }
 
 }  // namespace
@@ -92,11 +95,13 @@ std::unique_ptr<GCMDriver> CreateGCMDriverDesktop(
     const base::FilePath& store_path,
     const scoped_refptr<net::URLRequestContextGetter>& request_context,
     version_info::Channel channel,
+    const std::string& product_category_for_subtypes,
     const scoped_refptr<base::SequencedTaskRunner>& ui_task_runner,
     const scoped_refptr<base::SequencedTaskRunner>& io_task_runner,
     const scoped_refptr<base::SequencedTaskRunner>& blocking_task_runner) {
   return std::unique_ptr<GCMDriver>(new GCMDriverDesktop(
-      std::move(gcm_client_factory), GetChromeBuildInfo(channel),
+      std::move(gcm_client_factory),
+      GetChromeBuildInfo(channel, product_category_for_subtypes),
       GetChannelStatusRequestUrl(channel), GetUserAgent(channel), prefs,
       store_path, request_context, ui_task_runner, io_task_runner,
       blocking_task_runner));

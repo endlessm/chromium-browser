@@ -26,6 +26,7 @@ if version != (2, 7):
 import optparse
 import os
 import time
+from distutils.spawn import find_executable
 
 _SYSTRACE_DIR = os.path.abspath(
     os.path.join(os.path.dirname(__file__), os.path.pardir))
@@ -37,10 +38,17 @@ if _DEVIL_DIR not in sys.path:
 if _SYSTRACE_DIR not in sys.path:
   sys.path.insert(0, _SYSTRACE_DIR)
 
-from devil.utils import cmd_helper
+from devil import devil_env
+from devil.android.sdk import adb_wrapper
 from systrace import systrace_runner
+from systrace import util
 from systrace.tracing_agents import atrace_agent
+from systrace.tracing_agents import atrace_from_file_agent
+from systrace.tracing_agents import battor_trace_agent
 from systrace.tracing_agents import ftrace_agent
+
+ALL_MODULES = [atrace_agent, atrace_from_file_agent,
+               battor_trace_agent, ftrace_agent]
 
 
 def parse_options(argv):
@@ -52,74 +60,21 @@ def parse_options(argv):
   """
   usage = 'Usage: %prog [options] [category1 [category2 ...]]'
   desc = 'Example: %prog -b 32768 -t 15 gfx input view sched freq'
-  parser = optparse.OptionParser(usage=usage, description=desc)
-  parser.add_option('-o', dest='output_file', help='write trace output to FILE',
-                    default=None, metavar='FILE')
-  parser.add_option('-t', '--time', dest='trace_time', type='int',
-                    help='trace for N seconds', metavar='N')
-  parser.add_option('-b', '--buf-size', dest='trace_buf_size', type='int',
-                    help='use a trace buffer size of N KB', metavar='N')
-  parser.add_option('-k', '--ktrace', dest='kfuncs', action='store',
-                    help='specify a comma-separated list of kernel functions '
-                    'to trace')
+  parser = optparse.OptionParser(usage=usage, description=desc,
+                                 conflict_handler='resolve')
+  parser = util.get_main_options(parser)
+
   parser.add_option('-l', '--list-categories', dest='list_categories',
                     default=False, action='store_true',
                     help='list the available categories and exit')
-  parser.add_option('-j', '--json', dest='write_json',
-                    default=False, action='store_true',
-                    help='write a JSON file')
-  parser.add_option('-a', '--app', dest='app_name', default=None, type='string',
-                    action='store',
-                    help='enable application-level tracing for comma-separated '
-                    'list of app cmdlines')
-  parser.add_option('--no-fix-threads', dest='fix_threads', default=True,
-                    action='store_false',
-                    help='don\'t fix missing or truncated thread names')
-  parser.add_option('--no-fix-tgids', dest='fix_tgids', default=True,
-                    action='store_false',
-                    help='Do not run extra commands to restore missing thread '
-                    'to thread group id mappings.')
-  parser.add_option('--no-fix-circular', dest='fix_circular', default=True,
-                    action='store_false',
-                    help='don\'t fix truncated circular traces')
-  parser.add_option('--no-compress', dest='compress_trace_data',
-                    default=True, action='store_false',
-                    help='Tell the device not to send the trace data in '
-                    'compressed form.')
-  parser.add_option('--hubs', dest='hub_types', default='plugable_7port',
-                    help='List of hub types to check for for BattOr mapping. '
-                    'Used when updating mapping file.')
-  parser.add_option('--serial-map', dest='serial_map',
-                    default='serial_map.json',
-                    help='File containing pregenerated map of phone serial '
-                    'numbers to BattOr serial numbers.')
-  parser.add_option('--battor_path', dest='battor_path', default=None,
-                    type='string', help='specify a BattOr path to use')
-  parser.add_option('--update-map', dest='update_map', default=False,
-                    action='store_true',
-                    help='force update of phone-to-BattOr map')
-  parser.add_option('--link-assets', dest='link_assets', default=False,
-                    action='store_true',
-                    help='(deprecated)')
-  parser.add_option('--boot', dest='boot', default=False, action='store_true',
-                    help='reboot the device with tracing during boot enabled. '
-                    'The report is created by hitting Ctrl+C after the device '
-                    'has booted up.')
-  parser.add_option('--battor', dest='battor', default=False,
-                    action='store_true', help='Use the BattOr tracing agent.')
-  parser.add_option('--from-file', dest='from_file', action='store',
-                    help='read the trace from a file (compressed) rather than '
-                    'running a live trace')
-  parser.add_option('--asset-dir', dest='asset_dir', default='trace-viewer',
-                    type='string', help='(deprecated)')
-  parser.add_option('-e', '--serial', dest='device_serial_number',
-                    type='string', help='adb device serial number')
-  parser.add_option('--target', dest='target', default='android', type='string',
-                    help='chose tracing target (android or linux)')
-  parser.add_option('--timeout', dest='timeout', type='int',
-                    help='timeout for start and stop tracing (seconds)')
-  parser.add_option('--collection-timeout', dest='collection_timeout',
-                    type='int', help='timeout for data collection (seconds)')
+
+  # Add the other agent parsing options to the parser. For Systrace on the
+  # command line, all agents are added. For Android, only the compatible agents
+  # will be added.
+  for module in ALL_MODULES:
+    option_group = module.add_options(parser)
+    if option_group:
+      parser.add_option_group(option_group)
 
   options, categories = parser.parse_args(argv[1:])
 
@@ -137,27 +92,56 @@ def parse_options(argv):
 
   return (options, categories)
 
-def get_device_serials():
-  """Get the serial numbers of devices connected via adb.
 
-  Only gets serial numbers of "active" devices (e.g. does not get serial
-  numbers of devices which have not been authorized.)
-  """
-  cmdout = cmd_helper.GetCmdOutput(['adb', 'devices'])
-  lines = [x.split() for x in cmdout.splitlines()[1:-1]]
-  return [x[0] for x in lines if x[1] == 'device']
+def initialize_devil():
+  """Initialize devil to use adb from $PATH"""
+  adb_path = find_executable('adb')
+  if adb_path is None:
+    print >> sys.stderr, "Unable to find adb, is it in your path?"
+    sys.exit(1)
+  devil_dynamic_config = {
+    'config_type': 'BaseConfig',
+    'dependencies': {
+      'adb': {
+        'file_info': {
+          devil_env.GetPlatform(): {
+            'local_paths': [os.path.abspath(adb_path)]
+          }
+        }
+      }
+    }
+  }
+  devil_env.config.Initialize(configs=[devil_dynamic_config])
 
-def main():
+
+def main_impl(arguments):
   # Parse the command line options.
-  options, categories = parse_options(sys.argv)
+  options, categories = parse_options(arguments)
 
-  if options.target == 'android' and not options.device_serial_number:
-    devices = get_device_serials()
-    if len(devices) == 0:
-      raise RuntimeError('No ADB devices connected.')
-    elif len(devices) >= 2:
-      raise RuntimeError('Multiple devices connected, serial number required')
-    options.device_serial_number = devices[0]
+  # Override --atrace-categories and --ftrace-categories flags if command-line
+  # categories are provided.
+  if categories:
+    if options.target == 'android':
+      options.atrace_categories = categories
+    elif options.target == 'linux':
+      options.ftrace_categories = categories
+    else:
+      raise RuntimeError('Categories are only valid for atrace/ftrace. Target '
+                         'platform must be either Android or Linux.')
+
+  # Include atrace categories by default in Systrace.
+  if options.target == 'android' and not options.atrace_categories:
+    options.atrace_categories = atrace_agent.DEFAULT_CATEGORIES
+
+  if options.target == 'android' and not options.from_file:
+    initialize_devil()
+    if not options.device_serial_number:
+      devices = [a.GetDeviceSerial() for a in adb_wrapper.AdbWrapper.Devices()]
+      if len(devices) == 0:
+        raise RuntimeError('No ADB devices connected.')
+      elif len(devices) >= 2:
+        raise RuntimeError('Multiple devices connected, serial number required')
+      options.device_serial_number = devices[0]
 
   # If list_categories is selected, just print the list of categories.
   # In this case, use of the tracing controller is not necessary.
@@ -169,9 +153,8 @@ def main():
     return
 
   # Set up the systrace runner and start tracing.
-  script_dir = os.path.dirname(os.path.abspath(__file__))
   controller = systrace_runner.SystraceRunner(
-      script_dir, options, categories)
+      os.path.dirname(os.path.abspath(__file__)), options)
   controller.StartTracing()
 
   # Wait for the given number of seconds or until the user presses enter.
@@ -190,6 +173,9 @@ def main():
   controller.StopTracing()
   print('Outputting Systrace results...')
   controller.OutputSystraceResults(write_json=options.write_json)
+
+def main():
+  main_impl(sys.argv)
 
 if __name__ == '__main__' and __package__ is None:
   main()

@@ -25,6 +25,10 @@
 #include "mojo/public/js/constants.h"
 #import "net/base/mac/url_conversions.h"
 
+#if !defined(__has_feature) || !__has_feature(objc_arc)
+#error "This file requires ARC support."
+#endif
+
 namespace {
 // Prefix for history.requestFavicon JavaScript message.
 const char kScriptCommandPrefix[] = "webui";
@@ -87,7 +91,7 @@ const char kScriptCommandPrefix[] = "webui";
         new web::WebStateObserverBridge(webState, self));
     base::WeakNSObject<CRWWebUIManager> weakSelf(self);
     _webState->AddScriptCommandCallback(
-        base::BindBlock(
+        base::BindBlockArc(
             ^bool(const base::DictionaryValue& message, const GURL&, bool) {
               return [weakSelf handleWebUIJSMessage:message];
             }),
@@ -98,7 +102,6 @@ const char kScriptCommandPrefix[] = "webui";
 
 - (void)dealloc {
   [self resetWebState];
-  [super dealloc];
 }
 
 #pragma mark - CRWWebStateObserver Methods
@@ -214,7 +217,7 @@ const char kScriptCommandPrefix[] = "webui";
   // Retrieve favicon resource and set favicon background image via JavaScript.
   base::WeakNSObject<CRWWebUIManager> weakSelf(self);
   void (^faviconHandler)(NSData*) = ^void(NSData* data) {
-    base::scoped_nsobject<CRWWebUIManager> strongSelf([weakSelf retain]);
+    base::scoped_nsobject<CRWWebUIManager> strongSelf(weakSelf);
     if (!strongSelf)
       return;
     NSString* base64EncodedResource = [data base64EncodedStringWithOptions:0];
@@ -257,7 +260,7 @@ const char kScriptCommandPrefix[] = "webui";
       {web::kHandleUtilModuleName, IDR_IOS_MOJO_HANDLE_UTIL_JS},
       {web::kSupportModuleName, IDR_IOS_MOJO_SUPPORT_JS},
       {web::kCoreModuleName, IDR_IOS_MOJO_CORE_JS},
-      {web::kServiceRegistryModuleName, IDR_IOS_MOJO_SERVICE_REGISTRY_JS},
+      {web::kInterfaceProviderModuleName, IDR_IOS_SHELL_INTERFACE_PROVIDER_JS},
   };
   scoped_refptr<base::RefCountedMemory> scriptData(
       web::GetWebClient()->GetDataResourceBytes(resource_map[moduleName]));

@@ -2,61 +2,71 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-import os
+import time
 
-from devil.android.constants import chrome
-
-from profile_chrome import trace_packager
+from profile_chrome import chrome_startup_tracing_agent
+from profile_chrome import chrome_tracing_agent
 from profile_chrome import ui
+from profile_chrome import util
+from systrace import output_generator
+from systrace import tracing_controller
 
 
-def _StartTracing(controllers, interval):
-  for controller in controllers:
-    controller.StartTracing(interval)
-
-
-def _StopTracing(controllers):
-  for controller in controllers:
-    controller.StopTracing()
-
-
-def _PullTraces(controllers, output, compress, write_json):
+def _GetResults(trace_results, controller, output, compress, write_json,
+                interval):
   ui.PrintMessage('Downloading...', eol='')
-  trace_files = [controller.PullTrace() for controller in controllers]
-  trace_files = [trace for trace in trace_files if trace]
-  if not trace_files:
+
+  # Wait for the trace file to get written.
+  time.sleep(1)
+
+  for agent in controller.get_child_agents:
+    if isinstance(agent, chrome_tracing_agent.ChromeTracingAgent):
+      time.sleep(interval / 4)
+
+  # Ignore the systraceController because it will not contain any results,
+  # instead being in charge of collecting results.
+  trace_results = [x for x in controller.all_results if not (x.source_name ==
+      'systraceController')]
+
+  if not trace_results:
     ui.PrintMessage('No results')
     return ''
-  result = trace_packager.PackageTraces(trace_files,
-                                        output=output,
-                                        compress=compress,
-                                        write_json=write_json)
-  ui.PrintMessage('done')
-  ui.PrintMessage('Trace written to file://%s' % os.path.abspath(result))
+
+  result = None
+  trace_results = output_generator.MergeTraceResultsIfNeeded(trace_results)
+  if not write_json:
+    print 'Writing trace HTML'
+    html_file = trace_results[0].source_name + '.html'
+    result = output_generator.GenerateHTMLOutput(trace_results, html_file)
+    print '\nWrote file://%s\n' % result
+  elif compress and len(trace_results) == 1:
+    result = output or trace_results[0].source_name + '.gz'
+    util.WriteDataToCompressedFile(trace_results[0].raw_data, result)
+  elif len(trace_results) > 1:
+    result = (output or 'chrome-combined-trace-%s.zip' %
+              util.GetTraceTimestamp())
+    util.ArchiveData(trace_results, result)
+  elif output:
+    result = output
+    with open(result, 'wb') as f:
+      f.write(trace_results[0].raw_data)
+  else:
+    result = trace_results[0].source_name
+    with open(result, 'wb') as f:
+      f.write(trace_results[0].raw_data)
+
   return result
 
 
-def GetSupportedBrowsers():
-  """Returns the package names of all supported browsers."""
-  # Add aliases for backwards compatibility.
-  supported_browsers = {
-    'stable': chrome.PACKAGE_INFO['chrome_stable'],
-    'beta': chrome.PACKAGE_INFO['chrome_beta'],
-    'dev': chrome.PACKAGE_INFO['chrome_dev'],
-    'build': chrome.PACKAGE_INFO['chrome'],
-  }
-  supported_browsers.update(chrome.PACKAGE_INFO)
-  return supported_browsers
-
-
-def CaptureProfile(controllers, interval, output=None, compress=False,
-                   write_json=False):
+def CaptureProfile(options, interval, modules, output=None,
+                   compress=False, write_json=False):
   """Records a profiling trace saves the result to a file.
 
   Args:
-    controllers: List of tracing controllers.
+    options: Command line options.
     interval: Time interval to capture in seconds. An interval of None (or 0)
         continues tracing until stopped by the user.
+    modules: The list of modules to initialize the tracing controller with.
     output: Output file name or None to use an automatically generated name.
     compress: If True, the result will be compressed either with gzip or zip
         depending on the number of captured subtraces.
@@ -65,20 +75,32 @@ def CaptureProfile(controllers, interval, output=None, compress=False,
   Returns:
     Path to saved profile.
   """
-  trace_type = ' + '.join(map(str, controllers))
+  agents_with_config = tracing_controller.CreateAgentsWithConfig(options,
+                                                                 modules)
+  if chrome_startup_tracing_agent in modules:
+    controller_config = tracing_controller.GetChromeStartupControllerConfig(
+        options)
+  else:
+    controller_config = tracing_controller.GetControllerConfig(options)
+  controller = tracing_controller.TracingController(agents_with_config,
+                                                    controller_config)
   try:
-    _StartTracing(controllers, interval)
+    result = controller.StartTracing()
+    trace_type = controller.GetTraceType()
+    if not result:
+      print 'Trace starting failed.'
     if interval:
-      ui.PrintMessage('Capturing %d-second %s. Press Enter to stop early...' % \
-          (interval, trace_type), eol='')
+      ui.PrintMessage(('Capturing %d-second %s. Press Enter to stop early...' %
+                     (interval, trace_type)), eol='')
       ui.WaitForEnter(interval)
     else:
-      ui.PrintMessage('Capturing %s. Press Enter to stop...' % \
-          trace_type, eol='')
+      ui.PrintMessage('Capturing %s. Press Enter to stop...' % trace_type,
+                     eol='')
       raw_input()
+    all_results = controller.StopTracing()
   finally:
-    _StopTracing(controllers)
-  if interval:
-    ui.PrintMessage('done')
+    if interval:
+      ui.PrintMessage('done')
 
-  return _PullTraces(controllers, output, compress, write_json)
+  return _GetResults(all_results, controller, output, compress, write_json,
+                     interval)

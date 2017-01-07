@@ -31,6 +31,7 @@ from chromite.lib import cros_logging as logging
 from chromite.lib import graphite
 from chromite.lib import git
 from chromite.lib import gs
+from chromite.lib import metrics
 from chromite.lib import osutils
 from chromite.lib import patch as cros_patch
 from chromite.lib import portage_util
@@ -176,7 +177,8 @@ class BuildStartStage(generic_stages.BuilderStage):
             bot_hostname=d['bot-hostname'],
             master_build_id=d['master_build_id'],
             timeout_seconds=self._GetBuildTimeoutSeconds(),
-            important=d['important'])
+            important=d['important'],
+            buildbucket_id=self._run.options.buildbucket_id)
         self._run.attrs.metadata.UpdateWithDict({'build_id': build_id,
                                                  'db_type': db_type})
         logging.info('Inserted build_id %s into cidb database type %s.',
@@ -275,7 +277,7 @@ class BuildReexecutionFinishedStage(generic_stages.BuilderStage,
   written at this time rather than in ReportStage.
   """
 
-  def _AbortPreviousHWTestSuites(self):
+  def _AbortPreviousHWTestSuites(self, milestone):
     """Abort any outstanding synchronous hwtest suites from this builder."""
     # Only try to clean up previous HWTests if this is really running on one of
     # our builders in a non-trybot build.
@@ -285,6 +287,7 @@ class BuildReexecutionFinishedStage(generic_stages.BuilderStage,
     build_id, db = self._run.GetCIDBHandle()
     if db:
       builds = db.GetBuildHistory(self._run.config.name, 2,
+                                  milestone_version=milestone,
                                   ignore_build_id=build_id)
       for build in builds:
         old_version = build['full_version']
@@ -396,7 +399,7 @@ class BuildReexecutionFinishedStage(generic_stages.BuilderStage,
     # Abort previous hw test suites. This happens after reexecution as it
     # requires chromite/third_party/swarming.client, which is not available
     # untill after reexecution.
-    self._AbortPreviousHWTestSuites()
+    self._AbortPreviousHWTestSuites(version['milestone'])
 
 
 class ConfigDumpStage(generic_stages.BuilderStage):
@@ -417,13 +420,6 @@ class ConfigDumpStage(generic_stages.BuilderStage):
 class ReportStage(generic_stages.BuilderStage,
                   generic_stages.ArchivingStageMixin):
   """Summarize all the builds."""
-
-  _HTML_HEAD = """<html>
-<head>
- <title>Archive Index: %(board)s / %(version)s</title>
-</head>
-<body>
-<h2>Artifacts Index: %(board)s / %(version)s (%(config)s config)</h2>"""
 
   _STATS_HISTORY_DAYS = 7
 
@@ -519,13 +515,79 @@ class ReportStage(generic_stages.BuilderStage,
       tree_status.SendHealthAlert(self._run, title, '\n\n'.join(body),
                                   extra_fields=extra_fields)
 
-  def _UploadArchiveIndex(self, builder_run):
+  def _LinkArtifacts(self, builder_run):
     """Upload an HTML index for the artifacts at remote archive location.
 
     If there are no artifacts in the archive then do nothing.
 
     Args:
       builder_run: BuilderRun object for this run.
+    """
+    archive = builder_run.GetArchive()
+    archive_path = archive.archive_path
+
+    boards = builder_run.config.boards
+    if boards:
+      board_names = ' '.join(boards)
+    else:
+      boards = [None]
+      board_names = '<no board>'
+
+    # See if there are any artifacts found for this run.
+    uploaded = os.path.join(archive_path, commands.UPLOADED_LIST_FILENAME)
+    if not os.path.exists(uploaded):
+      # UPLOADED doesn't exist.  Normal if Archive stage never ran, which
+      # is possibly normal.  Regardless, no archive index is needed.
+      logging.info('No archived artifacts found for %s run (%s)',
+                   builder_run.config.name, board_names)
+      return
+
+    if builder_run.config.internal:
+      # Internal builds simply link to pantheon directories, which require
+      # authenticated access that most Googlers should have.
+      artifacts_url = archive.download_url
+
+    else:
+      # External builds must allow unauthenticated access to build artifacts.
+      # GS doesn't let unauthenticated users browse selected locations without
+      # being able to browse everything (which would expose secret stuff).
+      # So, we upload an index.html file and link to it instead of the
+      # directory.
+      title = 'Artifacts Index: %(board)s / %(version)s (%(config)s config)' % {
+          'board': board_names,
+          'config': builder_run.config.name,
+          'version': builder_run.GetVersion(),
+      }
+
+      files = osutils.ReadFile(uploaded).splitlines() + [
+          '.|Google Storage Index',
+          '..|',
+      ]
+
+      index = os.path.join(archive_path, 'index.html')
+
+      # TODO (sbasi) crbug.com/362776: Rework the way we do uploading to
+      # multiple buckets. Currently this can only be done in the Archive Stage
+      # therefore index.html will only end up in the normal Chrome OS bucket.
+      commands.GenerateHtmlIndex(index, files, title=title)
+      commands.UploadArchivedFile(
+          archive_path, [archive.upload_url], os.path.basename(index),
+          debug=self._run.debug, acl=self.acl)
+
+      artifacts_url = os.path.join(archive.download_url_file, 'index.html')
+
+    links_build_description = '%s/%s' % (builder_run.config.name,
+                                         archive.version)
+    logging.PrintBuildbotLink('Artifacts[%s]' % links_build_description,
+                              artifacts_url)
+
+  def _UploadBuildStagesTimeline(self, builder_run, build_id, db):
+    """Upload an HTML timeline for the build stages at remote archive location.
+
+    Args:
+      builder_run: BuilderRun object for this run.
+      build_id: CIDB id for the current build.
+      db: CIDBConnection instance.
 
     Returns:
       If an index file is uploaded then a dict is returned where each value
@@ -544,37 +606,92 @@ class ReportStage(generic_stages.BuilderStage,
       boards = [None]
       board_names = '<no board>'
 
-    # See if there are any artifacts found for this run.
-    uploaded = os.path.join(archive_path, commands.UPLOADED_LIST_FILENAME)
-    if not os.path.exists(uploaded):
-      # UPLOADED doesn't exist.  Normal if Archive stage never ran, which
-      # is possibly normal.  Regardless, no archive index is needed.
-      logging.info('No archived artifacts found for %s run (%s)',
-                   builder_run.config.name, board_names)
+    timeline_file = 'timeline-stages.html'
+    timeline = os.path.join(archive_path, timeline_file)
 
+    # Gather information about this build from CIDB.
+    stages = db.GetBuildStages(build_id)
+    # Many stages are started in parallel after the build finishes. Stages are
+    # sorted by start_time first bceause it shows that progression most
+    # clearly. Sort by finish_time secondarily to display those paralllel
+    # stages cleanly.
+    epoch = datetime.datetime.fromtimestamp(0)
+    stages.sort(key=lambda stage: (stage['start_time'] or epoch,
+                                   stage['finish_time'] or epoch))
+    rows = ((s['name'], s['start_time'], s['finish_time']) for s in stages)
+
+    # Prepare html head.
+    title = ('Build Stages Timeline: %s / %s (%s config)' %
+             (board_names, builder_run.GetVersion(), config.name))
+
+    commands.GenerateHtmlTimeline(timeline, rows, title=title)
+    commands.UploadArchivedFile(
+        archive_path, [archive.upload_url], os.path.basename(timeline),
+        debug=self._run.debug, acl=self.acl)
+    return os.path.join(archive.download_url_file, timeline_file)
+
+  def _UploadSlavesTimeline(self, builder_run, build_id, db):
+    """Upload an HTML timeline for the slaves at remote archive location.
+
+    Args:
+      builder_run: BuilderRun object for this run.
+      build_id: CIDB id for the master build.
+      db: CIDBConnection instance.
+
+    Returns:
+      The URL of the timeline is returned if slave builds exists.  If no
+        slave builds exists then this returns None.
+    """
+    archive = builder_run.GetArchive()
+    archive_path = archive.archive_path
+
+    config = builder_run.config
+    boards = config.boards
+    if boards:
+      board_names = ' '.join(boards)
     else:
-      # Prepare html head.
-      head_data = {
-          'board': board_names,
-          'config': config.name,
-          'version': builder_run.GetVersion(),
-      }
-      head = self._HTML_HEAD % head_data
+      boards = [None]
+      board_names = '<no board>'
 
-      files = osutils.ReadFile(uploaded).splitlines() + [
-          '.|Google Storage Index',
-          '..|',
-      ]
-      index = os.path.join(archive_path, 'index.html')
-      # TODO (sbasi) crbug.com/362776: Rework the way we do uploading to
-      # multiple buckets. Currently this can only be done in the Archive Stage
-      # therefore index.html will only end up in the normal Chrome OS bucket.
-      commands.GenerateHtmlIndex(index, files, url_base=archive.download_url,
-                                 head=head)
-      commands.UploadArchivedFile(
-          archive_path, [archive.upload_url], os.path.basename(index),
-          debug=self._run.debug, acl=self.acl)
-      return dict((b, archive.download_url + '/index.html') for b in boards)
+    timeline_file = 'timeline-slaves.html'
+    timeline = os.path.join(archive_path, timeline_file)
+
+    # Gather information about this build from CIDB.
+    statuses = db.GetSlaveStatuses(build_id)
+    if statuses is None or len(statuses) == 0:
+      return None
+    # Slaves may be started at slightly different times, but what matters most
+    # is which slave is the bottleneck - namely, which slave finishes last.
+    # Therefore, sort primarily by finish_time.
+    epoch = datetime.datetime.fromtimestamp(0)
+    statuses.sort(key=lambda stage: (stage['finish_time'] or epoch,
+                                     stage['start_time'] or epoch))
+    rows = (('%s - %s' % (s['build_config'], s['build_number']),
+             s['start_time'], s['finish_time']) for s in statuses)
+
+    # Prepare html head.
+    title = ('Slave Builds Timeline: %s / %s (%s config)' %
+             (board_names, builder_run.GetVersion(), config.name))
+
+    commands.GenerateHtmlTimeline(timeline, rows, title=title)
+    commands.UploadArchivedFile(
+        archive_path, [archive.upload_url], os.path.basename(timeline),
+        debug=self._run.debug, acl=self.acl)
+    return os.path.join(archive.download_url_file, timeline_file)
+
+  def _MakeViceroyBuildDetailsLink(self, build_id):
+    """Generates a link to the Viceroy build details page.
+
+    Args:
+      build_id: CIDB id for the master build.
+
+    Returns:
+      The URL of the timeline is returned if slave builds exists.  If no
+        slave builds exists then this returns None.
+    """
+    _LINK = ('https://viceroy.corp.google.com/'
+             'chromeos/build_details?build_id=%(build_id)s')
+    return _LINK % {'build_id': build_id}
 
   def GetReportMetadata(self, config=None, stage=None, final_status=None,
                         completion_instance=None):
@@ -613,15 +730,14 @@ class ReportStage(generic_stages.BuilderStage,
         config, stage, final_status, completion_instance,
         child_configs_list)
 
-  def ArchiveResults(self, final_status):
+  def ArchiveResults(self, final_status, build_id, db):
     """Archive our build results.
 
     Args:
       final_status: constants.FINAL_STATUS_PASSED or
                     constants.FINAL_STATUS_FAILED
-
-    Returns:
-      A dictionary with the aggregated _UploadArchiveIndex results.
+      build_id: CIDB id for the current build.
+      db: CIDBConnection instance.
     """
     # Make sure local archive directory is prepared, if it was not already.
     if not os.path.exists(self.archive_path):
@@ -638,35 +754,44 @@ class ReportStage(generic_stages.BuilderStage,
 
     # Iterate through each builder run, whether there is just the main one
     # or multiple child builder runs.
-    archive_urls = {}
     for builder_run in self._run.GetUngroupedBuilderRuns():
-      # Generate an index for archived artifacts if there are any.  All the
-      # archived artifacts for one run/config are in one location, so the index
+      if db is not None:
+        timeline = self._UploadBuildStagesTimeline(builder_run, build_id, db)
+        logging.PrintBuildbotLink('Build stages timeline', timeline)
+
+        timeline = self._UploadSlavesTimeline(builder_run, build_id, db)
+        if timeline is not None:
+          logging.PrintBuildbotLink('Slaves timeline', timeline)
+
+      if build_id is not None:
+        details_link = self._MakeViceroyBuildDetailsLink(build_id)
+        logging.PrintBuildbotLink('Build details', details_link)
+
+      # Generate links to archived artifacts if there are any.  All the
+      # archived artifacts for one run/config are in one location, so the link
       # is only specific to each run/config.  In theory multiple boards could
       # share that archive, but in practice it is usually one board.  A
       # run/config without a board will also usually not have artifacts to
       # archive, but that restriction is not assumed here.
-      run_archive_urls = self._UploadArchiveIndex(builder_run)
-      if run_archive_urls:
-        archive_urls.update(run_archive_urls)
-        # Check if the builder_run is tied to any boards and if so get all
-        # upload urls.
-        if final_status == constants.FINAL_STATUS_PASSED:
-          # Update the LATEST files if the build passed.
-          try:
-            upload_urls = self._GetUploadUrls(
-                'LATEST-*', builder_run=builder_run)
-          except portage_util.MissingOverlayException as e:
-            # If the build failed prematurely, some overlays might be
-            # missing. Ignore them in this stage.
-            logging.warning(e)
-          else:
+      self._LinkArtifacts(builder_run)
+
+      # Check if the builder_run is tied to any boards and if so get all
+      # upload urls.
+      if final_status == constants.FINAL_STATUS_PASSED:
+        # Update the LATEST files if the build passed.
+        try:
+          upload_urls = self._GetUploadUrls(
+              'LATEST-*', builder_run=builder_run)
+        except portage_util.MissingOverlayException as e:
+          # If the build failed prematurely, some overlays might be
+          # missing. Ignore them in this stage.
+          logging.warning(e)
+        else:
+          if upload_urls:
             archive = builder_run.GetArchive()
             archive.UpdateLatestMarkers(builder_run.manifest_branch,
                                         builder_run.debug,
                                         upload_urls=upload_urls)
-
-    return archive_urls
 
   def CollectComparativeBuildTimings(self, output, build_id, db):
     """Create a report comparing this build to recent history.
@@ -727,17 +852,16 @@ class ReportStage(generic_stages.BuilderStage,
     # Some operations can only be performed if a valid version is available.
     try:
       self._run.GetVersionInfo()
-      archive_urls = self.ArchiveResults(final_status)
+      self.ArchiveResults(final_status, build_id, db)
       metadata_url = os.path.join(self.upload_url, constants.METADATA_JSON)
     except cbuildbot_run.VersionNotSetError:
       logging.error('A valid version was never set for this run. '
                     'Can not archive results.')
-      archive_urls = ''
       metadata_url = ''
 
     results_lib.Results.Report(
-        sys.stdout, archive_urls=archive_urls,
-        current_version=(self._run.attrs.release_tag or ''))
+        sys.stdout, current_version=(self._run.attrs.release_tag or ''))
+
 
     if db:
       # TODO(akeshet): Eliminate this status string translate once
@@ -767,6 +891,16 @@ class ReportStage(generic_stages.BuilderStage,
                      summary=build_data.failure_message,
                      metadata_url=metadata_url)
 
+      duration = self._GetBuildDuration()
+
+      mon_fields = {'status': status_for_db,
+                    'build_config': self._run.config.name,
+                    'important': self._run.config.important}
+      metrics.Counter(constants.MON_BUILD_COMP_COUNT).increment(
+          fields=mon_fields)
+      metrics.SecondsDistribution(constants.MON_BUILD_DURATION).add(
+          duration, fields=mon_fields)
+
       # From this point forward, treat all exceptions as warnings.
       self._post_completion = True
 
@@ -779,6 +913,20 @@ class ReportStage(generic_stages.BuilderStage,
         self.CollectComparativeBuildTimings(output, build_id, db)
         # Bunch up our output, so it doesn't interleave with CIDB logs.
         sys.stdout.write(output.getvalue())
+
+  def _GetBuildDuration(self):
+    """Fetches the duration of this build in seconds, from cidb.
+
+    This method should be called only after the build has been Finished in
+    cidb.
+    """
+    build_id, db = self._run.GetCIDBHandle()
+    if db:
+      build_info = db.GetBuildStatus(build_id)
+      duration = (build_info['finish_time'] -
+                  build_info['start_time']).total_seconds()
+      return duration
+    return 0
 
   def _HandleStageException(self, exc_info):
     """Override and don't set status to FAIL but FORGIVEN instead."""

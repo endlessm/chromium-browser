@@ -27,6 +27,8 @@
 #include "chrome/browser/policy/schema_registry_service.h"
 #include "chrome/browser/policy/schema_registry_service_factory.h"
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/grit/policy_resources.h"
+#include "chrome/grit/policy_resources_map.h"
 #include "components/policy/core/browser/browser_policy_connector.h"
 #include "components/policy/core/browser/cloud/message_util.h"
 #include "components/policy/core/browser/configuration_policy_handler_list.h"
@@ -41,13 +43,11 @@
 #include "components/policy/core/common/remote_commands/remote_commands_service.h"
 #include "components/policy/core/common/schema.h"
 #include "components/policy/core/common/schema_map.h"
+#include "components/policy/policy_constants.h"
+#include "components/policy/proto/device_management_backend.pb.h"
+#include "components/strings/grit/components_strings.h"
 #include "content/public/browser/web_contents.h"
 #include "google_apis/gaia/gaia_auth_util.h"
-#include "grit/components_strings.h"
-#include "grit/policy_resources.h"
-#include "grit/policy_resources_map.h"
-#include "policy/policy_constants.h"
-#include "policy/proto/device_management_backend.pb.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/l10n/time_format.h"
 
@@ -137,7 +137,7 @@ void GetStatusFromCore(const policy::CloudPolicyCore* core,
 
   base::TimeDelta refresh_interval =
       base::TimeDelta::FromMilliseconds(refresh_scheduler ?
-          refresh_scheduler->refresh_delay() :
+          refresh_scheduler->GetActualRefreshDelay() :
           policy::CloudPolicyRefreshScheduler::kDefaultRefreshDelayMs);
   base::Time last_refresh_time = refresh_scheduler ?
       refresh_scheduler->last_refresh() : base::Time();
@@ -174,7 +174,7 @@ std::unique_ptr<base::StringValue> DictionaryToJSONString(
   base::JSONWriter::WriteWithOptions(dict,
                                      base::JSONWriter::OPTIONS_PRETTY_PRINT,
                                      &json_string);
-  return base::WrapUnique(new base::StringValue(json_string));
+  return base::MakeUnique<base::StringValue>(json_string);
 }
 
 // Returns a copy of |value| with some values converted to a representation that

@@ -17,10 +17,10 @@ from google.appengine.ext import ndb
 from dashboard import add_point
 from dashboard import add_point_queue
 from dashboard import layered_cache
-from dashboard import stored_object
-from dashboard import testing_common
 from dashboard import units_to_direction
-from dashboard import utils
+from dashboard.common import stored_object
+from dashboard.common import testing_common
+from dashboard.common import utils
 from dashboard.models import anomaly
 from dashboard.models import anomaly_config
 from dashboard.models import graph_data
@@ -1017,6 +1017,30 @@ class AddPointTest(testing_common.TestCase):
         extra_environ={'REMOTE_ADDR': _WHITELISTED_IP})
     rows = graph_data.Row.query().fetch()
     self.assertEqual(1, len(rows))
+
+  def testPost_RevisionTooHigh_SpecialCasedBot_Accepted(self):
+    # First add one point; it's accepted because it's the first in the series.
+    point = copy.deepcopy(_SAMPLE_POINT)
+    point['revision'] = 285000
+    point['master'] = 'SpecialBotQA'
+    point['bot'] = 'release-tests-bot'
+    self.testapp.post(
+        '/add_point', {'data': json.dumps([point])},
+        extra_environ={'REMOTE_ADDR': _WHITELISTED_IP})
+    self.ExecuteTaskQueueTasks('/add_point_queue', add_point._TASK_QUEUE_NAME)
+
+    # Second point is too high, but is also accepted because of bot and
+    # master name.
+    point = copy.deepcopy(_SAMPLE_POINT)
+    point['revision'] = 1471538371
+    point['master'] = 'SpecialBotQA'
+    point['bot'] = 'release-tests-bot'
+    self.testapp.post(
+        '/add_point', {'data': json.dumps([point])},
+        extra_environ={'REMOTE_ADDR': _WHITELISTED_IP})
+    self.ExecuteTaskQueueTasks('/add_point_queue', add_point._TASK_QUEUE_NAME)
+    rows = graph_data.Row.query().fetch()
+    self.assertEqual(2, len(rows))
 
   def testPost_MultiplePointsWithCloseRevisions_Accepted(self):
     point = copy.deepcopy(_SAMPLE_POINT)

@@ -17,22 +17,20 @@ namespace test_runner {
 class EventSender;
 class TestRunner;
 class WebTestDelegate;
-class WebTestProxyBase;
+class WebViewTestProxyBase;
 
 // WebViewTestClient implements WebViewClient interface, providing behavior
-// expected by tests.  WebViewTestClient ends up used by WebTestProxy
+// expected by tests.  WebViewTestClient ends up used by WebViewTestProxy
 // which coordinates forwarding WebViewClient calls either to
 // WebViewTestClient or to the product code (i.e. to RenderViewImpl).
 class WebViewTestClient : public blink::WebViewClient {
  public:
-  // Caller has to ensure that all arguments (i.e. |test_runner| and |delegate|)
-  // live longer than |this|.
-  WebViewTestClient(TestRunner* test_runner,
-                    WebTestProxyBase* web_test_proxy_base);
+  // Caller has to ensure |web_view_test_proxy_base| lives longer than |this|.
+  WebViewTestClient(WebViewTestProxyBase* web_view_test_proxy_base);
 
   virtual ~WebViewTestClient();
 
-  // WebViewClient overrides needed by WebTestProxy.
+  // WebViewClient overrides needed by WebViewTestProxy.
   void showValidationMessage(const blink::WebRect& anchor_in_root_view,
                              const blink::WebString& main_message,
                              blink::WebTextDirection main_message_hint,
@@ -54,13 +52,14 @@ class WebViewTestClient : public blink::WebViewClient {
   void printPage(blink::WebLocalFrame* frame) override;
   blink::WebSpeechRecognizer* speechRecognizer() override;
   blink::WebString acceptLanguages() override;
+  void didFocus() override;
 
  private:
   WebTestDelegate* delegate();
+  TestRunner* test_runner();
 
-  // Borrowed pointers to other parts of Layout Tests state.
-  TestRunner* test_runner_;
-  WebTestProxyBase* web_test_proxy_base_;
+  // Borrowed pointer to WebViewTestProxyBase.
+  WebViewTestProxyBase* web_view_test_proxy_base_;
 
   DISALLOW_COPY_AND_ASSIGN(WebViewTestClient);
 };

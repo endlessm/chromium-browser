@@ -7,22 +7,19 @@
 
 #include <stdint.h>
 
+#include "ash/mus/frame/detached_title_area_renderer_host.h"
 #include "base/macros.h"
 #include "base/strings/string16.h"
-#include "components/mus/public/cpp/window_observer.h"
+#include "services/ui/public/cpp/window_observer.h"
 #include "ui/views/widget/widget_delegate.h"
 
 namespace gfx {
 class Insets;
 }
 
-namespace mus {
+namespace ui {
 class Window;
 class WindowManagerClient;
-}
-
-namespace shell {
-class Connector;
 }
 
 namespace ash {
@@ -30,13 +27,13 @@ namespace mus {
 
 // Provides the non-client frame for mus Windows.
 class NonClientFrameController : public views::WidgetDelegateView,
-                                 public ::mus::WindowObserver {
+                                 public ui::WindowObserver,
+                                 public DetachedTitleAreaRendererHost {
  public:
   // NonClientFrameController deletes itself when |window| is destroyed.
-  static void Create(shell::Connector* connector,
-                     ::mus::Window* parent,
-                     ::mus::Window* window,
-                     ::mus::WindowManagerClient* window_manager_client);
+  static void Create(ui::Window* parent,
+                     ui::Window* window,
+                     ui::WindowManagerClient* window_manager_client);
 
   // Returns the preferred client area insets.
   static gfx::Insets GetPreferredClientAreaInsets();
@@ -45,40 +42,47 @@ class NonClientFrameController : public views::WidgetDelegateView,
   // title bar.
   static int GetMaxTitleBarButtonWidth();
 
-  ::mus::Window* window() { return window_; }
+  ui::Window* window() { return window_; }
 
  private:
-  NonClientFrameController(shell::Connector* connector,
-                           ::mus::Window* parent,
-                           ::mus::Window* window,
-                           ::mus::WindowManagerClient* window_manager_client);
+  NonClientFrameController(ui::Window* parent,
+                           ui::Window* window,
+                           ui::WindowManagerClient* window_manager_client);
   ~NonClientFrameController() override;
+
+  // DetachedTitleAreaRendererHost:
+  void OnDetachedTitleAreaRendererDestroyed(
+      DetachedTitleAreaRenderer* renderer) override;
 
   // views::WidgetDelegateView:
   base::string16 GetWindowTitle() const override;
-  views::View* GetContentsView() override;
   bool CanResize() const override;
   bool CanMaximize() const override;
   bool CanMinimize() const override;
   bool ShouldShowWindowTitle() const override;
   views::ClientView* CreateClientView(views::Widget* widget) override;
 
-  // mus::WindowObserver:
+  // ui::WindowObserver:
+  void OnTreeChanged(const TreeChangeParams& params) override;
   void OnWindowSharedPropertyChanged(
-      ::mus::Window* window,
+      ui::Window* window,
       const std::string& name,
       const std::vector<uint8_t>* old_data,
       const std::vector<uint8_t>* new_data) override;
-  void OnWindowLocalPropertyChanged(::mus::Window* window,
+  void OnWindowLocalPropertyChanged(ui::Window* window,
                                     const void* key,
                                     intptr_t old) override;
-  void OnWindowDestroyed(::mus::Window* window) override;
+  void OnWindowDestroyed(ui::Window* window) override;
 
   views::Widget* widget_;
 
   // WARNING: as widget delays destruction there is a portion of time when this
   // is null.
-  ::mus::Window* window_;
+  ui::Window* window_;
+
+  // Used if a child window is added that has the
+  // kRendererParentTitleArea_Property set.
+  DetachedTitleAreaRenderer* detached_title_area_renderer_ = nullptr;
 
   DISALLOW_COPY_AND_ASSIGN(NonClientFrameController);
 };

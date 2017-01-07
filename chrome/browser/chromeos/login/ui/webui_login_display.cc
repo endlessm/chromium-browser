@@ -19,8 +19,8 @@
 #include "chrome/grit/generated_resources.h"
 #include "chromeos/login/user_names.h"
 #include "components/signin/core/account_id/account_id.h"
+#include "components/strings/grit/components_strings.h"
 #include "components/user_manager/user_manager.h"
-#include "grit/components_strings.h"
 #include "ui/base/ime/chromeos/ime_keyboard.h"
 #include "ui/base/ime/chromeos/input_method_manager.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -52,13 +52,15 @@ void WebUILoginDisplay::ClearAndEnablePassword() {
 void WebUILoginDisplay::Init(const user_manager::UserList& users,
                              bool show_guest,
                              bool show_users,
-                             bool show_new_user) {
+                             bool allow_new_user) {
   // Testing that the delegate has been set.
   DCHECK(delegate_);
   SignInScreenController::Get()->Init(users, show_guest);
   show_guest_ = show_guest;
+  show_users_changed_ = (show_users_ != show_users);
   show_users_ = show_users;
-  show_new_user_ = show_new_user;
+  allow_new_user_changed_ = (allow_new_user_ != allow_new_user);
+  allow_new_user_ = allow_new_user;
 
   ui::UserActivityDetector* activity_detector = ui::UserActivityDetector::Get();
   if (activity_detector && !activity_detector->HasObserver(this))
@@ -113,10 +115,6 @@ void WebUILoginDisplay::ShowError(int error_msg_id,
 
   std::string error_text;
   switch (error_msg_id) {
-    case IDS_LOGIN_ERROR_AUTHENTICATING_HOSTED:
-      error_text = l10n_util::GetStringFUTF8(
-          error_msg_id, l10n_util::GetStringUTF16(IDS_SHORT_PRODUCT_OS_NAME));
-      break;
     case IDS_LOGIN_ERROR_CAPTIVE_PORTAL:
       error_text = l10n_util::GetStringFUTF8(
           error_msg_id, delegate()->GetConnectedNetworkName());
@@ -150,15 +148,8 @@ void WebUILoginDisplay::ShowError(int error_msg_id,
   }
 
   std::string help_link;
-  switch (error_msg_id) {
-    case IDS_LOGIN_ERROR_AUTHENTICATING_HOSTED:
-      help_link = l10n_util::GetStringUTF8(IDS_LEARN_MORE);
-      break;
-    default:
-      if (login_attempts > 1)
-        help_link = l10n_util::GetStringUTF8(IDS_LEARN_MORE);
-      break;
-  }
+  if (login_attempts > 1)
+    help_link = l10n_util::GetStringUTF8(IDS_LEARN_MORE);
 
   webui_handler_->ShowError(login_attempts, error_text, help_link,
                             help_topic_id);
@@ -300,6 +291,18 @@ bool WebUILoginDisplay::IsShowGuest() const {
 
 bool WebUILoginDisplay::IsShowUsers() const {
   return show_users_;
+}
+
+bool WebUILoginDisplay::ShowUsersHasChanged() const {
+  return show_users_changed_;
+}
+
+bool WebUILoginDisplay::IsAllowNewUser() const {
+  return allow_new_user_;
+}
+
+bool WebUILoginDisplay::AllowNewUserChanged() const {
+  return allow_new_user_changed_;
 }
 
 bool WebUILoginDisplay::IsSigninInProgress() const {

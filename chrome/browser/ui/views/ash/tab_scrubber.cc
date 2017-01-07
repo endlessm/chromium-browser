@@ -8,7 +8,7 @@
 
 #include "ash/shell.h"
 #include "ash/wm/window_util.h"
-#include "base/metrics/histogram.h"
+#include "base/metrics/histogram_macros.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_finder.h"
@@ -261,7 +261,7 @@ void TabScrubber::FinishScrub(bool activate) {
       int distance =
           std::abs(
               highlighted_tab_ - browser_->tab_strip_model()->active_index());
-      UMA_HISTOGRAM_CUSTOM_COUNTS("Tabs.ScrubDistance", distance, 0, 20, 21);
+      UMA_HISTOGRAM_CUSTOM_COUNTS("Tabs.ScrubDistance", distance, 1, 20, 21);
       browser_->tab_strip_model()->ActivateTabAt(highlighted_tab_, true);
     }
     tab_strip->RemoveObserver(this);

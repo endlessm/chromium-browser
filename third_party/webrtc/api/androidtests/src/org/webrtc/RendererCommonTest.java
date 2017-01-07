@@ -10,16 +10,15 @@
 
 package org.webrtc;
 
-import android.test.ActivityTestCase;
-import android.test.MoreAsserts;
-import android.test.suitebuilder.annotation.SmallTest;
-
-import android.graphics.Point;
-
 import static org.webrtc.RendererCommon.ScalingType.*;
 import static org.webrtc.RendererCommon.getDisplaySize;
 import static org.webrtc.RendererCommon.getLayoutMatrix;
 import static org.webrtc.RendererCommon.rotateTextureMatrix;
+
+import android.graphics.Point;
+import android.test.ActivityTestCase;
+import android.test.MoreAsserts;
+import android.test.suitebuilder.annotation.SmallTest;
 
 public final class RendererCommonTest extends ActivityTestCase {
   @SmallTest
@@ -96,11 +95,13 @@ public final class RendererCommonTest extends ActivityTestCase {
     // Assert:
     // u' = u.
     // v' = v.
+    // clang-format off
     MoreAsserts.assertEquals(new double[] {
         1, 0, 0, 0,
         0, 1, 0, 0,
         0, 0, 1, 0,
         0, 0, 0, 1}, round(layoutMatrix));
+    // clang-format on
   }
 
   @SmallTest
@@ -109,11 +110,13 @@ public final class RendererCommonTest extends ActivityTestCase {
     // Assert:
     // u' = 1 - u.
     // v' = v.
+    // clang-format off
     MoreAsserts.assertEquals(new double[] {
         -1, 0, 0, 0,
          0, 1, 0, 0,
          0, 0, 1, 0,
          1, 0, 0, 1}, round(layoutMatrix));
+    // clang-format on
   }
 
   @SmallTest
@@ -124,22 +127,26 @@ public final class RendererCommonTest extends ActivityTestCase {
     // Assert:
     // u' = 0.25 + 0.5 u.
     // v' = v.
+    // clang-format off
     MoreAsserts.assertEquals(new double[] {
          0.5, 0, 0, 0,
            0, 1, 0, 0,
            0, 0, 1, 0,
         0.25, 0, 0, 1}, round(layoutMatrix));
+    // clang-format on
   }
 
   @SmallTest
   public static void testRotateTextureMatrixDefault() {
     // Test that rotation with 0 degrees returns an identical matrix.
+    // clang-format off
     final float[] matrix = new float[] {
         1, 2, 3, 4,
         5, 6, 7, 8,
         9, 0, 1, 2,
         3, 4, 5, 6
     };
+    // clang-format on
     final float rotatedMatrix[] = rotateTextureMatrix(matrix, 0);
     MoreAsserts.assertEquals(round(matrix), round(rotatedMatrix));
   }
@@ -150,11 +157,13 @@ public final class RendererCommonTest extends ActivityTestCase {
     // Assert:
     // u' = 1 - v.
     // v' = u.
+    // clang-format off
     MoreAsserts.assertEquals(new double[] {
          0, 1, 0, 0,
         -1, 0, 0, 0,
          0, 0, 1, 0,
          1, 0, 0, 1}, round(samplingMatrix));
+    // clang-format on
   }
 
   @SmallTest
@@ -163,10 +172,12 @@ public final class RendererCommonTest extends ActivityTestCase {
     // Assert:
     // u' = 1 - u.
     // v' = 1 - v.
+    // clang-format off
     MoreAsserts.assertEquals(new double[] {
         -1,  0, 0, 0,
          0, -1, 0, 0,
          0,  0, 1, 0,
          1,  1, 0, 1}, round(samplingMatrix));
+    // clang-format on
   }
 }

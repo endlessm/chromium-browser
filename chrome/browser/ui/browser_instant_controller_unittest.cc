@@ -17,7 +17,7 @@
 #include "chrome/browser/ui/browser_instant_controller.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/common/url_constants.h"
-#include "content/public/browser/navigation_controller.h"
+#include "content/public/browser/reload_type.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_contents_observer.h"
@@ -54,7 +54,7 @@ const TabReloadTestCase kTabReloadTestCasesFinalProviderNotGoogle[] = {
     {"Remote Embedded NTP", "https://www.google.com/newtab",
      true, true, false, false},
     {"Remote Embedded SERP", "https://www.google.com/url?strk&bar=search+terms",
-     true, true, false, false},
+     false, false, false, false},
     {"Other NTP", "https://bar.com/newtab",
      false, false, false, false}
 };
@@ -66,7 +66,7 @@ const TabReloadTestCase kTabReloadTestCasesFinalProviderGoogle[] = {
     {"Remote Embedded NTP", "https://www.google.com/newtab",
      true, false, true, true},
     {"Remote Embedded SERP", "https://www.google.com/url?strk&bar=search+terms",
-     true, true, false, false},
+     false, false, false, false},
     {"Other NTP", "https://bar.com/newtab",
      false, false, false, false}
 };
@@ -82,7 +82,7 @@ class FakeWebContentsObserver : public content::WebContentsObserver {
 
   void DidStartNavigationToPendingEntry(
       const GURL& url,
-      content::NavigationController::ReloadType reload_type) override {
+      content::ReloadType reload_type) override {
     if (url_ == url)
       num_reloads_++;
     current_url_ = url;

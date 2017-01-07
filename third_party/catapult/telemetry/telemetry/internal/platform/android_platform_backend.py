@@ -14,6 +14,7 @@ from telemetry.core import android_platform
 from telemetry.core import exceptions
 from telemetry.core import util
 from telemetry import decorators
+from telemetry.internal import forwarders
 from telemetry.internal.forwarders import android_forwarder
 from telemetry.internal.image_processing import video
 from telemetry.internal.platform import android_device
@@ -47,6 +48,10 @@ except Exception:
   surface_stats_collector = None
 
 
+_ARCH_TO_STACK_TOOL_ARCH = {
+  'armeabi-v7a': 'arm',
+  'arm64-v8a': 'arm64',
+}
 _DEVICE_COPY_SCRIPT_FILE = os.path.abspath(os.path.join(
     os.path.dirname(__file__), 'efficient_android_directory_copy.sh'))
 _DEVICE_COPY_SCRIPT_LOCATION = (
@@ -90,7 +95,7 @@ class AndroidPlatformBackend(
     self._perf_tests_setup = perf_control.PerfControl(self._device)
     self._thermal_throttle = thermal_throttle.ThermalThrottle(self._device)
     self._raw_display_frame_rate_measurements = []
-    self._can_access_protected_file_contents = (
+    self._can_elevate_privilege = (
         self._device.HasRoot() or self._device.NeedsSU())
     self._device_copy_script = None
     self._power_monitor = (
@@ -210,13 +215,13 @@ class AndroidPlatformBackend(
     return self._thermal_throttle.HasBeenThrottled()
 
   def GetCpuStats(self, pid):
-    if not self._can_access_protected_file_contents:
+    if not self._can_elevate_privilege:
       logging.warning('CPU stats cannot be retrieved on non-rooted device.')
       return {}
     return super(AndroidPlatformBackend, self).GetCpuStats(pid)
 
   def GetCpuTimestamp(self):
-    if not self._can_access_protected_file_contents:
+    if not self._can_elevate_privilege:
       logging.warning('CPU timestamp cannot be retrieved on non-rooted device.')
       return {}
     return super(AndroidPlatformBackend, self).GetCpuTimestamp()
@@ -238,7 +243,7 @@ class AndroidPlatformBackend(
 
     This can be used to make memory measurements more stable. Requires root.
     """
-    if not self._can_access_protected_file_contents:
+    if not self._can_elevate_privilege:
       logging.warning('Cannot run purge_ashmem. Requires a rooted device.')
       return
 
@@ -250,6 +255,10 @@ class AndroidPlatformBackend(
     for l in output:
       logging.info(l)
 
+  @decorators.Deprecated(
+      2017, 11, 4,
+      'Clients should use tracing and memory-infra in new Telemetry '
+      'benchmarks. See for context: https://crbug.com/632021')
   def GetMemoryStats(self, pid):
     memory_usage = self._device.GetMemoryUsageForPid(pid)
     if not memory_usage:
@@ -294,6 +303,9 @@ class AndroidPlatformBackend(
 
   def CanFlushIndividualFilesFromSystemCache(self):
     return False
+
+  def SupportFlushEntireSystemCache(self):
+    return self._can_elevate_privilege
 
   def FlushEntireSystemCache(self):
     cache = cache_control.CacheControl(self._device)
@@ -412,7 +424,7 @@ class AndroidPlatformBackend(
         device_path, timeout=timeout, retries=retries)
 
   def GetFileContents(self, fname):
-    if not self._can_access_protected_file_contents:
+    if not self._can_elevate_privilege:
       logging.warning('%s cannot be retrieved on non-rooted device.', fname)
       return ''
     return self._device.ReadFile(fname, as_root=True)
@@ -576,6 +588,9 @@ class AndroidPlatformBackend(
     self._device.RunShellCommand(
         ['sh', self._device_copy_script, source, dest])
 
+  def GetPortPairForForwarding(self, local_port):
+    return forwarders.PortPair(local_port=local_port, remote_port=0)
+
   def RemoveProfile(self, package, ignore_list):
     """Delete application profile on device.
 
@@ -649,8 +664,18 @@ class AndroidPlatformBackend(
     Args:
       number_of_lines: Number of lines of log to return.
     """
-    return '\n'.join(self._device.RunShellCommand(
-        ['logcat', '-d', '-t', str(number_of_lines)]))
+    def decode_line(line):
+      try:
+        uline = unicode(line, encoding='utf-8')
+        return uline.encode('ascii', 'backslashreplace')
+      except Exception:
+        logging.error('Error encoding UTF-8 logcat line as ASCII.')
+        return '<MISSING LOGCAT LINE: FAILED TO ENCODE>'
+
+    logcat_output = self._device.RunShellCommand(
+        ['logcat', '-d', '-t', str(number_of_lines)],
+        check_return=True, large_output=True)
+    return '\n'.join(decode_line(l) for l in logcat_output)
 
   def GetStandardOutput(self):
     return 'Cannot get standard output on Android'
@@ -675,7 +700,9 @@ class AndroidPlatformBackend(
     # Try to symbolize logcat.
     if os.path.exists(stack):
       cmd = [stack]
-      cmd.append('--arch=%s' % self.GetArchName())
+      arch = self.GetArchName()
+      arch = _ARCH_TO_STACK_TOOL_ARCH.get(arch, arch)
+      cmd.append('--arch=%s' % arch)
       p = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE)
       ret += Decorate('Stack from Logcat', p.communicate(input=logcat)[0])
 
@@ -688,6 +715,9 @@ class AndroidPlatformBackend(
                                         self._device.adb.GetDeviceSerial()],
                                        stdout=subprocess.PIPE).communicate()[0])
     return (True, ret)
+
+  def GetMinidumpPath(self):
+    return None
 
   def IsScreenOn(self):
     """Determines if device screen is on."""
@@ -728,9 +758,11 @@ class AndroidPlatformBackend(
     return self._IsScreenLocked(input_methods)
 
   def HasBattOrConnected(self):
-    # str(self.device) is the device id as a string.
-    return battor_wrapper.IsBattOrConnected(self.GetOSName(),
-                                            android_device=str(self.device))
+    # Use linux instead of Android because when determining what tests to run on
+    # a bot the individual device could be down, which would make BattOr tests
+    # not run on any device. BattOrs communicate with the host and not android
+    # devices.
+    return battor_wrapper.IsBattOrConnected('linux')
 
 
 def _FixPossibleAdbInstability():

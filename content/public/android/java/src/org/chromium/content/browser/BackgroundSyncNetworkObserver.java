@@ -85,7 +85,8 @@ class BackgroundSyncNetworkObserver implements NetworkChangeNotifierAutoDetect.O
         mNativePtrs.add(nativePtr);
 
         nativeNotifyConnectionTypeChanged(
-                nativePtr, mNotifier.getCurrentConnectionType(mNotifier.getCurrentNetworkState()));
+                nativePtr, NetworkChangeNotifierAutoDetect.convertToConnectionType(
+                                   mNotifier.getCurrentNetworkState()));
     }
 
     @CalledByNative
@@ -110,13 +111,13 @@ class BackgroundSyncNetworkObserver implements NetworkChangeNotifierAutoDetect.O
     @Override
     public void onMaxBandwidthChanged(double maxBandwidthMbps) {}
     @Override
-    public void onNetworkConnect(int netId, int connectionType) {}
+    public void onNetworkConnect(long netId, int connectionType) {}
     @Override
-    public void onNetworkSoonToDisconnect(int netId) {}
+    public void onNetworkSoonToDisconnect(long netId) {}
     @Override
-    public void onNetworkDisconnect(int netId) {}
+    public void onNetworkDisconnect(long netId) {}
     @Override
-    public void purgeActiveNetworkList(int[] activeNetIds) {}
+    public void purgeActiveNetworkList(long[] activeNetIds) {}
 
     @NativeClassQualifiedName("BackgroundSyncNetworkObserverAndroid::Observer")
     private native void nativeNotifyConnectionTypeChanged(long nativePtr, int newConnectionType);

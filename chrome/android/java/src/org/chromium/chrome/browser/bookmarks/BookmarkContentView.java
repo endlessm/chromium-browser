@@ -63,8 +63,8 @@ public class BookmarkContentView extends RelativeLayout implements
      *         method. False otherwise.
      */
     boolean onBackPressed() {
-        if (mDelegate != null && mDelegate.isSelectionEnabled()) {
-            mDelegate.clearSelection();
+        if (mDelegate != null && mDelegate.getSelectionDelegate().isSelectionEnabled()) {
+            mDelegate.getSelectionDelegate().clearSelection();
             return true;
         }
         return false;
@@ -88,11 +88,6 @@ public class BookmarkContentView extends RelativeLayout implements
     @Override
     public void onDestroy() {
         mDelegate.removeUIObserver(this);
-    }
-
-    @Override
-    public void onAllBookmarksStateSet() {
-        mLoadingView.hideLoadingUI();
     }
 
     @Override

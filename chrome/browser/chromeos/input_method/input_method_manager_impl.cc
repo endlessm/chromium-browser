@@ -12,10 +12,12 @@
 #include <sstream>
 #include <utility>
 
+#include "ash/shell.h"
 #include "base/bind.h"
+#include "base/feature_list.h"
 #include "base/hash.h"
 #include "base/location.h"
-#include "base/metrics/histogram.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/metrics/sparse_histogram.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
@@ -30,6 +32,7 @@
 #include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/ui/ash/ash_util.h"
+#include "chrome/common/chrome_features.h"
 #include "chrome/common/pref_names.h"
 #include "components/prefs/pref_service.h"
 #include "components/user_manager/user_manager.h"
@@ -112,8 +115,7 @@ InputMethodCategory GetInputMethodCategory(const std::string& input_method_id,
 
 InputMethodManagerImpl::StateImpl::StateImpl(InputMethodManagerImpl* manager,
                                              Profile* profile)
-    : profile(profile), manager_(manager) {
-}
+    : profile(profile), manager_(manager), menu_activated(false) {}
 
 InputMethodManagerImpl::StateImpl::~StateImpl() {
 }
@@ -128,6 +130,7 @@ void InputMethodManagerImpl::StateImpl::InitFrom(const StateImpl& other) {
 
   enabled_extension_imes = other.enabled_extension_imes;
   extra_input_methods = other.extra_input_methods;
+  menu_activated = other.menu_activated;
 }
 
 bool InputMethodManagerImpl::StateImpl::IsActive() const {
@@ -927,15 +930,6 @@ void InputMethodManagerImpl::SetUISessionState(UISessionState new_ui_session) {
   ui_session_ = new_ui_session;
   if (ui_session_ == STATE_TERMINATING && candidate_window_controller_.get())
     candidate_window_controller_.reset();
-
-  // The expanded IME menu is only supportive with 'normal' screen type. It
-  // should be deactivated when the screen type is not 'normal', and be
-  // re-activated when changing back.
-  if (is_ime_menu_activated_ && ui_session_ != STATE_TERMINATING) {
-    FOR_EACH_OBSERVER(
-        InputMethodManager::ImeMenuObserver, ime_menu_observers_,
-        ImeMenuActivationChanged(ui_session_ == STATE_BROWSER_SCREEN));
-  }
 }
 
 void InputMethodManagerImpl::OnUserAddingStarted() {
@@ -1186,11 +1180,8 @@ void InputMethodManagerImpl::CandidateWindowClosed() {
 void InputMethodManagerImpl::ImeMenuActivationChanged(bool is_active) {
   // Saves the state that whether the expanded IME menu has been activated by
   // users. This method is only called when the preference is changing.
-  is_ime_menu_activated_ = is_active;
-  FOR_EACH_OBSERVER(InputMethodManager::ImeMenuObserver, ime_menu_observers_,
-                    ImeMenuActivationChanged(is_active));
-  UMA_HISTOGRAM_BOOLEAN("InputMethod.ImeMenu.ActivationChanged",
-                        is_ime_menu_activated_);
+  state_->menu_activated = is_active;
+  MaybeNotifyImeMenuActivationChanged();
 }
 
 void InputMethodManagerImpl::NotifyImeMenuListChanged() {
@@ -1212,6 +1203,58 @@ void InputMethodManagerImpl::NotifyImeMenuItemsChanged(
     const std::vector<InputMethodManager::MenuItem>& items) {
   FOR_EACH_OBSERVER(InputMethodManager::ImeMenuObserver, ime_menu_observers_,
                     ImeMenuItemsChanged(engine_id, items));
+}
+
+void InputMethodManagerImpl::MaybeNotifyImeMenuActivationChanged() {
+  if (is_ime_menu_activated_ == state_->menu_activated)
+    return;
+
+  is_ime_menu_activated_ = state_->menu_activated;
+  FOR_EACH_OBSERVER(InputMethodManager::ImeMenuObserver, ime_menu_observers_,
+                    ImeMenuActivationChanged(is_ime_menu_activated_));
+  UMA_HISTOGRAM_BOOLEAN("InputMethod.ImeMenu.ActivationChanged",
+                        is_ime_menu_activated_);
+}
+
+void InputMethodManagerImpl::OverrideKeyboardUrlRef(const std::string& keyset) {
+  GURL url = keyboard::GetOverrideContentUrl();
+
+  // If fails to find ref or tag "id" in the ref, it means the current IME is
+  // not system IME, and we don't support show emoji, handwriting or voice
+  // input for such IME extension.
+  if (!url.has_ref())
+    return;
+  std::string overridden_ref = url.ref();
+  auto i = overridden_ref.find("id");
+  if (i == std::string::npos)
+    return;
+
+  if (keyset.empty()) {
+    keyboard::SetOverrideContentUrl(
+        GetActiveIMEState()->GetCurrentInputMethod().input_view_url());
+    return;
+  }
+
+  // For system IME extension, the input view url is overridden as:
+  // chrome-extension://${extension_id}/inputview.html#id=us.compact.qwerty
+  // &language=en-US&passwordLayout=us.compact.qwerty&name=keyboard_us
+  // Fow emoji and handwriting input, we replace the id=${keyset} part with
+  // desired keyset like: id=emoji; For voice, we append ".voice" to the end of
+  // id like: id=${keyset}.voice.
+  auto j = overridden_ref.find("&", i + 1);
+  if (keyset == "voice") {
+    overridden_ref.replace(j, 0, "." + keyset);
+  } else {
+    overridden_ref.replace(i, j - i, "id=" + keyset);
+  }
+
+  GURL::Replacements replacements;
+  replacements.SetRefStr(overridden_ref);
+  keyboard::SetOverrideContentUrl(url.ReplaceComponents(replacements));
+}
+
+bool InputMethodManagerImpl::IsEmojiHandwritingVoiceOnImeMenuEnabled() {
+  return base::FeatureList::IsEnabled(features::kEHVInputOnImeMenu);
 }
 
 }  // namespace input_method

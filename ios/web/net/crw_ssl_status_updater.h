@@ -6,7 +6,9 @@
 #define IOS_WEB_NET_CRW_SSL_STATUS_UPDATER_H_
 
 #import <Foundation/Foundation.h>
+#import <Security/Security.h>
 
+#include "base/mac/scoped_cftyperef.h"
 #include "ios/web/public/security_style.h"
 #include "net/cert/cert_status_flags.h"
 
@@ -26,11 +28,10 @@ class NavigationManager;
 
 // Initializes CRWSSLStatusUpdater. |navManager| can not be null, will be stored
 // as a weak pointer and must outlive updater. |dataSource| can not be nil, will
-// be stored as a weak reference and must outlive updater. |certGroupID| will be
-// used for accessing web::CertStore.
+// be stored as a weak reference and must outlive updater.
 - (instancetype)initWithDataSource:(id<CRWSSLStatusUpdaterDataSource>)dataSource
                  navigationManager:(web::NavigationManager*)navigationManager
-                       certGroupID:(int)certGroupID NS_DESIGNATED_INITIALIZER;
+    NS_DESIGNATED_INITIALIZER;
 
 - (instancetype)init NS_UNAVAILABLE;
 
@@ -38,7 +39,8 @@ class NavigationManager;
 // obtained from |host|, |chain| and |hasOnlySecureContent| flag.
 - (void)updateSSLStatusForNavigationItem:(web::NavigationItem*)navigationItem
                             withCertHost:(NSString*)host
-                               certChain:(NSArray*)chain
+                                   trust:
+                                       (base::ScopedCFTypeRef<SecTrustRef>)trust
                     hasOnlySecureContent:(BOOL)hasOnlySecureContent;
 
 @end
@@ -56,9 +58,9 @@ typedef void (^StatusQueryHandler)(web::SecurityStyle, net::CertStatus);
 // |completionHandler| is called asynchronously when web::SecurityStyle and
 // net::CertStatus are computed.
 - (void)SSLStatusUpdater:(CRWSSLStatusUpdater*)SSLStatusUpdater
-    querySSLStatusForCertChain:(NSArray*)certChain
-                          host:(NSString*)host
-             completionHandler:(StatusQueryHandler)completionHandler;
+    querySSLStatusForTrust:(base::ScopedCFTypeRef<SecTrustRef>)trust
+                      host:(NSString*)host
+         completionHandler:(StatusQueryHandler)completionHandler;
 
 @end
 

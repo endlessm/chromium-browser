@@ -28,10 +28,9 @@
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
 #include "components/autofill/core/common/password_form.h"
-#include "components/browser_sync/browser/profile_sync_service.h"
+#include "components/browser_sync/profile_sync_service.h"
 #include "components/password_manager/core/browser/affiliation_utils.h"
 #include "components/password_manager/core/browser/import/password_importer.h"
-#include "components/password_manager/core/browser/password_manager_util.h"
 #include "components/password_manager/core/browser/password_ui_utils.h"
 #include "components/password_manager/core/common/password_manager_pref_names.h"
 #include "components/password_manager/sync/browser/password_sync_util.h"
@@ -64,11 +63,11 @@ std::string GetEntryTypeCode(bool is_android_uri, bool is_clickable) {
   return "2";
 }
 
-// Creates key for sorting password or password exception entries.
-// The key is eTLD+1 followed by subdomains
-// (e.g. secure.accounts.example.com => example.com.accounts.secure).
-// If |entry_type == SAVED|, username, password and federation are appended to
-// the key. The entry type code (non-Android, Android w/ or w/o affiliated web
+// Creates key for sorting password or password exception entries. The key is
+// eTLD+1 followed by the reversed list of domains (e.g.
+// secure.accounts.example.com => example.com.com.example.accounts.secure). If
+// |entry_type == SAVED|, username, password and federation are appended to the
+// key. The entry type code (non-Android, Android w/ or w/o affiliated web
 // realm) is also appended to the key.
 std::string CreateSortKey(const autofill::PasswordForm& form,
                           PasswordEntryType entry_type) {
@@ -78,18 +77,15 @@ std::string CreateSortKey(const autofill::PasswordForm& form,
   std::string origin = password_manager::GetShownOriginAndLinkUrl(
       form, &is_android_uri, &link_url, &is_clickable);
 
-  if (!is_clickable) {  // e.g. android://com.example.r => r.example.com.
+  if (!is_clickable)  // e.g. android://com.example.r => r.example.com.
     origin = password_manager::StripAndroidAndReverse(origin);
-  }
 
   std::string site_name =
       net::registry_controlled_domains::GetDomainAndRegistry(
           origin, net::registry_controlled_domains::INCLUDE_PRIVATE_REGISTRIES);
   if (site_name.empty())  // e.g. localhost.
     site_name = origin;
-  std::string key =
-      site_name + password_manager::SplitByDotAndReverse(StringPiece(
-                      &origin[0], origin.length() - site_name.length()));
+  std::string key = site_name + password_manager::SplitByDotAndReverse(origin);
 
   if (entry_type == PasswordEntryType::SAVED) {
     key = key + kSortKeyPartsSeparator +
@@ -220,7 +216,7 @@ void PasswordManagerPresenter::RequestShowPassword(size_t index) {
     return;
   }
 
-  sync_driver::SyncService* sync_service = nullptr;
+  syncer::SyncService* sync_service = nullptr;
   if (ProfileSyncServiceFactory::HasProfileSyncService(
           password_view_->GetProfile())) {
     sync_service =
@@ -249,7 +245,7 @@ PasswordManagerPresenter::GetAllPasswords() {
   std::vector<std::unique_ptr<autofill::PasswordForm>> ret_val;
 
   for (const auto& form : password_list_) {
-    ret_val.push_back(base::WrapUnique(new autofill::PasswordForm(*form)));
+    ret_val.push_back(base::MakeUnique<autofill::PasswordForm>(*form));
   }
 
   return ret_val;
@@ -361,9 +357,8 @@ void PasswordManagerPresenter::PasswordListPopulater::Populate() {
 }
 
 void PasswordManagerPresenter::PasswordListPopulater::OnGetPasswordStoreResults(
-    ScopedVector<autofill::PasswordForm> results) {
-  page_->password_list_ =
-      password_manager_util::ConvertScopedVector(std::move(results));
+    std::vector<std::unique_ptr<autofill::PasswordForm>> results) {
+  page_->password_list_ = std::move(results);
   page_->SortEntriesAndHideDuplicates(&page_->password_list_,
                                       &page_->password_duplicates_,
                                       PasswordEntryType::SAVED);
@@ -386,9 +381,9 @@ void PasswordManagerPresenter::PasswordExceptionListPopulater::Populate() {
 }
 
 void PasswordManagerPresenter::PasswordExceptionListPopulater::
-    OnGetPasswordStoreResults(ScopedVector<autofill::PasswordForm> results) {
-  page_->password_exception_list_ =
-      password_manager_util::ConvertScopedVector(std::move(results));
+    OnGetPasswordStoreResults(
+        std::vector<std::unique_ptr<autofill::PasswordForm>> results) {
+  page_->password_exception_list_ = std::move(results);
   page_->SortEntriesAndHideDuplicates(&page_->password_exception_list_,
                                       &page_->password_exception_duplicates_,
                                       PasswordEntryType::BLACKLISTED);

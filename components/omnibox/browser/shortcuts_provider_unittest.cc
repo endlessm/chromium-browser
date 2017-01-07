@@ -184,16 +184,15 @@ class FakeAutocompleteProviderClient
  public:
   FakeAutocompleteProviderClient()
       : db_thread_("Test DB thread"), pool_owner_(3, "Background Pool") {
-    set_template_url_service(
-        base::WrapUnique(new TemplateURLService(nullptr, 0)));
+    set_template_url_service(base::MakeUnique<TemplateURLService>(nullptr, 0));
     if (history_dir_.CreateUniqueTempDir()) {
-      history_service_ = history::CreateHistoryService(history_dir_.path(),
-                                                       true);
+      history_service_ =
+          history::CreateHistoryService(history_dir_.GetPath(), true);
     }
 
     db_thread_.Start();
     shortcuts_backend_ = new ShortcutsBackend(
-        GetTemplateURLService(), base::WrapUnique(new SearchTermsData()),
+        GetTemplateURLService(), base::MakeUnique<SearchTermsData>(),
         history_service_.get(), db_thread_.task_runner(), base::FilePath(),
         true);
     shortcuts_backend_->Init();

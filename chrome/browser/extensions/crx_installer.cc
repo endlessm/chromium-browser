@@ -14,7 +14,7 @@
 #include "base/lazy_instance.h"
 #include "base/macros.h"
 #include "base/memory/ptr_util.h"
-#include "base/metrics/histogram.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/sequenced_task_runner.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
@@ -60,7 +60,7 @@
 #include "extensions/common/permissions/permission_set.h"
 #include "extensions/common/permissions/permissions_data.h"
 #include "extensions/common/user_script.h"
-#include "grit/extensions_strings.h"
+#include "extensions/strings/grit/extensions_strings.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "ui/base/l10n/l10n_util.h"
 
@@ -188,7 +188,7 @@ void CrxInstaller::InstallCrxFile(const CRXFileInfo& source_file) {
 
   if (!installer_task_runner_->PostTask(
           FROM_HERE, base::Bind(&SandboxedUnpacker::StartWithCrx,
-                                unpacker.get(), source_file))) {
+                                unpacker, source_file))) {
     NOTREACHED();
   }
 }
@@ -698,7 +698,7 @@ void CrxInstaller::CompleteInstall() {
   // exceeds a small constant.  See crbug.com/69693 .
   UMA_HISTOGRAM_CUSTOM_COUNTS(
     "Extensions.CrxInstallDirPathLength",
-        install_directory_.value().length(), 0, 500, 100);
+        install_directory_.value().length(), 1, 500, 100);
 
   ExtensionAssetsManager* assets_manager =
       ExtensionAssetsManager::GetInstance();
@@ -915,10 +915,10 @@ void CrxInstaller::ConfirmReEnable() {
     ExtensionInstallPrompt::PromptType type =
         ExtensionInstallPrompt::GetReEnablePromptTypeForExtension(
             service->profile(), extension());
-    client_->ShowDialog(
-        base::Bind(&CrxInstaller::OnInstallPromptDone, this), extension(),
-        nullptr, base::WrapUnique(new ExtensionInstallPrompt::Prompt(type)),
-        ExtensionInstallPrompt::GetDefaultShowDialogCallback());
+    client_->ShowDialog(base::Bind(&CrxInstaller::OnInstallPromptDone, this),
+                        extension(), nullptr,
+                        base::MakeUnique<ExtensionInstallPrompt::Prompt>(type),
+                        ExtensionInstallPrompt::GetDefaultShowDialogCallback());
   }
 }
 

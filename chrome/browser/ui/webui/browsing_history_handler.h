@@ -8,7 +8,9 @@
 #include <stdint.h>
 
 #include <memory>
+#include <set>
 #include <string>
+#include <vector>
 
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
@@ -20,25 +22,36 @@
 #include "components/history/core/browser/history_service_observer.h"
 #include "components/history/core/browser/url_row.h"
 #include "components/history/core/browser/web_history_service.h"
+#include "components/history/core/browser/web_history_service_observer.h"
+#include "components/sync/driver/sync_service_observer.h"
 #include "content/public/browser/web_ui_message_handler.h"
 #include "url/gurl.h"
 
-class ProfileSyncService;
 class SupervisedUserService;
 
 namespace bookmarks {
 class BookmarkModel;
-}
+}  // namespace bookmarks
+
+namespace browser_sync {
+class ProfileSyncService;
+}  // namespace browser_sync
 
 namespace history {
 class HistoryService;
-struct QueryOptions;
 class QueryResults;
-}
+struct QueryOptions;
+}  // namespace history
+
+namespace syncer {
+class SyncServiceObserver;
+}  // namespace syncer
 
 // The handler for Javascript messages related to the "history" view.
 class BrowsingHistoryHandler : public content::WebUIMessageHandler,
-                               public history::HistoryServiceObserver {
+                               public history::HistoryServiceObserver,
+                               public history::WebHistoryServiceObserver,
+                               public syncer::SyncServiceObserver {
  public:
   // Represents a history entry to be shown to the user, representing either
   // a local or remote visit. A single entry can represent multiple visits,
@@ -62,13 +75,15 @@ class BrowsingHistoryHandler : public content::WebUIMessageHandler,
     virtual ~HistoryEntry();
 
     // Formats this entry's URL and title and adds them to |result|.
-    void SetUrlAndTitle(base::DictionaryValue* result) const;
+    void SetUrlAndTitle(base::DictionaryValue* result,
+                        bool limit_title_length) const;
 
     // Converts the entry to a DictionaryValue to be owned by the caller.
     std::unique_ptr<base::DictionaryValue> ToValue(
         bookmarks::BookmarkModel* bookmark_model,
         SupervisedUserService* supervised_user_service,
-        const ProfileSyncService* sync_service) const;
+        const browser_sync::ProfileSyncService* sync_service,
+        bool limit_title_length) const;
 
     // Comparison function for sorting HistoryEntries from newest to oldest.
     static bool SortByTimeDescending(
@@ -106,6 +121,9 @@ class BrowsingHistoryHandler : public content::WebUIMessageHandler,
   // WebUIMessageHandler implementation.
   void RegisterMessages() override;
 
+  // SyncServiceObserver implementation.
+  void OnStateChanged() override;
+
   // Handler for the "queryHistory" message.
   void HandleQueryHistory(const base::ListValue* args);
 
@@ -124,7 +142,17 @@ class BrowsingHistoryHandler : public content::WebUIMessageHandler,
   static void MergeDuplicateResults(
       std::vector<BrowsingHistoryHandler::HistoryEntry>* results);
 
+ protected:
+  // Callback from the history system when a history query has completed.
+  // Exposed for testing.
+  void QueryComplete(const base::string16& search_text,
+                     const history::QueryOptions& options,
+                     history::QueryResults* results);
+
  private:
+  FRIEND_TEST_ALL_PREFIXES(BrowsingHistoryHandlerTest,
+                           ObservingWebHistoryDeletions);
+
   // The range for which to return results:
   // - ALLTIME: allows access to all the results in a paginated way.
   // - WEEK: the last 7 days.
@@ -146,11 +174,6 @@ class BrowsingHistoryHandler : public content::WebUIMessageHandler,
   // Callback from |web_history_timer_| when a response from web history has
   // not been received in time.
   void WebHistoryTimeout();
-
-  // Callback from the history system when a history query has completed.
-  void QueryComplete(const base::string16& search_text,
-                     const history::QueryOptions& options,
-                     history::QueryResults* results);
 
   // Callback from the WebHistoryService when a query has completed.
   void WebHistoryQueryComplete(const base::string16& search_text,
@@ -189,6 +212,9 @@ class BrowsingHistoryHandler : public content::WebUIMessageHandler,
                      const history::URLRows& deleted_rows,
                      const std::set<GURL>& favicon_urls) override;
 
+  // history::WebHistoryServiceObserver:
+  void OnWebHistoryDeleted() override;
+
   // Tracker for search requests to the history service.
   base::CancelableTaskTracker query_task_tracker_;
 
@@ -217,8 +243,17 @@ class BrowsingHistoryHandler : public content::WebUIMessageHandler,
   // Timer used to implement a timeout on a Web History response.
   base::OneShotTimer web_history_timer_;
 
+  // HistoryService (local history) observer.
   ScopedObserver<history::HistoryService, history::HistoryServiceObserver>
       history_service_observer_;
+
+  // WebHistoryService (synced history) observer.
+  ScopedObserver<history::WebHistoryService, history::WebHistoryServiceObserver>
+      web_history_service_observer_;
+
+  // ProfileSyncService observer listens to late initialization of history sync.
+  ScopedObserver<browser_sync::ProfileSyncService, syncer::SyncServiceObserver>
+      sync_service_observer_;
 
   // Whether the last call to Web History returned synced results.
   bool has_synced_results_;

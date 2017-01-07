@@ -10,6 +10,7 @@
 
 #include "base/macros.h"
 #include "components/infobars/core/infobar_manager.h"
+#include "content/public/browser/reload_type.h"
 #include "content/public/browser/web_contents_observer.h"
 #include "content/public/browser/web_contents_user_data.h"
 #include "ui/base/window_open_disposition.h"
@@ -71,14 +72,10 @@ class InfoBarService : public infobars::InfoBarManager,
   void RenderProcessGone(base::TerminationStatus status) override;
   void DidStartNavigationToPendingEntry(
       const GURL& url,
-      content::NavigationController::ReloadType reload_type) override;
+      content::ReloadType reload_type) override;
   void NavigationEntryCommitted(
       const content::LoadCommittedDetails& load_details) override;
   void WebContentsDestroyed() override;
-  bool OnMessageReceived(const IPC::Message& message) override;
-
-  // Message handlers.
-  void OnDidBlockDisplayingInsecureContent();
 
   // See description in set_ignore_next_reload().
   bool ignore_next_reload_;

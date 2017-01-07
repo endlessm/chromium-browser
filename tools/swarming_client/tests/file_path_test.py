@@ -1,8 +1,8 @@
 #!/usr/bin/env python
 # coding=utf-8
-# Copyright 2013 The Swarming Authors. All rights reserved.
-# Use of this source code is governed under the Apache License, Version 2.0 that
-# can be found in the LICENSE file.
+# Copyright 2013 The LUCI Authors. All rights reserved.
+# Use of this source code is governed under the Apache License, Version 2.0
+# that can be found in the LICENSE file.
 
 import getpass
 import logging
@@ -14,12 +14,13 @@ import subprocess
 import sys
 import time
 
-BASE_DIR = unicode(os.path.dirname(os.path.abspath(__file__)))
+BASE_DIR = os.path.dirname(os.path.abspath(
+    __file__.decode(sys.getfilesystemencoding())))
 ROOT_DIR = os.path.dirname(BASE_DIR)
 sys.path.insert(0, ROOT_DIR)
 sys.path.insert(0, os.path.join(ROOT_DIR, 'third_party'))
 
-FILE_PATH = unicode(os.path.abspath(__file__))
+FILE_PATH = os.path.abspath(__file__.decode(sys.getfilesystemencoding()))
 
 from depot_tools import auto_stub
 from depot_tools import fix_encoding
@@ -56,6 +57,22 @@ class FilePathTest(auto_stub.TestCase):
     if not self._tempdir:
       self._tempdir = tempfile.mkdtemp(prefix=u'run_isolated_test')
     return self._tempdir
+
+  def test_atomic_replace_new_file(self):
+    path = os.path.join(self.tempdir, 'new_file')
+    file_path.atomic_replace(path, 'blah')
+    with open(path, 'rb') as f:
+      self.assertEqual('blah', f.read())
+    self.assertEqual([u'new_file'], os.listdir(self.tempdir))
+
+  def test_atomic_replace_existing_file(self):
+    path = os.path.join(self.tempdir, 'existing_file')
+    with open(path, 'wb') as f:
+      f.write('existing body')
+    file_path.atomic_replace(path, 'new body')
+    with open(path, 'rb') as f:
+      self.assertEqual('new body', f.read())
+    self.assertEqual([u'existing_file'], os.listdir(self.tempdir))
 
   def assertFileMode(self, filepath, mode, umask=None):
     umask = test_utils.umask() if umask is None else umask

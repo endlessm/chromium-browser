@@ -18,3 +18,12 @@ perf_insights/perf_insights/download_traces.py
 
 # telemetry's binary dependency download folder.
 /telemetry/telemetry/internal/bin/
+
+# common/py_utils's binary dependency download folder.
+/common/py_utils/py_utils/bin/
+
+# node_runner's binary dependency download folder.
+/common/node_runner/node_runner/bin/
+
+# node_runner's npm installation folder.
+/common/node_runner/node_runner/node_modules/

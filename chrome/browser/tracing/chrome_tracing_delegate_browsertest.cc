@@ -102,9 +102,9 @@ class ChromeTracingDelegateBrowserTest : public InProcessBrowserTest {
     receive_count_ += 1;
 
     content::BrowserThread::PostTask(content::BrowserThread::UI, FROM_HERE,
-                                     base::Bind(done_callback));
+                                     done_callback);
     content::BrowserThread::PostTask(content::BrowserThread::UI, FROM_HERE,
-                                     base::Bind(on_upload_callback_));
+                                     on_upload_callback_);
   }
 
   void OnStartedFinalizing(bool success) {
@@ -112,9 +112,8 @@ class ChromeTracingDelegateBrowserTest : public InProcessBrowserTest {
     last_on_started_finalizing_success_ = success;
 
     if (!on_started_finalization_callback_.is_null()) {
-      content::BrowserThread::PostTask(
-          content::BrowserThread::UI, FROM_HERE,
-          base::Bind(on_started_finalization_callback_));
+      content::BrowserThread::PostTask(content::BrowserThread::UI, FROM_HERE,
+                                       on_started_finalization_callback_);
     }
   }
 
@@ -186,7 +185,7 @@ IN_PROC_BROWSER_TEST_F(ChromeTracingDelegateBrowserTest,
 IN_PROC_BROWSER_TEST_F(ChromeTracingDelegateBrowserTest,
                        ExistingIncognitoSessionBlockingTraceStart) {
   EXPECT_TRUE(chrome::ExecuteCommand(browser(), IDC_NEW_INCOGNITO_WINDOW));
-  EXPECT_TRUE(BrowserList::IsOffTheRecordSessionActive());
+  EXPECT_TRUE(BrowserList::IsIncognitoSessionActive());
   EXPECT_FALSE(StartPreemptiveScenario(
       base::Closure(), content::BackgroundTracingManager::ANONYMIZE_DATA));
 }
@@ -199,7 +198,7 @@ IN_PROC_BROWSER_TEST_F(ChromeTracingDelegateBrowserTest,
       base::Closure(), content::BackgroundTracingManager::ANONYMIZE_DATA));
 
   EXPECT_TRUE(chrome::ExecuteCommand(browser(), IDC_NEW_INCOGNITO_WINDOW));
-  EXPECT_TRUE(BrowserList::IsOffTheRecordSessionActive());
+  EXPECT_TRUE(BrowserList::IsIncognitoSessionActive());
 
   base::RunLoop wait_for_finalization_start;
   TriggerPreemptiveScenario(wait_for_finalization_start.QuitClosure());

@@ -7,7 +7,7 @@
 #include <stddef.h>
 
 #include "base/strings/utf_string_conversions.h"
-#include "chrome/browser/media/media_capture_devices_dispatcher.h"
+#include "chrome/browser/media/webrtc/media_capture_devices_dispatcher.h"
 #include "chrome/browser/ui/content_settings/content_setting_bubble_model.h"
 
 ContentSettingMediaMenuModel::ContentSettingMediaMenuModel(
@@ -43,12 +43,6 @@ bool ContentSettingMediaMenuModel::IsCommandIdChecked(int command_id) const {
 
 bool ContentSettingMediaMenuModel::IsCommandIdEnabled(int command_id) const {
   return true;
-}
-
-bool ContentSettingMediaMenuModel::GetAcceleratorForCommandId(
-    int command_id,
-    ui::Accelerator* accelerator) {
-  return false;
 }
 
 void ContentSettingMediaMenuModel::ExecuteCommand(int command_id,

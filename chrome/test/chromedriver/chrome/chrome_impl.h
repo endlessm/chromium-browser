@@ -25,6 +25,7 @@ class Status;
 class WebView;
 class WebViewImpl;
 struct WebViewInfo;
+class WebViewsInfo;
 
 class ChromeImpl : public Chrome {
  public:
@@ -34,19 +35,22 @@ class ChromeImpl : public Chrome {
   Status GetAsDesktop(ChromeDesktopImpl** desktop) override;
   const BrowserInfo* GetBrowserInfo() const override;
   bool HasCrashedWebView() override;
+  Status GetWebViewIdForFirstTab(std::string* web_view_id) override;
   Status GetWebViewIds(std::list<std::string>* web_view_ids) override;
   Status GetWebViewById(const std::string& id, WebView** web_view) override;
   Status CloseWebView(const std::string& id) override;
   Status ActivateWebView(const std::string& id) override;
   bool IsMobileEmulationEnabled() const override;
   bool HasTouchScreen() const override;
+  std::string page_load_strategy() const override;
   Status Quit() override;
 
  protected:
   ChromeImpl(std::unique_ptr<DevToolsHttpClient> http_client,
              std::unique_ptr<DevToolsClient> websocket_client,
              ScopedVector<DevToolsEventListener>& devtools_event_listeners,
-             std::unique_ptr<PortReservation> port_reservation);
+             std::unique_ptr<PortReservation> port_reservation,
+             std::string page_load_strategy);
 
   virtual Status QuitImpl() = 0;
 
@@ -57,10 +61,13 @@ class ChromeImpl : public Chrome {
  private:
   typedef std::list<linked_ptr<WebViewImpl> > WebViewList;
 
+  void UpdateWebViews(const WebViewsInfo& views_info);
+
   // Web views in this list are in the same order as they are opened.
   WebViewList web_views_;
   ScopedVector<DevToolsEventListener> devtools_event_listeners_;
   std::unique_ptr<PortReservation> port_reservation_;
+  std::string page_load_strategy_;
 };
 
 #endif  // CHROME_TEST_CHROMEDRIVER_CHROME_CHROME_IMPL_H_

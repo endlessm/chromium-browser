@@ -11,7 +11,6 @@
 #include <vector>
 
 #include "base/macros.h"
-#include "base/memory/scoped_vector.h"
 #include "components/arc/common/app.mojom.h"
 #include "mojo/public/cpp/bindings/binding.h"
 
@@ -79,21 +78,18 @@ class FakeAppInstance : public mojom::AppInstance {
   explicit FakeAppInstance(mojom::AppHost* app_host);
   ~FakeAppInstance() override;
 
-  void Bind(mojo::InterfaceRequest<mojom::AppInstance> interface_request) {
-    binding_.Bind(std::move(interface_request));
-  }
-
   // mojom::AppInstance overrides:
   void Init(mojom::AppHostPtr host_ptr) override {}
   void RefreshAppList() override;
   void LaunchApp(const mojo::String& package_name,
                  const mojo::String& activity,
-                 const gfx::Rect& dimension) override;
+                 const base::Optional<gfx::Rect>& dimension) override;
   void RequestAppIcon(const mojo::String& package_name,
                       const mojo::String& activity,
                       mojom::ScaleFactor scale_factor) override;
-  void LaunchIntent(const mojo::String& intent_uri,
-                    const gfx::Rect& dimension_on_screen) override;
+  void LaunchIntent(
+      const mojo::String& intent_uri,
+      const base::Optional<gfx::Rect>& dimension_on_screen) override;
   void RequestIcon(const mojo::String& icon_resource_id,
                    arc::mojom::ScaleFactor scale_factor,
                    const RequestIconCallback& callback) override;
@@ -139,51 +135,37 @@ class FakeAppInstance : public mojom::AppInstance {
 
   int refresh_app_list_count() const { return refresh_app_list_count_; }
 
-  const ScopedVector<Request>& launch_requests() const {
+  const std::vector<std::unique_ptr<Request>>& launch_requests() const {
     return launch_requests_;
   }
 
-  const ScopedVector<mojo::String>& launch_intents() const {
+  const std::vector<std::unique_ptr<mojo::String>>& launch_intents() const {
     return launch_intents_;
   }
 
-  const ScopedVector<IconRequest>& icon_requests() const {
+  const std::vector<std::unique_ptr<IconRequest>>& icon_requests() const {
     return icon_requests_;
   }
 
-  const ScopedVector<ShortcutIconRequest>& shortcut_icon_requests() const {
+  const std::vector<std::unique_ptr<ShortcutIconRequest>>&
+  shortcut_icon_requests() const {
     return shortcut_icon_requests_;
   }
-
-  // This method can be called on tests when a method is intended to
-  // be called across a Mojo proxy.
-  void WaitForIncomingMethodCall();
-
-  // As part of the initialization process, the instance side calls
-  // mojom::AppHost::OnAppInstanceReady(), which in turn calls
-  // mojom::AppInstance::Init() and
-  // mojom::AppInstance::RefreshAppList(). This method should be called after a
-  // call
-  // to mojom::ArcBridgeHost::OnAppInstanceReady() to make sure all method calls
-  // have
-  // been dispatched.
-  void WaitForOnAppInstanceReady();
 
  private:
   using TaskIdToInfo = std::map<int32_t, std::unique_ptr<Request>>;
   // Mojo endpoints.
-  mojo::Binding<mojom::AppInstance> binding_;
   mojom::AppHost* app_host_;
   // Number of RefreshAppList calls.
   int refresh_app_list_count_ = 0;
   // Keeps information about launch requests.
-  ScopedVector<Request> launch_requests_;
+  std::vector<std::unique_ptr<Request>> launch_requests_;
   // Keeps information about launch intents.
-  ScopedVector<mojo::String> launch_intents_;
+  std::vector<std::unique_ptr<mojo::String>> launch_intents_;
   // Keeps information about icon load requests.
-  ScopedVector<IconRequest> icon_requests_;
+  std::vector<std::unique_ptr<IconRequest>> icon_requests_;
   // Keeps information about shortcut icon load requests.
-  ScopedVector<ShortcutIconRequest> shortcut_icon_requests_;
+  std::vector<std::unique_ptr<ShortcutIconRequest>> shortcut_icon_requests_;
   // Keeps information for running tasks.
   TaskIdToInfo task_id_to_info_;
 

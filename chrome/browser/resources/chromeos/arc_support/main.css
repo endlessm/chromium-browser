@@ -1,8 +1,6 @@
-/**
- * Copyright 2016 The Chromium Authors. All rights reserved.
+/* Copyright 2016 The Chromium Authors. All rights reserved.
  * Use of this source code is governed by a BSD-style license that can be
- * found in the LICENSE file.
- */
+ * found in the LICENSE file. */
 
 html,
 body,
@@ -87,6 +85,36 @@ webview,
   height: 300px;
   padding: 0;
   width: 960px;
+}
+
+.overlay-text .page {
+  width: 480px;
+}
+
+.overlay-text webview {
+  display: none;
+}
+
+.overlay-url .page {
+  width: 640px;
+}
+
+.overlay-url span {
+  display: none;
+}
+
+.overlay-url webview {
+  display: block;
+  height: 300px;
+  margin: 24px 8px 8px 8px;
+  padding: 0;
+  width: 100%;
+}
+
+.page {
+  font-family: 'Roboto';
+  font-size: 13px;
+  text-align: left;
 }
 
 .scrollable {

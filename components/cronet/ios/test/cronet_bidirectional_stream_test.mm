@@ -167,6 +167,8 @@ class TestBidirectionalStreamCallback {
       return false;
 
     cronet_bidirectional_stream_cancel(stream);
+    cronet_bidirectional_stream_write(stream, "abc", 3, false);
+
     return true;
   }
 
@@ -176,7 +178,7 @@ class TestBidirectionalStreamCallback {
 
   void AddWriteData(const std::string& data) { AddWriteData(data, true); }
   void AddWriteData(const std::string& data, bool flush) {
-    write_data.push_back(base::WrapUnique(new WriteData(data, flush)));
+    write_data.push_back(base::MakeUnique<WriteData>(data, flush));
   }
 
   virtual void MaybeWriteNextData(cronet_bidirectional_stream* stream) {
@@ -306,6 +308,7 @@ TEST_P(CronetBidirectionalStreamTest, StartExampleBidiStream) {
   TestBidirectionalStreamCallback test;
   test.AddWriteData("Hello, ");
   test.AddWriteData("world!");
+  // Use small read buffer size to test that response is split properly.
   test.read_buffer_size = 2;
   test.stream =
       cronet_bidirectional_stream_create(engine(), &test, test.callback());
@@ -320,7 +323,32 @@ TEST_P(CronetBidirectionalStreamTest, StartExampleBidiStream) {
             test.response_headers[kHelloHeaderName]);
   ASSERT_EQ(TestBidirectionalStreamCallback::ON_SUCCEEDED, test.response_step);
   ASSERT_EQ(std::string(kHelloBodyValue, 2), test.read_data.front());
+  // Verify that individual read data joined using empty separator match
+  // expected body.
   ASSERT_EQ(std::string(kHelloBodyValue), base::JoinString(test.read_data, ""));
+  ASSERT_EQ(std::string(kHelloTrailerValue),
+            test.response_trailers[kHelloTrailerName]);
+  cronet_bidirectional_stream_destroy(test.stream);
+}
+
+TEST_P(CronetBidirectionalStreamTest, SimplePutWithEmptyWriteDataAtTheEnd) {
+  TestBidirectionalStreamCallback test;
+  test.AddWriteData("Hello, ");
+  test.AddWriteData("world!");
+  test.AddWriteData("");
+  test.stream =
+      cronet_bidirectional_stream_create(engine(), &test, test.callback());
+  DCHECK(test.stream);
+  cronet_bidirectional_stream_delay_request_headers_until_flush(test.stream,
+                                                                GetParam());
+  cronet_bidirectional_stream_start(test.stream, kTestServerUrl, 0, "PUT",
+                                    &kTestHeadersArray, false);
+  test.BlockForDone();
+  ASSERT_EQ(std::string(kHelloStatus), test.response_headers[kStatusHeader]);
+  ASSERT_EQ(std::string(kHelloHeaderValue),
+            test.response_headers[kHelloHeaderName]);
+  ASSERT_EQ(TestBidirectionalStreamCallback::ON_SUCCEEDED, test.response_step);
+  ASSERT_EQ(std::string(kHelloBodyValue), test.read_data.front());
   ASSERT_EQ(std::string(kHelloTrailerValue),
             test.response_trailers[kHelloTrailerName]);
   cronet_bidirectional_stream_destroy(test.stream);
@@ -438,6 +466,55 @@ TEST_P(CronetBidirectionalStreamTest, SimplePostWithFlushAfterOneWrite) {
   cronet_bidirectional_stream_destroy(test.stream);
 }
 
+TEST_P(CronetBidirectionalStreamTest, TestDelayedFlush) {
+  class CustomTestBidirectionalStreamCallback
+      : public TestBidirectionalStreamCallback {
+    void MaybeWriteNextData(cronet_bidirectional_stream* stream) override {
+      DCHECK_EQ(stream, this->stream);
+      if (write_data.empty())
+        return;
+      // Write all buffers when stream is ready.
+      // Flush after "3" and "5".
+      // EndOfStream is set with "6" but not flushed, so it is not sent.
+      if (write_data.front()->buffer == "1") {
+        for (const auto& data : write_data) {
+          cronet_bidirectional_stream_write(stream, data->buffer.c_str(),
+                                            data->buffer.size(),
+                                            data == write_data.back());
+          if (data->flush) {
+            cronet_bidirectional_stream_flush(stream);
+          }
+        }
+      }
+      // Flush the final buffer with endOfStream flag.
+      if (write_data.front()->buffer == "6")
+        cronet_bidirectional_stream_flush(stream);
+    }
+  };
+
+  CustomTestBidirectionalStreamCallback test;
+  test.AddWriteData("1", false);
+  test.AddWriteData("2", false);
+  test.AddWriteData("3", true);
+  test.AddWriteData("4", false);
+  test.AddWriteData("5", true);
+  test.AddWriteData("6", false);
+  test.stream =
+      cronet_bidirectional_stream_create(engine(), &test, test.callback());
+  DCHECK(test.stream);
+  cronet_bidirectional_stream_disable_auto_flush(test.stream, true);
+  cronet_bidirectional_stream_delay_request_headers_until_flush(test.stream,
+                                                                GetParam());
+  // Flush before start is ignored.
+  cronet_bidirectional_stream_flush(test.stream);
+  cronet_bidirectional_stream_start(test.stream, kTestServerUrl, 0, "POST",
+                                    &kTestHeadersArray, false);
+  test.BlockForDone();
+  // Flush after done is ignored.
+  cronet_bidirectional_stream_flush(test.stream);
+  cronet_bidirectional_stream_destroy(test.stream);
+}
+
 TEST_P(CronetBidirectionalStreamTest, CancelOnRead) {
   TestBidirectionalStreamCallback test;
   test.stream =
@@ -550,6 +627,36 @@ TEST_P(CronetBidirectionalStreamTest, WriteFailsBeforeRequestStarted) {
   ASSERT_TRUE(test.read_data.empty());
   ASSERT_EQ(TestBidirectionalStreamCallback::ON_FAILED, test.response_step);
   ASSERT_EQ(net::ERR_UNEXPECTED, test.net_error);
+  cronet_bidirectional_stream_destroy(test.stream);
+}
+
+TEST_P(CronetBidirectionalStreamTest, StreamFailAfterStreamReadyCallback) {
+  class CustomTestBidirectionalStreamCallback
+      : public TestBidirectionalStreamCallback {
+    bool MaybeCancel(cronet_bidirectional_stream* stream,
+                     ResponseStep step) override {
+      if (step == ResponseStep::ON_STREAM_READY) {
+        // Shut down the server, and the stream should error out.
+        // The second call to ShutdownQuicTestServer is no-op.
+        ShutdownQuicTestServer();
+      }
+      return TestBidirectionalStreamCallback::MaybeCancel(stream, step);
+    }
+  };
+
+  CustomTestBidirectionalStreamCallback test;
+  test.AddWriteData("Test String");
+  test.stream =
+      cronet_bidirectional_stream_create(engine(), &test, test.callback());
+  DCHECK(test.stream);
+  cronet_bidirectional_stream_delay_request_headers_until_flush(test.stream,
+                                                                GetParam());
+  cronet_bidirectional_stream_start(test.stream, kTestServerUrl, 0, "POST",
+                                    &kTestHeadersArray, false);
+  test.BlockForDone();
+  ASSERT_EQ(TestBidirectionalStreamCallback::ON_FAILED, test.response_step);
+  ASSERT_TRUE(test.net_error == net::ERR_QUIC_PROTOCOL_ERROR ||
+              test.net_error == net::ERR_QUIC_HANDSHAKE_FAILED);
   cronet_bidirectional_stream_destroy(test.stream);
 }
 

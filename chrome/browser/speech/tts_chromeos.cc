@@ -4,16 +4,36 @@
 
 #include "base/macros.h"
 #include "chrome/browser/speech/tts_platform.h"
+#include "components/arc/arc_bridge_service.h"
+#include "components/arc/common/tts.mojom.h"
+#include "content/public/browser/browser_thread.h"
 
-// Chrome OS doesn't have native TTS, instead it includes a built-in
-// component extension that provides speech synthesis. This class includes
-// an implementation of LoadBuiltInTtsExtension and dummy implementations of
-// everything else.
+namespace {
 
+// For Speak and Stop.
+constexpr uint32_t kDefaultMinVersion = 0;
+
+// Helper returning an ARC tts instance.
+arc::mojom::TtsInstance* GetArcTts(const std::string& method_name_for_logging,
+                                   uint32_t min_version) {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+  return arc::ArcBridgeService::Get()
+             ? arc::ArcBridgeService::Get()->tts()->GetInstanceForMethod(
+                   method_name_for_logging, min_version)
+             : nullptr;
+}
+
+}  // namespace
+
+// This class includes extension-based tts through LoadBuiltInTtsExtension and
+// native tts through ARC.
 class TtsPlatformImplChromeOs : public TtsPlatformImpl {
  public:
   // TtsPlatformImpl overrides:
-  bool PlatformImplAvailable() override { return false; }
+  bool PlatformImplAvailable() override {
+    return arc::ArcBridgeService::Get() &&
+           arc::ArcBridgeService::Get()->tts()->has_instance();
+  }
 
   bool LoadBuiltInTtsExtension(
       content::BrowserContext* browser_context) override {
@@ -29,18 +49,41 @@ class TtsPlatformImplChromeOs : public TtsPlatformImpl {
              const std::string& lang,
              const VoiceData& voice,
              const UtteranceContinuousParameters& params) override {
-    return false;
+    arc::mojom::TtsInstance* tts = GetArcTts("Speak", kDefaultMinVersion);
+    if (!tts)
+      return false;
+
+    arc::mojom::TtsUtterancePtr arc_utterance = arc::mojom::TtsUtterance::New();
+    arc_utterance->utteranceId = utterance_id;
+    arc_utterance->text = utterance;
+    arc_utterance->rate = params.rate;
+    arc_utterance->pitch = params.pitch;
+    tts->Speak(std::move(arc_utterance));
+    return true;
   }
 
-  bool StopSpeaking() override { return false; }
+  bool StopSpeaking() override {
+    arc::mojom::TtsInstance* tts = GetArcTts("Stop", kDefaultMinVersion);
+    if (!tts)
+      return false;
 
+    tts->Stop();
+    return true;
+  }
+
+  void GetVoices(std::vector<VoiceData>* out_voices) override {
+    out_voices->push_back(VoiceData());
+    VoiceData& voice = out_voices->back();
+    voice.native = true;
+    voice.name = "Android";
+    voice.events.insert(TTS_EVENT_START);
+    voice.events.insert(TTS_EVENT_END);
+  }
+
+  // Unimplemented.
   void Pause() override {}
-
   void Resume() override {}
-
   bool IsSpeaking() override { return false; }
-
-  void GetVoices(std::vector<VoiceData>* out_voices) override {}
 
   // Get the single instance of this class.
   static TtsPlatformImplChromeOs* GetInstance();

@@ -5,7 +5,7 @@
 #include "chrome/browser/safe_browsing/srt_field_trial_win.h"
 
 #include "base/metrics/field_trial.h"
-#include "base/metrics/histogram.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/strings/string_util.h"
 #include "components/variations/variations_associated_data.h"
 
@@ -68,10 +68,6 @@ std::string GetIncomingSRTSeed() {
 void RecordSRTPromptHistogram(SRTPromptHistogramValue value) {
   UMA_HISTOGRAM_ENUMERATION("SoftwareReporter.PromptUsage", value,
                             SRT_PROMPT_MAX);
-}
-
-void RecordReporterStepHistogram(SwReporterUmaValue value) {
-  UMA_HISTOGRAM_ENUMERATION("SoftwareReporter.Step", value, SW_REPORTER_MAX);
 }
 
 }  // namespace safe_browsing

@@ -8,12 +8,12 @@
 #include "chrome/browser/chromeos/login/screens/network_error.h"
 #include "chrome/browser/ui/webui/chromeos/login/oobe_screen.h"
 #include "chrome/browser/ui/webui/chromeos/login/oobe_ui.h"
+#include "chrome/grit/chrome_unscaled_resources.h"
 #include "chrome/grit/chromium_strings.h"
 #include "chrome/grit/generated_resources.h"
 #include "chromeos/network/network_state.h"
 #include "chromeos/network/network_state_handler.h"
 #include "components/login/localized_values_builder.h"
-#include "grit/chrome_unscaled_resources.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/base/webui/web_ui_util.h"
@@ -254,6 +254,8 @@ int AppLaunchSplashScreenHandler::GetProgressMessageFromState(
       return IDS_APP_START_WAIT_FOR_APP_WINDOW_MESSAGE;
     case APP_LAUNCH_STATE_NETWORK_WAIT_TIMEOUT:
       return IDS_APP_START_NETWORK_WAIT_TIMEOUT_MESSAGE;
+    case APP_LAUNCH_STATE_SHOWING_NETWORK_CONFIGURE_UI:
+      return IDS_APP_START_SHOWING_NETWORK_CONFIGURE_UI_MESSAGE;
   }
   return IDS_APP_START_NETWORK_WAIT_MESSAGE;
 }

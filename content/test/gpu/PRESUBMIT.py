@@ -19,7 +19,7 @@ def _GetPathsToPrepend(input_api):
     input_api.os_path.join(chromium_src_dir,
         'third_party', 'catapult', 'telemetry'),
     input_api.os_path.join(chromium_src_dir,
-        'third_party', 'catapult', 'catapult_base'),
+        'third_party', 'catapult', 'common', 'py_utils'),
   ]
 
 def _GpuUnittestsArePassingCheck(input_api, output_api):
@@ -73,9 +73,10 @@ def PostUploadHook(cl, change, output_api):
     return []
 
   bots = [
-    'tryserver.chromium.linux:linux_optional_gpu_tests_rel',
-    'tryserver.chromium.mac:mac_optional_gpu_tests_rel',
-    'tryserver.chromium.win:win_optional_gpu_tests_rel',
+    'master.tryserver.chromium.linux:linux_optional_gpu_tests_rel',
+    'master.tryserver.chromium.mac:mac_optional_gpu_tests_rel',
+    'master.tryserver.chromium.win:win_optional_gpu_tests_rel',
+    'master.tryserver.chromium.android:android_optional_gpu_tests_rel',
   ]
 
   results = []

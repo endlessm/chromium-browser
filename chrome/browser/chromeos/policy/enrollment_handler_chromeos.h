@@ -15,19 +15,21 @@
 #include "chrome/browser/chromeos/policy/device_cloud_policy_initializer.h"
 #include "chrome/browser/chromeos/policy/device_cloud_policy_validator.h"
 #include "chrome/browser/chromeos/policy/enrollment_config.h"
-#include "chrome/browser/chromeos/policy/enterprise_install_attributes.h"
+#include "chrome/browser/chromeos/settings/install_attributes.h"
 #include "components/policy/core/common/cloud/cloud_policy_client.h"
 #include "components/policy/core/common/cloud/cloud_policy_constants.h"
 #include "components/policy/core/common/cloud/cloud_policy_store.h"
+#include "components/policy/proto/device_management_backend.pb.h"
 #include "google_apis/gaia/gaia_oauth_client.h"
-#include "policy/proto/device_management_backend.pb.h"
 
 namespace base {
 class SequencedTaskRunner;
 }
 
 namespace chromeos {
-class OwnerSettingsServiceChromeOS;
+namespace attestation {
+class AttestationFlow;
+}
 }
 
 namespace policy {
@@ -50,30 +52,22 @@ class EnrollmentHandlerChromeOS : public CloudPolicyClient::Observer,
                                   public CloudPolicyStore::Observer,
                                   public gaia::GaiaOAuthClient::Delegate {
  public:
-  typedef DeviceCloudPolicyInitializer::AllowedDeviceModes
-      AllowedDeviceModes;
   typedef DeviceCloudPolicyInitializer::EnrollmentCallback
       EnrollmentCallback;
 
   // |store| and |install_attributes| must remain valid for the life time of the
-  // enrollment handler. |allowed_device_modes| determines what device modes
-  // are acceptable. If the mode specified by the server is not acceptable,
-  // enrollment will fail with an EnrollmentStatus indicating
-  // STATUS_REGISTRATION_BAD_MODE.
-  // |management_mode| should be either ENTERPRISE_MANAGED or CONSUMER_MANAGED.
+  // enrollment handler.
   EnrollmentHandlerChromeOS(
       DeviceCloudPolicyStoreChromeOS* store,
-      EnterpriseInstallAttributes* install_attributes,
+      chromeos::InstallAttributes* install_attributes,
       ServerBackedStateKeysBroker* state_keys_broker,
-      chromeos::OwnerSettingsServiceChromeOS* owner_settings_service,
+      chromeos::attestation::AttestationFlow* attestation_flow,
       std::unique_ptr<CloudPolicyClient> client,
       scoped_refptr<base::SequencedTaskRunner> background_task_runner,
       const EnrollmentConfig& enrollment_config,
       const std::string& auth_token,
       const std::string& client_id,
       const std::string& requisition,
-      const AllowedDeviceModes& allowed_device_modes,
-      ManagementMode management_mode,
       const EnrollmentCallback& completion_callback);
   ~EnrollmentHandlerChromeOS() override;
 
@@ -125,6 +119,14 @@ class EnrollmentHandlerChromeOS : public CloudPolicyClient::Observer,
   // Handles the response to a request for server-backed state keys.
   void HandleStateKeysResult(const std::vector<std::string>& state_keys);
 
+  // Starts attestation based enrollment flow.
+  void StartAttestationBasedEnrollmentFlow();
+
+  // Handles the response to a request for a registration certificate.
+  void HandleRegistrationCertificateResult(
+      bool success,
+      const std::string& pem_certificate_chain);
+
   // Starts registration if the store is initialized.
   void StartRegistration();
 
@@ -143,7 +145,7 @@ class EnrollmentHandlerChromeOS : public CloudPolicyClient::Observer,
 
   // Handle callback from InstallAttributes::LockDevice() and retry on failure.
   void HandleLockDeviceResult(
-      EnterpriseInstallAttributes::LockResult lock_result);
+      chromeos::InstallAttributes::LockResult lock_result);
 
   // Initiates storing of robot auth token.
   void StartStoreRobotAuth();
@@ -158,9 +160,9 @@ class EnrollmentHandlerChromeOS : public CloudPolicyClient::Observer,
   void ReportResult(EnrollmentStatus status);
 
   DeviceCloudPolicyStoreChromeOS* store_;
-  EnterpriseInstallAttributes* install_attributes_;
+  chromeos::InstallAttributes* install_attributes_;
   ServerBackedStateKeysBroker* state_keys_broker_;
-  chromeos::OwnerSettingsServiceChromeOS* owner_settings_service_;
+  chromeos::attestation::AttestationFlow* attestation_flow_;
   std::unique_ptr<CloudPolicyClient> client_;
   scoped_refptr<base::SequencedTaskRunner> background_task_runner_;
   std::unique_ptr<gaia::GaiaOAuthClient> gaia_oauth_client_;
@@ -169,8 +171,6 @@ class EnrollmentHandlerChromeOS : public CloudPolicyClient::Observer,
   std::string auth_token_;
   std::string client_id_;
   std::string requisition_;
-  AllowedDeviceModes allowed_device_modes_;
-  ManagementMode management_mode_;
   EnrollmentCallback completion_callback_;
 
   // The current state key provided by |state_keys_broker_|.

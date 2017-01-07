@@ -9,8 +9,7 @@
 
 #include "base/macros.h"
 #include "ios/public/provider/chrome/browser/chrome_browser_provider.h"
-
-class FakeProfileOAuth2TokenServiceIOSProvider;
+#include "ios/public/provider/chrome/browser/ui/text_field_styling.h"
 
 namespace ios {
 
@@ -25,14 +24,14 @@ class TestChromeBrowserProvider : public ChromeBrowserProvider {
   static TestChromeBrowserProvider* GetTestProvider();
 
   // ChromeBrowserProvider:
-  ProfileOAuth2TokenServiceIOSProvider*
-  GetProfileOAuth2TokenServiceIOSProvider() override;
+  void SetChromeIdentityServiceForTesting(
+      std::unique_ptr<ChromeIdentityService> service) override;
   ChromeIdentityService* GetChromeIdentityService() override;
   UpdatableResourceProvider* GetUpdatableResourceProvider() override;
+  UITextField<TextFieldStyling>* CreateStyledTextField(
+      CGRect frame) const override NS_RETURNS_RETAINED;
 
  private:
-  std::unique_ptr<FakeProfileOAuth2TokenServiceIOSProvider>
-      oauth2_token_service_provider_;
   std::unique_ptr<ChromeIdentityService> chrome_identity_service_;
   std::unique_ptr<TestUpdatableResourceProvider>
       test_updatable_resource_provider_;

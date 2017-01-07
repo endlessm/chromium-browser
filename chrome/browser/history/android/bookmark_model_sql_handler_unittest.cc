@@ -48,7 +48,8 @@ class BookmarkModelSQLHandlerTest : public testing::Test {
         chrome::kInitialProfile);
     // Create the BookmarkModel that doesn't need to invoke load().
     testing_profile->CreateBookmarkModel(true);
-    bookmark_model_ = BookmarkModelFactory::GetForProfile(testing_profile);
+    bookmark_model_ =
+        BookmarkModelFactory::GetForBrowserContext(testing_profile);
     bookmarks::test::WaitForBookmarkModelToLoad(bookmark_model_);
     ASSERT_TRUE(bookmark_model_);
     // Get the BookmarkModel from LastUsedProfile, this is the same way that
@@ -59,7 +60,7 @@ class BookmarkModelSQLHandlerTest : public testing::Test {
     // Create the directory for history database.
     ASSERT_TRUE(temp_dir_.CreateUniqueTempDir());
     base::FilePath history_db_name =
-        temp_dir_.path().AppendASCII(kHistoryFilename);
+        temp_dir_.GetPath().AppendASCII(kHistoryFilename);
     history_db_.Init(history_db_name);
   }
 

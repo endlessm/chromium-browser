@@ -6,14 +6,17 @@ package org.chromium.media;
 
 import android.annotation.TargetApi;
 import android.content.Context;
+import android.graphics.Rect;
 import android.graphics.SurfaceTexture;
 import android.opengl.GLES20;
 import android.os.Build;
+import android.util.SparseArray;
 
 import org.chromium.base.Log;
 import org.chromium.base.annotations.JNINamespace;
 
 import java.io.IOException;
+import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.locks.ReentrantLock;
 
@@ -31,11 +34,35 @@ public abstract class VideoCaptureCamera
     private static final String TAG = "VideoCapture";
     protected static final int GL_TEXTURE_EXTERNAL_OES = 0x8D65;
 
+    // Map of the equivalent color temperature in Kelvin for the White Balance setting. The
+    // values are a mixture of educated guesses and data from Android's Camera2 API. The
+    // temperatures must be ordered increasingly.
+    private static final SparseArray<String> COLOR_TEMPERATURES_MAP;
+    static {
+        COLOR_TEMPERATURES_MAP = new SparseArray<String>();
+        COLOR_TEMPERATURES_MAP.append(
+                2850, android.hardware.Camera.Parameters.WHITE_BALANCE_INCANDESCENT);
+        COLOR_TEMPERATURES_MAP.append(
+                2940, android.hardware.Camera.Parameters.WHITE_BALANCE_WARM_FLUORESCENT);
+        COLOR_TEMPERATURES_MAP.append(
+                3000, android.hardware.Camera.Parameters.WHITE_BALANCE_TWILIGHT);
+        COLOR_TEMPERATURES_MAP.append(
+                4230, android.hardware.Camera.Parameters.WHITE_BALANCE_FLUORESCENT);
+        COLOR_TEMPERATURES_MAP.append(
+                6000, android.hardware.Camera.Parameters.WHITE_BALANCE_CLOUDY_DAYLIGHT);
+        COLOR_TEMPERATURES_MAP.append(
+                6504, android.hardware.Camera.Parameters.WHITE_BALANCE_DAYLIGHT);
+        COLOR_TEMPERATURES_MAP.append(7000, android.hardware.Camera.Parameters.WHITE_BALANCE_SHADE);
+    };
+
     private final Object mPhotoTakenCallbackLock = new Object();
 
     // Storage of takePicture() callback Id. There can be one such request in flight at most, and
     // needs to be exercised either in case of error or sucess.
     private long mPhotoTakenCallbackId = 0;
+    private int mPhotoWidth = 0;
+    private int mPhotoHeight = 0;
+    private android.hardware.Camera.Area mAreaOfInterest;
 
     protected android.hardware.Camera mCamera;
     // Lock to mutually exclude execution of OnPreviewFrame() and {start/stop}Capture().
@@ -68,6 +95,19 @@ public abstract class VideoCaptureCamera
             return null;
         }
         return parameters;
+    }
+
+    private String getClosestWhiteBalance(int colorTemperature) {
+        int minDiff = Integer.MAX_VALUE;
+        String matchedTemperature = null;
+
+        for (int i = 0; i < COLOR_TEMPERATURES_MAP.size(); ++i) {
+            final int diff = Math.abs(colorTemperature - COLOR_TEMPERATURES_MAP.keyAt(i));
+            if (diff >= minDiff) continue;
+            minDiff = diff;
+            matchedTemperature = COLOR_TEMPERATURES_MAP.valueAt(i);
+        }
+        return matchedTemperature;
     }
 
     private class CrErrorCallback implements android.hardware.Camera.ErrorCallback {
@@ -295,17 +335,262 @@ public abstract class VideoCaptureCamera
 
     @Override
     public PhotoCapabilities getPhotoCapabilities() {
+        final android.hardware.Camera.Parameters parameters = getCameraParameters(mCamera);
+        PhotoCapabilities.Builder builder = new PhotoCapabilities.Builder();
+        Log.i(TAG, " CAM params: %s", parameters.flatten());
+
+        // Before the Camera2 API there was no official way to retrieve the supported, if any, ISO
+        // values from |parameters|; some platforms had "iso-values", others "iso-mode-values" etc.
+        // Ignore them.
+        builder.setMinIso(0).setMaxIso(0).setCurrentIso(0);
+
+        List<android.hardware.Camera.Size> supportedSizes = parameters.getSupportedPictureSizes();
+        int minWidth = Integer.MAX_VALUE;
+        int minHeight = Integer.MAX_VALUE;
+        int maxWidth = 0;
+        int maxHeight = 0;
+        for (android.hardware.Camera.Size size : supportedSizes) {
+            if (size.width < minWidth) minWidth = size.width;
+            if (size.height < minHeight) minHeight = size.height;
+            if (size.width > maxWidth) maxWidth = size.width;
+            if (size.height > maxHeight) maxHeight = size.height;
+        }
+        builder.setMinHeight(minHeight).setMaxHeight(maxHeight);
+        builder.setMinWidth(minWidth).setMaxWidth(maxWidth);
+        final android.hardware.Camera.Size currentSize = parameters.getPreviewSize();
+        builder.setCurrentHeight(currentSize.height);
+        builder.setCurrentWidth(currentSize.width);
+
+        int maxZoom = 0;
+        int currentZoom = 0;
+        int minZoom = 0;
+        if (parameters.isZoomSupported()) {
+            // The Max zoom is returned as x100 by the API to avoid using floating point.
+            maxZoom = parameters.getZoomRatios().get(parameters.getMaxZoom());
+            currentZoom = 100 + 100 * parameters.getZoom();
+            minZoom = parameters.getZoomRatios().get(0);
+        }
+        builder.setMinZoom(minZoom).setMaxZoom(maxZoom).setCurrentZoom(currentZoom);
+
+        Log.d(TAG, "parameters.getFocusMode(): %s", parameters.getFocusMode());
+        final String focusMode = parameters.getFocusMode();
+
+        // Classify the Focus capabilities. In CONTINUOUS and SINGLE_SHOT, we can call
+        // autoFocus(AutoFocusCallback) to configure region(s) to focus onto.
+        int jniFocusMode = AndroidMeteringMode.NONE;
+        if (focusMode.equals(android.hardware.Camera.Parameters.FOCUS_MODE_CONTINUOUS_VIDEO)
+                || focusMode.equals(
+                           android.hardware.Camera.Parameters.FOCUS_MODE_CONTINUOUS_PICTURE)
+                || focusMode.equals(android.hardware.Camera.Parameters.FOCUS_MODE_EDOF)) {
+            jniFocusMode = AndroidMeteringMode.CONTINUOUS;
+        } else if (focusMode.equals(android.hardware.Camera.Parameters.FOCUS_MODE_AUTO)
+                || focusMode.equals(android.hardware.Camera.Parameters.FOCUS_MODE_MACRO)) {
+            jniFocusMode = AndroidMeteringMode.SINGLE_SHOT;
+        } else if (focusMode.equals(android.hardware.Camera.Parameters.FOCUS_MODE_INFINITY)
+                || focusMode.equals(android.hardware.Camera.Parameters.FOCUS_MODE_FIXED)) {
+            jniFocusMode = AndroidMeteringMode.FIXED;
+        }
+        builder.setFocusMode(jniFocusMode);
+
+        // Exposure is usually continuously updated except it not available at all, or if the
+        // exposure compensation is locked, in which case we consider it as FIXED.
+        int jniExposureMode = parameters.getMaxNumMeteringAreas() == 0
+                ? AndroidMeteringMode.NONE
+                : AndroidMeteringMode.CONTINUOUS;
+        if (parameters.isAutoExposureLockSupported() && parameters.getAutoExposureLock()) {
+            jniExposureMode = AndroidMeteringMode.FIXED;
+        }
+        builder.setExposureMode(jniExposureMode);
+
+        final float step = parameters.getExposureCompensationStep();
+        builder.setMinExposureCompensation(
+                Math.round(parameters.getMinExposureCompensation() * step * 100));
+        builder.setMaxExposureCompensation(
+                Math.round(parameters.getMaxExposureCompensation() * step * 100));
+        builder.setCurrentExposureCompensation(
+                Math.round(parameters.getExposureCompensation() * step * 100));
+
+        int jniWhiteBalanceMode = AndroidMeteringMode.NONE;
+        if (parameters.isAutoWhiteBalanceLockSupported()
+                && parameters.getSupportedWhiteBalance() != null) {
+            jniWhiteBalanceMode = parameters.getWhiteBalance()
+                            == android.hardware.Camera.Parameters.WHITE_BALANCE_AUTO
+                    ? AndroidMeteringMode.CONTINUOUS
+                    : AndroidMeteringMode.FIXED;
+        }
+        builder.setWhiteBalanceMode(jniWhiteBalanceMode);
+
+        builder.setMinColorTemperature(COLOR_TEMPERATURES_MAP.keyAt(0));
+        builder.setMaxColorTemperature(
+                COLOR_TEMPERATURES_MAP.keyAt(COLOR_TEMPERATURES_MAP.size() - 1));
+        if (jniWhiteBalanceMode == AndroidMeteringMode.FIXED) {
+            final int index = COLOR_TEMPERATURES_MAP.indexOfValue(parameters.getWhiteBalance());
+            if (index >= 0) builder.setCurrentColorTemperature(COLOR_TEMPERATURES_MAP.keyAt(index));
+        }
+
+        if (parameters.getSupportedFlashModes() == null) {
+            builder.setFillLightMode(AndroidFillLightMode.NONE);
+        } else {
+            switch (parameters.getFlashMode()) {
+                case android.hardware.Camera.Parameters.FLASH_MODE_OFF:
+                    builder.setFillLightMode(AndroidFillLightMode.OFF);
+                    break;
+                case android.hardware.Camera.Parameters.FLASH_MODE_AUTO:
+                    builder.setFillLightMode(AndroidFillLightMode.AUTO);
+                    break;
+                case android.hardware.Camera.Parameters.FLASH_MODE_RED_EYE:
+                    builder.setRedEyeReduction(true);
+                    builder.setFillLightMode(AndroidFillLightMode.AUTO);
+                    break;
+                case android.hardware.Camera.Parameters.FLASH_MODE_ON:
+                    builder.setFillLightMode(AndroidFillLightMode.FLASH);
+                    break;
+                case android.hardware.Camera.Parameters.FLASH_MODE_TORCH:
+                    builder.setFillLightMode(AndroidFillLightMode.TORCH);
+                    break;
+                default:
+                    builder.setFillLightMode(AndroidFillLightMode.NONE);
+            }
+        }
+
+        return builder.build();
+    }
+
+    @Override
+    public void setPhotoOptions(int zoom, int focusMode, int exposureMode, int width, int height,
+            float[] pointsOfInterest2D, boolean hasExposureCompensation, int exposureCompensation,
+            int whiteBalanceMode, int iso, boolean hasRedEyeReduction, boolean redEyeReduction,
+            int fillLightMode, int colorTemperature) {
         android.hardware.Camera.Parameters parameters = getCameraParameters(mCamera);
-        if (!parameters.isZoomSupported()) return new PhotoCapabilities(0, 0, 0);
 
-        Log.d(TAG, "parameters.getZoomRatios(): " + parameters.getZoomRatios().toString());
+        if (parameters.isZoomSupported() && zoom > 0) {
+            // |zoomRatios| is an ordered list; need the closest zoom index for parameters.setZoom()
+            final List<Integer> zoomRatios = parameters.getZoomRatios();
+            int i = 1;
+            for (; i < zoomRatios.size(); ++i) {
+                if (zoom < zoomRatios.get(i)) {
+                    break;
+                }
+            }
+            parameters.setZoom(i - 1);
+        }
 
-        // The Max zoom is returned as x100 by the API to avoid using floating point.
-        final int maxZoom = parameters.getZoomRatios().get(parameters.getMaxZoom());
-        final int currentZoom = 100 + 100 * parameters.getZoom();
+        if (focusMode == AndroidMeteringMode.FIXED) {
+            parameters.setFocusMode(android.hardware.Camera.Parameters.FOCUS_MODE_FIXED);
+        } else if (focusMode == AndroidMeteringMode.SINGLE_SHOT) {
+            parameters.setFocusMode(android.hardware.Camera.Parameters.FOCUS_MODE_AUTO);
+        } else if (focusMode == AndroidMeteringMode.CONTINUOUS) {
+            parameters.setFocusMode(
+                    android.hardware.Camera.Parameters.FOCUS_MODE_CONTINUOUS_PICTURE);
+        }
 
-        // Min zoom is always 100. TODO(mcasas): consider double-checking.
-        return new PhotoCapabilities(maxZoom, 100, currentZoom);
+        if (parameters.isAutoExposureLockSupported()) {
+            if (exposureMode == AndroidMeteringMode.FIXED) {
+                parameters.setAutoExposureLock(true);
+            } else if (exposureMode != AndroidMeteringMode.NONE) {
+                parameters.setAutoExposureLock(false);
+            }
+        }
+        if (width > 0) mPhotoWidth = width;
+        if (height > 0) mPhotoHeight = height;
+
+        // Upon new |zoom| configuration, clear up the previous |mAreaOfInterest| if any.
+        if (mAreaOfInterest != null && !mAreaOfInterest.rect.isEmpty() && zoom > 0) {
+            mAreaOfInterest = null;
+        }
+        // Also clear |mAreaOfInterest| if the user sets it as NONE.
+        if (focusMode == AndroidMeteringMode.NONE || exposureMode == AndroidMeteringMode.NONE) {
+            mAreaOfInterest = null;
+        }
+
+        // Update |mAreaOfInterest| if the camera supports and there are |pointsOfInterest2D|.
+        final boolean pointsOfInterestSupported =
+                parameters.getMaxNumMeteringAreas() > 0 || parameters.getMaxNumFocusAreas() > 0;
+        if (pointsOfInterestSupported && pointsOfInterest2D.length > 0) {
+            assert pointsOfInterest2D.length == 1 : "Only 1 point of interest supported";
+            assert pointsOfInterest2D[0] <= 1.0 && pointsOfInterest2D[0] >= 0.0;
+            assert pointsOfInterest2D[1] <= 1.0 && pointsOfInterest2D[1] >= 0.0;
+            // Calculate a Rect of 1/8 the canvas, which is fixed to Rect(-1000, -1000, 1000, 1000),
+            // see https://developer.android.com/reference/android/hardware/Camera.Area.html
+            final int centerX = Math.round(pointsOfInterest2D[0] * 2000) - 1000;
+            final int centerY = Math.round(pointsOfInterest2D[1] * 2000) - 1000;
+            final int regionWidth = 2000 / 8;
+            final int regionHeight = 2000 / 8;
+            final int weight = 1000;
+
+            mAreaOfInterest = new android.hardware.Camera.Area(
+                    new Rect(Math.max(-1000, centerX - regionWidth / 2),
+                            Math.max(-1000, centerY - regionHeight / 2),
+                            Math.min(1000, centerX + regionWidth / 2),
+                            Math.min(1000, centerY + regionHeight / 2)),
+                    weight);
+            Log.d(TAG, "Area of interest %s", mAreaOfInterest.rect.toString());
+        }
+        if (mAreaOfInterest != null) {
+            parameters.setFocusAreas(Arrays.asList(mAreaOfInterest));
+            parameters.setMeteringAreas(Arrays.asList(mAreaOfInterest));
+        }
+
+        if (hasExposureCompensation) {
+            final int unnormalizedExposureCompensation = Math.round(
+                    exposureCompensation / 100.0f / parameters.getExposureCompensationStep());
+            parameters.setExposureCompensation(unnormalizedExposureCompensation);
+        }
+
+        // |iso| setting is not supported, see explanation in getPhotoCapabilities().
+
+        // White Balance mode AndroidMeteringMode.SINGLE_SHOT is not supported.
+        // TODO(mcasas): support FIXED mode, i.e. the scene mode.
+        if (whiteBalanceMode == AndroidMeteringMode.CONTINUOUS
+                && parameters.getSupportedWhiteBalance() != null) {
+            // setWhiteBalance() will release the lock set with setAutoWhiteBalanceLock(), if any.
+            parameters.setWhiteBalance(android.hardware.Camera.Parameters.WHITE_BALANCE_AUTO);
+        } else if (whiteBalanceMode == AndroidMeteringMode.FIXED
+                && parameters.isAutoWhiteBalanceLockSupported()) {
+            parameters.setAutoWhiteBalanceLock(true);
+            if (colorTemperature > 0) {
+                final String closestSetting = getClosestWhiteBalance(colorTemperature);
+                if (closestSetting != null) parameters.setWhiteBalance(closestSetting);
+            }
+        }
+
+        // NONE is only used for getting capabilities, to signify "no flash unit". Ignore it.
+        if (parameters.getSupportedFlashModes() != null
+                && fillLightMode != AndroidFillLightMode.NOT_SET
+                && fillLightMode != AndroidFillLightMode.NONE) {
+            switch (fillLightMode) {
+                case AndroidFillLightMode.OFF:
+                    parameters.setFlashMode(android.hardware.Camera.Parameters.FLASH_MODE_OFF);
+                    break;
+                case AndroidFillLightMode.AUTO:
+                    parameters.setFlashMode(hasRedEyeReduction && redEyeReduction
+                                    ? android.hardware.Camera.Parameters.FLASH_MODE_RED_EYE
+                                    : android.hardware.Camera.Parameters.FLASH_MODE_AUTO);
+                    break;
+                case AndroidFillLightMode.FLASH:
+                    parameters.setFlashMode(android.hardware.Camera.Parameters.FLASH_MODE_ON);
+                    break;
+                case AndroidFillLightMode.TORCH:
+                    parameters.setFlashMode(android.hardware.Camera.Parameters.FLASH_MODE_TORCH);
+                    break;
+                default:
+            }
+        }
+
+        try {
+            mCamera.setParameters(parameters);
+        } catch (RuntimeException ex) {
+            Log.e(TAG, "setParameters: ", ex);
+            return;
+        }
+
+        if (focusMode != AndroidMeteringMode.SINGLE_SHOT) return;
+        mCamera.autoFocus(new android.hardware.Camera.AutoFocusCallback() {
+            @Override
+            public void onAutoFocus(boolean success, android.hardware.Camera camera) {
+                Log.d(TAG, "onAutoFocus() finished: %s ", success ? "success" : "failed");
+            }
+        });
     }
 
     @Override
@@ -323,9 +608,37 @@ public abstract class VideoCaptureCamera
 
         android.hardware.Camera.Parameters parameters = getCameraParameters(mCamera);
         parameters.setRotation(getCameraRotation());
-        mCamera.setParameters(parameters);
+        final android.hardware.Camera.Size original_size = parameters.getPictureSize();
+
+        List<android.hardware.Camera.Size> supportedSizes = parameters.getSupportedPictureSizes();
+        android.hardware.Camera.Size closestSize = null;
+        int minDiff = Integer.MAX_VALUE;
+        for (android.hardware.Camera.Size size : supportedSizes) {
+            final int diff = ((mPhotoWidth > 0) ? Math.abs(size.width - mPhotoWidth) : 0)
+                    + ((mPhotoHeight > 0) ? Math.abs(size.height - mPhotoHeight) : 0);
+            if (diff < minDiff) {
+                minDiff = diff;
+                closestSize = size;
+            }
+        }
+        Log.d(TAG, "requested resolution: (%dx%d)", mPhotoWidth, mPhotoHeight);
+        if (minDiff != Integer.MAX_VALUE) {
+            Log.d(TAG, " matched (%dx%d)", closestSize.width, closestSize.height);
+            parameters.setPictureSize(closestSize.width, closestSize.height);
+        }
+
         try {
+            mCamera.setParameters(parameters);
             mCamera.takePicture(null, null, null, new CrPictureCallback());
+        } catch (RuntimeException ex) {
+            Log.e(TAG, "takePicture ", ex);
+            return false;
+        }
+
+        // Restore original parameters.
+        parameters.setPictureSize(original_size.width, original_size.height);
+        try {
+            mCamera.setParameters(parameters);
         } catch (RuntimeException ex) {
             Log.e(TAG, "takePicture ", ex);
             return false;

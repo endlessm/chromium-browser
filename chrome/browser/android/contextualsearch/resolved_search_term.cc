@@ -12,28 +12,37 @@ ResolvedSearchTerm::ResolvedSearchTerm(int response_code)
       search_term(""),
       display_text(""),
       alternate_term(""),
+      mid(""),
       prevent_preload(false),
       selection_start_adjust(0),
       selection_end_adjust(0),
-      context_language("") {}
+      context_language(""),
+      thumbnail_url(""),
+      caption("") {}
 
 ResolvedSearchTerm::ResolvedSearchTerm(bool is_invalid,
                                        int response_code,
                                        const std::string& search_term,
                                        const std::string& display_text,
                                        const std::string& alternate_term,
+                                       const std::string& mid,
                                        bool prevent_preload,
                                        int selection_start_adjust,
                                        int selection_end_adjust,
-                                       const std::string& context_language)
+                                       const std::string& context_language,
+                                       const std::string& thumbnail_url,
+                                       const std::string& caption)
     : is_invalid(is_invalid),
       response_code(response_code),
       search_term(search_term),
       display_text(display_text),
       alternate_term(alternate_term),
+      mid(mid),
       prevent_preload(prevent_preload),
       selection_start_adjust(selection_start_adjust),
       selection_end_adjust(selection_end_adjust),
-      context_language(context_language) {}
+      context_language(context_language),
+      thumbnail_url(thumbnail_url),
+      caption(caption) {}
 
 ResolvedSearchTerm::~ResolvedSearchTerm() {}

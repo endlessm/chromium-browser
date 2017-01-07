@@ -46,11 +46,8 @@ ASH_EXPORT aura::Window* GetActivatableWindow(aura::Window* window);
 // Returns true if |window|'s location can be controlled by the user.
 ASH_EXPORT bool IsWindowUserPositionable(aura::Window* window);
 
-// Moves the window to the center of the display.
-ASH_EXPORT void CenterWindow(aura::Window* window);
-
 // Pins the window on top of other windows.
-ASH_EXPORT void PinWindow(aura::Window* window);
+ASH_EXPORT void PinWindow(aura::Window* window, bool trusted);
 
 // Moves |window| to the root window where the |event| occured if it is not
 // already in the same root window. Returns true if |window| was moved.
@@ -64,9 +61,6 @@ void SnapWindowToPixelBoundary(aura::Window* window);
 // installs the SnapToPixelLayoutManager.
 ASH_EXPORT void SetSnapsChildrenToPhysicalPixelBoundary(
     aura::Window* container);
-
-// Traverse the |container| tree and installs SnapToPixelLayoutManager.
-void InstallSnapLayoutManagerToContainers(aura::Window* container);
 
 }  // namespace wm
 }  // namespace ash

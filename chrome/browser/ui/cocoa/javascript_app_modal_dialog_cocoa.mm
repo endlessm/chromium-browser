@@ -14,14 +14,14 @@
 #include "base/memory/ptr_util.h"
 #include "base/strings/sys_string_conversions.h"
 #import "chrome/browser/chrome_browser_application_mac.h"
-#include "chrome/browser/ui/app_modal/chrome_javascript_native_dialog_factory.h"
 #include "chrome/browser/ui/blocked_content/app_modal_dialog_helper.h"
+#include "chrome/browser/ui/javascript_dialogs/chrome_javascript_native_dialog_factory.h"
 #include "components/app_modal/javascript_app_modal_dialog.h"
 #include "components/app_modal/javascript_dialog_manager.h"
 #include "components/app_modal/javascript_native_dialog_factory.h"
+#include "components/strings/grit/components_strings.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_contents_delegate.h"
-#include "grit/components_strings.h"
 #include "ui/base/l10n/l10n_util_mac.h"
 #include "ui/base/ui_base_types.h"
 #include "ui/gfx/text_elider.h"
@@ -140,6 +140,10 @@ const int kMessageTextMaxSlots = 2000;
   DCHECK(!alertShown_);
   alertShown_ = YES;
   NSAlert* alert = [self alert];
+
+  [alert layout];
+  [[alert window] recalculateKeyViewLoop];
+
   [alert beginSheetModalForWindow:nil  // nil here makes it app-modal
                     modalDelegate:self
                    didEndSelector:@selector(alertDidEnd:returnCode:contextInfo:)

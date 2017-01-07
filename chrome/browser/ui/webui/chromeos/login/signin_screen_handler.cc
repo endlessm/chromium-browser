@@ -14,10 +14,11 @@
 #include "ash/shell.h"
 #include "ash/wm/lock_state_controller.h"
 #include "base/bind.h"
+#include "base/i18n/number_formatting.h"
 #include "base/location.h"
 #include "base/logging.h"
 #include "base/macros.h"
-#include "base/metrics/histogram.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/single_thread_task_runner.h"
 #include "base/strings/string16.h"
 #include "base/strings/string_number_conversions.h"
@@ -79,6 +80,7 @@
 #include "components/prefs/pref_service.h"
 #include "components/prefs/scoped_user_pref_update.h"
 #include "components/proximity_auth/screenlock_bridge.h"
+#include "components/strings/grit/components_strings.h"
 #include "components/user_manager/known_user.h"
 #include "components/user_manager/user.h"
 #include "components/user_manager/user_manager.h"
@@ -86,7 +88,6 @@
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/web_contents.h"
 #include "google_apis/gaia/gaia_auth_util.h"
-#include "grit/components_strings.h"
 #include "third_party/cros_system_api/dbus/service_constants.h"
 #include "ui/base/ime/chromeos/ime_keyboard.h"
 #include "ui/base/ime/chromeos/input_method_descriptor.h"
@@ -365,7 +366,17 @@ void SigninScreenHandler::SetUserInputMethod(
 
 void SigninScreenHandler::DeclareLocalizedValues(
     ::login::LocalizedValuesBuilder* builder) {
+  // Format numbers to be used on the pin keyboard.
+  for (int j = 0; j <= 9; j++) {
+    builder->Add("pinKeyboard" + base::IntToString(j),
+                 base::FormatNumber(int64_t{j}));
+  }
+
   builder->Add("passwordHint", IDS_LOGIN_POD_EMPTY_PASSWORD_TEXT);
+  builder->Add("pinKeyboardPlaceholderPin",
+               IDS_PIN_KEYBOARD_HINT_TEXT_PIN);
+  builder->Add("pinKeyboardPlaceholderPinPassword",
+               IDS_PIN_KEYBOARD_HINT_TEXT_PIN_PASSWORD);
   builder->Add("signingIn", IDS_LOGIN_POD_SIGNING_IN);
   builder->Add("podMenuButtonAccessibleName",
                IDS_LOGIN_POD_MENU_BUTTON_ACCESSIBLE_NAME);
@@ -450,12 +461,19 @@ void SigninScreenHandler::DeclareLocalizedValues(
                IDS_LOGIN_POD_LEGACY_SUPERVISED_USER_REMOVE_WARNING,
                base::UTF8ToUTF16(
                    chrome::kLegacySupervisedUserManagementDisplayURL));
+  builder->Add("removeNonOwnerUserWarningText",
+               IDS_LOGIN_POD_NON_OWNER_USER_REMOVE_WARNING);
   builder->Add("removeUserWarningButtonTitle",
                IDS_LOGIN_POD_USER_REMOVE_WARNING_BUTTON);
   builder->Add("samlNotice", IDS_LOGIN_SAML_NOTICE);
   builder->Add("samlNoticeWithVideo", IDS_LOGIN_SAML_NOTICE_WITH_VIDEO);
   builder->AddF("confirmPasswordTitle", IDS_LOGIN_CONFIRM_PASSWORD_TITLE,
                 ash::GetChromeOSDeviceName());
+  builder->Add("manualPasswordTitle", IDS_LOGIN_MANUAL_PASSWORD_TITLE);
+  builder->Add("manualPasswordInputLabel",
+               IDS_LOGIN_MANUAL_PASSWORD_INPUT_LABEL);
+  builder->Add("manualPasswordMismatch",
+               IDS_LOGIN_MANUAL_PASSWORD_MISMATCH);
   builder->Add("confirmPasswordLabel", IDS_LOGIN_CONFIRM_PASSWORD_LABEL);
   builder->Add("confirmPasswordIncorrectPassword",
                IDS_LOGIN_CONFIRM_PASSWORD_INCORRECT_PASSWORD);
@@ -817,7 +835,6 @@ void SigninScreenHandler::SetupAndShowOfflineMessage(
   network_error_model_->AllowGuestSignin(guest_signin_allowed);
 
   const bool offline_login_allowed =
-      IsOfflineLoginAllowed() &&
       IsSigninScreenError(network_error_model_->GetErrorState()) &&
       network_error_model_->GetErrorState() !=
           NetworkError::ERROR_STATE_AUTH_EXT_TIMEOUT;
@@ -920,17 +937,28 @@ void SigninScreenHandler::OnPreferencesChanged() {
     return;
   }
 
-  // Send the updated user list to the UI.
-  if (delegate_)
-    delegate_->HandleGetUsers();
+  preferences_changed_delayed_ = false;
 
-  if (delegate_ && !delegate_->IsShowUsers()) {
+  if (!delegate_)
+    return;
+
+  // Send the updated user list to the UI.
+  delegate_->HandleGetUsers();
+  if (GetCurrentScreen() == OobeScreen::SCREEN_ACCOUNT_PICKER &&
+      delegate_->ShowUsersHasChanged() &&
+      !delegate_->IsShowUsers()) {
+    // We are at the account picker screen and the POD setting has changed
+    // to be disabled. We need to show the add user page.
     HandleShowAddUser(nullptr);
-  } else {
-    UpdateUIState(UI_STATE_ACCOUNT_PICKER, nullptr);
+    return;
   }
 
-  preferences_changed_delayed_ = false;
+  if (delegate_->AllowNewUserChanged() || ui_state_ == UI_STATE_UNKNOWN) {
+    // We need to reload GAIA if UI_STATE_UNKNOWN or the allow new user setting
+    // has changed so that reloaded GAIA shows/hides the option to create a new
+    // account.
+    UpdateUIState(UI_STATE_ACCOUNT_PICKER, nullptr);
+  }
 }
 
 void SigninScreenHandler::ResetSigninScreenHandlerDelegate() {
@@ -1034,14 +1062,21 @@ void SigninScreenHandler::UpdateAddButtonStatus() {
 }
 
 void SigninScreenHandler::HandleAuthenticateUser(const AccountId& account_id,
-                                                 const std::string& password) {
+                                                 const std::string& password,
+                                                 bool authenticated_by_pin) {
   if (!delegate_)
     return;
   DCHECK_EQ(account_id.GetUserEmail(),
             gaia::SanitizeEmail(account_id.GetUserEmail()));
+  chromeos::PinStorage* pin_storage =
+    chromeos::PinStorageFactory::GetForAccountId(account_id);
+  // If pin storage is unavailable, authenticated by PIN must be false.
+  DCHECK(!pin_storage || pin_storage->IsPinAuthenticationAvailable() ||
+         !authenticated_by_pin);
 
   UserContext user_context(account_id);
   user_context.SetKey(Key(password));
+  user_context.SetIsUsingPin(authenticated_by_pin);
   delegate_->Login(user_context, SigninSpecifics());
 
   HidePinKeyboardIfNeeded(account_id);
@@ -1076,7 +1111,7 @@ void SigninScreenHandler::HandleLaunchPublicSession(
 }
 
 void SigninScreenHandler::HandleOfflineLogin(const base::ListValue* args) {
-  if (!delegate_ || delegate_->IsShowUsers()) {
+  if (!delegate_) {
     NOTREACHED();
     return;
   }
@@ -1440,17 +1475,6 @@ bool SigninScreenHandler::IsGuestSigninAllowed() const {
   bool allow_guest;
   cros_settings->GetBoolean(kAccountsPrefAllowGuest, &allow_guest);
   return allow_guest;
-}
-
-bool SigninScreenHandler::IsOfflineLoginAllowed() const {
-  CrosSettings* cros_settings = CrosSettings::Get();
-  if (!cros_settings)
-    return false;
-
-  // Offline login is allowed only when user pods are hidden.
-  bool show_pods;
-  cros_settings->GetBoolean(kAccountsPrefShowUserNamesOnSignIn, &show_pods);
-  return !show_pods;
 }
 
 void SigninScreenHandler::OnShowAddUser() {

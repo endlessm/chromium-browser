@@ -11,6 +11,9 @@ from telemetry.internal.platform.tracing_agent import chrome_tracing_agent
 from telemetry.internal.platform.tracing_agent import (
     chrome_tracing_devtools_manager)
 from telemetry.timeline import tracing_config
+from telemetry.core import cros_interface
+from telemetry.testing import options_for_unittests
+
 
 from devil.android import device_utils
 
@@ -36,6 +39,18 @@ class FakeAndroidPlatformBackend(FakePlatformBackend):
   def GetOSName(self):
     return 'android'
 
+class FakeCrOSPlatformBackend(FakePlatformBackend):
+  def __init__(self):
+    super(FakeCrOSPlatformBackend, self).__init__()
+    remote = options_for_unittests.GetCopy().cros_remote
+    remote_ssh_port = options_for_unittests.GetCopy().cros_remote_ssh_port
+    self.cri = cros_interface.CrOSInterface(
+        remote, remote_ssh_port,
+        options_for_unittests.GetCopy().cros_ssh_identity)
+
+  def GetOSName(self):
+    return 'chromeos'
+
 class FakeDesktopPlatformBackend(FakePlatformBackend):
   def GetOSName(self):
     system = platform.system()
@@ -58,6 +73,7 @@ class FakeDevtoolsClient(object):
     self.is_tracing_running = False
     self.remote_port = remote_port
     self.will_raise_exception_in_stop_tracing = False
+    self.collected = False
 
   def IsAlive(self):
     return self.is_alive
@@ -66,11 +82,15 @@ class FakeDevtoolsClient(object):
     del trace_options, timeout  # unused
     self.is_tracing_running = True
 
-  def StopChromeTracing(self, trace_data_builder):
-    del trace_data_builder  # unused
+  def StopChromeTracing(self):
     self.is_tracing_running = False
     if self.will_raise_exception_in_stop_tracing:
       raise Exception
+
+  def CollectChromeTracingData(self, trace_data_builder, timeout=30):
+    del trace_data_builder  # unused
+    del timeout # unused
+    self.collected = True
 
   def IsChromeTracingSupported(self):
     return True
@@ -190,19 +210,25 @@ class ChromeTracingAgentTest(unittest.TestCase):
     # port as devtool 2
     self.assertFalse(devtool4.is_tracing_running)
 
+
+    self.assertFalse(devtool1.collected)
     self.StopTracing(tracing_agent1)
+    self.assertTrue(devtool1.collected)
     self.assertFalse(devtool1.is_tracing_running)
     self.assertFalse(devtool2.is_tracing_running)
     self.assertFalse(devtool3.is_tracing_running)
     self.assertFalse(devtool4.is_tracing_running)
+
     # Test that it should be ok to start & stop tracing on platform1 again.
     tracing_agent1 = self.StartTracing(self.platform1)
     self.StopTracing(tracing_agent1)
 
     tracing_agent2 = self.StartTracing(self.platform2)
     self.assertTrue(devtool4.is_tracing_running)
+    self.assertFalse(devtool4.collected)
     self.StopTracing(tracing_agent2)
     self.assertFalse(devtool4.is_tracing_running)
+    self.assertTrue(devtool4.collected)
 
   def testFlushTracing(self):
     devtool1 = FakeDevtoolsClient(1)
@@ -309,6 +335,30 @@ class ChromeTracingAgentTest(unittest.TestCase):
     # robust to multiple file removal
     agent._RemoveTraceConfigFile()
     self.assertFalse(platform_backend.device.PathExists(config_file_path))
+    self.assertIsNone(agent.trace_config_file)
+
+  @decorators.Enabled('chromeos')
+  def testCreateAndRemoveTraceConfigFileOnCrOS(self):
+    platform_backend = FakeCrOSPlatformBackend()
+    cri = platform_backend.cri
+    agent = chrome_tracing_agent.ChromeTracingAgent(platform_backend)
+    self.assertIsNone(agent.trace_config_file)
+
+    config = tracing_config.TracingConfig()
+    agent._CreateTraceConfigFile(config)
+    self.assertIsNotNone(agent.trace_config_file)
+    self.assertTrue(cri.FileExistsOnDevice(agent.trace_config_file))
+    config_file_str = cri.GetFileContents(agent.trace_config_file)
+    self.assertEqual(agent._CreateTraceConfigFileString(config),
+                     config_file_str.strip())
+
+    config_file_path = agent.trace_config_file
+    agent._RemoveTraceConfigFile()
+    self.assertFalse(cri.FileExistsOnDevice(config_file_path))
+    self.assertIsNone(agent.trace_config_file)
+    # robust to multiple file removal
+    agent._RemoveTraceConfigFile()
+    self.assertFalse(cri.FileExistsOnDevice(config_file_path))
     self.assertIsNone(agent.trace_config_file)
 
   @decorators.Enabled('linux', 'mac', 'win')

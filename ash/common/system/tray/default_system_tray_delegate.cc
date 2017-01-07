@@ -19,10 +19,6 @@ DefaultSystemTrayDelegate::DefaultSystemTrayDelegate()
 
 DefaultSystemTrayDelegate::~DefaultSystemTrayDelegate() {}
 
-bool DefaultSystemTrayDelegate::GetTrayVisibilityOnStartup() {
-  return true;
-}
-
 LoginStatus DefaultSystemTrayDelegate::GetUserLoginStatus() const {
   return LoginStatus::USER;
 }
@@ -39,7 +35,7 @@ bool DefaultSystemTrayDelegate::IsUserSupervised() const {
 
 void DefaultSystemTrayDelegate::GetSystemUpdateInfo(UpdateInfo* info) const {
   DCHECK(info);
-  info->severity = UpdateInfo::UPDATE_NORMAL;
+  info->severity = UpdateInfo::UPDATE_NONE;
   info->update_required = true;
   info->factory_reset_required = false;
 }

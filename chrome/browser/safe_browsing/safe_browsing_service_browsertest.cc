@@ -54,7 +54,10 @@
 #include "components/safe_browsing_db/metadata.pb.h"
 #include "components/safe_browsing_db/test_database_manager.h"
 #include "components/safe_browsing_db/util.h"
+#include "components/safe_browsing_db/v4_protocol_manager_util.h"
 #include "components/subresource_filter/content/browser/content_subresource_filter_driver_factory.h"
+#include "components/subresource_filter/core/browser/subresource_filter_features.h"
+#include "components/subresource_filter/core/browser/subresource_filter_features_test_support.h"
 #include "content/public/browser/interstitial_page.h"
 #include "content/public/browser/navigation_entry.h"
 #include "content/public/browser/render_frame_host.h"
@@ -115,7 +118,7 @@ std::unique_ptr<net::test_server::HttpResponse> HandleNeverCompletingRequests(
   if (!base::StartsWith(request.relative_url, kNeverCompletesPath,
                           base::CompareCase::SENSITIVE))
     return nullptr;
-  return base::WrapUnique(new NeverCompletingHttpResponse());
+  return base::MakeUnique<NeverCompletingHttpResponse>();
 }
 
 void InvokeFullHashCallback(
@@ -296,8 +299,8 @@ class TestSafeBrowsingDatabase : public SafeBrowsingDatabase {
         continue;
 
       std::vector<int> list_ids_for_url = badurls_it->second.list_ids;
-      if (ContainsValue(list_ids_for_url, list_id0) ||
-          ContainsValue(list_ids_for_url, list_id1)) {
+      if (base::ContainsValue(list_ids_for_url, list_id0) ||
+          base::ContainsValue(list_ids_for_url, list_id1)) {
         prefix_hits->insert(prefix_hits->end(),
                             badurls_it->second.prefix_hits.begin(),
                             badurls_it->second.prefix_hits.end());
@@ -345,10 +348,10 @@ class TestSafeBrowsingDatabase : public SafeBrowsingDatabase {
 // Factory that creates TestSafeBrowsingDatabase instances.
 class TestSafeBrowsingDatabaseFactory : public SafeBrowsingDatabaseFactory {
  public:
-  TestSafeBrowsingDatabaseFactory() : db_(NULL) {}
+  TestSafeBrowsingDatabaseFactory() : db_(nullptr) {}
   ~TestSafeBrowsingDatabaseFactory() override {}
 
-  SafeBrowsingDatabase* CreateSafeBrowsingDatabase(
+  std::unique_ptr<SafeBrowsingDatabase> CreateSafeBrowsingDatabase(
       const scoped_refptr<base::SequencedTaskRunner>& db_task_runner,
       bool enable_download_protection,
       bool enable_client_side_whitelist,
@@ -358,7 +361,7 @@ class TestSafeBrowsingDatabaseFactory : public SafeBrowsingDatabaseFactory {
       bool enabled_unwanted_software_list,
       bool enable_module_whitelist) override {
     db_ = new TestSafeBrowsingDatabase();
-    return db_;
+    return base::WrapUnique(db_);
   }
   TestSafeBrowsingDatabase* GetDb() { return db_; }
 
@@ -420,15 +423,15 @@ int TestProtocolManager::delete_count_ = 0;
 // Factory that creates TestProtocolManager instances.
 class TestSBProtocolManagerFactory : public SBProtocolManagerFactory {
  public:
-  TestSBProtocolManagerFactory() : pm_(NULL) {}
+  TestSBProtocolManagerFactory() : pm_(nullptr) {}
   ~TestSBProtocolManagerFactory() override {}
 
-  SafeBrowsingProtocolManager* CreateProtocolManager(
+  std::unique_ptr<SafeBrowsingProtocolManager> CreateProtocolManager(
       SafeBrowsingProtocolManagerDelegate* delegate,
       net::URLRequestContextGetter* request_context_getter,
       const SafeBrowsingProtocolConfig& config) override {
     pm_ = new TestProtocolManager(delegate, request_context_getter, config);
-    return pm_;
+    return base::WrapUnique(pm_);
   }
 
   TestProtocolManager* GetProtocolManager() { return pm_; }
@@ -484,7 +487,7 @@ class SafeBrowsingServiceTest : public InProcessBrowserTest {
                                    SBFullHashResult* full_hash) {
     std::string host;
     std::string path;
-    CanonicalizeUrl(url, &host, &path, NULL);
+    V4ProtocolManagerUtil::CanonicalizeUrl(url, &host, &path, nullptr);
     full_hash->hash = SBFullHashForString(host + path);
     full_hash->list_id = list_id;
   }
@@ -516,9 +519,9 @@ class SafeBrowsingServiceTest : public InProcessBrowserTest {
 
     // Unregister test factories after InProcessBrowserTest::TearDown
     // (which destructs SafeBrowsingService).
-    SafeBrowsingDatabase::RegisterFactory(NULL);
-    SafeBrowsingProtocolManager::RegisterFactory(NULL);
-    SafeBrowsingService::RegisterFactory(NULL);
+    SafeBrowsingDatabase::RegisterFactory(nullptr);
+    SafeBrowsingProtocolManager::RegisterFactory(nullptr);
+    SafeBrowsingService::RegisterFactory(nullptr);
   }
 
   void SetUpCommandLine(base::CommandLine* command_line) override {
@@ -573,7 +576,7 @@ class SafeBrowsingServiceTest : public InProcessBrowserTest {
     WebContents* contents =
         browser()->tab_strip_model()->GetActiveWebContents();
     InterstitialPage* interstitial_page = contents->GetInterstitialPage();
-    return interstitial_page != NULL;
+    return interstitial_page != nullptr;
   }
 
   void IntroduceGetHashDelay(const base::TimeDelta& delay) {
@@ -642,7 +645,7 @@ class SafeBrowsingServiceTest : public InProcessBrowserTest {
   // to wait for the SafeBrowsingService to finish loading/stopping.
   void WaitForIOThread() {
     scoped_refptr<base::ThreadTestHelper> io_helper(new base::ThreadTestHelper(
-        BrowserThread::GetMessageLoopProxyForThread(BrowserThread::IO).get()));
+        BrowserThread::GetTaskRunnerForThread(BrowserThread::IO).get()));
     ASSERT_TRUE(io_helper->Run());
   }
 
@@ -651,7 +654,7 @@ class SafeBrowsingServiceTest : public InProcessBrowserTest {
   void WaitForIOAndCheckEnabled(SafeBrowsingService* service, bool enabled) {
     scoped_refptr<ServiceEnabledHelper> enabled_helper(new ServiceEnabledHelper(
         service, enabled,
-        BrowserThread::GetMessageLoopProxyForThread(BrowserThread::IO).get()));
+        BrowserThread::GetTaskRunnerForThread(BrowserThread::IO).get()));
     ASSERT_TRUE(enabled_helper->Run());
   }
 
@@ -898,6 +901,12 @@ IN_PROC_BROWSER_TEST_F(SafeBrowsingServiceTest, MainFrameHitWithReferrer) {
 
 IN_PROC_BROWSER_TEST_F(SafeBrowsingServiceTest,
                        SocEngReportingBlacklistNotEmpty) {
+  subresource_filter::testing::ScopedSubresourceFilterFeatureToggle
+      scoped_feature_toggle(
+          base::FeatureList::OVERRIDE_ENABLE_FEATURE,
+          subresource_filter::kActivationStateEnabled,
+          subresource_filter::kActivationScopeNoSites,
+          subresource_filter::kActivationListSocialEngineeringAdsInterstitial);
   // Tests that when Safe Browsing gets hit which is corresponding to the
   // SOCIAL_ENGINEERING_ADS threat type, then URL is added to the Subresource
   // Filter.
@@ -917,17 +926,25 @@ IN_PROC_BROWSER_TEST_F(SafeBrowsingServiceTest,
       subresource_filter::ContentSubresourceFilterDriverFactory::
           FromWebContents(web_contents);
 
-  EXPECT_EQ(0U, driver_factory->activation_set().size());
+  EXPECT_EQ(0U,
+            driver_factory->safe_browsing_blacklisted_patterns_set().size());
   chrome::NavigateParams params(browser(), bad_url, ui::PAGE_TRANSITION_LINK);
   ui_test_utils::NavigateToURL(&params);
-
-  EXPECT_EQ(1U, driver_factory->activation_set().size());
+  EXPECT_EQ(1U,
+            driver_factory->safe_browsing_blacklisted_patterns_set().size());
   EXPECT_TRUE(got_hit_report());
 }
 
 IN_PROC_BROWSER_TEST_F(SafeBrowsingServiceTest, SocEngReportingBlacklistEmpty) {
   // Tests that URLS which doesn't belong to the SOCIAL_ENGINEERING_ADS threat
   // type aren't seen by the Subresource Filter.
+  subresource_filter::testing::ScopedSubresourceFilterFeatureToggle
+      scoped_feature_toggle(
+          base::FeatureList::OVERRIDE_ENABLE_FEATURE,
+          subresource_filter::kActivationStateEnabled,
+          subresource_filter::kActivationScopeNoSites,
+          subresource_filter::kActivationListSocialEngineeringAdsInterstitial);
+
   GURL bad_url = embedded_test_server()->GetURL(kMalwarePage);
 
   SBFullHashResult malware_full_hash;
@@ -942,11 +959,12 @@ IN_PROC_BROWSER_TEST_F(SafeBrowsingServiceTest, SocEngReportingBlacklistEmpty) {
       subresource_filter::ContentSubresourceFilterDriverFactory::
           FromWebContents(web_contents);
 
-  EXPECT_EQ(0U, driver_factory->activation_set().size());
+  EXPECT_EQ(0U,
+            driver_factory->safe_browsing_blacklisted_patterns_set().size());
   chrome::NavigateParams params(browser(), bad_url, ui::PAGE_TRANSITION_LINK);
   ui_test_utils::NavigateToURL(&params);
-
-  EXPECT_EQ(0U, driver_factory->activation_set().size());
+  EXPECT_EQ(0U,
+            driver_factory->safe_browsing_blacklisted_patterns_set().size());
   EXPECT_TRUE(got_hit_report());
 }
 
@@ -1078,8 +1096,9 @@ IN_PROC_BROWSER_TEST_F(SafeBrowsingServiceTest,
            &contents->GetController()));
   // Start a browser initiated top-level navigation to a site that does not
   // respond.
-  ui_test_utils::NavigateToURLWithDisposition(browser(), third_url, CURRENT_TAB,
-                                              ui_test_utils::BROWSER_TEST_NONE);
+  ui_test_utils::NavigateToURLWithDisposition(
+      browser(), third_url, WindowOpenDisposition::CURRENT_TAB,
+      ui_test_utils::BROWSER_TEST_NONE);
 
   // While the top-level navigation is pending, run javascript
   // function in the page which loads the malware image.
@@ -1473,9 +1492,9 @@ IN_PROC_BROWSER_TEST_F(SafeBrowsingServiceTest, StartAndStop) {
       sb_service->safe_browsing_detection_service();
   PrefService* pref_service = browser()->profile()->GetPrefs();
 
-  ASSERT_TRUE(sb_service != NULL);
-  ASSERT_TRUE(csd_service != NULL);
-  ASSERT_TRUE(pref_service != NULL);
+  ASSERT_TRUE(sb_service);
+  ASSERT_TRUE(csd_service);
+  ASSERT_TRUE(pref_service);
 
   EXPECT_TRUE(pref_service->GetBoolean(prefs::kSafeBrowsingEnabled));
 
@@ -1487,8 +1506,8 @@ IN_PROC_BROWSER_TEST_F(SafeBrowsingServiceTest, StartAndStop) {
   // Add a new Profile. SBS should keep running.
   ASSERT_TRUE(temp_profile_dir_.CreateUniqueTempDir());
   std::unique_ptr<Profile> profile2(Profile::CreateProfile(
-      temp_profile_dir_.path(), NULL, Profile::CREATE_MODE_SYNCHRONOUS));
-  ASSERT_TRUE(profile2.get() != NULL);
+      temp_profile_dir_.GetPath(), nullptr, Profile::CREATE_MODE_SYNCHRONOUS));
+  ASSERT_TRUE(profile2);
   StartupTaskRunnerServiceFactory::GetForProfile(profile2.get())->
       StartDeferredTaskRunners();
   PrefService* pref_service2 = profile2->GetPrefs();
@@ -1530,7 +1549,7 @@ IN_PROC_BROWSER_TEST_F(SafeBrowsingServiceTest, StartAndStop) {
   EXPECT_TRUE(csd_service->enabled());
 
   // Delete the Profile. SBS stops again.
-  pref_service2 = NULL;
+  pref_service2 = nullptr;
   profile2.reset();
   EXPECT_FALSE(sb_service->enabled_by_prefs());
   WaitForIOAndCheckEnabled(sb_service, false);
@@ -1570,9 +1589,9 @@ IN_PROC_BROWSER_TEST_F(SafeBrowsingServiceShutdownTest,
       sb_service->safe_browsing_detection_service();
   PrefService* pref_service = browser()->profile()->GetPrefs();
 
-  ASSERT_TRUE(sb_service != NULL);
-  ASSERT_TRUE(csd_service != NULL);
-  ASSERT_TRUE(pref_service != NULL);
+  ASSERT_TRUE(sb_service);
+  ASSERT_TRUE(csd_service);
+  ASSERT_TRUE(pref_service);
 
   EXPECT_TRUE(pref_service->GetBoolean(prefs::kSafeBrowsingEnabled));
 
@@ -1586,9 +1605,9 @@ IN_PROC_BROWSER_TEST_F(SafeBrowsingServiceShutdownTest,
   ProfileManager* profile_manager = g_browser_process->profile_manager();
   ASSERT_TRUE(temp_profile_dir_.CreateUniqueTempDir());
   profile_manager->CreateProfileAsync(
-      temp_profile_dir_.path(),
+      temp_profile_dir_.GetPath(),
       base::Bind(&SafeBrowsingServiceShutdownTest::OnUnblockOnProfileCreation,
-                 this),
+                 base::Unretained(this)),
       base::string16(), std::string(), std::string());
 
   // Spin to allow profile creation to take place, loop is terminated
@@ -1629,7 +1648,7 @@ class SafeBrowsingDatabaseManagerCookieTest : public InProcessBrowserTest {
   void TearDown() override {
     InProcessBrowserTest::TearDown();
 
-    SafeBrowsingService::RegisterFactory(NULL);
+    SafeBrowsingService::RegisterFactory(nullptr);
   }
 
   bool SetUpUserDataDirectory() override {
@@ -1743,6 +1762,7 @@ class SafeBrowsingDatabaseManagerCookieTest : public InProcessBrowserTest {
     return std::move(http_response);
   }
 
+ private:
   DISALLOW_COPY_AND_ASSIGN(SafeBrowsingDatabaseManagerCookieTest);
 };
 
@@ -1756,7 +1776,8 @@ IN_PROC_BROWSER_TEST_F(SafeBrowsingDatabaseManagerCookieTest,
           sb_factory_->test_safe_browsing_service()->database_manager().get()));
   BrowserThread::PostTask(
       BrowserThread::IO, FROM_HERE,
-      base::Bind(&SafeBrowsingDatabaseManagerCookieTest::ForceUpdate, this));
+      base::Bind(&SafeBrowsingDatabaseManagerCookieTest::ForceUpdate,
+                 base::Unretained(this)));
   observer.Wait();
 }
 

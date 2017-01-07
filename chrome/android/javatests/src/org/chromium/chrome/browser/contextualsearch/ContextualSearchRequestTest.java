@@ -7,6 +7,7 @@ package org.chromium.chrome.browser.contextualsearch;
 import android.test.suitebuilder.annotation.SmallTest;
 
 import org.chromium.base.test.util.Feature;
+import org.chromium.base.test.util.RetryOnFailure;
 import org.chromium.chrome.test.ChromeTabbedActivityTestBase;
 
 /**
@@ -28,9 +29,9 @@ public class ContextualSearchRequestTest extends ChromeTabbedActivityTestBase {
         getInstrumentation().runOnMainSync(new Runnable() {
             @Override
             public void run() {
-                mRequest = new ContextualSearchRequest("barack obama", "barack", true);
+                mRequest = new ContextualSearchRequest("barack obama", "barack", "", true);
                 mNormalPriorityOnlyRequest =
-                        new ContextualSearchRequest("woody allen", "allen", false);
+                        new ContextualSearchRequest("woody allen", "allen", "", false);
             }
         });
     }
@@ -44,6 +45,7 @@ public class ContextualSearchRequestTest extends ChromeTabbedActivityTestBase {
 
     @SmallTest
     @Feature({"ContextualSearch"})
+    @RetryOnFailure
     public void testHasFailed() {
         assertFalse(mRequest.getHasFailed());
         mRequest.setHasFailed();

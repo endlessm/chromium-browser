@@ -5,7 +5,6 @@
 #ifndef ANDROID_WEBVIEW_BROWSER_PARENT_OUTPUT_SURFACE_H_
 #define ANDROID_WEBVIEW_BROWSER_PARENT_OUTPUT_SURFACE_H_
 
-#include "android_webview/browser/scoped_app_gl_state_restore.h"
 #include "base/macros.h"
 #include "cc/output/output_surface.h"
 
@@ -20,19 +19,23 @@ class ParentOutputSurface : NON_EXPORTED_BASE(public cc::OutputSurface) {
 
   // OutputSurface overrides.
   void DidLoseOutputSurface() override;
+  void EnsureBackbuffer() override;
+  void DiscardBackbuffer() override;
+  void BindFramebuffer() override;
   void Reshape(const gfx::Size& size,
                float scale_factor,
                const gfx::ColorSpace& color_space,
                bool has_alpha) override;
-  void SwapBuffers(cc::CompositorFrame frame) override;
+  void SwapBuffers(cc::OutputSurfaceFrame frame) override;
+  bool HasExternalStencilTest() const override;
   void ApplyExternalStencil() override;
   uint32_t GetFramebufferCopyTextureFormat() override;
-
-  void SetGLState(const ScopedAppGLStateRestore& gl_state);
+  cc::OverlayCandidateValidator* GetOverlayCandidateValidator() const override;
+  bool IsDisplayedAsOverlayPlane() const override;
+  unsigned GetOverlayTextureId() const override;
+  bool SurfaceIsSuspendForRecycle() const override;
 
  private:
-  StencilState stencil_state_;
-
   DISALLOW_COPY_AND_ASSIGN(ParentOutputSurface);
 };
 

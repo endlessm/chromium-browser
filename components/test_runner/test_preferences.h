@@ -20,7 +20,6 @@ struct TEST_RUNNER_EXPORT TestPreferences {
     int default_font_size;
     int minimum_font_size;
     bool xss_auditor_enabled;
-    bool allow_display_of_insecure_content;
     bool allow_file_access_from_file_urls;
     bool allow_running_of_insecure_content;
     blink::WebString default_text_encoding_name;
@@ -43,6 +42,7 @@ struct TEST_RUNNER_EXPORT TestPreferences {
     bool disable_reading_from_canvas;
     bool strict_mixed_content_checking;
     bool strict_powerful_feature_restrictions;
+    bool spatial_navigation_enabled;
 
     TestPreferences();
     void Reset();

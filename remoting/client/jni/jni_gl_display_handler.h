@@ -5,43 +5,96 @@
 #ifndef REMOTING_CLIENT_JNI_JNI_GL_DISPLAY_HANDLER_H_
 #define REMOTING_CLIENT_JNI_JNI_GL_DISPLAY_HANDLER_H_
 
+#include <EGL/egl.h>
 #include <jni.h>
 
 #include "base/android/scoped_java_ref.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
-#include "remoting/client/jni/display_updater_factory.h"
+#include "remoting/client/gl_renderer.h"
+#include "remoting/client/gl_renderer_delegate.h"
+#include "remoting/client/queued_task_poster.h"
+#include "remoting/protocol/cursor_shape_stub.h"
 
 namespace remoting {
 
+namespace protocol {
+class VideoRenderer;
+}  // namespace protocol
+
 class ChromotingJniRuntime;
-class JniVideoRenderer;
+class DualBufferFrameConsumer;
+class EglThreadContext;
 
 // Handles OpenGL display operations. Draws desktop and cursor on the OpenGL
-// surface.
-class JniGlDisplayHandler : public DisplayUpdaterFactory {
+// surface. The handler should be used and destroyed on the UI thread. It also
+// has a core that works on the display thread.
+class JniGlDisplayHandler {
  public:
-  JniGlDisplayHandler();
-  ~JniGlDisplayHandler() override;
+  JniGlDisplayHandler(ChromotingJniRuntime* runtime,
+                      const base::android::JavaRef<jobject>& java_client);
+  ~JniGlDisplayHandler();
 
-  // DisplayUpdaterFactory overrides.
-  std::unique_ptr<protocol::CursorShapeStub> CreateCursorShapeStub() override;
-  std::unique_ptr<protocol::VideoRenderer> CreateVideoRenderer() override;
+  std::unique_ptr<protocol::CursorShapeStub> CreateCursorShapeStub();
+  std::unique_ptr<protocol::VideoRenderer> CreateVideoRenderer();
 
   static bool RegisterJni(JNIEnv* env);
 
-  void OnSurfaceCreated(JNIEnv* env,
-                        const base::android::JavaParamRef<jobject>& caller);
+  void OnSurfaceCreated(
+      JNIEnv* env,
+      const base::android::JavaParamRef<jobject>& caller,
+      const base::android::JavaParamRef<jobject>& surface);
 
   void OnSurfaceChanged(JNIEnv* env,
                         const base::android::JavaParamRef<jobject>& caller,
                         int width,
                         int height);
 
-  void OnDrawFrame(JNIEnv* env,
-                   const base::android::JavaParamRef<jobject>& caller);
+  void OnSurfaceDestroyed(
+      JNIEnv* env,
+      const base::android::JavaParamRef<jobject>& caller);
+
+  void OnPixelTransformationChanged(
+      JNIEnv* env,
+      const base::android::JavaParamRef<jobject>& caller,
+      const base::android::JavaParamRef<jfloatArray>&  matrix
+      );
+
+  void OnCursorPixelPositionChanged(
+      JNIEnv* env,
+      const base::android::JavaParamRef<jobject>& caller,
+      float x,
+      float y);
+
+  void OnCursorVisibilityChanged(
+      JNIEnv* env,
+      const base::android::JavaParamRef<jobject>& caller,
+      bool visible);
+
+  void OnCursorInputFeedback(
+      JNIEnv* env,
+      const base::android::JavaParamRef<jobject>& caller,
+      float x,
+      float y,
+      float diameter);
 
  private:
+  class Core;
+
+  // Callbacks from the core.
+  void OnRenderDone();
+  void OnCanvasSizeChanged(int width, int height);
+
+  ChromotingJniRuntime* runtime_;
+
+  QueuedTaskPoster ui_task_poster_;
+
+  std::unique_ptr<Core> core_;
+
+  base::android::ScopedJavaGlobalRef<jobject> java_display_;
+
+  // Used on UI thread.
+  base::WeakPtrFactory<JniGlDisplayHandler> weak_factory_;
   DISALLOW_COPY_AND_ASSIGN(JniGlDisplayHandler);
 };
 

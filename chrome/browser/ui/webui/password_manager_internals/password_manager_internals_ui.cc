@@ -12,6 +12,7 @@
 #include "base/values.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/common/url_constants.h"
+#include "chrome/grit/password_manager_internals_resources.h"
 #include "components/password_manager/content/browser/password_manager_internals_service_factory.h"
 #include "components/password_manager/core/browser/password_manager_internals_service.h"
 #include "components/password_manager/core/common/password_manager_pref_names.h"
@@ -19,7 +20,6 @@
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_ui.h"
 #include "content/public/browser/web_ui_data_source.h"
-#include "grit/password_manager_internals_resources.h"
 #include "net/base/escape.h"
 
 using password_manager::PasswordManagerInternalsService;
@@ -39,6 +39,7 @@ content::WebUIDataSource* CreatePasswordManagerInternalsHTMLSource() {
       IDR_PASSWORD_MANAGER_INTERNALS_PASSWORD_MANAGER_INTERNALS_CSS);
   source->SetDefaultResource(
       IDR_PASSWORD_MANAGER_INTERNALS_PASSWORD_MANAGER_INTERNALS_HTML);
+  source->DisableI18nAndUseGzipForAllPaths();
   return source;
 }
 
@@ -87,7 +88,7 @@ void PasswordManagerInternalsUI::DidStopLoading() {
   if (url.is_valid() && url.has_query()) {
     std::vector<std::string> query_parameters = base::SplitString(
         url.query(), "&", base::KEEP_WHITESPACE, base::SPLIT_WANT_ALL);
-    if (ContainsValue(query_parameters, "reset_fre"))
+    if (base::ContainsValue(query_parameters, "reset_fre"))
       ResetAutoSignInFirstRunExperience();
   }
 }

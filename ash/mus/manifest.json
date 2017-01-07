@@ -1,14 +1,36 @@
 {
   "manifest_version":  1,
-  "name": "mojo:ash",
+  "name": "service:ash",
   "display_name": "Ash Window Manager and Shell",
   "capabilities": {
     "provided": {
-      "mus:window_manager" : [ "mus::mojom::AcceleratorRegistrar" ]
+      "mus:window_manager" : [ "ui::mojom::AcceleratorRegistrar" ]
     },
     "required": {
-      "*": { "classes": [ "app" ] },
-      "mojo:mus": { "interfaces": [ "mus::mojom::WindowManagerWindowTreeFactory" ] }
+      "*": { "classes": [ "accessibility", "app" ] },
+      "exe:chrome" : {
+        "interfaces": [
+          "ash::mojom::SystemTrayClient",
+          "ash::mojom::WallpaperManager",
+          "app_list::mojom::AppListPresenter",
+          "keyboard::mojom::Keyboard"
+        ]
+      },
+      "service:mash_session": {
+        "interfaces": [ "mash::session::mojom::Session" ]
+      },
+      "service:ui": {
+        "interfaces": [
+          "display::mojom::DisplayController",
+          "ui::mojom::AccessibilityManager",
+          "ui::mojom::WindowManagerWindowTreeFactory"
+        ]
+      },
+      "service:touch_hud": {
+        "interfaces": [
+          "mash::mojom::Launchable"
+        ]
+      }
     }
   }
 }

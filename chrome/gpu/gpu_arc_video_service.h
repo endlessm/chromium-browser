@@ -11,7 +11,7 @@
 #include "base/macros.h"
 #include "chrome/gpu/arc_video_accelerator.h"
 #include "components/arc/common/video_accelerator.mojom.h"
-#include "mojo/public/cpp/bindings/strong_binding.h"
+#include "gpu/command_buffer/service/gpu_preferences.h"
 
 namespace chromeos {
 namespace arc {
@@ -24,14 +24,14 @@ namespace arc {
 class GpuArcVideoService : public ::arc::mojom::VideoAcceleratorService,
                            public ArcVideoAccelerator::Client {
  public:
-  explicit GpuArcVideoService(
-      ::arc::mojom::VideoAcceleratorServiceRequest request);
-  GpuArcVideoService();
+  explicit GpuArcVideoService(const gpu::GpuPreferences& gpu_preferences);
   ~GpuArcVideoService() override;
 
   // Connects to VideoAcceleratorServiceClient.
   // |request| specified the message pipe of client to use.
-  void Connect(::arc::mojom::VideoAcceleratorServiceClientRequest request);
+  static void DeprecatedConnect(
+      std::unique_ptr<GpuArcVideoService> service,
+      ::arc::mojom::VideoAcceleratorServiceClientRequest client_request);
 
  private:
   // ArcVideoAccelerator::Client implementation.
@@ -75,12 +75,9 @@ class GpuArcVideoService : public ::arc::mojom::VideoAcceleratorService,
 
   base::ThreadChecker thread_checker_;
 
+  gpu::GpuPreferences gpu_preferences_;
   std::unique_ptr<ArcVideoAccelerator> accelerator_;
   ::arc::mojom::VideoAcceleratorServiceClientPtr client_;
-
-  // Binding of arc::mojom::VideoAcceleratorService. It also takes ownership of
-  // |this|.
-  mojo::StrongBinding<::arc::mojom::VideoAcceleratorService> binding_;
 
   DISALLOW_COPY_AND_ASSIGN(GpuArcVideoService);
 };

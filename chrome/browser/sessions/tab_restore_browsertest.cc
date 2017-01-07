@@ -13,10 +13,15 @@
 #include "build/build_config.h"
 #include "chrome/app/chrome_command_ids.h"
 #include "chrome/browser/chrome_notification_types.h"
+#include "chrome/browser/lifetime/keep_alive_types.h"
+#include "chrome/browser/lifetime/scoped_keep_alive.h"
+#include "chrome/browser/prefs/session_startup_pref.h"
+#include "chrome/browser/sessions/session_restore_test_helper.h"
 #include "chrome/browser/sessions/tab_restore_service_factory.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_commands.h"
 #include "chrome/browser/ui/browser_list.h"
+#include "chrome/browser/ui/browser_live_tab_context.h"
 #include "chrome/browser/ui/browser_tabstrip.h"
 #include "chrome/browser/ui/find_bar/find_notification_details.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
@@ -106,7 +111,7 @@ class TabRestoreTest : public InProcessBrowserTest {
 
     for (int i = 0; i < how_many; ++i) {
       ui_test_utils::NavigateToURLWithDisposition(
-          browser, url1_, NEW_FOREGROUND_TAB,
+          browser, url1_, WindowOpenDisposition::NEW_FOREGROUND_TAB,
           ui_test_utils::BROWSER_TEST_WAIT_FOR_NAVIGATION);
     }
     int tab_count = browser->tab_strip_model()->count();
@@ -178,7 +183,7 @@ class TabRestoreTest : public InProcessBrowserTest {
     content::WindowedNotificationObserver observer(
         content::NOTIFICATION_LOAD_STOP,
         content::NotificationService::AllSources());
-    chrome::GoBack(browser, CURRENT_TAB);
+    chrome::GoBack(browser, WindowOpenDisposition::CURRENT_TAB);
     observer.Wait();
   }
 
@@ -255,7 +260,8 @@ IN_PROC_BROWSER_TEST_F(TabRestoreTest, RestoreToDifferentWindow) {
 
   // Create a new browser.
   ui_test_utils::NavigateToURLWithDisposition(
-      browser(), GURL(chrome::kChromeUINewTabURL), NEW_WINDOW,
+      browser(), GURL(chrome::kChromeUINewTabURL),
+      WindowOpenDisposition::NEW_WINDOW,
       ui_test_utils::BROWSER_TEST_WAIT_FOR_BROWSER);
   EXPECT_EQ(2u, active_browser_list_->size());
 
@@ -279,7 +285,8 @@ IN_PROC_BROWSER_TEST_F(TabRestoreTest, DISABLED_BasicRestoreFromClosedWindow) {
 
   // Create a new browser.
   ui_test_utils::NavigateToURLWithDisposition(
-      browser(), GURL(chrome::kChromeUINewTabURL), NEW_WINDOW,
+      browser(), GURL(chrome::kChromeUINewTabURL),
+      WindowOpenDisposition::NEW_WINDOW,
       ui_test_utils::BROWSER_TEST_WAIT_FOR_BROWSER);
   EXPECT_EQ(2u, active_browser_list_->size());
 
@@ -342,7 +349,8 @@ IN_PROC_BROWSER_TEST_F(TabRestoreTest, RestoreWindowAndTab) {
 
   // Create a new browser.
   ui_test_utils::NavigateToURLWithDisposition(
-      browser(), GURL(chrome::kChromeUINewTabURL), NEW_WINDOW,
+      browser(), GURL(chrome::kChromeUINewTabURL),
+      WindowOpenDisposition::NEW_WINDOW,
       ui_test_utils::BROWSER_TEST_WAIT_FOR_BROWSER);
   EXPECT_EQ(2u, active_browser_list_->size());
 
@@ -371,16 +379,17 @@ IN_PROC_BROWSER_TEST_F(TabRestoreTest, RestoreWindowAndTab) {
 // both. Make sure both restored tabs are in the same window.
 IN_PROC_BROWSER_TEST_F(TabRestoreTest, RestoreIntoSameWindow) {
   ui_test_utils::NavigateToURLWithDisposition(
-      browser(), url1_, NEW_FOREGROUND_TAB,
+      browser(), url1_, WindowOpenDisposition::NEW_FOREGROUND_TAB,
       ui_test_utils::BROWSER_TEST_WAIT_FOR_NAVIGATION);
   // Navigate the rightmost one to url2_ for easier identification.
   ui_test_utils::NavigateToURLWithDisposition(
-      browser(), url2_, NEW_FOREGROUND_TAB,
+      browser(), url2_, WindowOpenDisposition::NEW_FOREGROUND_TAB,
       ui_test_utils::BROWSER_TEST_WAIT_FOR_NAVIGATION);
 
   // Create a new browser.
   ui_test_utils::NavigateToURLWithDisposition(
-      browser(), GURL(chrome::kChromeUINewTabURL), NEW_WINDOW,
+      browser(), GURL(chrome::kChromeUINewTabURL),
+      WindowOpenDisposition::NEW_WINDOW,
       ui_test_utils::BROWSER_TEST_WAIT_FOR_BROWSER);
   EXPECT_EQ(2u, active_browser_list_->size());
 
@@ -410,6 +419,76 @@ IN_PROC_BROWSER_TEST_F(TabRestoreTest, RestoreIntoSameWindow) {
             browser->tab_strip_model()->GetActiveWebContents()->GetURL());
 }
 
+// Open a window with two tabs, close both (closing the window), then restore
+// one by ID. Guards against regression of crbug.com/622752.
+IN_PROC_BROWSER_TEST_F(TabRestoreTest, RestoreTabFromClosedWindowByID) {
+  ui_test_utils::NavigateToURLWithDisposition(
+      browser(), url1_, WindowOpenDisposition::NEW_FOREGROUND_TAB,
+      ui_test_utils::BROWSER_TEST_WAIT_FOR_NAVIGATION);
+  ui_test_utils::NavigateToURLWithDisposition(
+      browser(), url2_, WindowOpenDisposition::NEW_FOREGROUND_TAB,
+      ui_test_utils::BROWSER_TEST_WAIT_FOR_NAVIGATION);
+
+  // Create a new browser.
+  ui_test_utils::NavigateToURLWithDisposition(
+      browser(), GURL(chrome::kChromeUINewTabURL),
+      WindowOpenDisposition::NEW_WINDOW,
+      ui_test_utils::BROWSER_TEST_WAIT_FOR_BROWSER);
+  EXPECT_EQ(2u, active_browser_list_->size());
+
+  // Close the window.
+  content::WindowedNotificationObserver close_window_observer(
+      chrome::NOTIFICATION_BROWSER_CLOSED,
+      content::NotificationService::AllSources());
+  chrome::CloseWindow(browser());
+  close_window_observer.Wait();
+  EXPECT_EQ(1u, active_browser_list_->size());
+
+  // Check that the TabRestoreService has the contents of the closed window.
+  Browser* browser = GetBrowser(0);
+  sessions::TabRestoreService* service =
+      TabRestoreServiceFactory::GetForProfile(browser->profile());
+  const sessions::TabRestoreService::Entries& entries = service->entries();
+  EXPECT_EQ(1u, entries.size());
+  sessions::TabRestoreService::Entry* entry = entries.front().get();
+  ASSERT_EQ(sessions::TabRestoreService::WINDOW, entry->type);
+  sessions::TabRestoreService::Window* entry_win =
+      static_cast<sessions::TabRestoreService::Window*>(entry);
+  auto& tabs = entry_win->tabs;
+  EXPECT_EQ(3u, tabs.size());
+
+  // Find the Tab to restore.
+  SessionID::id_type tab_id_to_restore = 0;
+  bool found_tab_to_restore = false;
+  for (const auto& tab_ptr : tabs) {
+    auto& tab = *tab_ptr;
+    if (tab.navigations[tab.current_navigation_index].virtual_url() == url1_) {
+      tab_id_to_restore = tab.id;
+      found_tab_to_restore = true;
+      break;
+    }
+  }
+  ASSERT_TRUE(found_tab_to_restore);
+
+  // Restore the tab into the current window.
+  EXPECT_EQ(1, browser->tab_strip_model()->count());
+  content::WindowedNotificationObserver tab_added_observer(
+      chrome::NOTIFICATION_TAB_PARENTED,
+      content::NotificationService::AllSources());
+  content::WindowedNotificationObserver tab_loaded_observer(
+      content::NOTIFICATION_LOAD_STOP,
+      content::NotificationService::AllSources());
+  service->RestoreEntryById(browser->live_tab_context(), tab_id_to_restore,
+                            WindowOpenDisposition::NEW_FOREGROUND_TAB);
+  tab_added_observer.Wait();
+  tab_loaded_observer.Wait();
+
+  // Check that the tab was correctly restored.
+  EXPECT_EQ(2, browser->tab_strip_model()->count());
+  EXPECT_EQ(url1_,
+            browser->tab_strip_model()->GetActiveWebContents()->GetURL());
+}
+
 // Tests that a duplicate history entry is not created when we restore a page
 // to an existing SiteInstance.  (Bug 1230446)
 IN_PROC_BROWSER_TEST_F(TabRestoreTest, RestoreWithExistingSiteInstance) {
@@ -421,7 +500,7 @@ IN_PROC_BROWSER_TEST_F(TabRestoreTest, RestoreWithExistingSiteInstance) {
 
   // Add a tab
   ui_test_utils::NavigateToURLWithDisposition(
-      browser(), http_url1, NEW_FOREGROUND_TAB,
+      browser(), http_url1, WindowOpenDisposition::NEW_FOREGROUND_TAB,
       ui_test_utils::BROWSER_TEST_WAIT_FOR_NAVIGATION);
   EXPECT_EQ(++tab_count, browser()->tab_strip_model()->count());
 
@@ -432,9 +511,9 @@ IN_PROC_BROWSER_TEST_F(TabRestoreTest, RestoreWithExistingSiteInstance) {
       content::NOTIFICATION_LOAD_STOP,
       content::NotificationService::AllSources());
   static_cast<content::WebContentsDelegate*>(browser())->OpenURLFromTab(
-      tab,
-      content::OpenURLParams(http_url2, content::Referrer(), CURRENT_TAB,
-                             ui::PAGE_TRANSITION_TYPED, false));
+      tab, content::OpenURLParams(http_url2, content::Referrer(),
+                                  WindowOpenDisposition::CURRENT_TAB,
+                                  ui::PAGE_TRANSITION_TYPED, false));
   observer.Wait();
 
   // Close the tab.
@@ -444,7 +523,7 @@ IN_PROC_BROWSER_TEST_F(TabRestoreTest, RestoreWithExistingSiteInstance) {
   // enabled, this will ensure that the SiteInstance used by the restored tab
   // will already exist when the restore happens.
   ui_test_utils::NavigateToURLWithDisposition(
-      browser(), http_url2, NEW_FOREGROUND_TAB,
+      browser(), http_url2, WindowOpenDisposition::NEW_FOREGROUND_TAB,
       ui_test_utils::BROWSER_TEST_WAIT_FOR_NAVIGATION);
 
   // Restore the closed tab.
@@ -481,7 +560,7 @@ IN_PROC_BROWSER_TEST_F(TabRestoreTest,
 
   // Add a tab
   ui_test_utils::NavigateToURLWithDisposition(
-      browser(), http_url1, NEW_FOREGROUND_TAB,
+      browser(), http_url1, WindowOpenDisposition::NEW_FOREGROUND_TAB,
       ui_test_utils::BROWSER_TEST_WAIT_FOR_NAVIGATION);
   EXPECT_EQ(++tab_count, browser()->tab_strip_model()->count());
 
@@ -497,7 +576,7 @@ IN_PROC_BROWSER_TEST_F(TabRestoreTest,
   // enabled, this will ensure that the SiteInstance will already exist when
   // the user clicks Back in the restored tab.
   ui_test_utils::NavigateToURLWithDisposition(
-      browser(), http_url2, NEW_FOREGROUND_TAB,
+      browser(), http_url2, WindowOpenDisposition::NEW_FOREGROUND_TAB,
       ui_test_utils::BROWSER_TEST_WAIT_FOR_NAVIGATION);
 
   // Restore the closed tab.
@@ -522,17 +601,18 @@ IN_PROC_BROWSER_TEST_F(TabRestoreTest, RestoreWindow) {
   // Create a new window.
   size_t window_count = active_browser_list_->size();
   ui_test_utils::NavigateToURLWithDisposition(
-      browser(), GURL(chrome::kChromeUINewTabURL), NEW_WINDOW,
+      browser(), GURL(chrome::kChromeUINewTabURL),
+      WindowOpenDisposition::NEW_WINDOW,
       ui_test_utils::BROWSER_TEST_WAIT_FOR_BROWSER);
   EXPECT_EQ(++window_count, active_browser_list_->size());
 
   // Create two more tabs, one with url1, the other url2.
   int initial_tab_count = browser()->tab_strip_model()->count();
   ui_test_utils::NavigateToURLWithDisposition(
-      browser(), url1_, NEW_FOREGROUND_TAB,
+      browser(), url1_, WindowOpenDisposition::NEW_FOREGROUND_TAB,
       ui_test_utils::BROWSER_TEST_WAIT_FOR_NAVIGATION);
   ui_test_utils::NavigateToURLWithDisposition(
-      browser(), url2_, NEW_FOREGROUND_TAB,
+      browser(), url2_, WindowOpenDisposition::NEW_FOREGROUND_TAB,
       ui_test_utils::BROWSER_TEST_WAIT_FOR_NAVIGATION);
 
   // Close the window.
@@ -574,7 +654,8 @@ IN_PROC_BROWSER_TEST_F(TabRestoreTest, RestoreWindow) {
 IN_PROC_BROWSER_TEST_F(TabRestoreTest, RestoreTabWithSpecialURL) {
   // Navigate new tab to a special URL.
   ui_test_utils::NavigateToURLWithDisposition(
-      browser(), GURL(chrome::kChromeUICreditsURL), NEW_FOREGROUND_TAB,
+      browser(), GURL(chrome::kChromeUICreditsURL),
+      WindowOpenDisposition::NEW_FOREGROUND_TAB,
       ui_test_utils::BROWSER_TEST_WAIT_FOR_NAVIGATION);
 
   // Close the tab.
@@ -601,7 +682,8 @@ IN_PROC_BROWSER_TEST_F(TabRestoreTest, RestoreTabWithSpecialURLOnBack) {
 
   // Navigate new tab to a special URL.
   ui_test_utils::NavigateToURLWithDisposition(
-      browser(), GURL(chrome::kChromeUICreditsURL), NEW_FOREGROUND_TAB,
+      browser(), GURL(chrome::kChromeUICreditsURL),
+      WindowOpenDisposition::NEW_FOREGROUND_TAB,
       ui_test_utils::BROWSER_TEST_WAIT_FOR_NAVIGATION);
 
   // Then navigate to a normal URL.
@@ -637,4 +719,36 @@ IN_PROC_BROWSER_TEST_F(TabRestoreTest, RestoreOnStartup) {
   ASSERT_NO_FATAL_FAILURE(RestoreTab(0, 1));
   EXPECT_EQ(url1_,
             browser()->tab_strip_model()->GetWebContentsAt(1)->GetURL());
+}
+
+// Check that TabRestoreService and SessionService do not try to restore the
+// same thing.
+IN_PROC_BROWSER_TEST_F(TabRestoreTest,
+                       RestoreFirstBrowserWhenSessionServiceEnabled) {
+  // Do not exit from test when last browser is closed.
+  ScopedKeepAlive keep_alive(KeepAliveOrigin::SESSION_RESTORE,
+                             KeepAliveRestartOption::DISABLED);
+
+  // Enable session service.
+  SessionStartupPref pref(SessionStartupPref::LAST);
+  Profile* profile = browser()->profile();
+  SessionStartupPref::SetStartupPref(profile, pref);
+
+  // Add tabs and close browser.
+  AddSomeTabs(browser(), 3);
+  // 1st tab is about:blank added by InProcessBrowserTest.
+  EXPECT_EQ(4, browser()->tab_strip_model()->count());
+  content::WindowedNotificationObserver observer(
+      chrome::NOTIFICATION_BROWSER_CLOSED,
+      content::NotificationService::AllSources());
+  chrome::CloseWindow(browser());
+  observer.Wait();
+
+  SessionRestoreTestHelper helper;
+  // Restore browser (this is what Cmd-Shift-T does on Mac).
+  chrome::OpenWindowWithRestoredTabs(profile);
+  if (SessionRestore::IsRestoring(profile))
+    helper.Wait();
+  Browser* browser = GetBrowser(0);
+  EXPECT_EQ(4, browser->tab_strip_model()->count());
 }

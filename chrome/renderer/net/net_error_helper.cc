@@ -20,6 +20,9 @@
 #include "components/error_page/common/error_page_params.h"
 #include "components/error_page/common/localized_error.h"
 #include "components/error_page/common/net_error_info.h"
+#include "components/grit/components_resources.h"
+#include "content/public/common/associated_interface_provider.h"
+#include "content/public/common/associated_interface_registry.h"
 #include "content/public/common/content_client.h"
 #include "content/public/common/url_constants.h"
 #include "content/public/renderer/content_renderer_client.h"
@@ -28,9 +31,10 @@
 #include "content/public/renderer/render_thread.h"
 #include "content/public/renderer/render_view.h"
 #include "content/public/renderer/resource_fetcher.h"
-#include "grit/components_resources.h"
 #include "ipc/ipc_message.h"
 #include "ipc/ipc_message_macros.h"
+#include "third_party/WebKit/public/platform/WebCachePolicy.h"
+#include "third_party/WebKit/public/platform/WebSecurityOrigin.h"
 #include "third_party/WebKit/public/platform/WebURL.h"
 #include "third_party/WebKit/public/platform/WebURLError.h"
 #include "third_party/WebKit/public/platform/WebURLRequest.h"
@@ -80,6 +84,7 @@ NetErrorHelperCore::FrameType GetFrameType(RenderFrame* render_frame) {
 NetErrorHelper::NetErrorHelper(RenderFrame* render_frame)
     : RenderFrameObserver(render_frame),
       content::RenderFrameObserverTracker<NetErrorHelper>(render_frame),
+      network_diagnostics_client_binding_(this),
       weak_controller_delegate_factory_(this) {
   RenderThread::Get()->AddObserver(this);
   base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
@@ -93,6 +98,10 @@ NetErrorHelper::NetErrorHelper(RenderFrame* render_frame)
                                      auto_reload_enabled,
                                      auto_reload_visible_only,
                                      !render_frame->IsHidden()));
+
+  render_frame->GetAssociatedInterfaceRegistry()->AddInterface(
+      base::Bind(&NetErrorHelper::OnNetworkDiagnosticsClientRequest,
+                 base::Unretained(this)));
 }
 
 NetErrorHelper::~NetErrorHelper() {
@@ -150,8 +159,6 @@ bool NetErrorHelper::OnMessageReceived(const IPC::Message& message) {
 
   IPC_BEGIN_MESSAGE_MAP(NetErrorHelper, message)
     IPC_MESSAGE_HANDLER(ChromeViewMsg_NetErrorInfo, OnNetErrorInfo)
-    IPC_MESSAGE_HANDLER(ChromeViewMsg_SetCanShowNetworkDiagnosticsDialog,
-                        OnSetCanShowNetworkDiagnosticsDialog);
     IPC_MESSAGE_HANDLER(ChromeViewMsg_SetNavigationCorrectionInfo,
                         OnSetNavigationCorrectionInfo);
 #if defined(OS_ANDROID)
@@ -181,6 +188,14 @@ void NetErrorHelper::GetErrorHTML(const blink::WebURLError& error,
 
 bool NetErrorHelper::ShouldSuppressErrorPage(const GURL& url) {
   return core_->ShouldSuppressErrorPage(GetFrameType(render_frame()), url);
+}
+
+mojom::NetworkDiagnostics* NetErrorHelper::GetRemoteNetworkDiagnostics() {
+  if (!remote_network_diagnostics_) {
+    render_frame()->GetRemoteAssociatedInterfaces()
+        ->GetInterface(&remote_network_diagnostics_);
+  }
+  return remote_network_diagnostics_.get();
 }
 
 void NetErrorHelper::GenerateLocalizedErrorPage(
@@ -295,7 +310,7 @@ void NetErrorHelper::SendTrackingRequest(
   tracking_fetcher_->Start(
       render_frame()->GetWebFrame(),
       blink::WebURLRequest::RequestContextInternal,
-      blink::WebURLRequest::FrameTypeTopLevel,
+      blink::WebURLRequest::FrameTypeNone,
       content::ResourceFetcher::PLATFORM_LOADER,
       base::Bind(&NetErrorHelper::OnTrackingRequestComplete,
                  base::Unretained(this)));
@@ -315,13 +330,12 @@ void NetErrorHelper::LoadPageFromCache(const GURL& page_url) {
 
   blink::WebURLRequest request(page_url);
   request.setCachePolicy(blink::WebCachePolicy::ReturnCacheDataDontLoad);
-
+  request.setRequestorOrigin(blink::WebSecurityOrigin::createUnique());
   web_frame->loadRequest(request);
 }
 
 void NetErrorHelper::DiagnoseError(const GURL& page_url) {
-  render_frame()->Send(new ChromeViewHostMsg_RunNetworkDiagnostics(
-      render_frame()->GetRoutingID(), page_url));
+  GetRemoteNetworkDiagnostics()->RunNetworkDiagnostics(page_url);
 }
 
 void NetErrorHelper::ShowOfflinePages() {
@@ -337,12 +351,6 @@ void NetErrorHelper::OnNetErrorInfo(int status_num) {
   DVLOG(1) << "Received status " << DnsProbeStatusToString(status_num);
 
   core_->OnNetErrorInfo(static_cast<DnsProbeStatus>(status_num));
-}
-
-void NetErrorHelper::OnSetCanShowNetworkDiagnosticsDialog(
-    bool can_use_local_diagnostics_service) {
-  core_->OnSetCanShowNetworkDiagnosticsDialog(
-      can_use_local_diagnostics_service);
 }
 
 void NetErrorHelper::OnSetNavigationCorrectionInfo(
@@ -371,6 +379,16 @@ void NetErrorHelper::OnTrackingRequestComplete(
     const blink::WebURLResponse& response,
     const std::string& data) {
   tracking_fetcher_.reset();
+}
+
+void NetErrorHelper::OnNetworkDiagnosticsClientRequest(
+    mojom::NetworkDiagnosticsClientAssociatedRequest request) {
+  DCHECK(!network_diagnostics_client_binding_.is_bound());
+  network_diagnostics_client_binding_.Bind(std::move(request));
+}
+
+void NetErrorHelper::SetCanShowNetworkDiagnosticsDialog(bool can_show) {
+  core_->OnSetCanShowNetworkDiagnosticsDialog(can_show);
 }
 
 #if defined(OS_ANDROID)

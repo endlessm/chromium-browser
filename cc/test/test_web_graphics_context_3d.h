@@ -268,7 +268,6 @@ class TestWebGraphicsContext3D {
                                                     GLsizei height,
                                                     GLenum internalformat,
                                                     GLenum usage);
-  virtual void getImageivCHROMIUM(GLuint image_id, GLenum param, GLint* data);
 
   virtual GLuint64 insertFenceSync();
   virtual void genSyncToken(GLuint64 fence_sync, GLbyte* sync_token);
@@ -301,7 +300,7 @@ class TestWebGraphicsContext3D {
 
   size_t NumUsedTextures() const { return used_textures_.size(); }
   bool UsedTexture(int texture) const {
-    return ContainsKey(used_textures_, texture);
+    return base::ContainsKey(used_textures_, texture);
   }
   void ResetUsedTextures() { used_textures_.clear(); }
 
@@ -336,7 +335,6 @@ class TestWebGraphicsContext3D {
   void set_support_sync_query(bool support) {
     test_capabilities_.sync_query = support;
   }
-  void set_support_image(bool support) { test_capabilities_.image = support; }
   void set_support_texture_rectangle(bool support) {
     test_capabilities_.texture_rectangle = support;
   }

@@ -52,8 +52,9 @@ def _Login():
   log.info('Logging into chrome-infra-auth...')
   result = retry_util.RunCommandWithRetries(
       3,
-      args=[[_GetAuthUtil(), 'login']],
-      kwargs={'error_code_ok': True})
+      [_GetAuthUtil(), 'login'],
+      error_code_ok=True,
+      mute_output=False)
   if not result.returncode:
     return True
   print(result.error, file=sys.stderr)
@@ -75,7 +76,8 @@ def GetAccessToken(service_account_json=None):
   """
   flags = []
   if service_account_json:
-    flags += ['-service_account_json', service_account_json]
+    flags += ['-service-account-json=%s' % service_account_json]
+
   result = cros_build_lib.RunCommand(
       [_GetAuthUtil(), 'token'] + flags,
       capture_output=True,
@@ -89,7 +91,7 @@ def GetAccessToken(service_account_json=None):
     return result.output.strip()
 
 
-def Authorize(get_access_token, http):
+def Authorize(get_access_token, http, service_account_json=None):
   """Monkey patches authentication logic of httplib2.Http instance.
 
   The modified http.request method will add authentication headers to each
@@ -99,6 +101,7 @@ def Authorize(get_access_token, http):
   Args:
     get_access_token: A function which returns an access token.
     http: An instance of httplib2.Http.
+    service_account_json: service account key json file.
 
   Returns:
     A modified instance of http that was passed in.
@@ -111,14 +114,16 @@ def Authorize(get_access_token, http):
   @functools.wraps(request_orig)
   def new_request(*args, **kwargs):
     headers = kwargs.get('headers', {}).copy()
-    headers['Authorization'] = 'Bearer %s' % get_access_token()
+    headers['Authorization'] = 'Bearer %s' % get_access_token(
+        service_account_json=service_account_json)
     kwargs['headers'] = headers
 
     resp, content = request_orig(*args, **kwargs)
     if resp.status in REFRESH_STATUS_CODES:
       log.info('Refreshing due to a %s', resp.status)
       # TODO(phobbs): delete the "access_token" key from the token file used.
-      headers['Authorization'] = 'Bearer %s' % get_access_token().token
+      headers['Authorization'] = 'Bearer %s' % get_access_token(
+          service_account_json=service_account_json)
       resp, content = request_orig(*args, **kwargs)
 
     return resp, content

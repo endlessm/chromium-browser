@@ -8,9 +8,8 @@
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/ui/passwords/manage_passwords_view_utils.h"
 #include "chrome/grit/generated_resources.h"
+#include "chrome/grit/theme_resources.h"
 #include "components/autofill/core/common/password_form.h"
-#include "grit/theme_resources.h"
-#include "ui/base/l10n/l10n_util.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/gfx/canvas.h"
 #include "ui/gfx/image/image.h"
@@ -102,8 +101,14 @@ CredentialsItemView::CredentialsItemView(
     lower_label_ = new views::Label(
         lower_text, rb->GetFontList(ui::ResourceBundle::SmallFont));
     lower_label_->SetHorizontalAlignment(gfx::ALIGN_LEFT);
+    lower_label_->SetMultiLine(true);
     AddChildView(lower_label_);
   }
+
+  if (!upper_text.empty() && !lower_text.empty())
+    SetAccessibleName(upper_text + base::ASCIIToUTF16("\n") + lower_text);
+  else
+    SetAccessibleName(upper_text + lower_text);
 
   SetFocusBehavior(FocusBehavior::ALWAYS);
 }

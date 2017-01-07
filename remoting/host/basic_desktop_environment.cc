@@ -51,8 +51,8 @@ BasicDesktopEnvironment::CreateScreenControls() {
 
 std::unique_ptr<webrtc::MouseCursorMonitor>
 BasicDesktopEnvironment::CreateMouseCursorMonitor() {
-  return base::WrapUnique(new MouseCursorMonitorProxy(
-      video_capture_task_runner_, *desktop_capture_options_));
+  return base::MakeUnique<MouseCursorMonitorProxy>(video_capture_task_runner_,
+                                                   *desktop_capture_options_);
 }
 
 std::string BasicDesktopEnvironment::GetCapabilities() const {
@@ -73,8 +73,10 @@ std::unique_ptr<webrtc::DesktopCapturer>
 BasicDesktopEnvironment::CreateVideoCapturer() {
   DCHECK(caller_task_runner_->BelongsToCurrentThread());
 
-  return base::WrapUnique(new DesktopCapturerProxy(video_capture_task_runner_,
-                                                   *desktop_capture_options_));
+  std::unique_ptr<DesktopCapturerProxy> result(
+      new DesktopCapturerProxy(video_capture_task_runner_));
+  result->CreateCapturer(*desktop_capture_options_);
+  return std::move(result);
 }
 
 BasicDesktopEnvironment::BasicDesktopEnvironment(
@@ -91,6 +93,7 @@ BasicDesktopEnvironment::BasicDesktopEnvironment(
           webrtc::DesktopCaptureOptions::CreateDefault())),
       supports_touch_events_(supports_touch_events) {
   DCHECK(caller_task_runner_->BelongsToCurrentThread());
+  desktop_capture_options_->set_detect_updated_region(true);
 #if defined(USE_X11)
   IgnoreXServerGrabs(desktop_capture_options_->x_display()->display(), true);
 #endif

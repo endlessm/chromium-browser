@@ -17,11 +17,11 @@
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/plugins/plugin_metadata.h"
 #include "chrome/common/pref_names.h"
+#include "chrome/grit/browser_resources.h"
 #include "components/prefs/pref_registry_simple.h"
 #include "components/prefs/pref_service.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/plugin_service.h"
-#include "grit/browser_resources.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "url/gurl.h"
 
@@ -138,7 +138,7 @@ PluginMetadata* CreatePluginMetadata(
           PluginMetadata::SECURITY_STATUS_UP_TO_DATE;
       success = PluginMetadata::ParseSecurityStatus(status_str, &status);
       DCHECK(success);
-      plugin->AddVersion(Version(version), status);
+      plugin->AddVersion(base::Version(version), status);
     }
   }
 
@@ -247,9 +247,9 @@ base::DictionaryValue* PluginFinder::LoadBuiltInPluginList() {
 
 PluginFinder::~PluginFinder() {
 #if defined(ENABLE_PLUGIN_INSTALLATION)
-  STLDeleteValues(&installers_);
+  base::STLDeleteValues(&installers_);
 #endif
-  STLDeleteValues(&identifier_plugin_);
+  base::STLDeleteValues(&identifier_plugin_);
 }
 
 #if defined(ENABLE_PLUGIN_INSTALLATION)
@@ -310,7 +310,7 @@ void PluginFinder::ReinitializePlugins(
 
   version_ = version;
 
-  STLDeleteValues(&identifier_plugin_);
+  base::STLDeleteValues(&identifier_plugin_);
 
   for (base::DictionaryValue::Iterator plugin_it(*plugin_list);
       !plugin_it.IsAtEnd(); plugin_it.Advance()) {

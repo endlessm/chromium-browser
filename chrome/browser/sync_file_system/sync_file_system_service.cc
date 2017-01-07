@@ -16,7 +16,7 @@
 #include "base/macros.h"
 #include "base/memory/ptr_util.h"
 #include "base/memory/ref_counted.h"
-#include "base/metrics/histogram.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/single_thread_task_runner.h"
 #include "base/stl_util.h"
 #include "base/threading/thread_task_runner_handle.h"
@@ -33,7 +33,7 @@
 #include "chrome/browser/sync_file_system/sync_status_code.h"
 #include "chrome/browser/sync_file_system/syncable_file_system_util.h"
 #include "components/keyed_service/content/browser_context_dependency_manager.h"
-#include "components/sync_driver/sync_service.h"
+#include "components/sync/driver/sync_service.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/storage_partition.h"
 #include "extensions/browser/extension_prefs.h"
@@ -267,7 +267,7 @@ void SyncFileSystemService::Shutdown() {
 
   remote_service_.reset();
 
-  sync_driver::SyncService* profile_sync_service =
+  syncer::SyncService* profile_sync_service =
       ProfileSyncServiceFactory::GetSyncServiceForBrowserContext(profile_);
   if (profile_sync_service)
     profile_sync_service->RemoveObserver(this);
@@ -476,7 +476,7 @@ void SyncFileSystemService::Initialize(
   local_sync_runners_.push_back(local_syncer.release());
   remote_sync_runners_.push_back(remote_syncer.release());
 
-  sync_driver::SyncService* profile_sync_service =
+  syncer::SyncService* profile_sync_service =
       ProfileSyncServiceFactory::GetSyncServiceForBrowserContext(profile_);
   if (profile_sync_service) {
     UpdateSyncEnabledStatus(profile_sync_service);
@@ -730,7 +730,7 @@ void SyncFileSystemService::OnExtensionLoaded(
 }
 
 void SyncFileSystemService::OnStateChanged() {
-  sync_driver::SyncService* profile_sync_service =
+  syncer::SyncService* profile_sync_service =
       ProfileSyncServiceFactory::GetSyncServiceForBrowserContext(profile_);
   if (profile_sync_service)
     UpdateSyncEnabledStatus(profile_sync_service);
@@ -748,7 +748,7 @@ void SyncFileSystemService::OnFileStatusChanged(
 }
 
 void SyncFileSystemService::UpdateSyncEnabledStatus(
-    sync_driver::SyncService* profile_sync_service) {
+    syncer::SyncService* profile_sync_service) {
   if (!profile_sync_service->IsFirstSetupComplete())
     return;
   bool old_sync_enabled = sync_enabled_;

@@ -8,35 +8,22 @@
 #include "components/arc/arc_bridge_service.h"
 #include "components/arc/common/policy.mojom.h"
 #include "components/arc/instance_holder.h"
-#include "components/arc/test/fake_arc_bridge_instance.h"
 
 namespace arc {
 
-class FakePolicyInstance
-    : public mojom::PolicyInstance,
-      public arc::InstanceHolder<mojom::PolicyInstance>::Observer {
+class FakePolicyInstance : public mojom::PolicyInstance {
  public:
-  // bridge_service should not be destroyed before the destructor is called.
-  FakePolicyInstance(mojo::InterfaceRequest<mojom::PolicyInstance> request,
-                     ArcBridgeService* bridge_service);
+  FakePolicyInstance();
   ~FakePolicyInstance() override;
 
   // mojom::PolicyInstance
   void Init(mojom::PolicyHostPtr host_ptr) override;
   void OnPolicyUpdated() override;
 
-  // arc::InstanceHolder<mojom::PolicyInstance>::Observer
-  void OnInstanceReady() override;
-
-  void WaitForOnPolicyInstanceReady();
   void CallGetPolicies(const mojom::PolicyHost::GetPoliciesCallback& callback);
 
  private:
-  mojo::Binding<mojom::PolicyInstance> binding_;
-  ArcBridgeService* const bridge_service_;
   mojom::PolicyHostPtr host_ptr_;
-
-  bool ready_ = false;
 
   DISALLOW_COPY_AND_ASSIGN(FakePolicyInstance);
 };

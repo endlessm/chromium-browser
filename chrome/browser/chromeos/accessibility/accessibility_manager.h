@@ -34,6 +34,7 @@ class Profile;
 
 namespace chromeos {
 
+class AccessibilityExtensionLoader;
 class AccessibilityHighlightManager;
 
 enum AccessibilityNotificationType {
@@ -75,6 +76,13 @@ typedef AccessibilityStatusCallbackList::Subscription
     AccessibilityStatusSubscription;
 
 class ChromeVoxPanelWidgetObserver;
+
+enum class PlaySoundOption {
+  ALWAYS = 0,               // The sound is always played.
+  SPOKEN_FEEDBACK_ENABLED,  // The sound is played only if spoken feedback is
+                            // enabled, or --ash-enable-system-sounds flag is
+                            // used.
+};
 
 // AccessibilityManager changes the statuses of accessibility features
 // watching profile notifications and pref-changes.
@@ -244,7 +252,7 @@ class AccessibilityManager
   // Plays an earcon. Earcons are brief and distinctive sounds that indicate
   // when their mapped event has occurred. The sound key enums can be found in
   // chromeos/audio/chromeos_sounds.h.
-  void PlayEarcon(int sound_key);
+  bool PlayEarcon(int sound_key, PlaySoundOption option);
 
   // Forward an accessibility gesture from the touch exploration controller
   // to ChromeVox.
@@ -279,13 +287,8 @@ class AccessibilityManager
   ~AccessibilityManager() override;
 
  private:
-  void LoadChromeVox();
-  void LoadChromeVoxToUserScreen(const base::Closure& done_cb);
-  void LoadChromeVoxToLockScreen(const base::Closure& done_cb);
-  void UnloadChromeVox();
-  void UnloadChromeVoxFromLockScreen();
-  void PostLoadChromeVox(Profile* profile);
-  void PostUnloadChromeVox(Profile* profile);
+  void PostLoadChromeVox();
+  void PostUnloadChromeVox();
 
   void UpdateLargeCursorFromPref();
   void UpdateStickyKeysFromPref();
@@ -339,11 +342,6 @@ class AccessibilityManager
 
   // Profile which has the current a11y context.
   Profile* profile_;
-
-  // Profile which ChromeVox is currently loaded to. If NULL, ChromeVox is not
-  // loaded to any profile.
-  bool chrome_vox_loaded_on_lock_screen_;
-  bool chrome_vox_loaded_on_user_screen_;
 
   content::NotificationRegistrar notification_registrar_;
   std::unique_ptr<PrefChangeRegistrar> pref_change_registrar_;
@@ -405,6 +403,10 @@ class AccessibilityManager
 
   std::unique_ptr<AccessibilityHighlightManager>
       accessibility_highlight_manager_;
+
+  std::unique_ptr<AccessibilityExtensionLoader> chromevox_loader_;
+
+  std::unique_ptr<AccessibilityExtensionLoader> select_to_speak_loader_;
 
   base::WeakPtrFactory<AccessibilityManager> weak_ptr_factory_;
 

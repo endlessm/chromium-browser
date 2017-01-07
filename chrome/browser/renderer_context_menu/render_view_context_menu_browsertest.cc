@@ -13,6 +13,7 @@
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "base/macros.h"
+#include "base/memory/ptr_util.h"
 #include "base/memory/ref_counted.h"
 #include "base/strings/string16.h"
 #include "base/strings/stringprintf.h"
@@ -207,7 +208,7 @@ IN_PROC_BROWSER_TEST_F(ContextMenuBrowserTest, RealMenu) {
   // Open a context menu.
   blink::WebMouseEvent mouse_event;
   mouse_event.type = blink::WebInputEvent::MouseDown;
-  mouse_event.button = blink::WebMouseEvent::ButtonRight;
+  mouse_event.button = blink::WebMouseEvent::Button::Right;
   mouse_event.x = 15;
   mouse_event.y = 15;
   content::WebContents* tab =
@@ -348,7 +349,7 @@ IN_PROC_BROWSER_TEST_F(ContextMenuBrowserTest, SuggestedFileName) {
   // Open a context menu.
   blink::WebMouseEvent mouse_event;
   mouse_event.type = blink::WebInputEvent::MouseDown;
-  mouse_event.button = blink::WebMouseEvent::ButtonRight;
+  mouse_event.button = blink::WebMouseEvent::Button::Right;
   mouse_event.x = 15;
   mouse_event.y = 15;
   content::WebContents* tab =
@@ -653,7 +654,7 @@ class SearchByImageBrowserTest : public InProcessBrowserTest {
         IDC_CONTENT_CONTEXT_SEARCHWEBFORIMAGE));
     content::WebContents* tab =
         browser()->tab_strip_model()->GetActiveWebContents();
-    content::SimulateMouseClickAt(tab, 0, blink::WebMouseEvent::ButtonRight,
+    content::SimulateMouseClickAt(tab, 0, blink::WebMouseEvent::Button::Right,
                                   gfx::Point(15, 15));
   }
 
@@ -682,9 +683,8 @@ class SearchByImageBrowserTest : public InProcessBrowserTest {
     data.image_url = GetImageSearchURL().spec();
     data.image_url_post_params = kImageSearchPostParams;
 
-    // The model takes ownership of |template_url|.
-    TemplateURL* template_url = new TemplateURL(data);
-    ASSERT_TRUE(model->Add(template_url));
+    TemplateURL* template_url = model->Add(base::MakeUnique<TemplateURL>(data));
+    ASSERT_TRUE(template_url);
     model->SetUserSelectedDefaultSearchProvider(template_url);
   }
 
@@ -820,7 +820,7 @@ class LoadImageBrowserTest : public InProcessBrowserTest {
         IDC_CONTENT_CONTEXT_LOAD_ORIGINAL_IMAGE));
     content::WebContents* tab =
         browser()->tab_strip_model()->GetActiveWebContents();
-    content::SimulateMouseClickAt(tab, 0, blink::WebMouseEvent::ButtonRight,
+    content::SimulateMouseClickAt(tab, 0, blink::WebMouseEvent::Button::Right,
                                   gfx::Point(15, 15));
   }
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env python
-# Copyright 2013 The Swarming Authors. All rights reserved.
-# Use of this source code is governed under the Apache License, Version 2.0 that
-# can be found in the LICENSE file.
+# Copyright 2013 The LUCI Authors. All rights reserved.
+# Use of this source code is governed under the Apache License, Version 2.0
+# that can be found in the LICENSE file.
 
 import hashlib
 import logging
@@ -13,11 +13,13 @@ import tempfile
 import time
 import unittest
 
-ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(
+    __file__.decode(sys.getfilesystemencoding()))))
 sys.path.insert(0, ROOT_DIR)
 
 import isolated_format
 import test_utils
+from third_party.depot_tools import fix_encoding
 from utils import file_path
 
 # Ensure that the testing machine has access to this server.
@@ -123,6 +125,7 @@ class IsolateServerArchiveSmokeTest(unittest.TestCase):
 
 
 if __name__ == '__main__':
+  fix_encoding.fix_encoding()
   if len(sys.argv) > 1 and sys.argv[1].startswith('http'):
     ISOLATE_SERVER = sys.argv.pop(1).rstrip('/') + '/'
   logging.basicConfig(

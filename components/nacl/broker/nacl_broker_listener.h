@@ -11,6 +11,7 @@
 
 #include "base/macros.h"
 #include "base/process/process.h"
+#include "base/run_loop.h"
 #include "components/nacl/common/nacl_types.h"
 #include "content/public/common/sandboxed_process_launcher_delegate.h"
 #include "ipc/ipc_listener.h"
@@ -18,6 +19,12 @@
 namespace IPC {
 class Channel;
 }
+
+namespace mojo {
+namespace edk {
+class ScopedIPCSupport;
+}  // namespace edk
+}  // namespace mojo
 
 // The BrokerThread class represents the thread that handles the messages from
 // the browser process and starts NaCl loader processes.
@@ -44,6 +51,7 @@ class NaClBrokerListener : public content::SandboxedProcessLauncherDelegate,
                                      const std::string& startup_info);
   void OnStopBroker();
 
+  base::RunLoop run_loop_;
   base::Process browser_process_;
   std::unique_ptr<IPC::Channel> channel_;
 

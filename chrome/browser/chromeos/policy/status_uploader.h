@@ -15,9 +15,9 @@
 #include "base/memory/weak_ptr.h"
 #include "base/time/time.h"
 #include "chrome/browser/chromeos/settings/cros_settings.h"
-#include "chrome/browser/media/media_capture_devices_dispatcher.h"
+#include "chrome/browser/media/webrtc/media_capture_devices_dispatcher.h"
 #include "components/policy/core/common/cloud/cloud_policy_constants.h"
-#include "policy/proto/device_management_backend.pb.h"
+#include "components/policy/proto/device_management_backend.pb.h"
 
 namespace base {
 class SequencedTaskRunner;
@@ -63,6 +63,13 @@ class StatusUploader : public MediaCaptureDevicesDispatcher::Observer {
   // Callback invoked periodically to upload the device status from the
   // DeviceStatusCollector.
   void UploadStatus();
+
+  // Called asynchronously by DeviceStatusCollector when status arrives
+  void OnStatusReceived(
+      std::unique_ptr<enterprise_management::DeviceStatusReportRequest>
+          device_status,
+      std::unique_ptr<enterprise_management::SessionStatusReportRequest>
+          session_status);
 
   // Invoked once a status upload has completed.
   void OnUploadCompleted(bool success);

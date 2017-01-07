@@ -11,6 +11,7 @@
 
 #include "base/macros.h"
 #include "base/time/time.h"
+#include "chrome/browser/installable/installable_logging.h"
 #include "ui/base/page_transition_types.h"
 
 namespace content {
@@ -39,6 +40,8 @@ class Profile;
 // what we count as a day matches what the user perceives to be days.
 class AppBannerSettingsHelper {
  public:
+  // TODO(mariakhomenko): Rename events to reflect that they are used in more
+  // contexts now.
   enum AppBannerEvent {
     APP_BANNER_EVENT_COULD_SHOW,
     APP_BANNER_EVENT_DID_SHOW,
@@ -52,11 +55,13 @@ class AppBannerSettingsHelper {
     NATIVE,
   };
 
+  static const char kInstantAppsKey[];
+
   // BannerEvents record the time that a site was accessed, along with an
   // engagement weight representing the importance of the access.
   struct BannerEvent {
-   base::Time time;
-   double engagement;
+    base::Time time;
+    double engagement;
   };
 
   // The content setting basically records a simplified subset of history.
@@ -95,11 +100,13 @@ class AppBannerSettingsHelper {
       ui::PageTransition transition_type);
 
   // Determine if the banner should be shown, given the recorded events for the
-  // supplied app.
-  static bool ShouldShowBanner(content::WebContents* web_contents,
-                               const GURL& origin_url,
-                               const std::string& package_name_or_start_url,
-                               base::Time time);
+  // supplied app. Returns an InstallableStatusCode indicated the reason why the
+  // banner shouldn't be shown, or NO_ERROR_DETECTED if it should be shown.
+  static InstallableStatusCode ShouldShowBanner(
+      content::WebContents* web_contents,
+      const GURL& origin_url,
+      const std::string& package_name_or_start_url,
+      base::Time time);
 
   // Gets the could have been shown events that are stored for the given package
   // or start url. This is only exposed for testing.
@@ -129,6 +136,19 @@ class AppBannerSettingsHelper {
       const GURL& origin_url,
       const std::string& package_name_or_start_url,
       base::Time time);
+
+  // Returns true if any site under |origin| was launched from homescreen in the
+  // last ten days. This allows services outside app banners to utilise the
+  // content setting that ensures app banners are not shown for sites which ave
+  // already been added to homescreen.
+  static bool WasLaunchedRecently(Profile* profile,
+                                  const GURL& origin_url,
+                                  base::Time now);
+
+  // Set the number of days which dismissing/ignoring the banner should prevent
+  // a banner from showing.
+  static void SetDaysAfterDismissAndIgnoreToTrigger(unsigned int dismiss_days,
+                                                    unsigned int ignore_days);
 
   // Set the engagement weights assigned to direct and indirect navigations.
   static void SetEngagementWeights(double direct_engagement,

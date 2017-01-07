@@ -14,11 +14,11 @@
 #include "chrome/browser/extensions/signin/gaia_auth_extension_loader.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/signin/signin_promo.h"
-#include "chrome/browser/ui/browser_finder.h"
 #include "chrome/browser/ui/browser_navigator.h"
 #include "chrome/browser/ui/browser_navigator_params.h"
 #include "chrome/browser/ui/signin_view_controller_delegate.h"
 #include "chrome/browser/ui/user_manager.h"
+#include "chrome/browser/ui/webui/signin/signin_utils.h"
 #include "chrome/common/pref_names.h"
 #include "components/metrics/metrics_pref_names.h"
 #include "components/prefs/pref_service.h"
@@ -29,18 +29,6 @@
 #include "content/public/browser/web_ui.h"
 #include "google_apis/gaia/gaia_urls.h"
 #include "net/base/url_util.h"
-
-namespace {
-
-Browser* GetDesktopBrowser(content::WebUI* web_ui) {
-  Browser* browser = chrome::FindBrowserWithWebContents(
-      web_ui->GetWebContents());
-  if (!browser)
-    browser = chrome::FindLastActiveWithProfile(Profile::FromWebUI(web_ui));
-  return browser;
-}
-
-}  // namespace
 
 InlineLoginHandler::InlineLoginHandler() : weak_ptr_factory_(this) {}
 
@@ -181,6 +169,14 @@ void InlineLoginHandler::RecordSigninUserActionForAccessPoint(
       content::RecordAction(
           base::UserMetricsAction("Signin_Signin_FromNTPContentSuggestions"));
       break;
+    case signin_metrics::AccessPoint::ACCESS_POINT_RESIGNIN_INFOBAR:
+      content::RecordAction(
+          base::UserMetricsAction("Signin_Signin_FromReSigninInfobar"));
+      break;
+    case signin_metrics::AccessPoint::ACCESS_POINT_TAB_SWITCHER:
+      content::RecordAction(
+          base::UserMetricsAction("Signin_Signin_FromTabSwitcher"));
+      break;
     case signin_metrics::AccessPoint::ACCESS_POINT_MAX:
       NOTREACHED();
       break;
@@ -199,15 +195,20 @@ void InlineLoginHandler::ContinueHandleInitializeMessage() {
   const GURL& current_url = web_ui()->GetWebContents()->GetURL();
   signin_metrics::AccessPoint access_point =
       signin::GetAccessPointForPromoURL(current_url);
-  signin_metrics::LogSigninAccessPointStarted(access_point);
+  signin_metrics::Reason reason =
+      signin::GetSigninReasonForPromoURL(current_url);
+
+  if (reason != signin_metrics::Reason::REASON_REAUTHENTICATION ||
+      reason != signin_metrics::Reason::REASON_UNLOCK ||
+      reason != signin_metrics::Reason::REASON_ADD_SECONDARY_ACCOUNT) {
+    signin_metrics::LogSigninAccessPointStarted(access_point);
+  }
   RecordSigninUserActionForAccessPoint(access_point);
   content::RecordAction(base::UserMetricsAction("Signin_SigninPage_Loading"));
 
   params.SetString("continueUrl", signin::GetLandingURL(access_point).spec());
 
   Profile* profile = Profile::FromWebUI(web_ui());
-  signin_metrics::Reason reason =
-      signin::GetSigninReasonForPromoURL(current_url);
   std::string default_email;
   if (reason == signin_metrics::Reason::REASON_SIGNIN_PRIMARY_ACCOUNT) {
     default_email =
@@ -218,17 +219,6 @@ void InlineLoginHandler::ContinueHandleInitializeMessage() {
   }
   if (!default_email.empty())
     params.SetString("email", default_email);
-
-  std::string frame_url_id_str;
-  net::GetValueForKeyInQuery(current_url, "frameUrlId", &frame_url_id_str);
-  int frame_url_id;
-  std::string frame_url;
-  if (!frame_url_id_str.empty() &&
-      base::StringToInt(frame_url_id_str, &frame_url_id) &&
-      extensions::GaiaAuthExtensionLoader::Get(profile)
-          ->GetData(frame_url_id, &frame_url)) {
-    params.SetString("frameUrl", frame_url);
-  }
 
   std::string is_constrained;
   net::GetValueForKeyInQuery(
@@ -258,13 +248,7 @@ void InlineLoginHandler::HandleSwitchToFullTabMessage(
   CHECK(args->GetString(0, &url_str));
 
   Profile* profile = Profile::FromWebUI(web_ui());
-  const int frame_url_id =
-      extensions::GaiaAuthExtensionLoader::Get(profile)->AddData(url_str);
-
-  content::WebContents* web_contents = web_ui()->GetWebContents();
-  GURL main_frame_url(web_contents->GetURL());
-  main_frame_url = net::AppendOrReplaceQueryParameter(
-      main_frame_url, "frameUrlId", base::IntToString(frame_url_id));
+  GURL main_frame_url(web_ui()->GetWebContents()->GetURL());
 
   // Adds extra parameters to the signin URL so that Chrome will close the tab
   // and show the account management view of the avatar menu upon completion.
@@ -287,14 +271,14 @@ void InlineLoginHandler::HandleSwitchToFullTabMessage(
 
 void InlineLoginHandler::HandleNavigationButtonClicked(
     const base::ListValue* args) {
-  Browser* browser = GetDesktopBrowser(web_ui());
+  Browser* browser = signin::GetDesktopBrowser(web_ui());
   DCHECK(browser);
 
   browser->signin_view_controller()->delegate()->PerformNavigation();
 }
 
 void InlineLoginHandler::HandleDialogClose(const base::ListValue* args) {
-  Browser* browser = GetDesktopBrowser(web_ui());
+  Browser* browser = signin::GetDesktopBrowser(web_ui());
   // If the dialog was opened in the User Manager browser will be null here.
   if (browser)
     browser->CloseModalSigninWindow();

@@ -253,7 +253,6 @@ class DebugSymbolsStageTest(generic_stages_unittest.AbstractStageTestCase,
 
   def setUp(self):
     self.StartPatcher(generic_stages_unittest.ArchivingStageMixinMock())
-    self.StartPatcher(parallel_unittest.ParallelMock())
 
     self.gen_mock = self.PatchObject(commands, 'GenerateBreakpadSymbols')
     self.upload_mock = self.PatchObject(commands, 'UploadSymbols')
@@ -291,8 +290,7 @@ class DebugSymbolsStageTest(generic_stages_unittest.AbstractStageTestCase,
     try:
       self.stage.PerformStage()
     except Exception:
-      self.stage._HandleStageException(sys.exc_info())
-      raise
+      return self.stage._HandleStageException(sys.exc_info())
 
   def testPerformStageWithSymbols(self):
     """Smoke test for an PerformStage when debugging is enabled"""
@@ -312,7 +310,8 @@ class DebugSymbolsStageTest(generic_stages_unittest.AbstractStageTestCase,
         'vm_tests': False,
         'upload_symbols': False,
     }
-    self._TestPerformStage(extra_config)
+    result = self._TestPerformStage(extra_config)
+    self.assertIsNone(result)
 
     self.assertEqual(self.gen_mock.call_count, 1)
     self.assertEqual(self.upload_mock.call_count, 0)
@@ -323,12 +322,12 @@ class DebugSymbolsStageTest(generic_stages_unittest.AbstractStageTestCase,
 
   def testGenerateCrashStillNotifies(self):
     """Crashes in symbol generation should still notify external events."""
-    self.skipTest('Test skipped due to crbug.com/363339')
     class TestError(Exception):
       """Unique test exception"""
 
     self.gen_mock.side_effect = TestError('mew')
-    self.assertRaises(TestError, self._TestPerformStage)
+    result = self._TestPerformStage()
+    self.assertIsInstance(result[0], failures_lib.InfrastructureFailure)
 
     self.assertEqual(self.gen_mock.call_count, 1)
     self.assertEqual(self.upload_mock.call_count, 0)
@@ -339,15 +338,10 @@ class DebugSymbolsStageTest(generic_stages_unittest.AbstractStageTestCase,
 
   def testUploadCrashStillNotifies(self):
     """Crashes in symbol upload should still notify external events."""
-    class TestError(failures_lib.CrashCollectionFailure):
-      """Unique test exception"""
-
-    self.upload_mock.side_effect = TestError('mew')
-    self.assertRaises(TestError, self._TestPerformStage)
-
-    self.assertEqual(self.gen_mock.call_count, 1)
-    self.assertEqual(self.upload_mock.call_count, 1)
-    self.assertEqual(self.tar_mock.call_count, 1)
+    self.upload_mock.side_effect = \
+        artifact_stages.DebugSymbolsUploadException('mew')
+    result = self._TestPerformStage()
+    self.assertIsInstance(result[0], failures_lib.InfrastructureFailure)
 
     self.assertBoardAttrEqual('breakpad_symbols_generated', True)
     self.assertBoardAttrEqual('debug_tarball_generated', True)

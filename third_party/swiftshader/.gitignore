@@ -1,0 +1,25 @@
+# Ignored folders #
+/lib/
+/obj/
+/bin/
+
+# Ignored files #
+*.obj
+*.lib
+*.log
+*.tlog
+*.exe
+*.ilk
+*.pdb
+*.sbr
+*.bsc
+*.dll
+*.res
+*.idb
+*.sdf
+*.suo
+*.o
+*.depend
+*.layout
+*.opensdf
+*.aps

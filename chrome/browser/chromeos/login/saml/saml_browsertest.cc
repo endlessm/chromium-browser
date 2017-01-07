@@ -42,11 +42,10 @@
 #include "chrome/browser/chromeos/settings/cros_settings.h"
 #include "chrome/browser/policy/test/local_policy_test_server.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/ui/webui/signin/get_auth_frame.h"
+#include "chrome/browser/ui/webui/signin/signin_utils.h"
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/chrome_switches.h"
-#include "chrome/common/extensions/features/feature_channel.h"
 #include "chrome/grit/generated_resources.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chromeos/chromeos_switches.h"
@@ -67,6 +66,8 @@
 #include "components/policy/core/common/policy_map.h"
 #include "components/policy/core/common/policy_switches.h"
 #include "components/policy/core/common/policy_types.h"
+#include "components/policy/policy_constants.h"
+#include "components/policy/proto/device_management_backend.pb.h"
 #include "components/user_manager/user.h"
 #include "components/user_manager/user_manager.h"
 #include "content/public/browser/browser_thread.h"
@@ -76,6 +77,7 @@
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/test_utils.h"
 #include "extensions/browser/guest_view/web_view/web_view_guest.h"
+#include "extensions/common/features/feature_channel.h"
 #include "google_apis/gaia/fake_gaia.h"
 #include "google_apis/gaia/gaia_constants.h"
 #include "google_apis/gaia/gaia_switches.h"
@@ -89,8 +91,6 @@
 #include "net/test/embedded_test_server/http_response.h"
 #include "net/url_request/url_request_context.h"
 #include "net/url_request/url_request_context_getter.h"
-#include "policy/policy_constants.h"
-#include "policy/proto/device_management_backend.pb.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -387,6 +387,19 @@ class SamlTest : public OobeBaseTest {
     ASSERT_TRUE(content::ExecuteScript(GetLoginUI()->GetWebContents(), js));
   }
 
+  void SetManualPasswords(const std::string& password,
+                          const std::string& confirm_password) {
+    std::string js =
+        "$('saml-confirm-password').$.passwordInput.value='$Password';"
+        "$('saml-confirm-password').$$('#confirmPasswordInput').value="
+        "    '$ConfirmPassword';"
+        "$('saml-confirm-password').$.inputForm.submit();";
+    base::ReplaceSubstringsAfterOffset(&js, 0, "$Password", password);
+    base::ReplaceSubstringsAfterOffset(&js, 0, "$ConfirmPassword",
+                                       confirm_password);
+    ASSERT_TRUE(content::ExecuteScript(GetLoginUI()->GetWebContents(), js));
+  }
+
   std::string WaitForAndGetFatalErrorMessage() {
     OobeScreenWaiter(OobeScreen::SCREEN_FATAL_ERROR).Wait();
     std::string message_element = "$('fatal-error-card')";
@@ -560,10 +573,12 @@ IN_PROC_BROWSER_TEST_F(SamlTest, ScrapedMultiple) {
 
   // Lands on confirm password screen.
   OobeScreenWaiter(OobeScreen::SCREEN_CONFIRM_PASSWORD).Wait();
+  JsExpect("!$('saml-confirm-password').manualInput");
 
   // Entering an unknown password should go back to the confirm password screen.
   SendConfirmPassword("wrong_password");
   OobeScreenWaiter(OobeScreen::SCREEN_CONFIRM_PASSWORD).Wait();
+  JsExpect("!$('saml-confirm-password').manualInput");
 
   // Either scraped password should be able to sign-in.
   content::WindowedNotificationObserver session_start_waiter(
@@ -582,8 +597,21 @@ IN_PROC_BROWSER_TEST_F(SamlTest, ScrapedNone) {
   SetSignFormField("Email", "fake_user");
   ExecuteJsInSigninFrame("document.getElementById('Submit').click();");
 
-  EXPECT_EQ(l10n_util::GetStringUTF8(IDS_LOGIN_FATAL_ERROR_NO_PASSWORD),
-            WaitForAndGetFatalErrorMessage());
+  // Lands on confirm password screen with manual input state.
+  OobeScreenWaiter(OobeScreen::SCREEN_CONFIRM_PASSWORD).Wait();
+  JsExpect("$('saml-confirm-password').manualInput");
+  // Entering passwords that don't match will make us land again in the same
+  // page.
+  SetManualPasswords("Test1", "Test2");
+  OobeScreenWaiter(OobeScreen::SCREEN_CONFIRM_PASSWORD).Wait();
+  JsExpect("$('saml-confirm-password').manualInput");
+
+  // Two matching passwords should let the user to sign in.
+  content::WindowedNotificationObserver session_start_waiter(
+      chrome::NOTIFICATION_SESSION_STARTED,
+      content::NotificationService::AllSources());
+  SetManualPasswords("Test1", "Test1");
+  session_start_waiter.Wait();
 }
 
 // Types |bob@example.com| into the GAIA login form but then authenticates as
@@ -642,12 +670,14 @@ IN_PROC_BROWSER_TEST_F(SamlTest, PasswordConfirmFlow) {
 
   // Lands on confirm password screen with no error message.
   OobeScreenWaiter(OobeScreen::SCREEN_CONFIRM_PASSWORD).Wait();
+  JsExpect("!$('saml-confirm-password').manualInput");
   JsExpect("!$('saml-confirm-password').$.passwordInput.isInvalid");
 
   // Enter an unknown password for the first time should go back to confirm
   // password screen with error message.
   SendConfirmPassword("wrong_password");
   OobeScreenWaiter(OobeScreen::SCREEN_CONFIRM_PASSWORD).Wait();
+  JsExpect("!$('saml-confirm-password').manualInput");
   JsExpect("$('saml-confirm-password').$.passwordInput.isInvalid");
 
   // Enter an unknown password 2nd time should go back fatal error message.
@@ -780,7 +810,7 @@ SAMLEnrollmentTest::~SAMLEnrollmentTest() {
 void SAMLEnrollmentTest::SetUp() {
   ASSERT_TRUE(temp_dir_.CreateUniqueTempDir());
   const base::FilePath policy_file =
-      temp_dir_.path().AppendASCII("policy.json");
+      temp_dir_.GetPath().AppendASCII("policy.json");
   ASSERT_EQ(static_cast<int>(strlen(kPolicy)),
             base::WriteFile(policy_file, kPolicy, strlen(kPolicy)));
 
@@ -1021,7 +1051,7 @@ void SAMLPolicyTest::SetSAMLOfflineSigninTimeLimitPolicy(int limit) {
   user_policy.Set(policy::key::kSAMLOfflineSigninTimeLimit,
                   policy::POLICY_LEVEL_MANDATORY, policy::POLICY_SCOPE_USER,
                   policy::POLICY_SOURCE_CLOUD,
-                  base::WrapUnique(new base::FundamentalValue(limit)), nullptr);
+                  base::MakeUnique<base::FundamentalValue>(limit), nullptr);
   provider_.UpdateChromePolicy(user_policy);
   base::RunLoop().RunUntilIdle();
 }

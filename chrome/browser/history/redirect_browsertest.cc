@@ -136,8 +136,8 @@ IN_PROC_BROWSER_TEST_F(RedirectTest, ClientEmptyReferer) {
   base::ScopedTempDir temp_directory;
   ASSERT_TRUE(temp_directory.CreateUniqueTempDir());
   base::FilePath temp_file;
-  ASSERT_TRUE(base::CreateTemporaryFileInDir(temp_directory.path(),
-                                             &temp_file));
+  ASSERT_TRUE(
+      base::CreateTemporaryFileInDir(temp_directory.GetPath(), &temp_file));
   ASSERT_EQ(static_cast<int>(file_redirect_contents.size()),
             base::WriteFile(temp_file,
                             file_redirect_contents.data(),
@@ -171,7 +171,7 @@ IN_PROC_BROWSER_TEST_F(RedirectTest, ClientCancelled) {
   // as client redirect and the redirect will be recoreded, which can cause
   // this test failed.
   content::SimulateMouseClick(web_contents, 0,
-      blink::WebMouseEvent::ButtonLeft);
+      blink::WebMouseEvent::Button::Left);
   navigation_observer.Wait();
 
   std::vector<GURL> redirects = GetRedirects(first_url);
@@ -282,13 +282,15 @@ IN_PROC_BROWSER_TEST_F(RedirectTest,
   content::TestNavigationObserver observer(web_contents, 2);
 
   ui_test_utils::NavigateToURLWithDisposition(
-      browser(), first_url, CURRENT_TAB, ui_test_utils::BROWSER_TEST_NONE);
+      browser(), first_url, WindowOpenDisposition::CURRENT_TAB,
+      ui_test_utils::BROWSER_TEST_NONE);
   // We don't sleep here - the first navigation won't have been committed yet
   // because we told the server to wait a minute. This means the browser has
   // started it's provisional load for the client redirect destination page but
   // hasn't completed. Our time is now!
   ui_test_utils::NavigateToURLWithDisposition(
-      browser(), final_url, CURRENT_TAB, ui_test_utils::BROWSER_TEST_NONE);
+      browser(), final_url, WindowOpenDisposition::CURRENT_TAB,
+      ui_test_utils::BROWSER_TEST_NONE);
   observer.Wait();
 
   // Check to make sure the navigation did in fact take place and we are

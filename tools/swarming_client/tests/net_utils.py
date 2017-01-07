@@ -1,19 +1,37 @@
-# Copyright 2014 The Swarming Authors. All rights reserved.
-# Use of this source code is governed under the Apache License, Version 2.0 that
-# can be found in the LICENSE file.
+# Copyright 2014 The LUCI Authors. All rights reserved.
+# Use of this source code is governed under the Apache License, Version 2.0
+# that can be found in the LICENSE file.
 
 import logging
 import os
 import sys
 import threading
 
-TEST_DIR = os.path.dirname(os.path.abspath(__file__))
+TEST_DIR = os.path.dirname(os.path.abspath(
+    __file__.decode(sys.getfilesystemencoding())))
 ROOT_DIR = os.path.dirname(TEST_DIR)
 sys.path.insert(0, ROOT_DIR)
 sys.path.insert(0, os.path.join(ROOT_DIR, 'third_party'))
 
 from depot_tools import auto_stub
 from utils import net
+
+
+def make_fake_response(content, url, headers=None):
+  """Returns HttpResponse with predefined content, useful in tests."""
+  headers = dict(headers or {})
+  headers['Content-Length'] = len(content)
+  class _Fake(object):
+    def __init__(self):
+      self.content = content
+    def iter_content(self, chunk_size):
+      c = self.content
+      while c:
+        yield c[:chunk_size]
+        c = c[chunk_size:]
+    def read(self):
+      return self.content
+  return net.HttpResponse(_Fake(), url, headers)
 
 
 class TestCase(auto_stub.TestCase):
@@ -71,7 +89,7 @@ class TestCase(auto_stub.TestCase):
           else:
             self.assertEqual(expected_kwargs, kwargs)
           if result is not None:
-            return net.HttpResponse.get_fake_response(result, url, headers)
+            return make_fake_response(result, url, headers)
           return None
     self.fail('Unknown request %s' % url)
 
@@ -95,4 +113,4 @@ class TestCase(auto_stub.TestCase):
           if result is not None:
             return result
           return None
-    self.fail('Unknown request %s' % url)
+    self.fail('Unknown request %s %s' % (url, kwargs))

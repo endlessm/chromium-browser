@@ -115,12 +115,11 @@ static void test_fontiter(skiatest::Reporter* reporter, bool verbose) {
 }
 
 static void test_matchStyleCSS3(skiatest::Reporter* reporter) {
-    static const SkFontID invalidFontID = std::numeric_limits<SkFontID>::max();
     static const SkFontStyle invalidFontStyle(101, SkFontStyle::kNormal_Width, SkFontStyle::kUpright_Slant);
 
     class TestTypeface : public SkTypeface {
     public:
-        TestTypeface(const SkFontStyle& fontStyle, SkFontID id) : SkTypeface(fontStyle, id, false){}
+        TestTypeface(const SkFontStyle& fontStyle) : SkTypeface(fontStyle, false){}
     protected:
         SkStreamAsset* onOpenStream(int* ttcIndex) const override { return nullptr; }
         SkScalerContext* onCreateScalerContext(const SkScalerContextEffects&,
@@ -139,8 +138,8 @@ static void test_matchStyleCSS3(skiatest::Reporter* reporter) {
             }
             return 0;
         }
-        int onCountGlyphs() const override { return 0; };
-        int onGetUPEM() const override { return 0; };
+        int onCountGlyphs() const override { return 0; }
+        int onGetUPEM() const override { return 0; }
         class EmptyLocalizedStrings : public SkTypeface::LocalizedStrings {
         public:
             bool next(SkTypeface::LocalizedString*) override { return false; }
@@ -150,7 +149,7 @@ static void test_matchStyleCSS3(skiatest::Reporter* reporter) {
         }
         SkTypeface::LocalizedStrings* onCreateFamilyNameIterator() const override {
             return new EmptyLocalizedStrings;
-        };
+        }
         int onGetTableTags(SkFontTableTag tags[]) const override { return 0; }
         size_t onGetTableData(SkFontTableTag, size_t, size_t, void*) const override {
             return 0;
@@ -168,9 +167,9 @@ static void test_matchStyleCSS3(skiatest::Reporter* reporter) {
         }
         SkTypeface* createTypeface(int index) override {
             if (index < 0 || this->count() <= index) {
-                return new TestTypeface(invalidFontStyle, invalidFontID);
+                return new TestTypeface(invalidFontStyle);
             }
-            return new TestTypeface(fStyles[index], index);
+            return new TestTypeface(fStyles[index]);
         }
         SkTypeface* matchStyle(const SkFontStyle& pattern) override {
             return this->matchStyleCSS3(pattern);

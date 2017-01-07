@@ -28,8 +28,8 @@ enum ShelfConstant {
   SHELF_INSETS_FOR_AUTO_HIDE
 };
 
-// Invalid image resource id used for ShelfItemDetails.
-extern const int kInvalidImageResourceID;
+// Invalid image resource id used for shelf items.
+const int kInvalidImageResourceID = -1;
 
 // We reserve a small area on the edge of the workspace area to ensure that
 // the resize handle at the edge of the window can be hit.
@@ -59,6 +59,9 @@ ASH_EXPORT extern const SkColor kShelfBaseColor;
 // TODO(bruthig|mohsen): Use of this color is temporary. Draw the active state
 // using the material design ripple animation.
 ASH_EXPORT extern const SkColor kShelfButtonActivatedHighlightColor;
+
+// Ink drop color for shelf items.
+extern const SkColor kShelfInkDropBaseColor;
 
 // Opacity of the ink drop ripple for shelf items when the ripple is visible.
 extern const float kShelfInkDropVisibleOpacity;

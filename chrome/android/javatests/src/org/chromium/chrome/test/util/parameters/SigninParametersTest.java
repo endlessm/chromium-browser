@@ -10,6 +10,7 @@ import org.chromium.base.test.util.DisabledTest;
 import org.chromium.base.test.util.EnormousTest;
 import org.chromium.base.test.util.FlakyTest;
 import org.chromium.base.test.util.Restriction;
+import org.chromium.base.test.util.RetryOnFailure;
 import org.chromium.base.test.util.parameter.Parameter;
 import org.chromium.base.test.util.parameter.ParameterizedTest;
 import org.chromium.chrome.browser.ChromeActivity;
@@ -18,6 +19,7 @@ import org.chromium.chrome.test.ChromeActivityTestCaseBase;
 /**
  * Tester class for implementation of Signin testing and ParameterizedTest.
  */
+@RetryOnFailure
 public class SigninParametersTest extends ChromeActivityTestCaseBase<ChromeActivity> {
     private static final String GOOGLE_ACCOUNT_USERNAME = "chromiumforandroid01@gmail.com";
     private static final String GOOGLE_ACCOUNT_PASSWORD = "chromeforandroid";
@@ -55,9 +57,8 @@ public class SigninParametersTest extends ChromeActivityTestCaseBase<ChromeActiv
     @SmallTest
     @ParameterizedTest(parameters = {
             @Parameter(tag = AddFakeAccountToAppParameter.PARAMETER_TAG)})
-    crbug.com/524189
     */
-    @DisabledTest
+    @DisabledTest(message = "crbug.com/524189")
     public void testIsSignedInOnApp() {
         assertTrue("Should not be signed into app.",
                 mAddFakeAccountToAppParameter.isSignedIn());
@@ -106,9 +107,8 @@ public class SigninParametersTest extends ChromeActivityTestCaseBase<ChromeActiv
     @ParameterizedTest(parameters = {
             @Parameter(tag = AddFakeAccountToAppParameter.PARAMETER_TAG),
             @Parameter(tag = AddFakeAccountToOsParameter.PARAMETER_TAG)})
-    crbug.com/524189
     */
-    @DisabledTest
+    @DisabledTest(message = "crbug.com/524189")
     public void testIsSignedInOnFakeOSandApp() {
         assertTrue("Should be signed in on app.",
                 mAddFakeAccountToAppParameter.isSignedIn());
@@ -133,9 +133,8 @@ public class SigninParametersTest extends ChromeActivityTestCaseBase<ChromeActiv
                             @Parameter.Argument(
                                     name = AddGoogleAccountToOsParameter.ARGUMENT.PASSWORD,
                                     stringVar = GOOGLE_ACCOUNT_PASSWORD)})})
-    crbug.com/524189
     */
-    @DisabledTest
+    @DisabledTest(message = "crbug.com/524189")
     public void testIsSignedInOnAppAndGoogleOS() {
         assertTrue("Should be signed into app.",
                 mAddFakeAccountToAppParameter.isSignedIn());
@@ -184,9 +183,8 @@ public class SigninParametersTest extends ChromeActivityTestCaseBase<ChromeActiv
                             @Parameter.Argument(
                                     name = AddGoogleAccountToOsParameter.ARGUMENT.PASSWORD,
                                     stringVar = GOOGLE_ACCOUNT_PASSWORD)})})
-    crbug.com/524189
     */
-    @DisabledTest
+    @DisabledTest(message = "crbug.com/524189")
     public void testIsSignedInOnAppAndFakeOSandGoogleOS() {
         assertTrue("Should be signed into app.",
                 mAddFakeAccountToAppParameter.isSignedIn());

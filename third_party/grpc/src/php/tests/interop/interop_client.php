@@ -54,6 +54,15 @@ function hardAssert($value, $error_message)
     }
 }
 
+function hardAssertIfStatusOk($status)
+{
+    if ($status->code !== Grpc\STATUS_OK) {
+        echo "Call did not complete successfully. Status object:\n";
+        var_dump($status);
+        exit(1);
+    }
+}
+
 /**
  * Run the empty_unary test.
  *
@@ -62,7 +71,7 @@ function hardAssert($value, $error_message)
 function emptyUnary($stub)
 {
     list($result, $status) = $stub->EmptyCall(new grpc\testing\EmptyMessage())->wait();
-    hardAssert($status->code === Grpc\STATUS_OK, 'Call did not complete successfully');
+    hardAssertIfStatusOk($status);
     hardAssert($result !== null, 'Call completed with a null response');
 }
 
@@ -99,13 +108,13 @@ function performLargeUnary($stub, $fillUsername = false, $fillOauthScope = false
     $request->setFillUsername($fillUsername);
     $request->setFillOauthScope($fillOauthScope);
 
-    $options = false;
+    $options = [];
     if ($callback) {
         $options['call_credentials_callback'] = $callback;
     }
 
     list($result, $status) = $stub->UnaryCall($request, [], $options)->wait();
-    hardAssert($status->code === Grpc\STATUS_OK, 'Call did not complete successfully');
+    hardAssertIfStatusOk($status);
     hardAssert($result !== null, 'Call returned a null response');
     $payload = $result->getPayload();
     hardAssert($payload->getType() === grpc\testing\PayloadType::COMPRESSABLE,
@@ -197,7 +206,12 @@ function updateAuthMetadataCallback($context)
     $methodName = $context->method_name;
     $auth_credentials = ApplicationDefaultCredentials::getCredentials();
 
-    return $auth_credentials->updateMetadata($metadata = [], $authUri);
+    $metadata = [];
+    $result = $auth_credentials->updateMetadata([], $authUri);
+    foreach ($result as $key => $value) {
+      $metadata[strtolower($key)] = $value;
+    }
+    return $metadata;
 }
 
 /**
@@ -242,7 +256,7 @@ function clientStreaming($stub)
         $call->write($request);
     }
     list($result, $status) = $call->wait();
-    hardAssert($status->code === Grpc\STATUS_OK, 'Call did not complete successfully');
+    hardAssertIfStatusOk($status);
     hardAssert($result->getAggregatedPayloadSize() === 74922,
               'aggregated_payload_size was incorrect');
 }
@@ -275,8 +289,7 @@ function serverStreaming($stub)
                 'Response '.$i.' had the wrong length');
         $i += 1;
     }
-    hardAssert($call->getStatus()->code === Grpc\STATUS_OK,
-             'Call did not complete successfully');
+    hardAssertIfStatusOk($call->getStatus());
 }
 
 /**
@@ -312,8 +325,7 @@ function pingPong($stub)
     }
     $call->writesDone();
     hardAssert($call->read() === null, 'Server returned too many responses');
-    hardAssert($call->getStatus()->code === Grpc\STATUS_OK,
-              'Call did not complete successfully');
+    hardAssertIfStatusOk($call->getStatus());
 }
 
 /**
@@ -326,8 +338,7 @@ function emptyStream($stub)
     $call = $stub->FullDuplexCall();
     $call->writesDone();
     hardAssert($call->read() === null, 'Server returned too many responses');
-    hardAssert($call->getStatus()->code === Grpc\STATUS_OK,
-             'Call did not complete successfully');
+    hardAssertIfStatusOk($call->getStatus());
 }
 
 /**
@@ -386,6 +397,101 @@ function timeoutOnSleepingServer($stub)
 
     hardAssert($call->getStatus()->code === Grpc\STATUS_DEADLINE_EXCEEDED,
              'Call status was not DEADLINE_EXCEEDED');
+}
+
+function customMetadata($stub)
+{
+    $ECHO_INITIAL_KEY = 'x-grpc-test-echo-initial';
+    $ECHO_INITIAL_VALUE = 'test_initial_metadata_value';
+    $ECHO_TRAILING_KEY = 'x-grpc-test-echo-trailing-bin';
+    $ECHO_TRAILING_VALUE = 'ababab';
+    $request_len = 271828;
+    $response_len = 314159;
+
+    $request = new grpc\testing\SimpleRequest();
+    $request->setResponseType(grpc\testing\PayloadType::COMPRESSABLE);
+    $request->setResponseSize($response_len);
+    $payload = new grpc\testing\Payload();
+    $payload->setType(grpc\testing\PayloadType::COMPRESSABLE);
+    $payload->setBody(str_repeat("\0", $request_len));
+    $request->setPayload($payload);
+
+    $metadata = [
+        $ECHO_INITIAL_KEY => [$ECHO_INITIAL_VALUE],
+        $ECHO_TRAILING_KEY => [$ECHO_TRAILING_VALUE],
+    ];
+    $call = $stub->UnaryCall($request, $metadata);
+
+    $initial_metadata = $call->getMetadata();
+    hardAssert(array_key_exists($ECHO_INITIAL_KEY, $initial_metadata),
+               'Initial metadata does not contain expected key');
+    hardAssert($initial_metadata[$ECHO_INITIAL_KEY][0] ==
+               $ECHO_INITIAL_VALUE,
+               'Incorrect initial metadata value');
+
+    list($result, $status) = $call->wait();
+    hardAssertIfStatusOk($status);
+
+    $trailing_metadata = $call->getTrailingMetadata();
+    hardAssert(array_key_exists($ECHO_TRAILING_KEY, $trailing_metadata),
+               'Trailing metadata does not contain expected key');
+    hardAssert($trailing_metadata[$ECHO_TRAILING_KEY][0] ==
+               $ECHO_TRAILING_VALUE, 'Incorrect trailing metadata value');
+
+    $streaming_call = $stub->FullDuplexCall($metadata);
+
+    $streaming_request = new grpc\testing\StreamingOutputCallRequest();
+    $streaming_request->setPayload($payload);
+    $streaming_call->write($streaming_request);
+    $streaming_call->writesDone();
+
+    hardAssertIfStatusOk($streaming_call->getStatus());
+
+    $streaming_trailing_metadata = $streaming_call->getTrailingMetadata();
+    hardAssert(array_key_exists($ECHO_TRAILING_KEY,
+                                $streaming_trailing_metadata),
+               'Trailing metadata does not contain expected key');
+    hardAssert($streaming_trailing_metadata[$ECHO_TRAILING_KEY][0] ==
+               $ECHO_TRAILING_VALUE, 'Incorrect trailing metadata value');
+}
+
+function statusCodeAndMessage($stub)
+{
+    $echo_status = new grpc\testing\EchoStatus();
+    $echo_status->setCode(2);
+    $echo_status->setMessage('test status message');
+
+    $request = new grpc\testing\SimpleRequest();
+    $request->setResponseStatus($echo_status);
+
+    $call = $stub->UnaryCall($request);
+    list($result, $status) = $call->wait();
+
+    hardAssert($status->code === 2,
+               'Received unexpected status code');
+    hardAssert($status->details === 'test status message',
+               'Received unexpected status details');
+
+    $streaming_call = $stub->FullDuplexCall();
+
+    $streaming_request = new grpc\testing\StreamingOutputCallRequest();
+    $streaming_request->setResponseStatus($echo_status);
+    $streaming_call->write($streaming_request);
+    $streaming_call->writesDone();
+
+    $status = $streaming_call->getStatus();
+    hardAssert($status->code === 2,
+               'Received unexpected status code');
+    hardAssert($status->details === 'test status message',
+               'Received unexpected status details');
+}
+
+function unimplementedMethod($stub)
+{
+    $call = $stub->UnimplementedCall(new grpc\testing\EmptyMessage());
+    list($result, $status) = $call->wait();
+    hardAssert($status->code === Grpc\STATUS_UNIMPLEMENTED,
+               'Received unexpected status code');
 }
 
 function _makeStub($args)
@@ -472,12 +578,17 @@ function _makeStub($args)
         $opts['update_metadata'] = $update_metadata;
     }
 
-    $stub = new grpc\testing\TestServiceClient($server_address, $opts);
+    if ($test_case == 'unimplemented_method') {
+        $stub = new grpc\testing\UnimplementedServiceClient($server_address, $opts);
+    } else {
+        $stub = new grpc\testing\TestServiceClient($server_address, $opts);
+    }
 
     return $stub;
 }
 
-function interop_main($args, $stub = false) {
+function interop_main($args, $stub = false)
+{
     if (!$stub) {
         $stub = _makeStub($args);
     }
@@ -512,6 +623,15 @@ function interop_main($args, $stub = false) {
             break;
         case 'timeout_on_sleeping_server':
             timeoutOnSleepingServer($stub);
+            break;
+        case 'custom_metadata':
+            customMetadata($stub);
+            break;
+        case 'status_code_and_message':
+            statusCodeAndMessage($stub);
+            break;
+        case 'unimplemented_method':
+            unimplementedMethod($stub);
             break;
         case 'service_account_creds':
             serviceAccountCreds($stub, $args);

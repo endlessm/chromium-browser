@@ -7,7 +7,6 @@
 # Chrome Application dir entries, sorted alphabetically.
 #
 chrome.exe: %(ChromeDir)s\
-wow_helper.exe: %(ChromeDir)s\
 #
 # Chrome version dir assembly manifest.
 # The name of this file must match the name of the version dir, so we cannot
@@ -46,13 +45,23 @@ Extensions\*.*: %(VersionDir)s\Extensions\
 locales\*.dll: %(VersionDir)s\Locales
 locales\*.pak: %(VersionDir)s\Locales
 
+#
+# VisualElements sub-dir.
+#
+# All or none of the following files need to be present as the creation of
+# VisualElementsManifest.xml is based on the existence of
+# %(VersionDir)\VisualElements.
+Logo.png: %(VersionDir)s\VisualElements\
+LogoCanary.png: %(VersionDir)s\VisualElements\
+SmallLogo.png: %(VersionDir)s\VisualElements\
+SmallLogoCanary.png: %(VersionDir)s\VisualElements\
+
 [HIDPI]
 chrome_200_percent.pak: %(VersionDir)s\
 
 [TOUCH]
 
 [GOOGLE_CHROME]
-SecondaryTile.png: %(VersionDir)s\
 #
 # Widevine CDM sub-dir
 #
@@ -61,17 +70,3 @@ WidevineCdm\_platform_specific\win_x86\widevinecdm.dll: %(VersionDir)s\WidevineC
 WidevineCdm\_platform_specific\win_x86\widevinecdmadapter.dll: %(VersionDir)s\WidevineCdm\_platform_specific\win_x86\
 WidevineCdm\_platform_specific\win_x64\widevinecdm.dll: %(VersionDir)s\WidevineCdm\_platform_specific\win_x64\
 WidevineCdm\_platform_specific\win_x64\widevinecdmadapter.dll: %(VersionDir)s\WidevineCdm\_platform_specific\win_x64\
-#
-# Pepper Flash sub-dir.
-#
-PepperFlash\manifest.json: %(VersionDir)s\PepperFlash\
-PepperFlash\pepflashplayer.dll: %(VersionDir)s\PepperFlash\
-#
-# Win8 sub-dir.
-#
-# All or none of the following 3 files need to be present as the creation of
-# VisualElementsManifest.xml is based on the existence of
-# %(VersionDir)\VisualElements. On a similar note, no other files should be
-# packaged in this directory.
-Logo.png: %(VersionDir)s\VisualElements\
-SmallLogo.png: %(VersionDir)s\VisualElements\

@@ -6,6 +6,7 @@
 
 #include <stdint.h>
 
+#include <map>
 #include <set>
 #include <string>
 
@@ -65,7 +66,7 @@
 #include "components/bookmarks/browser/bookmark_model.h"
 #include "components/bookmarks/browser/startup_task_runner_service.h"
 #include "components/bookmarks/common/bookmark_pref_names.h"
-#include "components/browser_sync/browser/profile_sync_service.h"
+#include "components/browser_sync/profile_sync_service.h"
 #include "components/content_settings/core/browser/host_content_settings_map.h"
 #include "components/invalidation/impl/profile_invalidation_provider.h"
 #include "components/invalidation/public/invalidation_service.h"
@@ -80,6 +81,7 @@
 #include "components/signin/core/browser/signin_manager.h"
 #include "components/signin/core/common/profile_management_switches.h"
 #include "components/signin/core/common/signin_pref_names.h"
+#include "components/sync/base/stop_source.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/user_metrics.h"
@@ -88,7 +90,6 @@
 #include "net/url_request/url_request_context.h"
 #include "net/url_request/url_request_context_getter.h"
 #include "net/url_request/url_request_job.h"
-#include "sync/internal_api/public/base/stop_source.h"
 #include "ui/base/l10n/l10n_util.h"
 
 #if defined(ENABLE_EXTENSIONS)
@@ -107,8 +108,7 @@
 #endif
 
 #if defined(OS_ANDROID)
-#include "chrome/browser/ntp_snippets/ntp_snippets_service_factory.h"
-#include "components/ntp_snippets/ntp_snippets_service.h"
+#include "chrome/browser/ntp_snippets/content_suggestions_service_factory.h"
 #endif
 
 #if defined(OS_CHROMEOS)
@@ -131,9 +131,18 @@ using content::BrowserThread;
 
 namespace {
 
-// Profiles that should be deleted on shutdown.
-std::vector<base::FilePath>& ProfilesToDelete() {
-  CR_DEFINE_STATIC_LOCAL(std::vector<base::FilePath>, profiles_to_delete, ());
+// Profile deletion can pass through two stages:
+enum class ProfileDeletionStage {
+  // At SCHEDULING stage some actions are made before profile deletion,
+  // where one of them is the closure of browser windows. Deletion is cancelled
+  // if the user choose explicitly not to close any of the tabs.
+  SCHEDULING,
+  // At MARKED stage profile can be safely removed from disk.
+  MARKED
+};
+using ProfileDeletionMap = std::map<base::FilePath, ProfileDeletionStage>;
+ProfileDeletionMap& ProfilesToDelete() {
+  CR_DEFINE_STATIC_LOCAL(ProfileDeletionMap, profiles_to_delete, ());
   return profiles_to_delete;
 }
 
@@ -202,14 +211,35 @@ void ProfileSizeTask(const base::FilePath& path, int enabled_app_count) {
 }
 
 #if !defined(OS_ANDROID)
-void QueueProfileDirectoryForDeletion(const base::FilePath& path) {
-  ProfilesToDelete().push_back(path);
+// Schedule a profile for deletion if it isn't already scheduled.
+// Returns whether the profile has been newly scheduled.
+bool ScheduleProfileDirectoryForDeletion(const base::FilePath& path) {
+  if (ContainsKey(ProfilesToDelete(), path))
+    return false;
+  ProfilesToDelete()[path] = ProfileDeletionStage::SCHEDULING;
+  return true;
+}
+
+void MarkProfileDirectoryForDeletion(const base::FilePath& path) {
+  DCHECK(!ContainsKey(ProfilesToDelete(), path) ||
+         ProfilesToDelete()[path] == ProfileDeletionStage::SCHEDULING);
+  ProfilesToDelete()[path] = ProfileDeletionStage::MARKED;
+}
+
+// Cancel a scheduling deletion, so ScheduleProfileDirectoryForDeletion can be
+// called again successfully.
+void CancelProfileDeletion(const base::FilePath& path) {
+  DCHECK(!ContainsKey(ProfilesToDelete(), path) ||
+         ProfilesToDelete()[path] == ProfileDeletionStage::SCHEDULING);
+  ProfilesToDelete().erase(path);
+  ProfileMetrics::LogProfileDeleteUser(ProfileMetrics::DELETE_PROFILE_ABORTED);
 }
 #endif
 
-bool IsProfileMarkedForDeletion(const base::FilePath& profile_path) {
-  return std::find(ProfilesToDelete().begin(), ProfilesToDelete().end(),
-      profile_path) != ProfilesToDelete().end();
+bool IsProfileDirectoryMarkedForDeletion(const base::FilePath& profile_path) {
+  auto it = ProfilesToDelete().find(profile_path);
+  return it != ProfilesToDelete().end() &&
+         it->second == ProfileDeletionStage::MARKED;
 }
 
 // Physically remove deleted profile directories from disk.
@@ -334,11 +364,9 @@ void ProfileManager::ShutdownSessionServices() {
 
 // static
 void ProfileManager::NukeDeletedProfilesFromDisk() {
-  for (std::vector<base::FilePath>::iterator it =
-          ProfilesToDelete().begin();
-       it != ProfilesToDelete().end();
-       ++it) {
-    NukeProfileFromDisk(*it);
+  for (const auto& item : ProfilesToDelete()) {
+    if (item.second == ProfileDeletionStage::MARKED)
+      NukeProfileFromDisk(item.first);
   }
   ProfilesToDelete().clear();
 }
@@ -352,6 +380,8 @@ Profile* ProfileManager::GetLastUsedProfile() {
 // static
 Profile* ProfileManager::GetLastUsedProfileAllowedByPolicy() {
   Profile* profile = GetLastUsedProfile();
+  if (!profile)
+    return nullptr;
   if (IncognitoModeForced(profile))
     return profile->GetOffTheRecordProfile();
   return profile;
@@ -468,7 +498,7 @@ void ProfileManager::CreateProfileAsync(
                profile_path.AsUTF8Unsafe());
 
   // Make sure that this profile is not pending deletion.
-  if (IsProfileMarkedForDeletion(profile_path)) {
+  if (IsProfileDirectoryMarkedForDeletion(profile_path)) {
     if (!callback.is_null())
       callback.Run(NULL, Profile::CREATE_STATUS_LOCAL_FAIL);
     return;
@@ -732,99 +762,42 @@ ProfileShortcutManager* ProfileManager::profile_shortcut_manager() {
 }
 
 #if !defined(OS_ANDROID)
-bool ProfileManager::MaybeScheduleProfileForDeletion(
+void ProfileManager::MaybeScheduleProfileForDeletion(
     const base::FilePath& profile_dir,
     const CreateCallback& callback,
     ProfileMetrics::ProfileDelete deletion_source) {
-  if (IsProfileMarkedForDeletion(profile_dir))
-    return false;
-  ScheduleProfileForDeletion(profile_dir, callback);
+  if (!ScheduleProfileDirectoryForDeletion(profile_dir))
+    return;
   ProfileMetrics::LogProfileDeleteUser(deletion_source);
-  return true;
+  ScheduleProfileForDeletion(profile_dir, callback);
 }
 
 void ProfileManager::ScheduleProfileForDeletion(
-    const base::FilePath& profile_dir,
-    const CreateCallback& callback) {
+    const base::FilePath& profile_dir, const CreateCallback& callback) {
   DCHECK(profiles::IsMultipleProfilesEnabled());
-  DCHECK(!IsProfileMarkedForDeletion(profile_dir));
+  DCHECK(!IsProfileDirectoryMarkedForDeletion(profile_dir));
 
-  // Cancel all in-progress downloads before deleting the profile to prevent a
-  // "Do you want to exit Google Chrome and cancel the downloads?" prompt
-  // (crbug.com/336725).
   Profile* profile = GetProfileByPath(profile_dir);
   if (profile) {
+    // Cancel all in-progress downloads before deleting the profile to prevent a
+    // "Do you want to exit Google Chrome and cancel the downloads?" prompt
+    // (crbug.com/336725).
     DownloadService* service =
         DownloadServiceFactory::GetForBrowserContext(profile);
     service->CancelDownloads();
+    DCHECK_EQ(0, service->NonMaliciousDownloadCount());
+
+    // Close all browser windows before deleting the profile. If the user
+    // cancels the closing of any tab in an OnBeforeUnload event, profile
+    // deletion is also cancelled. (crbug.com/289390)
+    BrowserList::CloseAllBrowsersWithProfile(
+        profile,
+        base::Bind(&ProfileManager::EnsureActiveProfileExistsBeforeDeletion,
+                   base::Unretained(this), callback),
+        base::Bind(&CancelProfileDeletion));
+  } else {
+    EnsureActiveProfileExistsBeforeDeletion(callback, profile_dir);
   }
-
-  ProfileAttributesStorage& storage = GetProfileAttributesStorage();
-  // If we're deleting the last (non-legacy-supervised) profile, then create a
-  // new profile in its place.
-  base::FilePath last_non_supervised_profile_path;
-  std::vector<ProfileAttributesEntry*> entries =
-      storage.GetAllProfilesAttributes();
-  for (ProfileAttributesEntry* entry : entries) {
-    base::FilePath cur_path = entry->GetPath();
-    // Make sure that this profile is not pending deletion, and is not
-    // legacy-supervised.
-    if (cur_path != profile_dir &&
-        !entry->IsLegacySupervised() &&
-        !IsProfileMarkedForDeletion(cur_path)) {
-      last_non_supervised_profile_path = cur_path;
-      break;
-    }
-  }
-
-  if (last_non_supervised_profile_path.empty()) {
-    std::string new_avatar_url;
-    base::string16 new_profile_name;
-
-#if !defined(OS_CHROMEOS) && !defined(OS_ANDROID)
-    int avatar_index = profiles::GetPlaceholderAvatarIndex();
-    new_avatar_url = profiles::GetDefaultAvatarIconUrl(avatar_index);
-    new_profile_name = storage.ChooseNameForNewProfile(avatar_index);
-#endif
-
-    base::FilePath new_path(GenerateNextProfileDirectoryPath());
-    CreateProfileAsync(new_path,
-                       base::Bind(&ProfileManager::OnNewActiveProfileLoaded,
-                                  base::Unretained(this),
-                                  profile_dir,
-                                  new_path,
-                                  callback),
-                       new_profile_name,
-                       new_avatar_url,
-                       std::string());
-
-    ProfileMetrics::LogProfileAddNewUser(
-        ProfileMetrics::ADD_NEW_USER_LAST_DELETED);
-    return;
-  }
-
-#if defined(OS_MACOSX)
-  // On the Mac, the browser process is not killed when all browser windows are
-  // closed, so just in case we are deleting the active profile, and no other
-  // profile has been loaded, we must pre-load a next one.
-  const base::FilePath last_used_profile =
-      GetLastUsedProfileDir(user_data_dir_);
-  if (last_used_profile == profile_dir ||
-      last_used_profile == GetGuestProfilePath()) {
-    CreateProfileAsync(last_non_supervised_profile_path,
-                       base::Bind(&ProfileManager::OnNewActiveProfileLoaded,
-                                  base::Unretained(this),
-                                  profile_dir,
-                                  last_non_supervised_profile_path,
-                                  callback),
-                       base::string16(),
-                       std::string(),
-                       std::string());
-    return;
-  }
-#endif  // defined(OS_MACOSX)
-
-  FinishDeletingProfile(profile_dir, last_non_supervised_profile_path);
 }
 #endif  // !defined(OS_ANDROID)
 
@@ -1227,7 +1200,7 @@ void ProfileManager::DoFinalInitForServices(Profile* profile,
 
 #if defined(OS_ANDROID)
   // Service is responsible for fetching content snippets for the NTP.
-  NTPSnippetsServiceFactory::GetForProfile(profile);
+  ContentSuggestionsServiceFactory::GetForProfile(profile);
 #endif
 }
 
@@ -1336,6 +1309,76 @@ Profile* ProfileManager::CreateAndInitializeProfile(
 }
 
 #if !defined(OS_ANDROID)
+void ProfileManager::EnsureActiveProfileExistsBeforeDeletion(
+    const CreateCallback& callback, const base::FilePath& profile_dir) {
+  ProfileAttributesStorage& storage = GetProfileAttributesStorage();
+  // If we're deleting the last (non-legacy-supervised) profile, then create a
+  // new profile in its place.
+  base::FilePath last_non_supervised_profile_path;
+  std::vector<ProfileAttributesEntry*> entries =
+      storage.GetAllProfilesAttributes();
+  for (ProfileAttributesEntry* entry : entries) {
+    base::FilePath cur_path = entry->GetPath();
+    // Make sure that this profile is not pending deletion, and is not
+    // legacy-supervised.
+    if (cur_path != profile_dir &&
+        !entry->IsLegacySupervised() &&
+        !IsProfileDirectoryMarkedForDeletion(cur_path)) {
+      last_non_supervised_profile_path = cur_path;
+      break;
+    }
+  }
+
+  if (last_non_supervised_profile_path.empty()) {
+    std::string new_avatar_url;
+    base::string16 new_profile_name;
+
+#if !defined(OS_CHROMEOS) && !defined(OS_ANDROID)
+    int avatar_index = profiles::GetPlaceholderAvatarIndex();
+    new_avatar_url = profiles::GetDefaultAvatarIconUrl(avatar_index);
+    new_profile_name = storage.ChooseNameForNewProfile(avatar_index);
+#endif
+
+    base::FilePath new_path(GenerateNextProfileDirectoryPath());
+    CreateProfileAsync(new_path,
+                       base::Bind(&ProfileManager::OnNewActiveProfileLoaded,
+                                  base::Unretained(this),
+                                  profile_dir,
+                                  new_path,
+                                  callback),
+                       new_profile_name,
+                       new_avatar_url,
+                       std::string());
+
+    ProfileMetrics::LogProfileAddNewUser(
+        ProfileMetrics::ADD_NEW_USER_LAST_DELETED);
+    return;
+  }
+
+#if defined(OS_MACOSX)
+  // On the Mac, the browser process is not killed when all browser windows are
+  // closed, so just in case we are deleting the active profile, and no other
+  // profile has been loaded, we must pre-load a next one.
+  const base::FilePath last_used_profile =
+      GetLastUsedProfileDir(user_data_dir_);
+  if (last_used_profile == profile_dir ||
+      last_used_profile == GetGuestProfilePath()) {
+    CreateProfileAsync(last_non_supervised_profile_path,
+                       base::Bind(&ProfileManager::OnNewActiveProfileLoaded,
+                                  base::Unretained(this),
+                                  profile_dir,
+                                  last_non_supervised_profile_path,
+                                  callback),
+                       base::string16(),
+                       std::string(),
+                       std::string());
+    return;
+  }
+#endif  // defined(OS_MACOSX)
+
+  FinishDeletingProfile(profile_dir, last_non_supervised_profile_path);
+}
+
 void ProfileManager::FinishDeletingProfile(
     const base::FilePath& profile_dir,
     const base::FilePath& new_active_profile_dir) {
@@ -1357,16 +1400,10 @@ void ProfileManager::FinishDeletingProfile(
         content::Source<Profile>(profile),
         content::NotificationService::NoDetails());
 
-    // By this point, all in-progress downloads for the profile being deleted
-    // must have been canceled (crbug.com/336725).
-    DCHECK(DownloadServiceFactory::GetForBrowserContext(profile)->
-               NonMaliciousDownloadCount() == 0);
-    BrowserList::CloseAllBrowsersWithProfile(profile);
-
     // Disable sync for doomed profile.
     if (ProfileSyncServiceFactory::GetInstance()->HasProfileSyncService(
             profile)) {
-      ProfileSyncService* sync_service =
+      browser_sync::ProfileSyncService* sync_service =
           ProfileSyncServiceFactory::GetInstance()->GetForProfile(profile);
       if (sync_service->IsSyncRequested()) {
         // Record sync stopped by profile destruction if it was on before.
@@ -1375,8 +1412,9 @@ void ProfileManager::FinishDeletingProfile(
                                   syncer::STOP_SOURCE_LIMIT);
       }
       // Ensure data is cleared even if sync was already off.
-      ProfileSyncServiceFactory::GetInstance()->GetForProfile(
-          profile)->RequestStop(ProfileSyncService::CLEAR_DATA);
+      ProfileSyncServiceFactory::GetInstance()
+          ->GetForProfile(profile)
+          ->RequestStop(browser_sync::ProfileSyncService::CLEAR_DATA);
     }
 
     ProfileAttributesEntry* entry;
@@ -1404,7 +1442,7 @@ void ProfileManager::FinishDeletingProfile(
 
   // Queue even a profile that was nuked so it will be MarkedForDeletion and so
   // CreateProfileAsync can't create it.
-  QueueProfileDirectoryForDeletion(profile_dir);
+  MarkProfileDirectoryForDeletion(profile_dir);
   storage.RemoveProfile(profile_dir);
   ProfileMetrics::UpdateReportedProfilesStatistics(this);
 }
@@ -1491,9 +1529,8 @@ void ProfileManager::SetNonPersonalProfilePrefs(Profile* profile) {
 
 bool ProfileManager::ShouldGoOffTheRecord(Profile* profile) {
 #if defined(OS_CHROMEOS)
-  if (profile->GetPath().BaseName().value() == chrome::kInitialProfile) {
+  if (chromeos::ProfileHelper::IsSigninProfile(profile))
     return true;
-  }
 #endif
   return profile->IsGuestSession() || profile->IsSystemProfile();
 }
@@ -1568,7 +1605,7 @@ void ProfileManager::BrowserListObserver::OnBrowserRemoved(
   }
 
   base::FilePath path = profile->GetPath();
-  if (IsProfileMarkedForDeletion(path)) {
+  if (IsProfileDirectoryMarkedForDeletion(path)) {
     // Do nothing if the profile is already being deleted.
   } else if (profile->GetPrefs()->GetBoolean(prefs::kForceEphemeralProfiles)) {
     // Delete if the profile is an ephemeral profile.
@@ -1619,11 +1656,12 @@ void ProfileManager::OnNewActiveProfileLoaded(
   if (status != Profile::CREATE_STATUS_INITIALIZED)
     return;
 
-  if (IsProfileMarkedForDeletion(new_active_profile_path)) {
+  if (IsProfileDirectoryMarkedForDeletion(new_active_profile_path)) {
     // If the profile we tried to load as the next active profile has been
     // deleted, then retry deleting this profile to redo the logic to load
     // the next available profile.
-    ScheduleProfileForDeletion(profile_to_delete_path, original_callback);
+    EnsureActiveProfileExistsBeforeDeletion(original_callback,
+                                            profile_to_delete_path);
     return;
   }
 

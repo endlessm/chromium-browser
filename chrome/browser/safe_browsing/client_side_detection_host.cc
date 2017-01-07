@@ -5,12 +5,13 @@
 #include "chrome/browser/safe_browsing/client_side_detection_host.h"
 
 #include <memory>
+#include <utility>
 #include <vector>
 
 #include "base/logging.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
-#include "base/metrics/histogram.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/sequenced_task_runner_helpers.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/browser_process.h"
@@ -417,13 +418,10 @@ void ClientSideDetectionHost::OnSafeBrowsingHit(
     return;
 
   // Check that this notification is really for us.
-  content::RenderFrameHost* hit_rfh = content::RenderFrameHost::FromID(
-      resource.render_process_host_id, resource.render_frame_id);
-  if (!hit_rfh ||
-      web_contents() != content::WebContents::FromRenderFrameHost(hit_rfh))
+  if (web_contents() != resource.web_contents_getter.Run())
     return;
 
-  NavigationEntry *entry = resource.GetNavigationEntryForResource();
+  NavigationEntry* entry = resource.GetNavigationEntryForResource();
   if (!entry)
     return;
 
@@ -532,7 +530,7 @@ void ClientSideDetectionHost::OnPhishingDetectionDone(
     // through.
     if (verdict->is_phishing() || DidShowSBInterstitial()) {
       if (DidShowSBInterstitial()) {
-        browse_info_->unsafe_resource.reset(unsafe_resource_.release());
+        browse_info_->unsafe_resource = std::move(unsafe_resource_);
       }
       // Start browser-side feature extraction.  Once we're done it will send
       // the client verdict request.
@@ -563,9 +561,10 @@ void ClientSideDetectionHost::MaybeShowPhishingWarning(GURL phishing_url,
       resource.threat_type = SB_THREAT_TYPE_CLIENT_SIDE_PHISHING_URL;
       resource.threat_source =
           safe_browsing::ThreatSource::CLIENT_SIDE_DETECTION;
-      resource.render_process_host_id =
-          web_contents()->GetRenderProcessHost()->GetID();
-      resource.render_frame_id = web_contents()->GetMainFrame()->GetRoutingID();
+      resource.web_contents_getter = safe_browsing::SafeBrowsingUIManager::
+          UnsafeResource::GetWebContentsGetter(
+              web_contents()->GetRenderProcessHost()->GetID(),
+              web_contents()->GetMainFrame()->GetRoutingID());
       if (!ui_manager_->IsWhitelisted(resource)) {
         // We need to stop any pending navigations, otherwise the interstital
         // might not get created properly.
@@ -598,9 +597,10 @@ void ClientSideDetectionHost::MaybeShowMalwareWarning(GURL original_url,
       resource.threat_type = SB_THREAT_TYPE_CLIENT_SIDE_MALWARE_URL;
       resource.threat_source =
           safe_browsing::ThreatSource::CLIENT_SIDE_DETECTION;
-      resource.render_process_host_id =
-          web_contents()->GetRenderProcessHost()->GetID();
-      resource.render_frame_id = web_contents()->GetMainFrame()->GetRoutingID();
+      resource.web_contents_getter = safe_browsing::SafeBrowsingUIManager::
+          UnsafeResource::GetWebContentsGetter(
+              web_contents()->GetRenderProcessHost()->GetID(),
+              web_contents()->GetMainFrame()->GetRoutingID());
 
       if (!ui_manager_->IsWhitelisted(resource)) {
         // We need to stop any pending navigations, otherwise the interstital
@@ -645,7 +645,7 @@ void ClientSideDetectionHost::MalwareFeatureExtractionDone(
   DVLOG(2) << "Malware Feature extraction done for URL: " << request->url()
            << ", with badip url count:" << request->bad_ip_url_info_size();
   UMA_HISTOGRAM_BOOLEAN(
-      "SBClientMalware.ResourceUrlMatchesBadIp",
+      "SBClientMalware.ResourceUrlMatchedBadIp",
       request->bad_ip_url_info_size() > 0);
   // Send ping if there is matching features.
   if (feature_extraction_success && request->bad_ip_url_info_size() > 0) {

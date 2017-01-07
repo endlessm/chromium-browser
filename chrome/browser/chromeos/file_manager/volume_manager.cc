@@ -12,7 +12,7 @@
 #include "base/files/file_path.h"
 #include "base/logging.h"
 #include "base/memory/weak_ptr.h"
-#include "base/metrics/histogram.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
@@ -133,6 +133,12 @@ std::string GetMountPointNameForMediaStorage(
   std::string name(kFileManagerMTPMountNamePrefix);
   name += info.device_id();
   return name;
+}
+
+chromeos::MountAccessMode GetExternalStorageAccessMode(const Profile* profile) {
+  return profile->GetPrefs()->GetBoolean(prefs::kExternalStorageReadOnly)
+             ? chromeos::MOUNT_ACCESS_MODE_READ_ONLY
+             : chromeos::MOUNT_ACCESS_MODE_READ_WRITE;
 }
 
 }  // namespace
@@ -494,9 +500,10 @@ void VolumeManager::OnDiskEvent(
         // Initiate disk mount operation. MountPath auto-detects the filesystem
         // format if the second argument is empty. The third argument (mount
         // label) is not used in a disk mount operation.
-        disk_mount_manager_->MountPath(
-            disk->device_path(), std::string(), std::string(),
-            chromeos::MOUNT_TYPE_DEVICE);
+        disk_mount_manager_->MountPath(disk->device_path(), std::string(),
+                                       std::string(),
+                                       chromeos::MOUNT_TYPE_DEVICE,
+                                       GetExternalStorageAccessMode(profile_));
         mounting = true;
       }
 
@@ -609,9 +616,10 @@ void VolumeManager::OnFormatEvent(
         // MountPath auto-detects filesystem format if second argument is
         // empty. The third argument (mount label) is not used in a disk mount
         // operation.
-        disk_mount_manager_->MountPath(
-            device_path, std::string(), std::string(),
-            chromeos::MOUNT_TYPE_DEVICE);
+        disk_mount_manager_->MountPath(device_path, std::string(),
+                                       std::string(),
+                                       chromeos::MOUNT_TYPE_DEVICE,
+                                       GetExternalStorageAccessMode(profile_));
       }
 
       FOR_EACH_OBSERVER(
@@ -674,6 +682,20 @@ void VolumeManager::OnProvidedFileSystemUnmount(
   DoUnmountEvent(mount_error, volume);
 }
 
+void VolumeManager::OnExternalStorageDisabledChangedUnmountCallback(
+    chromeos::MountError error_code) {
+  if (disk_mount_manager_->mount_points().empty())
+    return;
+  // Repeat until unmount all paths
+  const std::string& mount_path =
+      disk_mount_manager_->mount_points().begin()->second.mount_path;
+  disk_mount_manager_->UnmountPath(
+      mount_path, chromeos::UNMOUNT_OPTIONS_NONE,
+      base::Bind(
+          &VolumeManager::OnExternalStorageDisabledChangedUnmountCallback,
+          weak_ptr_factory_.GetWeakPtr()));
+}
+
 void VolumeManager::OnExternalStorageDisabledChanged() {
   // If the policy just got disabled we have to unmount every device currently
   // mounted. The opposite is fine - we can let the user re-plug their device to
@@ -682,14 +704,15 @@ void VolumeManager::OnExternalStorageDisabledChanged() {
     // We do not iterate on mount_points directly, because mount_points can
     // be changed by UnmountPath().
     // TODO(hidehiko): Is it necessary to unmount mounted archives, too, here?
-    while (!disk_mount_manager_->mount_points().empty()) {
-      std::string mount_path =
-          disk_mount_manager_->mount_points().begin()->second.mount_path;
-      disk_mount_manager_->UnmountPath(
-          mount_path,
-          chromeos::UNMOUNT_OPTIONS_NONE,
-          chromeos::disks::DiskMountManager::UnmountPathCallback());
-    }
+    if (disk_mount_manager_->mount_points().empty())
+      return;
+    const std::string& mount_path =
+        disk_mount_manager_->mount_points().begin()->second.mount_path;
+    disk_mount_manager_->UnmountPath(
+        mount_path, chromeos::UNMOUNT_OPTIONS_NONE,
+        base::Bind(
+            &VolumeManager::OnExternalStorageDisabledChangedUnmountCallback,
+            weak_ptr_factory_.GetWeakPtr()));
   }
 }
 
@@ -732,13 +755,17 @@ void VolumeManager::OnRemovableStorageAttached(
   }
   DCHECK(mtp_storage_info);
 
-  // Mtp write is enabled only when the device is writable and supports generic
-  // hierarchical file system.
+  // Mtp write is enabled only when the device is writable, supports generic
+  // hierarchical file system, and writing to external storage devices is not
+  // prohibited by the preference.
   const bool read_only =
       base::CommandLine::ForCurrentProcess()->HasSwitch(
           chromeos::switches::kDisableMtpWriteSupport) ||
       mtp_storage_info->access_capability() != kAccessCapabilityReadWrite ||
-      mtp_storage_info->filesystem_type() != kFilesystemTypeGenericHierarchical;
+      mtp_storage_info->filesystem_type() !=
+          kFilesystemTypeGenericHierarchical ||
+      GetExternalStorageAccessMode(profile_) ==
+          chromeos::MOUNT_ACCESS_MODE_READ_ONLY;
 
   content::BrowserThread::PostTask(
       content::BrowserThread::IO, FROM_HERE,

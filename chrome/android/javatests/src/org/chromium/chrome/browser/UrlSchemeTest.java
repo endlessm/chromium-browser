@@ -11,6 +11,7 @@ import android.test.suitebuilder.annotation.MediumTest;
 
 import org.chromium.base.ThreadUtils;
 import org.chromium.base.test.util.Feature;
+import org.chromium.base.test.util.RetryOnFailure;
 import org.chromium.base.test.util.TestFileUtil;
 import org.chromium.base.test.util.UrlUtils;
 import org.chromium.chrome.test.ChromeActivityTestCaseBase;
@@ -23,6 +24,7 @@ import java.util.concurrent.Callable;
 
 
 /** Test suite for different Android URL schemes. */
+@RetryOnFailure
 public class UrlSchemeTest extends ChromeActivityTestCaseBase<ChromeActivity> {
 
     public UrlSchemeTest() {
@@ -77,7 +79,7 @@ public class UrlSchemeTest extends ChromeActivityTestCaseBase<ChromeActivity> {
     }
 
     /**
-     * Test that a content URL is allowed within a data URL.
+     * Test that a content URL is not allowed within a data URL.
      */
     @MediumTest
     @Feature({"Navigation"})
@@ -86,11 +88,11 @@ public class UrlSchemeTest extends ChromeActivityTestCaseBase<ChromeActivity> {
         resetResourceRequestCountInContentProvider(target);
         loadUrl(UrlUtils.encodeHtmlDataUri(
                 "<img src=\"" + createContentUrl(target) + "\">"));
-        ensureResourceRequestCountInContentProviderNotLessThan(target, 1);
+        ensureResourceRequestCountInContentProvider(target, 0);
     }
 
     /**
-     * Test that a content URL is allowed within a local file.
+     * Test that a content URL is not allowed within a local file.
      */
     @MediumTest
     @Feature({"Navigation"})
@@ -102,7 +104,7 @@ public class UrlSchemeTest extends ChromeActivityTestCaseBase<ChromeActivity> {
                     file, target, "<img src=\"" + createContentUrl(target) + "\">");
             resetResourceRequestCountInContentProvider(target);
             loadUrl("file:///" + file.getAbsolutePath());
-            ensureResourceRequestCountInContentProviderNotLessThan(target, 1);
+            ensureResourceRequestCountInContentProvider(target, 0);
         } finally {
             TestFileUtil.deleteFile(file);
         }

@@ -1,6 +1,6 @@
-# Copyright 2013 The Swarming Authors. All rights reserved.
-# Use of this source code is governed under the Apache License, Version 2.0 that
-# can be found in the LICENSE file.
+# Copyright 2013 The LUCI Authors. All rights reserved.
+# Use of this source code is governed under the Apache License, Version 2.0
+# that can be found in the LICENSE file.
 
 """Various utility functions and classes not specific to any single area."""
 
@@ -316,3 +316,14 @@ def get_cacerts_bundle():
     # to current directory instead. We use our own bundled copy of cacert.pem.
     _ca_certs = zip_package.extract_resource(utils, 'cacert.pem', temp_dir='.')
     return _ca_certs
+
+
+def sliding_timeout(timeout):
+  """Returns a function that returns how much time left till (now+timeout).
+
+  If timeout is None, the returned function always returns None.
+  """
+  if timeout is None:
+    return lambda: None
+  deadline = time.time() + timeout
+  return lambda: deadline - time.time()

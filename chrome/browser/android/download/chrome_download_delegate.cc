@@ -27,6 +27,7 @@
 #include "ui/base/l10n/l10n_util.h"
 
 using base::android::ConvertUTF8ToJavaString;
+using base::android::JavaParamRef;
 using base::android::ScopedJavaLocalRef;
 using content::WebContents;
 
@@ -48,20 +49,6 @@ static jboolean IsDownloadDangerous(JNIEnv* env,
   base::FilePath path(base::android::ConvertJavaStringToUTF8(env, filename));
   return safe_browsing::FileTypePolicies::GetInstance()->GetFileDangerLevel(
              path) != safe_browsing::DownloadFileType::NOT_DANGEROUS;
-}
-
-// Called when a dangerous download is validated.
-static void DangerousDownloadValidated(
-    JNIEnv* env,
-    const JavaParamRef<jclass>& clazz,
-    const JavaParamRef<jobject>& tab,
-    const JavaParamRef<jstring>& jdownload_guid,
-    jboolean accept) {
-  std::string download_guid =
-      base::android::ConvertJavaStringToUTF8(env, jdownload_guid);
-  TabAndroid* tab_android = TabAndroid::GetNativeTab(env, tab);
-  DownloadControllerBase::Get()->DangerousDownloadValidated(
-      tab_android->web_contents(), download_guid, accept);
 }
 
 // static
@@ -141,60 +128,11 @@ void ChromeDownloadDelegate::SetJavaRef(JNIEnv* env, jobject jobj) {
   java_ref_ = env->NewGlobalRef(jobj);
 }
 
-void ChromeDownloadDelegate::RequestHTTPGetDownload(
-    const std::string& url,
-    const std::string& user_agent,
-    const std::string& content_disposition,
-    const std::string& mime_type,
-    const std::string& cookie,
-    const std::string& referer,
-    const base::string16& file_name,
-    int64_t content_length,
-    bool has_user_gesture,
-    bool must_download) {
-  JNIEnv* env = base::android::AttachCurrentThread();
-  ScopedJavaLocalRef<jstring> jurl =
-      ConvertUTF8ToJavaString(env, url);
-  ScopedJavaLocalRef<jstring> juser_agent =
-      ConvertUTF8ToJavaString(env, user_agent);
-  ScopedJavaLocalRef<jstring> jcontent_disposition =
-      ConvertUTF8ToJavaString(env, content_disposition);
-  ScopedJavaLocalRef<jstring> jmime_type =
-      ConvertUTF8ToJavaString(env, mime_type);
-  ScopedJavaLocalRef<jstring> jcookie =
-      ConvertUTF8ToJavaString(env, cookie);
-  ScopedJavaLocalRef<jstring> jreferer =
-      ConvertUTF8ToJavaString(env, referer);
-
-  // net::GetSuggestedFilename will fallback to "download" as filename.
-  ScopedJavaLocalRef<jstring> jfilename =
-      base::android::ConvertUTF16ToJavaString(env, file_name);
-  Java_ChromeDownloadDelegate_requestHttpGetDownload(
-      env, java_ref_,
-      jurl.obj(), juser_agent.obj(), jcontent_disposition.obj(),
-      jmime_type.obj(), jcookie.obj(), jreferer.obj(), has_user_gesture,
-      jfilename.obj(), content_length, must_download);
-}
-
-void ChromeDownloadDelegate::OnDownloadStarted(const std::string& filename,
-                                               const std::string& mime_type) {
+void ChromeDownloadDelegate::OnDownloadStarted(const std::string& filename) {
   JNIEnv* env = base::android::AttachCurrentThread();
   ScopedJavaLocalRef<jstring> jfilename = ConvertUTF8ToJavaString(
       env, filename);
-  ScopedJavaLocalRef<jstring> jmime_type =
-      ConvertUTF8ToJavaString(env, mime_type);
-  Java_ChromeDownloadDelegate_onDownloadStarted(
-      env, java_ref_, jfilename.obj(), jmime_type.obj());
-}
-
-void ChromeDownloadDelegate::OnDangerousDownload(const std::string& filename,
-                                                 const std::string& guid) {
-  JNIEnv* env = base::android::AttachCurrentThread();
-  ScopedJavaLocalRef<jstring> jfilename = ConvertUTF8ToJavaString(
-      env, filename);
-  ScopedJavaLocalRef<jstring> jguid = ConvertUTF8ToJavaString(env, guid);
-  Java_ChromeDownloadDelegate_onDangerousDownload(
-      env, java_ref_, jfilename.obj(), jguid.obj());
+  Java_ChromeDownloadDelegate_onDownloadStarted(env, java_ref_, jfilename);
 }
 
 void ChromeDownloadDelegate::RequestFileAccess(intptr_t callback_id) {
@@ -206,7 +144,7 @@ void ChromeDownloadDelegate::RequestFileAccess(intptr_t callback_id) {
 void Init(JNIEnv* env,
           const JavaParamRef<jobject>& obj,
           const JavaParamRef<jobject>& jweb_contents) {
-  auto web_contents = WebContents::FromJavaWebContents(jweb_contents);
+  auto* web_contents = WebContents::FromJavaWebContents(jweb_contents);
   ChromeDownloadDelegate::CreateForWebContents(web_contents);
   ChromeDownloadDelegate::FromWebContents(web_contents)->SetJavaRef(env, obj);
 }

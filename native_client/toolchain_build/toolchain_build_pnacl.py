@@ -24,6 +24,7 @@ import zipfile
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 import pynacl.file_tools
 import pynacl.gsd_storage
+import pynacl.http_download
 import pynacl.platform
 import pynacl.repo_tools
 
@@ -697,7 +698,7 @@ def HostLibs(host, options):
             'inputs': libcxx_inputs,
             'commands': [
                 command.SkipForIncrementalCommand([
-                    'cmake', '-G', 'Unix Makefiles'] +
+                     pnacl_commands.PrebuiltCmake(), '-G', 'Unix Makefiles'] +
                      libcxx_host_arch_flags +
                      ['-DLIBCXX_CXX_ABI=libcxxabi',
                       '-DLIBCXX_LIBCXXABI_INCLUDE_PATHS=' + command.path.join(
@@ -875,7 +876,7 @@ def HostTools(host, options):
           'type': 'build',
           'commands': [
               command.SkipForIncrementalCommand([
-                  'cmake', '-G', 'Ninja'] +
+                  pnacl_commands.PrebuiltCmake(), '-G', 'Ninja'] +
                   llvm_host_arch_flags + asan_flags +
                   [
                   '-DBUILD_SHARED_LIBS=ON',
@@ -1382,6 +1383,8 @@ def main():
   upload_packages = GetUploadPackageTargets()
   if pynacl.platform.IsWindows():
     InstallMinGWHostCompiler()
+  else:
+    pnacl_commands.InstallPrebuiltCMake()
 
   packages.update(HostToolsSources(GetGitSyncCmdsCallback(rev)))
   if args.testsuite_sync:

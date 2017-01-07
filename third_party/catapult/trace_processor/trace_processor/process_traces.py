@@ -7,11 +7,11 @@ import os
 import subprocess
 import sys
 
-from perf_insights.mre import function_handle
-from perf_insights.mre import map_runner
-from perf_insights.mre import progress_reporter
-from perf_insights.mre import file_handle
-from perf_insights.mre import job as job_module
+from tracing.mre import function_handle
+from tracing.mre import map_runner
+from tracing.mre import progress_reporter
+from tracing.mre import file_handle
+from tracing.mre import job as job_module
 from tracing.metrics import discover
 from tracing.metrics import metric_runner
 
@@ -41,7 +41,7 @@ def _GetExitCodeForResults(results):
 
 
 def _ProcessTracesWithMetric(metric_name, traces, output_file):
-  results = metric_runner.RunMetricOnTraces(traces, metric_name)
+  results = metric_runner.RunMetricOnTraces(traces, [metric_name])
   results_dict = {k: v.AsDict() for k, v in results.iteritems()}
   _DumpToOutputJson(results_dict, output_file)
 

@@ -6,9 +6,6 @@
 
 #include <string>
 
-#include "ash/shell.h"
-#include "ash/test/test_shell_delegate.h"
-#include "base/compiler_specific.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
@@ -319,7 +316,7 @@ AutomaticRebootManagerBasicTest::~AutomaticRebootManagerBasicTest() {
 
 void AutomaticRebootManagerBasicTest::SetUp() {
   ASSERT_TRUE(temp_dir_.CreateUniqueTempDir());
-  const base::FilePath& temp_dir = temp_dir_.path();
+  const base::FilePath& temp_dir = temp_dir_.GetPath();
   const base::FilePath uptime_file = temp_dir.Append("uptime");
   uptime_provider()->set_uptime_file_path(uptime_file);
   ASSERT_FALSE(base::WriteFile(uptime_file, NULL, 0));

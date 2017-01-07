@@ -10,6 +10,7 @@ import android.os.AsyncTask;
 
 import org.chromium.base.ContextUtils;
 import org.chromium.base.Log;
+import org.chromium.base.library_loader.LibraryLoader;
 import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.base.metrics.RecordUserAction;
 import org.chromium.components.location.LocationUtils;
@@ -64,7 +65,6 @@ public class PhysicalWebUma {
     private static final String PREFERENCE = "Preference";
     private static final int BOOLEAN_BOUNDARY = 2;
     private static final int TRISTATE_BOUNDARY = 3;
-    private static boolean sUploadAllowed = false;
 
     /**
      * Records a URL selection.
@@ -169,7 +169,7 @@ public class PhysicalWebUma {
      * @param numUrls The number of URLs displayed to a user.
      */
     public static void onUrlsDisplayed(Context context, int numUrls) {
-        if (sUploadAllowed) {
+        if (LibraryLoader.isInitialized()) {
             RecordHistogram.recordCountHistogram(TOTAL_URLS_INITIAL_COUNTS, numUrls);
         } else {
             storeValue(context, TOTAL_URLS_INITIAL_COUNTS, numUrls);
@@ -181,7 +181,7 @@ public class PhysicalWebUma {
      * @param numUrls The number of URLs displayed to a user.
      */
     public static void onUrlsRefreshed(Context context, int numUrls) {
-        if (sUploadAllowed) {
+        if (LibraryLoader.isInitialized()) {
             RecordHistogram.recordCountHistogram(TOTAL_URLS_REFRESH_COUNTS, numUrls);
         } else {
             storeValue(context, TOTAL_URLS_REFRESH_COUNTS, numUrls);
@@ -198,12 +198,12 @@ public class PhysicalWebUma {
         switch (referer) {
             case ListUrlsActivity.NOTIFICATION_REFERER:
                 handleTime(context, STANDARD_NOTIFICATION_PRESS_DELAYS,
-                        UrlManager.getInstance(context).getTimeSinceNotificationUpdate(),
+                        UrlManager.getInstance().getTimeSinceNotificationUpdate(),
                         TimeUnit.MILLISECONDS);
                 break;
             case ListUrlsActivity.OPTIN_REFERER:
                 handleTime(context, OPT_IN_NOTIFICATION_PRESS_DELAYS,
-                        UrlManager.getInstance(context).getTimeSinceNotificationUpdate(),
+                        UrlManager.getInstance().getTimeSinceNotificationUpdate(),
                         TimeUnit.MILLISECONDS);
                 break;
             case ListUrlsActivity.PREFERENCE_REFERER:
@@ -229,16 +229,16 @@ public class PhysicalWebUma {
     public static void recordPhysicalWebState(Context context, String actionName) {
         LocationUtils locationUtils = LocationUtils.getInstance();
         handleEnum(context, createStateString(LOCATION_SERVICES, actionName),
-                locationUtils.isSystemLocationSettingEnabled(context) ? 1 : 0, BOOLEAN_BOUNDARY);
+                locationUtils.isSystemLocationSettingEnabled() ? 1 : 0, BOOLEAN_BOUNDARY);
         handleEnum(context, createStateString(LOCATION_PERMISSION, actionName),
-                locationUtils.hasAndroidLocationPermission(context) ? 1 : 0, BOOLEAN_BOUNDARY);
+                locationUtils.hasAndroidLocationPermission() ? 1 : 0, BOOLEAN_BOUNDARY);
         handleEnum(context, createStateString(BLUETOOTH, actionName),
-                Utils.getBluetoothEnabledStatus(context), TRISTATE_BOUNDARY);
+                Utils.getBluetoothEnabledStatus(), TRISTATE_BOUNDARY);
         handleEnum(context, createStateString(DATA_CONNECTION, actionName),
-                Utils.isDataConnectionActive(context) ? 1 : 0, BOOLEAN_BOUNDARY);
+                Utils.isDataConnectionActive() ? 1 : 0, BOOLEAN_BOUNDARY);
         int preferenceState = 2;
-        if (!PhysicalWeb.isOnboarding(context)) {
-            preferenceState = PhysicalWeb.isPhysicalWebPreferenceEnabled(context) ? 1 : 0;
+        if (!PhysicalWeb.isOnboarding()) {
+            preferenceState = PhysicalWeb.isPhysicalWebPreferenceEnabled() ? 1 : 0;
         }
         handleEnum(context, createStateString(PREFERENCE, actionName),
                 preferenceState, TRISTATE_BOUNDARY);
@@ -246,13 +246,8 @@ public class PhysicalWebUma {
 
     /**
      * Uploads metrics that we have deferred for uploading.
-     * Additionally, this method will cause future stat records not to be deferred and instead
-     * uploaded immediately.
      */
-    public static void uploadDeferredMetrics(Context context) {
-        // If uploads have been explicitely requested, they are now allowed.
-        sUploadAllowed = true;
-
+    public static void uploadDeferredMetrics() {
         // Read the metrics.
         SharedPreferences prefs = ContextUtils.getAppSharedPreferences();
         if (prefs.getBoolean(HAS_DEFERRED_METRICS_KEY, false)) {
@@ -293,7 +288,7 @@ public class PhysicalWebUma {
     }
 
     private static void handleAction(Context context, String key) {
-        if (sUploadAllowed) {
+        if (LibraryLoader.isInitialized()) {
             RecordUserAction.record(key);
         } else {
             storeAction(context, key);
@@ -301,7 +296,7 @@ public class PhysicalWebUma {
     }
 
     private static void handleTime(Context context, String key, long duration, TimeUnit tu) {
-        if (sUploadAllowed) {
+        if (LibraryLoader.isInitialized()) {
             RecordHistogram.recordTimesHistogram(key, duration, tu);
         } else {
             storeValue(context, key, duration);
@@ -309,7 +304,7 @@ public class PhysicalWebUma {
     }
 
     private static void handleEnum(Context context, String key, int value, int boundary) {
-        if (sUploadAllowed) {
+        if (LibraryLoader.isInitialized()) {
             RecordHistogram.recordEnumeratedHistogram(key, value, boundary);
         } else {
             storeValue(context, key, value);

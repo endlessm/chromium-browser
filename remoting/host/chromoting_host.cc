@@ -13,11 +13,11 @@
 #include "base/callback.h"
 #include "base/command_line.h"
 #include "base/memory/ptr_util.h"
+#include "base/single_thread_task_runner.h"
 #include "build/build_config.h"
 #include "jingle/glue/thread_wrapper.h"
 #include "remoting/base/constants.h"
 #include "remoting/base/logging.h"
-#include "remoting/host/chromoting_host_context.h"
 #include "remoting/host/desktop_environment.h"
 #include "remoting/host/host_config.h"
 #include "remoting/host/input_injector.h"
@@ -272,14 +272,13 @@ void ChromotingHost::OnIncomingSession(
   } else {
     connection.reset(new protocol::IceConnectionToClient(
         base::WrapUnique(session), transport_context_,
-        video_encode_task_runner_));
+        video_encode_task_runner_, audio_task_runner_));
   }
 
   // Create a ClientSession object.
-  ClientSession* client =
-      new ClientSession(this, audio_task_runner_, std::move(connection),
-                        desktop_environment_factory_, max_session_duration_,
-                        pairing_registry_, extensions_.get());
+  ClientSession* client = new ClientSession(
+      this, std::move(connection), desktop_environment_factory_,
+      max_session_duration_, pairing_registry_, extensions_.get());
 
   clients_.push_back(client);
 }

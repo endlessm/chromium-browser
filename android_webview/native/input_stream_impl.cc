@@ -27,10 +27,6 @@ const int kExceptionThrownStatusCode = -2;
 
 }
 
-bool RegisterInputStream(JNIEnv* env) {
-  return RegisterNativesImpl(env);
-}
-
 // Maximum number of bytes to be read in a single read.
 const int InputStreamImpl::kBufferSize = 4096;
 
@@ -53,12 +49,12 @@ InputStreamImpl::InputStreamImpl(const JavaRef<jobject>& stream)
 
 InputStreamImpl::~InputStreamImpl() {
   JNIEnv* env = AttachCurrentThread();
-  Java_InputStreamUtil_close(env, jobject_.obj());
+  Java_InputStreamUtil_close(env, jobject_);
 }
 
 bool InputStreamImpl::BytesAvailable(int* bytes_available) const {
   JNIEnv* env = AttachCurrentThread();
-  int bytes = Java_InputStreamUtil_available(env, jobject_.obj());
+  int bytes = Java_InputStreamUtil_available(env, jobject_);
   if (bytes == kExceptionThrownStatusCode)
     return false;
   *bytes_available = bytes;
@@ -67,7 +63,7 @@ bool InputStreamImpl::BytesAvailable(int* bytes_available) const {
 
 bool InputStreamImpl::Skip(int64_t n, int64_t* bytes_skipped) {
   JNIEnv* env = AttachCurrentThread();
-  int bytes = Java_InputStreamUtil_skip(env, jobject_.obj(), n);
+  int bytes = Java_InputStreamUtil_skip(env, jobject_, n);
   if (bytes < 0)
     return false;
   if (bytes > n)
@@ -89,13 +85,12 @@ bool InputStreamImpl::Read(net::IOBuffer* dest, int length, int* bytes_read) {
 
   int remaining_length = length;
   char* dest_write_ptr = dest->data();
-  jbyteArray buffer = buffer_.obj();
   *bytes_read = 0;
 
   while (remaining_length > 0) {
     const int max_transfer_length = std::min(remaining_length, kBufferSize);
     const int transfer_length = Java_InputStreamUtil_read(
-        env, jobject_.obj(), buffer, 0, max_transfer_length);
+        env, jobject_, buffer_, 0, max_transfer_length);
     if (transfer_length == kExceptionThrownStatusCode)
       return false;
 
@@ -109,7 +104,7 @@ bool InputStreamImpl::Read(net::IOBuffer* dest, int length, int* bytes_read) {
       continue;
 
     DCHECK_GE(max_transfer_length, transfer_length);
-    DCHECK_GE(env->GetArrayLength(buffer), transfer_length);
+    DCHECK_GE(env->GetArrayLength(buffer_.obj()), transfer_length);
 
     // This check is to prevent a malicious InputStream implementation from
     // overrunning the |dest| buffer.
@@ -118,8 +113,8 @@ bool InputStreamImpl::Read(net::IOBuffer* dest, int length, int* bytes_read) {
 
     // Copy the data over to the provided C++ IOBuffer.
     DCHECK_GE(remaining_length, transfer_length);
-    env->GetByteArrayRegion(buffer, 0, transfer_length,
-        reinterpret_cast<jbyte*>(dest_write_ptr));
+    env->GetByteArrayRegion(buffer_.obj(), 0, transfer_length,
+                            reinterpret_cast<jbyte*>(dest_write_ptr));
     if (ClearException(env))
       return false;
 

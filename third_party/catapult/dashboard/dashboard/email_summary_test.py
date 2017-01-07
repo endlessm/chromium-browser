@@ -11,7 +11,7 @@ import webtest
 from google.appengine.ext import ndb
 
 from dashboard import email_summary
-from dashboard import testing_common
+from dashboard.common import testing_common
 from dashboard.models import anomaly
 from dashboard.models import bug_label_patterns
 from dashboard.models import sheriff
@@ -48,7 +48,7 @@ class EmailSummaryTest(testing_common.TestCase):
     """Adds a sheriff with summarize set to False, and some alerts."""
     sheriff_key = sheriff.Sheriff(
         id='Chromium Perf Sheriff', email='anandc@google.com',
-        summarize=False).put()
+        summarize=False, labels=['Performance-Sheriff']).put()
     testing_common.AddTests(['ChromiumGPU'], ['linux-release'], {
         'scrolling-benchmark': {
             'first_paint': {},
@@ -63,7 +63,7 @@ class EmailSummaryTest(testing_common.TestCase):
   def _AddFourNewAlertsWithSummaryForOnlyTwo(self):
     sheriff_key = sheriff.Sheriff(
         id='Chromium Perf Sheriff', email='anandc@google.com',
-        summarize=True).put()
+        summarize=True, labels=['Performance-Sheriff']).put()
     testing_common.AddTests(['ChromiumGPU'], ['linux-release'], {
         'scrolling-benchmark': {
             'first_paint': {},
@@ -92,6 +92,7 @@ class EmailSummaryTest(testing_common.TestCase):
     """Adds alerts for two separate sheriffs which both have summarize=True."""
     sheriff_key = sheriff.Sheriff(
         id='Chromium Perf Sheriff', email='anandc@google.com',
+        labels=['Performance-Sheriff'],
         summarize=True).put()
     testing_common.AddTests(['ChromiumGPU'], ['linux-release'], {
         'scrolling-benchmark': {
@@ -134,7 +135,7 @@ class EmailSummaryTest(testing_common.TestCase):
     self.assertIn('A <b>100.0%</b> regression', html)
     self.assertNotIn('A <b>50.0%</b> regression', html)
     self.assertIn(
-        'labels=Type-Bug-Regression,Pri-2,Performance-Sheriff,\'', html)
+        'labels=Type-Bug-Regression,Pri-2,Performance-Sheriff\'', html)
     self.assertIn(
         'labels=Type-Bug-Regression,Pri-2,Performance-Sheriff,label1\'', html)
 

@@ -17,8 +17,8 @@ import webapp2
 from webapp2 import Route, RedirectHandler
 
 from dashboard_build import dashboard_dev_server_config
-from perf_insights_build import perf_insights_dev_server_config
 from tracing_build import tracing_dev_server_config
+from netlog_viewer_build import netlog_viewer_dev_server_config
 
 _MAIN_HTML = """<html><body>
 <h1>Run Unit Tests</h1>
@@ -37,8 +37,6 @@ _QUICK_LINKS = [
      '/tracing_examples/trace_viewer.html'),
     ('Metrics debugger',
      '/tracing_examples/metrics_debugger.html'),
-    ('Perf Insights Viewer',
-     '/perf_insights_examples/perf_insights_viewer.html'),
 ]
 
 _LINK_ITEM = '<li><a href="%s">%s</a></li>'
@@ -303,8 +301,8 @@ def _AddCommandLineArguments(pds, argv):
 def Main(argv):
   pds = [
       dashboard_dev_server_config.DashboardDevServerConfig(),
-      perf_insights_dev_server_config.PerfInsightsDevServerConfig(),
       tracing_dev_server_config.TracingDevServerConfig(),
+      netlog_viewer_dev_server_config.NetlogViewerDevServerConfig(),
   ]
 
   args = _AddCommandLineArguments(pds, argv)
@@ -315,7 +313,7 @@ def Main(argv):
   app = DevServerApp(pds, args=args)
 
   server = httpserver.serve(app, host='127.0.0.1', port=args.port,
-                            start_loop=False)
+                            start_loop=False, daemon_threads=True)
   _AddPleaseExitMixinToServer(server)
   # pylint: disable=no-member
   server.urlbase = 'http://127.0.0.1:%i' % server.server_port

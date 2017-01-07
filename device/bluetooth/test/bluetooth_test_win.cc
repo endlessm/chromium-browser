@@ -170,7 +170,7 @@ BluetoothDevice* BluetoothTestWin::SimulateLowEnergyDevice(int device_ordinal) {
   FinishPendingTasks();
 
   std::vector<BluetoothDevice*> devices = adapter_win_->GetDevices();
-  for (auto device : devices) {
+  for (auto* device : devices) {
     if (device->GetAddress() == device_address)
       return device;
   }
@@ -472,8 +472,7 @@ win::GattCharacteristic* BluetoothTestWin::GetSimulatedCharacteristic(
 
 void BluetoothTestWin::RunPendingTasksUntilCallback() {
   std::deque<base::TestPendingTask> tasks =
-      bluetooth_task_runner_->GetPendingTasks();
-  bluetooth_task_runner_->ClearPendingTasks();
+      bluetooth_task_runner_->TakePendingTasks();
   int original_callback_count = callback_count_;
   int original_error_callback_count = error_callback_count_;
   do {

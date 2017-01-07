@@ -20,11 +20,10 @@ sys.path.append(
 import devil_chromium
 from devil.android import apk_helper
 from devil.android import device_utils
-from devil.android import device_errors
 from devil.android.sdk import version_codes
 from devil.utils import reraiser_thread
+from devil.utils import run_tests_helper
 from pylib import constants
-from pylib.utils import run_tests_helper
 from pylib.utils import time_profile
 
 prev_sys_path = list(sys.path)
@@ -165,7 +164,7 @@ def Install(device, apk, split_globs=None, native_libs=None, dex_files=None,
     has_selinux = device.build_version_sdk >= version_codes.LOLLIPOP
     if has_selinux and apk.HasIsolatedProcesses():
       raise Exception('Cannot use incremental installs on Android L+ without '
-                      'first disabling isoloated processes.\n'
+                      'first disabling isolated processes.\n'
                       'To do so, use GN arg:\n'
                       '    disable_incremental_isolated_processes=true')
 

@@ -16,23 +16,22 @@
 #include "build/build_config.h"
 #include "chrome/browser/crash_upload_list/crash_upload_list.h"
 #include "chrome/browser/metrics/chrome_metrics_service_accessor.h"
+#include "chrome/browser/metrics/metrics_reporting_state.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/common/url_constants.h"
+#include "chrome/grit/browser_resources.h"
 #include "chrome/grit/chromium_strings.h"
 #include "chrome/grit/generated_resources.h"
-#include "chrome/grit/google_chrome_strings.h"
 #include "components/crash/core/browser/crashes_ui_util.h"
+#include "components/grit/components_resources.h"
+#include "components/grit/components_scaled_resources.h"
+#include "components/strings/grit/components_chromium_strings.h"
+#include "components/strings/grit/components_strings.h"
 #include "components/version_info/version_info.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_ui.h"
 #include "content/public/browser/web_ui_data_source.h"
 #include "content/public/browser/web_ui_message_handler.h"
-#include "grit/browser_resources.h"
-#include "grit/components_chromium_strings.h"
-#include "grit/components_google_chrome_strings.h"
-#include "grit/components_resources.h"
-#include "grit/components_scaled_resources.h"
-#include "grit/components_strings.h"
 #include "ui/base/resource/resource_bundle.h"
 
 #if defined(OS_CHROMEOS)
@@ -94,6 +93,9 @@ class CrashesDOMHandler : public WebUIMessageHandler,
   // Sends the recent crashes list JS.
   void UpdateUI();
 
+  // Asynchronously requests a user triggered upload. Called from JS.
+  void HandleRequestSingleCrashUpload(const base::ListValue* args);
+
   scoped_refptr<CrashUploadList> upload_list_;
   bool list_available_;
   bool first_load_;
@@ -123,6 +125,11 @@ void CrashesDOMHandler::RegisterMessages() {
       base::Bind(&CrashesDOMHandler::HandleRequestUploads,
                  base::Unretained(this)));
 #endif
+
+  web_ui()->RegisterMessageCallback(
+      crash::kCrashesUIRequestSingleCrashUpload,
+      base::Bind(&CrashesDOMHandler::HandleRequestSingleCrashUpload,
+                 base::Unretained(this)));
 }
 
 void CrashesDOMHandler::HandleRequestCrashes(const base::ListValue* args) {
@@ -162,12 +169,27 @@ void CrashesDOMHandler::UpdateUI() {
   system_crash_reporter = true;
 #endif
 
+  bool upload_list = crash_reporting_enabled;
+  bool support_manual_uploads = false;
+
+#if defined(OS_WIN) || defined(OS_MACOSX) || defined(OS_ANDROID)
+  // Maunal uploads currently are supported only for Crashpad-using platforms
+  // and Android, and only if crash uploads are not disabled by policy.
+  support_manual_uploads =
+      crash_reporting_enabled || !IsMetricsReportingPolicyManaged();
+
+  // Show crash reports regardless of |crash_reporting_enabled| so that users
+  // can manually upload those reports.
+  upload_list = true;
+#endif
+
   base::ListValue crash_list;
-  if (crash_reporting_enabled)
+  if (upload_list)
     crash::UploadListToValue(upload_list_.get(), &crash_list);
 
   base::FundamentalValue enabled(crash_reporting_enabled);
   base::FundamentalValue dynamic_backend(system_crash_reporter);
+  base::FundamentalValue manual_uploads(support_manual_uploads);
   base::StringValue version(version_info::GetVersionNumber());
   base::StringValue os_string(base::SysInfo::OperatingSystemName() + " " +
                               base::SysInfo::OperatingSystemVersion());
@@ -175,11 +197,28 @@ void CrashesDOMHandler::UpdateUI() {
   std::vector<const base::Value*> args;
   args.push_back(&enabled);
   args.push_back(&dynamic_backend);
+  args.push_back(&manual_uploads);
   args.push_back(&crash_list);
   args.push_back(&version);
   args.push_back(&os_string);
   web_ui()->CallJavascriptFunctionUnsafe(crash::kCrashesUIUpdateCrashList,
                                          args);
+}
+
+void CrashesDOMHandler::HandleRequestSingleCrashUpload(
+    const base::ListValue* args) {
+  DCHECK(args);
+
+  std::string local_id;
+  bool success = args->GetString(0, &local_id);
+  DCHECK(success);
+
+  // Only allow manual uploads if crash uploads aren’t disabled by policy.
+  if (!ChromeMetricsServiceAccessor::IsMetricsAndCrashReportingEnabled() &&
+      IsMetricsReportingPolicyManaged()) {
+    return;
+  }
+  upload_list_->RequestSingleCrashUploadAsync(local_id);
 }
 
 }  // namespace

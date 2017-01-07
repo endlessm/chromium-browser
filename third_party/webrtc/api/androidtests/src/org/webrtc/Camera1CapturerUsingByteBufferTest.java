@@ -10,26 +10,16 @@
 
 package org.webrtc;
 
-import org.webrtc.CameraEnumerationAndroid.CaptureFormat;
-
 import android.content.Context;
 import android.test.InstrumentationTestCase;
-import android.test.suitebuilder.annotation.SmallTest;
-import android.test.suitebuilder.annotation.MediumTest;
 import android.test.suitebuilder.annotation.LargeTest;
+import android.test.suitebuilder.annotation.MediumTest;
+import android.test.suitebuilder.annotation.SmallTest;
 
 public class Camera1CapturerUsingByteBufferTest extends InstrumentationTestCase {
   static final String TAG = "Camera1CapturerUsingByteBufferTest";
 
-  private class TestObjectFactory
-      extends CameraVideoCapturerTestFixtures.TestObjectFactory {
-    @Override
-    public CameraVideoCapturer createCapturer(
-        String name,
-        CameraVideoCapturer.CameraEventsHandler eventsHandler) {
-      return new VideoCapturerAndroid(name, eventsHandler, isCapturingToTexture());
-    }
-
+  private class TestObjectFactory extends CameraVideoCapturerTestFixtures.TestObjectFactory {
     @Override
     public boolean isCapturingToTexture() {
       return false;
@@ -37,7 +27,7 @@ public class Camera1CapturerUsingByteBufferTest extends InstrumentationTestCase 
 
     @Override
     public CameraEnumerator getCameraEnumerator() {
-      return new Camera1Enumerator();
+      return new Camera1Enumerator(false);
     }
 
     @Override
@@ -71,12 +61,12 @@ public class Camera1CapturerUsingByteBufferTest extends InstrumentationTestCase 
   }
 
   @SmallTest
-  public void testCreateAndDispose() {
+  public void testCreateAndDispose() throws InterruptedException {
     fixtures.createCapturerAndDispose();
   }
 
   @SmallTest
-  public void testCreateNonExistingCamera() {
+  public void testCreateNonExistingCamera() throws InterruptedException {
     fixtures.createNonExistingCamera();
   }
 
@@ -141,7 +131,7 @@ public class Camera1CapturerUsingByteBufferTest extends InstrumentationTestCase 
   // been stopped and restarted. It does not test or use the C++ layer.
   @LargeTest
   public void testReturnBufferLate() throws InterruptedException {
-    fixtures.returnBufferLateEndToEnd();
+    fixtures.returnBufferLate();
   }
 
   // This test that we can capture frames, keep the frames in a local renderer, stop capturing,
@@ -152,7 +142,7 @@ public class Camera1CapturerUsingByteBufferTest extends InstrumentationTestCase 
     fixtures.returnBufferLateEndToEnd();
   }
 
-  // This test that frames forwarded to a renderer is scaled if onOutputFormatRequest is
+  // This test that frames forwarded to a renderer is scaled if adaptOutputFormat is
   // called. This test both Java and C++ parts of of the stack.
   @MediumTest
   public void testScaleCameraOutput() throws InterruptedException {

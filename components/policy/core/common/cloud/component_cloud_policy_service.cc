@@ -27,8 +27,8 @@
 #include "components/policy/core/common/cloud/resource_cache.h"
 #include "components/policy/core/common/schema.h"
 #include "components/policy/core/common/schema_map.h"
+#include "components/policy/proto/device_management_backend.pb.h"
 #include "net/url_request/url_request_context_getter.h"
-#include "policy/proto/device_management_backend.pb.h"
 
 namespace em = enterprise_management;
 
@@ -440,7 +440,7 @@ void ComponentCloudPolicyService::OnPolicyFetched(CloudPolicyClient* client) {
       continue;
     }
     valid_responses->set(
-        ns, base::WrapUnique(new em::PolicyFetchResponse(*it->second)));
+        ns, base::MakeUnique<em::PolicyFetchResponse>(*it->second));
   }
 
   backend_task_runner_->PostTask(

@@ -26,7 +26,7 @@ public interface UrlRequest {
      * Builder for {@link UrlRequest}s. Allows configuring requests before constructing them
      * with {@link Builder#build}.
      */
-    public static final class Builder {
+    public static class Builder {
         private static final String ACCEPT_ENCODING = "Accept-Encoding";
         // All fields are temporary storage of UrlRequest configuration to be
         // copied to built UrlRequests.
@@ -56,6 +56,7 @@ public interface UrlRequest {
         UploadDataProvider mUploadDataProvider;
         // Executor to call upload data provider back on.
         Executor mUploadDataProviderExecutor;
+        private boolean mAllowDirectExecutor = false;
 
         /**
          * Creates a builder for {@link UrlRequest} objects. All callbacks for
@@ -227,12 +228,27 @@ public interface UrlRequest {
         }
 
         /**
-         * Associates the annotation object with this request. May add more than one.
-         * Passed through to a {@link CronetEngine.RequestFinishedListener},
-         * see {@link CronetEngine.UrlRequestInfo#getAnnotations}.
+         * Marks that the executors this request will use to notify callbacks (for
+         * {@code UploadDataProvider}s and {@code UrlRequest.Callback}s) is intentionally performing
+         * inline execution, like Guava's directExecutor or
+         * {@link java.util.concurrent.ThreadPoolExecutor.CallerRunsPolicy}.
          *
-         * @param annotation an object to pass on to the
-         * {@link CronetEngine.RequestFinishedListener} with a {@link CronetEngine.UrlRequestInfo}.
+         * <p><b>Warning:</b> This option makes it easy to accidentally block the network thread.
+         * It should not be used if your callbacks perform disk I/O, acquire locks, or call into
+         * other code you don't carefully control and audit.
+         */
+        public Builder allowDirectExecutor() {
+            mAllowDirectExecutor = true;
+            return this;
+        }
+
+        /**
+         * Associates the annotation object with this request. May add more than one.
+         * Passed through to a {@link RequestFinishedInfo.Listener},
+         * see {@link RequestFinishedInfo#getAnnotations}.
+         *
+         * @param annotation an object to pass on to the {@link RequestFinishedInfo.Listener} with a
+         * {@link RequestFinishedInfo}.
          * @return the builder to facilitate chaining.
          *
          * @hide as it's a prototype.
@@ -258,7 +274,8 @@ public interface UrlRequest {
          */
         public UrlRequest build() {
             final UrlRequest request = mCronetEngine.createRequest(mUrl, mCallback, mExecutor,
-                    mPriority, mRequestAnnotations, mDisableCache, mDisableConnectionMigration);
+                    mPriority, mRequestAnnotations, mDisableCache, mDisableConnectionMigration,
+                    mAllowDirectExecutor);
             if (mMethod != null) {
                 request.setHttpMethod(mMethod);
             }
@@ -505,9 +522,10 @@ public interface UrlRequest {
          * Convert a LoadState int to one of values listed above.
          * @param loadState a LoadState to convert.
          * @return static int Status.
+         * @hide only used by internal implementation.
          */
         @StatusValues
-        static int convertLoadState(int loadState) {
+        public static int convertLoadState(int loadState) {
             assert loadState >= LoadState.IDLE && loadState <= LoadState.READING_RESPONSE;
             switch (loadState) {
                 case (LoadState.IDLE):

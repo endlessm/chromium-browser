@@ -26,6 +26,7 @@
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/extensions/extension_constants.h"
 #include "chrome/common/features.h"
+#include "chrome/grit/browser_resources.h"
 #include "chrome/grit/chromium_strings.h"
 #include "chrome/grit/generated_resources.h"
 #include "components/crx_file/id_util.h"
@@ -38,30 +39,25 @@
 #include "extensions/common/extension_l10n_util.h"
 #include "extensions/common/file_util.h"
 #include "extensions/common/manifest_constants.h"
-#include "grit/browser_resources.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/resource/resource_bundle.h"
 
 #if defined(OS_CHROMEOS)
 #include "ash/common/system/chromeos/devicetype_utils.h"
+#include "chromeos/chromeos_switches.h"
 #include "components/chrome_apps/grit/chrome_apps_resources.h"
 #include "components/user_manager/user_manager.h"
-#include "grit/keyboard_resources.h"
+#include "content/public/browser/site_instance.h"
+#include "content/public/browser/storage_partition.h"
+#include "extensions/browser/extensions_browser_client.h"
+#include "storage/browser/fileapi/file_system_context.h"
 #include "ui/file_manager/grit/file_manager_resources.h"
+#include "ui/keyboard/grit/keyboard_resources.h"
 #include "ui/keyboard/keyboard_util.h"
 #endif
 
 #if defined(GOOGLE_CHROME_BUILD)
 #include "chrome/browser/defaults.h"
-#endif
-
-#if defined(OS_CHROMEOS)
-#include "chrome/browser/chromeos/accessibility/accessibility_manager.h"
-#include "chromeos/chromeos_switches.h"
-#include "content/public/browser/site_instance.h"
-#include "content/public/browser/storage_partition.h"
-#include "extensions/browser/extensions_browser_client.h"
-#include "storage/browser/fileapi/file_system_context.h"
 #endif
 
 using content::BrowserThread;
@@ -150,7 +146,7 @@ void ComponentLoader::LoadAll() {
 }
 
 base::DictionaryValue* ComponentLoader::ParseManifest(
-    const std::string& manifest_contents) const {
+    base::StringPiece manifest_contents) const {
   JSONStringValueDeserializer deserializer(manifest_contents);
   std::unique_ptr<base::Value> manifest = deserializer.Deserialize(NULL, NULL);
 
@@ -175,9 +171,9 @@ void ComponentLoader::ClearAllRegistered() {
 std::string ComponentLoader::GetExtensionID(
     int manifest_resource_id,
     const base::FilePath& root_directory) {
-  std::string manifest_contents = ResourceBundle::GetSharedInstance().
-      GetRawDataResource(manifest_resource_id).as_string();
-  base::DictionaryValue* manifest = ParseManifest(manifest_contents);
+  base::DictionaryValue* manifest =
+      ParseManifest(ResourceBundle::GetSharedInstance().GetRawDataResource(
+          manifest_resource_id));
   if (!manifest)
     return std::string();
 
@@ -191,18 +187,18 @@ std::string ComponentLoader::Add(int manifest_resource_id,
       !IsComponentExtensionWhitelisted(manifest_resource_id))
     return std::string();
 
-  std::string manifest_contents =
+  base::StringPiece manifest_contents =
       ResourceBundle::GetSharedInstance().GetRawDataResource(
-          manifest_resource_id).as_string();
+          manifest_resource_id);
   return Add(manifest_contents, root_directory, true);
 }
 
-std::string ComponentLoader::Add(const std::string& manifest_contents,
+std::string ComponentLoader::Add(const base::StringPiece& manifest_contents,
                                  const base::FilePath& root_directory) {
   return Add(manifest_contents, root_directory, false);
 }
 
-std::string ComponentLoader::Add(const std::string& manifest_contents,
+std::string ComponentLoader::Add(const base::StringPiece& manifest_contents,
                                  const base::FilePath& root_directory,
                                  bool skip_whitelist) {
   // The Value is kept for the lifetime of the ComponentLoader. This is
@@ -347,17 +343,21 @@ void ComponentLoader::AddHangoutServicesExtension() {
 }
 
 void ComponentLoader::AddHotwordAudioVerificationApp() {
+#if defined(ENABLE_HOTWORDING)
   if (HotwordServiceFactory::IsAlwaysOnAvailable()) {
     Add(IDR_HOTWORD_AUDIO_VERIFICATION_MANIFEST,
         base::FilePath(FILE_PATH_LITERAL("hotword_audio_verification")));
   }
+#endif
 }
 
 void ComponentLoader::AddHotwordHelperExtension() {
+#if defined(ENABLE_HOTWORDING)
   if (HotwordServiceFactory::IsHotwordAllowed(profile_)) {
     Add(IDR_HOTWORD_MANIFEST,
         base::FilePath(FILE_PATH_LITERAL("hotword")));
   }
+#endif
 }
 
 void ComponentLoader::AddImageLoaderExtension() {
@@ -373,30 +373,8 @@ void ComponentLoader::AddNetworkSpeechSynthesisExtension() {
 }
 
 #if defined(OS_CHROMEOS)
-void ComponentLoader::AddChromeVoxExtension(
-    const base::Closure& done_cb) {
-  base::FilePath resources_path;
-  CHECK(PathService::Get(chrome::DIR_RESOURCES, &resources_path));
-
-  base::FilePath chromevox_path =
-      resources_path.Append(extension_misc::kChromeVoxExtensionPath);
-
-  const base::FilePath::CharType* manifest_filename =
-      IsNormalSession() ? extensions::kManifestFilename
-                        : extension_misc::kGuestManifestFilename;
-  AddWithManifestFile(
-      manifest_filename,
-      chromevox_path,
-      extension_misc::kChromeVoxExtensionId,
-      done_cb);
-}
-
 void ComponentLoader::AddChromeOsSpeechSynthesisExtension() {
-  const base::FilePath::CharType* manifest_filename =
-      IsNormalSession() ? extensions::kManifestFilename
-                        : extension_misc::kGuestManifestFilename;
-  AddWithManifestFile(
-      manifest_filename,
+  AddComponentFromDir(
       base::FilePath(extension_misc::kSpeechSynthesisExtensionPath),
       extension_misc::kSpeechSynthesisExtensionId,
       base::Bind(&ComponentLoader::EnableFileSystemInGuestMode,
@@ -414,9 +392,9 @@ void ComponentLoader::AddWithNameAndDescription(
       !IsComponentExtensionWhitelisted(manifest_resource_id))
     return;
 
-  std::string manifest_contents =
+  base::StringPiece manifest_contents =
       ResourceBundle::GetSharedInstance().GetRawDataResource(
-          manifest_resource_id).as_string();
+          manifest_resource_id);
 
   // The Value is kept for the lifetime of the ComponentLoader. This is
   // required in case LoadAll() is called again.
@@ -589,11 +567,6 @@ void ComponentLoader::AddDefaultComponentExtensionsWithBackgroundPages(
 #endif  // defined(GOOGLE_CHROME_BUILD)
     if (install_feedback)
       Add(IDR_FEEDBACK_MANIFEST, base::FilePath(FILE_PATH_LITERAL("feedback")));
-
-#if defined(ENABLE_SETTINGS_APP)
-    Add(IDR_SETTINGS_APP_MANIFEST,
-        base::FilePath(FILE_PATH_LITERAL("settings_app")));
-#endif
   }
 
 #if defined(OS_CHROMEOS)
@@ -625,12 +598,6 @@ void ComponentLoader::AddDefaultComponentExtensionsWithBackgroundPages(
 
     Add(IDR_ARC_SUPPORT_MANIFEST,
         base::FilePath(FILE_PATH_LITERAL("chromeos/arc_support")));
-  }
-
-  // Load ChromeVox extension now if spoken feedback is enabled.
-  if (chromeos::AccessibilityManager::Get() &&
-      chromeos::AccessibilityManager::Get()->IsSpokenFeedbackEnabled()) {
-    AddChromeVoxExtension(base::Closure());
   }
 #endif  // defined(OS_CHROMEOS)
 
@@ -690,24 +657,26 @@ void ComponentLoader::EnableFileSystemInGuestMode(const std::string& id) {
 }
 
 #if defined(OS_CHROMEOS)
-void ComponentLoader::AddWithManifestFile(
-    const base::FilePath::CharType* manifest_filename,
+void ComponentLoader::AddComponentFromDir(
     const base::FilePath& root_directory,
     const char* extension_id,
     const base::Closure& done_cb) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+  const base::FilePath::CharType* manifest_filename =
+      IsNormalSession() ? extensions::kManifestFilename
+                        : extension_misc::kGuestManifestFilename;
   BrowserThread::PostTaskAndReplyWithResult(
       BrowserThread::FILE,
       FROM_HERE,
       base::Bind(&LoadManifestOnFileThread, root_directory, manifest_filename),
-      base::Bind(&ComponentLoader::FinishAddWithManifestFile,
+      base::Bind(&ComponentLoader::FinishAddComponentFromDir,
                  weak_factory_.GetWeakPtr(),
                  root_directory,
                  extension_id,
                  done_cb));
 }
 
-void ComponentLoader::FinishAddWithManifestFile(
+void ComponentLoader::FinishAddComponentFromDir(
     const base::FilePath& root_directory,
     const char* extension_id,
     const base::Closure& done_cb,

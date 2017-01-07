@@ -8,9 +8,10 @@ import os
 import sys
 import time
 
-from catapult_base import cloud_storage  # pylint: disable=import-error
+from py_utils import cloud_storage  # pylint: disable=import-error
 
 from telemetry.core import exceptions
+from telemetry import decorators
 from telemetry.internal.actions import page_action
 from telemetry.internal.browser import browser_finder
 from telemetry.internal.results import results_options
@@ -279,23 +280,32 @@ def RunBenchmark(benchmark, finder_options):
   """
   benchmark.CustomizeBrowserOptions(finder_options.browser_options)
 
+  benchmark_metadata = benchmark.GetMetadata()
   possible_browser = browser_finder.FindBrowser(finder_options)
-  if possible_browser and benchmark.ShouldDisable(possible_browser):
-    logging.warning('%s is disabled on the selected browser', benchmark.Name())
+  if (possible_browser and
+    not decorators.IsBenchmarkEnabled(benchmark, possible_browser)):
+    print '%s is disabled on the selected browser' % benchmark.Name()
     if finder_options.run_disabled_tests:
-      logging.warning(
-          'Running benchmark anyway due to: --also-run-disabled-tests')
+      print 'Running benchmark anyway due to: --also-run-disabled-tests'
     else:
-      logging.warning(
-          'Try --also-run-disabled-tests to force the benchmark to run.')
-      return 1
+      print 'Try --also-run-disabled-tests to force the benchmark to run.'
+      # If chartjson is specified, this will print a dict indicating the
+      # benchmark name and disabled state.
+      with results_options.CreateResults(
+          benchmark_metadata, finder_options,
+          benchmark.ValueCanBeAddedPredicate, benchmark_enabled=False
+          ) as results:
+        results.PrintSummary()
+      # When a disabled benchmark is run we now want to return success since
+      # we are no longer filtering these out in the buildbot recipes.
+      return 0
 
   pt = benchmark.CreatePageTest(finder_options)
   pt.__name__ = benchmark.__class__.__name__
 
-  if hasattr(benchmark, '_disabled_strings'):
-    # pylint: disable=protected-access
-    pt._disabled_strings = benchmark._disabled_strings
+  disabled_attr_name = decorators.DisabledAttributeName(benchmark)
+  # pylint: disable=protected-access
+  pt._disabled_strings = getattr(benchmark, disabled_attr_name, set())
   if hasattr(benchmark, '_enabled_strings'):
     # pylint: disable=protected-access
     pt._enabled_strings = benchmark._enabled_strings
@@ -307,13 +317,22 @@ def RunBenchmark(benchmark, finder_options):
           'PageTest must be used with StorySet containing only '
           'telemetry.page.Page stories.')
 
-  benchmark_metadata = benchmark.GetMetadata()
+  should_tear_down_state_after_each_story_run = (
+      benchmark.ShouldTearDownStateAfterEachStoryRun())
+  # HACK: restarting shared state has huge overhead on cros (crbug.com/645329),
+  # hence we default this to False when test is run against CrOS.
+  # TODO(cros-team): figure out ways to remove this hack.
+  if (possible_browser.platform.GetOSName() == 'chromeos' and
+      not benchmark.IsShouldTearDownStateAfterEachStoryRunOverriden()):
+    should_tear_down_state_after_each_story_run = False
+
+
   with results_options.CreateResults(
       benchmark_metadata, finder_options,
-      benchmark.ValueCanBeAddedPredicate) as results:
+      benchmark.ValueCanBeAddedPredicate, benchmark_enabled=True) as results:
     try:
       Run(pt, stories, finder_options, results, benchmark.max_failures,
-          benchmark.ShouldTearDownStateAfterEachStoryRun(),
+          should_tear_down_state_after_each_story_run,
           benchmark.ShouldTearDownStateAfterEachStorySetRun())
       return_code = min(254, len(results.failures))
     except Exception:
@@ -321,8 +340,10 @@ def RunBenchmark(benchmark, finder_options):
       return_code = 255
 
     try:
-      bucket = cloud_storage.BUCKET_ALIASES[finder_options.upload_bucket]
       if finder_options.upload_results:
+        bucket = finder_options.upload_bucket
+        if bucket in cloud_storage.BUCKET_ALIASES:
+          bucket = cloud_storage.BUCKET_ALIASES[bucket]
         results.UploadTraceFilesToCloud(bucket)
         results.UploadProfilingFilesToCloud(bucket)
     finally:

@@ -56,13 +56,15 @@ public class MinidumpUploadCallable implements Callable<Integer> {
         UPLOAD_SUCCESS,
         UPLOAD_FAILURE,
         UPLOAD_USER_DISABLED,
-        UPLOAD_COMMANDLINE_DISABLED
+        UPLOAD_COMMANDLINE_DISABLED,
+        UPLOAD_DISABLED_BY_SAMPLING
     })
     public @interface MinidumpUploadStatus {}
     public static final int UPLOAD_SUCCESS = 0;
     public static final int UPLOAD_FAILURE = 1;
     public static final int UPLOAD_USER_DISABLED = 2;
     public static final int UPLOAD_COMMANDLINE_DISABLED = 3;
+    public static final int UPLOAD_DISABLED_BY_SAMPLING = 4;
 
     private final File mFileToUpload;
     private final File mLogfile;
@@ -94,12 +96,19 @@ public class MinidumpUploadCallable implements Callable<Integer> {
 
         if (mPermManager.isUploadEnabledForTests()) {
             Log.i(TAG, "Minidump upload enabled for tests, skipping other checks.");
-        } else {
+        } else if (!CrashFileManager.isForcedUpload(mFileToUpload)) {
             if (!mPermManager.isUploadUserPermitted()) {
-                Log.i(TAG, "Minidump upload is not permitted by user. Marking file as uploaded for "
-                        + "cleanup to prevent future uploads.");
-                cleanupMinidumpFile();
+                Log.i(TAG, "Minidump upload is not permitted by user. Marking file as skipped for "
+                                + "cleanup to prevent future uploads.");
+                CrashFileManager.markUploadSkipped(mFileToUpload);
                 return UPLOAD_USER_DISABLED;
+            }
+
+            if (!mPermManager.isClientInMetricsSample()) {
+                Log.i(TAG, "Minidump upload skipped due to sampling.  Marking file as skipped for "
+                                + "cleanup to prevent future uploads.");
+                CrashFileManager.markUploadSkipped(mFileToUpload);
+                return UPLOAD_DISABLED_BY_SAMPLING;
             }
 
             boolean isLimited = mPermManager.isUploadLimited();
@@ -180,7 +189,7 @@ public class MinidumpUploadCallable implements Callable<Integer> {
             // TODO(acleung): MinidumpUploadService is in charge of renaming while this class is
             // in charge of deleting. We should move all the file system operations into
             // MinidumpUploadService instead.
-            cleanupMinidumpFile();
+            CrashFileManager.markUploadSuccess(mFileToUpload);
 
             try {
                 appendUploadedEntryToLog(id);
@@ -248,21 +257,6 @@ public class MinidumpUploadCallable implements Callable<Integer> {
         }
         boundary = boundary.substring(2);  // Remove the initial --
         return boundary;
-    }
-
-    /**
-     * Mark file we just uploaded for cleanup later.
-     *
-     * We do not immediately delete the file for testing reasons,
-     * but if marking the file fails, we do delete it right away.
-     */
-    private void cleanupMinidumpFile() {
-        if (!CrashFileManager.tryMarkAsUploaded(mFileToUpload)) {
-            Log.w(TAG, "Unable to mark " + mFileToUpload + " as uploaded.");
-            if (!mFileToUpload.delete()) {
-                Log.w(TAG, "Cannot delete " + mFileToUpload);
-            }
-        }
     }
 
     /**

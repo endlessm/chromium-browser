@@ -75,28 +75,6 @@ enum AppMenuAction {
   LIMIT_MENU_ACTION
 };
 
-// A menu model that builds the contents of an encoding menu.
-class EncodingMenuModel : public ui::SimpleMenuModel,
-                          public ui::SimpleMenuModel::Delegate {
- public:
-  explicit EncodingMenuModel(Browser* browser);
-  ~EncodingMenuModel() override;
-
-  // Overridden from ui::SimpleMenuModel::Delegate:
-  bool IsCommandIdChecked(int command_id) const override;
-  bool IsCommandIdEnabled(int command_id) const override;
-  bool GetAcceleratorForCommandId(int command_id,
-                                  ui::Accelerator* accelerator) override;
-  void ExecuteCommand(int command_id, int event_flags) override;
-
- private:
-  void Build();
-
-  Browser* browser_;  // weak
-
-  DISALLOW_COPY_AND_ASSIGN(EncodingMenuModel);
-};
-
 // A menu model that builds the contents of the zoom menu.
 class ZoomMenuModel : public ui::SimpleMenuModel {
  public:
@@ -116,8 +94,6 @@ class ToolsMenuModel : public ui::SimpleMenuModel {
 
  private:
   void Build(Browser* browser);
-
-  std::unique_ptr<EncodingMenuModel> encoding_menu_model_;
 
   DISALLOW_COPY_AND_ASSIGN(ToolsMenuModel);
 };
@@ -148,7 +124,7 @@ class AppMenuModel : public ui::SimpleMenuModel,
   bool IsCommandIdEnabled(int command_id) const override;
   bool IsCommandIdVisible(int command_id) const override;
   bool GetAcceleratorForCommandId(int command_id,
-                                  ui::Accelerator* accelerator) override;
+                                  ui::Accelerator* accelerator) const override;
 
   // Overridden from TabStripModelObserver:
   void ActiveTabChanged(content::WebContents* old_contents,

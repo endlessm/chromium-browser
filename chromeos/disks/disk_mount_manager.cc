@@ -11,9 +11,9 @@
 
 #include "base/bind.h"
 #include "base/macros.h"
+#include "base/memory/ptr_util.h"
 #include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
-#include "base/stl_util.h"
 #include "base/strings/string_util.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
 #include "chromeos/disks/suspend_unmount_manager.h"
@@ -51,7 +51,6 @@ class DiskMountManagerImpl : public DiskMountManager {
   }
 
   ~DiskMountManagerImpl() override {
-    STLDeleteContainerPairSecondPointers(disks_.begin(), disks_.end());
   }
 
   // DiskMountManager override.
@@ -68,7 +67,8 @@ class DiskMountManagerImpl : public DiskMountManager {
   void MountPath(const std::string& source_path,
                  const std::string& source_format,
                  const std::string& mount_label,
-                 MountType type) override {
+                 MountType type,
+                 MountAccessMode access_mode) override {
     // Hidden and non-existent devices should not be mounted.
     if (type == MOUNT_TYPE_DEVICE) {
       DiskMap::const_iterator it = disks_.find(source_path);
@@ -79,15 +79,18 @@ class DiskMountManagerImpl : public DiskMountManager {
       }
     }
     cros_disks_client_->Mount(
-        source_path,
-        source_format,
-        mount_label,
+        source_path, source_format, mount_label, access_mode,
         // When succeeds, OnMountCompleted will be called by
         // "MountCompleted" signal instead.
         base::Bind(&base::DoNothing),
         base::Bind(&DiskMountManagerImpl::OnMountCompleted,
                    weak_ptr_factory_.GetWeakPtr(),
                    MountEntry(MOUNT_ERROR_INTERNAL, source_path, type, "")));
+
+    // Record the access mode option passed to CrosDisks.
+    // This is needed because CrosDisks service methods doesn't return the info
+    // via DBus.
+    access_modes_.insert(std::make_pair(source_path, access_mode));
   }
 
   // DiskMountManager override.
@@ -122,6 +125,12 @@ class DiskMountManagerImpl : public DiskMountManager {
     if (disk == disks_.end()) {
       LOG(ERROR) << "Device with path \"" << device_path << "\" not found.";
       OnFormatCompleted(FORMAT_ERROR_UNKNOWN, device_path);
+      return;
+    }
+    if (disk->second->is_read_only()) {
+      LOG(ERROR) << "Mount point with path \"" << mount_path
+                 << "\" is read-only.";
+      OnFormatCompleted(FORMAT_ERROR_DEVICE_NOT_ALLOWED, mount_path);
       return;
     }
 
@@ -223,20 +232,20 @@ class DiskMountManagerImpl : public DiskMountManager {
   const Disk* FindDiskBySourcePath(
       const std::string& source_path) const override {
     DiskMap::const_iterator disk_it = disks_.find(source_path);
-    return disk_it == disks_.end() ? NULL : disk_it->second;
+    return disk_it == disks_.end() ? NULL : disk_it->second.get();
   }
 
   // DiskMountManager override.
   const MountPointMap& mount_points() const override { return mount_points_; }
 
   // DiskMountManager override.
-  bool AddDiskForTest(Disk* disk) override {
+  bool AddDiskForTest(std::unique_ptr<Disk> disk) override {
     if (disks_.find(disk->device_path()) != disks_.end()) {
       LOG(ERROR) << "Attempt to add a duplicate disk";
       return false;
     }
 
-    disks_.insert(std::make_pair(disk->device_path(), disk));
+    disks_.insert(std::make_pair(disk->device_path(), std::move(disk)));
     return true;
   }
 
@@ -330,8 +339,6 @@ class DiskMountManagerImpl : public DiskMountManager {
                                     entry.mount_type(),
                                     mount_condition);
 
-    NotifyMountStatusUpdate(MOUNTING, entry.error_code(), mount_info);
-
     // If the device is corrupted but it's still possible to format it, it will
     // be fake mounted.
     if ((entry.error_code() == MOUNT_ERROR_NONE ||
@@ -340,20 +347,35 @@ class DiskMountManagerImpl : public DiskMountManager {
       mount_points_.insert(MountPointMap::value_type(mount_info.mount_path,
                                                      mount_info));
     }
+
     if ((entry.error_code() == MOUNT_ERROR_NONE ||
          mount_info.mount_condition) &&
         mount_info.mount_type == MOUNT_TYPE_DEVICE &&
         !mount_info.source_path.empty() &&
         !mount_info.mount_path.empty()) {
       DiskMap::iterator iter = disks_.find(mount_info.source_path);
-      if (iter == disks_.end()) {
-        // disk might have been removed by now?
-        return;
+      if (iter != disks_.end()) {  // disk might have been removed by now?
+        Disk* disk = iter->second.get();
+        DCHECK(disk);
+        // The is_read_only field in *disk may be incorrect when this is called
+        // from CrosDisksClientImpl::OnMountCompleted.
+        // The disk should be treated as read-only when:
+        //  - the read-only option was passed when issuing mount command
+        //  - or the device hardware is read-only.
+        // |source_path| should be same as |disk->device_path| because
+        // |VolumeManager::OnDiskEvent()| passes the latter to cros-disks as a
+        // source path when mounting a device.
+        AccessModeMap::iterator it = access_modes_.find(entry.source_path());
+        if (it != access_modes_.end() &&
+            it->second == chromeos::MOUNT_ACCESS_MODE_READ_ONLY) {
+          disk->set_read_only(true);
+        }
+        disk->set_mount_path(mount_info.mount_path);
       }
-      Disk* disk = iter->second;
-      DCHECK(disk);
-      disk->set_mount_path(mount_info.mount_path);
     }
+    // Observers may read the values of disks_. So notify them after tweaking
+    // values of disks_.
+    NotifyMountStatusUpdate(MOUNTING, entry.error_code(), mount_info);
   }
 
   // Callback for UnmountPath.
@@ -444,7 +466,6 @@ class DiskMountManagerImpl : public DiskMountManager {
     bool is_new = true;
     DiskMap::iterator iter = disks_.find(disk_info.device_path());
     if (iter != disks_.end()) {
-      delete iter->second;
       disks_.erase(iter);
       is_new = false;
     }
@@ -468,7 +489,17 @@ class DiskMountManagerImpl : public DiskMountManager {
                           disk_info.on_boot_device(),
                           disk_info.on_removable_device(),
                           disk_info.is_hidden());
-    disks_.insert(std::make_pair(disk_info.device_path(), disk));
+    // If the device was mounted by the instance, apply recorded parameter.
+    // Lookup by |device_path| which we pass to cros-disks when mounting a
+    // device in |VolumeManager::OnDiskEvent()|.
+    AccessModeMap::iterator access_mode =
+        access_modes_.find(disk->device_path());
+    if (access_mode != access_modes_.end()) {
+      disk->set_read_only(access_mode->second ==
+                          chromeos::MOUNT_ACCESS_MODE_READ_ONLY);
+    }
+    disks_.insert(
+        std::make_pair(disk_info.device_path(), base::WrapUnique(disk)));
     NotifyDiskStatusUpdate(is_new ? DISK_ADDED : DISK_CHANGED, disk);
   }
 
@@ -478,7 +509,6 @@ class DiskMountManagerImpl : public DiskMountManager {
     std::set<std::string> current_device_set(devices.begin(), devices.end());
     for (DiskMap::iterator iter = disks_.begin(); iter != disks_.end(); ) {
       if (current_device_set.find(iter->first) == current_device_set.end()) {
-        delete iter->second;
         disks_.erase(iter++);
       } else {
         ++iter;
@@ -549,9 +579,8 @@ class DiskMountManagerImpl : public DiskMountManager {
         // Search and remove disks that are no longer present.
         DiskMountManager::DiskMap::iterator iter = disks_.find(device_path);
         if (iter != disks_.end()) {
-          Disk* disk = iter->second;
+          Disk* disk = iter->second.get();
           NotifyDiskStatusUpdate(DISK_REMOVED, disk);
-          delete iter->second;
           disks_.erase(iter);
         }
         break;
@@ -635,6 +664,11 @@ class DiskMountManagerImpl : public DiskMountManager {
 
   std::unique_ptr<SuspendUnmountManager> suspend_unmount_manager_;
 
+  // Whether the instance attempted to mount a device in read-only mode for
+  // each source path.
+  typedef std::map<std::string, chromeos::MountAccessMode> AccessModeMap;
+  AccessModeMap access_modes_;
+
   base::WeakPtrFactory<DiskMountManagerImpl> weak_ptr_factory_;
 
   DISALLOW_COPY_AND_ASSIGN(DiskMountManagerImpl);
@@ -687,7 +721,7 @@ DiskMountManager::Disk::Disk(const Disk& other) = default;
 
 DiskMountManager::Disk::~Disk() {}
 
-bool DiskMountManager::AddDiskForTest(Disk* disk) {
+bool DiskMountManager::AddDiskForTest(std::unique_ptr<Disk> disk) {
   return false;
 }
 

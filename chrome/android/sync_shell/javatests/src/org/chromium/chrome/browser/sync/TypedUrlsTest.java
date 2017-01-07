@@ -9,14 +9,15 @@ import android.util.Pair;
 
 import org.chromium.base.ThreadUtils;
 import org.chromium.base.test.util.Feature;
+import org.chromium.base.test.util.RetryOnFailure;
 import org.chromium.chrome.test.util.browser.sync.SyncTestUtil;
+import org.chromium.components.sync.ModelType;
+import org.chromium.components.sync.protocol.EntitySpecifics;
+import org.chromium.components.sync.protocol.SyncEnums;
+import org.chromium.components.sync.protocol.TypedUrlSpecifics;
 import org.chromium.content.browser.test.util.Criteria;
 import org.chromium.content.browser.test.util.CriteriaHelper;
 import org.chromium.content_public.browser.LoadUrlParams;
-import org.chromium.sync.ModelType;
-import org.chromium.sync.protocol.EntitySpecifics;
-import org.chromium.sync.protocol.SyncEnums;
-import org.chromium.sync.protocol.TypedUrlSpecifics;
 import org.chromium.ui.base.PageTransition;
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -28,6 +29,7 @@ import java.util.concurrent.Callable;
 /**
  * Test suite for the typed URLs sync data type.
  */
+@RetryOnFailure  // crbug.com/637448
 public class TypedUrlsTest extends SyncTestBase {
     private static final String TAG = "TypedUrlsTest";
 

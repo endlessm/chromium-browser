@@ -23,6 +23,9 @@ class Chrome {
 
   virtual bool HasCrashedWebView() = 0;
 
+  // Return the id of the first WebView that is a page.
+  virtual Status GetWebViewIdForFirstTab(std::string* web_view_id) = 0;
+
   // Return ids of opened WebViews. The list is not guaranteed to be in the same
   // order as those WebViews are opened, if two or more new windows are opened
   // between two calls of this method.
@@ -46,6 +49,9 @@ class Chrome {
   // Return whether the target device has a touchscreen, and whether touch
   // actions can be performed on it.
   virtual bool HasTouchScreen() const = 0;
+
+  // Return the page load strategy for this session.
+  virtual std::string page_load_strategy() const = 0;
 
   // Quits Chrome.
   virtual Status Quit() = 0;

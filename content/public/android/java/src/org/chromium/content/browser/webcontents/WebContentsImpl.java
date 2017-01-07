@@ -4,6 +4,7 @@
 
 package org.chromium.content.browser.webcontents;
 
+import android.annotation.SuppressLint;
 import android.graphics.Bitmap;
 import android.graphics.Rect;
 import android.os.Bundle;
@@ -59,6 +60,8 @@ import java.util.UUID;
      * A {@link android.os.Parcelable.Creator} instance that is used to build
      * {@link WebContentsImpl} objects from a {@link Parcel}.
      */
+    // TODO(crbug.com/635567): Fix this properly.
+    @SuppressLint("ParcelClassLoader")
     public static final Parcelable.Creator<WebContents> CREATOR =
             new Parcelable.Creator<WebContents>() {
                 @Override
@@ -87,8 +90,6 @@ import java.util.UUID;
 
     // Lazily created proxy observer for handling all Java-based WebContentsObservers.
     private WebContentsObserverProxy mObserverProxy;
-
-    private boolean mContextMenuOpened;
 
     private WebContentsImpl(
             long nativeWebContentsAndroid, NavigationController navigationController) {
@@ -209,12 +210,6 @@ import java.util.UUID;
         // safely guard against this case.
         if (isDestroyed()) return;
         nativeUnselect(mNativeWebContentsAndroid);
-    }
-
-    @Override
-    public void insertCSS(String css) {
-        if (isDestroyed()) return;
-        nativeInsertCSS(mNativeWebContentsAndroid, css);
     }
 
     @Override
@@ -379,11 +374,6 @@ import java.util.UUID;
         nativeStopMediaSession(mNativeWebContentsAndroid);
     }
 
-    @Override
-    public String getEncoding() {
-        return nativeGetEncoding(mNativeWebContentsAndroid);
-    }
-
     // root node can be null if parsing fails.
     @CalledByNative
     private static void onAccessibilitySnapshot(AccessibilitySnapshotNode root,
@@ -447,24 +437,6 @@ import java.util.UUID;
                 srcRect.left, srcRect.top, srcRect.width(), srcRect.height());
     }
 
-    @Override
-    public void onContextMenuOpened() {
-        mContextMenuOpened = true;
-    }
-
-    @Override
-    public void onContextMenuClosed() {
-        if (!mContextMenuOpened) {
-            return;
-        } else {
-            mContextMenuOpened = false;
-        }
-
-        if (mNativeWebContentsAndroid != 0) {
-            nativeOnContextMenuClosed(mNativeWebContentsAndroid);
-        }
-    }
-
     @CalledByNative
     private void onGetContentBitmapFinished(ContentBitmapCallback callback, Bitmap bitmap,
             int response) {
@@ -525,7 +497,6 @@ import java.util.UUID;
     private native void nativeReplace(long nativeWebContentsAndroid, String word);
     private native void nativeSelectAll(long nativeWebContentsAndroid);
     private native void nativeUnselect(long nativeWebContentsAndroid);
-    private native void nativeInsertCSS(long nativeWebContentsAndroid, String css);
     private native void nativeOnHide(long nativeWebContentsAndroid);
     private native void nativeOnShow(long nativeWebContentsAndroid);
     private native void nativeSuspendAllMediaPlayers(long nativeWebContentsAndroid);
@@ -564,11 +535,9 @@ import java.util.UUID;
     private native void nativeResumeMediaSession(long nativeWebContentsAndroid);
     private native void nativeSuspendMediaSession(long nativeWebContentsAndroid);
     private native void nativeStopMediaSession(long nativeWebContentsAndroid);
-    private native String nativeGetEncoding(long nativeWebContentsAndroid);
     private native void nativeGetContentBitmap(long nativeWebContentsAndroid,
             ContentBitmapCallback callback, Bitmap.Config config, float scale,
             float x, float y, float width, float height);
-    private native void nativeOnContextMenuClosed(long nativeWebContentsAndroid);
     private native void nativeReloadLoFiImages(long nativeWebContentsAndroid);
     private native int nativeDownloadImage(long nativeWebContentsAndroid,
             String url, boolean isFavicon, int maxBitmapSize,

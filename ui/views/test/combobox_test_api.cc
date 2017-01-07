@@ -51,7 +51,7 @@ void ComboboxTestApi::InstallTestMenuRunner(int* menu_show_count) {
       new MenuRunner(menu_model(), MenuRunner::COMBOBOX));
   test::MenuRunnerTestAPI test_api(combobox_->menu_runner_.get());
   test_api.SetMenuRunnerHandler(
-      base::WrapUnique(new TestMenuRunnerHandler(menu_show_count)));
+      base::MakeUnique<TestMenuRunnerHandler>(menu_show_count));
 }
 
 gfx::Size ComboboxTestApi::content_size() {
@@ -59,7 +59,7 @@ gfx::Size ComboboxTestApi::content_size() {
 }
 
 ui::MenuModel* ComboboxTestApi::menu_model() {
-  return combobox_->menu_model_adapter_.get();
+  return combobox_->menu_model_.get();
 }
 
 }  // test

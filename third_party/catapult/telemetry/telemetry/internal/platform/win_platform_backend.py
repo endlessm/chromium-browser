@@ -17,7 +17,7 @@ import sys
 import time
 import zipfile
 
-from catapult_base import cloud_storage  # pylint: disable=import-error
+from py_utils import cloud_storage  # pylint: disable=import-error
 
 from telemetry.core import exceptions
 from telemetry.core import os_version as os_version_module
@@ -159,6 +159,10 @@ class WinPlatformBackend(desktop_platform_backend.DesktopPlatformBackend):
     """Return current timestamp in seconds."""
     return {'TotalTime': time.time()}
 
+  @decorators.Deprecated(
+      2017, 11, 4,
+      'Clients should use tracing and memory-infra in new Telemetry '
+      'benchmarks. See for context: https://crbug.com/632021')
   def GetMemoryStats(self, pid):
     memory_info = self._GetWin32ProcessInfo(
         win32process.GetProcessMemoryInfo, pid)

@@ -36,11 +36,24 @@ __attribute__((visibility("default")))
 + (void)setSDCHEnabled:(BOOL)sdchEnabled
          withPrefStore:(NSString *)filename;
 
-// |userAgent| is expected to be of the form Product/Version.
-// Example: Foo/3.0.0.0
-//
+// Set partial UserAgent. This function is a deprecated shortcut for:
+//    [CrNet setUserAgent:userAgent partial:YES];
+// See the documentation for |setUserAgent| for details about the |userAgent|
+// argument.
 // This method only has any effect before |install| is called.
 + (void)setPartialUserAgent:(NSString *)userAgent;
+
+// |userAgent| is expected to be the user agent value sent to remote.
+// If |partial| is set to YES, then actual user agent value is based on device
+// model, OS version, and |userAgent| argument. For example "Foo/3.0.0.0" is
+// sent as "Mozilla/5.0 (iPhone; CPU iPhone OS 9_3 like Mac OS X)
+// AppleWebKit/601.1 (KHTML, like Gecko) Foo/3.0.0.0 Mobile/15G31
+// Safari/601.1.46".
+// If partial is set to NO, then |userAgent| value is complete value sent to
+// the remote. For Example: "Foo/3.0.0.0" is sent as "Foo/3.0.0.0".
+//
+// This method only has any effect before |install| is called.
++ (void)setUserAgent:(NSString*)userAgent partial:(bool)partial;
 
 // Set the block used to determine whether or not CrNet should handle the
 // request. If this is not set, CrNet will handle all requests.
@@ -50,7 +63,11 @@ __attribute__((visibility("default")))
 
 // Installs CrNet. Once installed, CrNet intercepts and handles all
 // NSURLConnection and NSURLRequests issued by the app, including UIWebView page
-// loads.
+// loads. It is recommended to call this method on the application main thread.
+// If the method is called on any thread other than the main one, the method
+// will internally try to execute synchronously using the main GCD queue.
+// Please make sure that the main thread is not blocked by a job
+// that calls this method; otherwise, a deadlock can occur.
 + (void)install;
 
 // Installs CrNet into an NSURLSession, passed in by the caller. Note that this

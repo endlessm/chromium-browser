@@ -4,19 +4,14 @@
 
 package org.chromium.content_shell;
 
-import android.app.Activity;
 import android.content.Context;
 import android.util.AttributeSet;
 import android.view.LayoutInflater;
-import android.view.View;
 import android.widget.FrameLayout;
 
 import org.chromium.base.ThreadUtils;
-import org.chromium.base.VisibleForTesting;
 import org.chromium.base.annotations.CalledByNative;
 import org.chromium.base.annotations.JNINamespace;
-import org.chromium.content.browser.ActivityContentVideoViewEmbedder;
-import org.chromium.content.browser.ContentVideoViewEmbedder;
 import org.chromium.content.browser.ContentViewClient;
 import org.chromium.content.browser.ContentViewCore;
 import org.chromium.content.browser.ContentViewRenderView;
@@ -29,7 +24,6 @@ import org.chromium.ui.base.WindowAndroid;
 public class ShellManager extends FrameLayout {
 
     public static final String DEFAULT_SHELL_URL = "http://www.google.com";
-    private static boolean sStartup = true;
     private WindowAndroid mWindow;
     private Shell mActiveShell;
 
@@ -37,7 +31,7 @@ public class ShellManager extends FrameLayout {
 
     // The target for all content rendering.
     private ContentViewRenderView mContentViewRenderView;
-    private ContentViewClient mContentViewClient;
+    private final ContentViewClient mContentViewClient = new ContentViewClient();
 
     /**
      * Constructor for inflating via XML.
@@ -45,50 +39,15 @@ public class ShellManager extends FrameLayout {
     public ShellManager(final Context context, AttributeSet attrs) {
         super(context, attrs);
         nativeInit(this);
-        mContentViewClient = new ContentViewClient() {
-            @Override
-            public ContentVideoViewEmbedder getContentVideoViewEmbedder() {
-                return new ActivityContentVideoViewEmbedder((Activity) context) {
-                    @Override
-                    public void enterFullscreenVideo(View view) {
-                        super.enterFullscreenVideo(view);
-                        setOverlayVideoMode(true);
-                    }
-
-                    @Override
-                    public void exitFullscreenVideo() {
-                        super.exitFullscreenVideo();
-                        setOverlayVideoMode(false);
-                    }
-                };
-            }
-        };
     }
 
     /**
      * @param window The window used to generate all shells.
      */
     public void setWindow(WindowAndroid window) {
-        setWindow(window, true);
-    }
-
-    /**
-     * @param window The window used to generate all shells.
-     * @param initialLoadingNeeded Whether initial loading is needed or not.
-     */
-    @VisibleForTesting
-    public void setWindow(WindowAndroid window, final boolean initialLoadingNeeded) {
         assert window != null;
         mWindow = window;
-        mContentViewRenderView = new ContentViewRenderView(getContext()) {
-            @Override
-            protected void onReadyToRender() {
-                if (sStartup) {
-                    if (initialLoadingNeeded) mActiveShell.loadUrl(mStartupUrl);
-                    sStartup = false;
-                }
-            }
-        };
+        mContentViewRenderView = new ContentViewRenderView(getContext());
         mContentViewRenderView.onNativeLibraryLoaded(window);
     }
 

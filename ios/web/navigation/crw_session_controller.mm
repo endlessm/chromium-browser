@@ -12,7 +12,7 @@
 
 #include "base/format_macros.h"
 #include "base/logging.h"
-#include "base/mac/objc_property_releaser.h"
+#import "base/mac/foundation_util.h"
 #import "base/mac/scoped_nsobject.h"
 #include "base/metrics/user_metrics.h"
 #include "base/metrics/user_metrics_action.h"
@@ -29,6 +29,10 @@
 #include "ios/web/public/browser_url_rewriter.h"
 #include "ios/web/public/referrer.h"
 #include "ios/web/public/ssl_status.h"
+
+#if !defined(__has_feature) || !__has_feature(objc_arc)
+#error "This file requires ARC support."
+#endif
 
 using base::UserMetricsAction;
 
@@ -102,8 +106,6 @@ NSString* const kXCallbackParametersKey = @"xCallbackParameters";
 
   // XCallback parameters used to create (or clobber) the tab. Can be nil.
   XCallbackParameters* _xCallbackParameters;
-
-  base::mac::ObjCPropertyReleaser _propertyReleaser_CRWSessionController;
 }
 
 // Redefine as readwrite.
@@ -111,9 +113,9 @@ NSString* const kXCallbackParametersKey = @"xCallbackParameters";
 
 // TODO(rohitrao): These properties must be redefined readwrite to work around a
 // clang bug. crbug.com/228650
-@property(nonatomic, readwrite, retain) NSString* tabId;
-@property(nonatomic, readwrite, retain) NSArray* entries;
-@property(nonatomic, readwrite, retain)
+@property(nonatomic, readwrite, copy) NSString* tabId;
+@property(nonatomic, readwrite, strong) NSArray* entries;
+@property(nonatomic, readwrite, strong)
     CRWSessionCertificatePolicyManager* sessionCertificatePolicyManager;
 
 - (NSString*)uniqueID;
@@ -153,15 +155,13 @@ NSString* const kXCallbackParametersKey = @"xCallbackParameters";
             browserState:(web::BrowserState*)browserState {
   self = [super init];
   if (self) {
-    _propertyReleaser_CRWSessionController.Init(self,
-                                                [CRWSessionController class]);
     self.windowName = windowName;
-    _tabId = [[self uniqueID] retain];
+    _tabId = [[self uniqueID] copy];
     _openerId = [openerId copy];
     _openedByDOM = openedByDOM;
     _openerNavigationIndex = openerIndex;
     _browserState = browserState;
-    _entries = [[NSMutableArray array] retain];
+    _entries = [NSMutableArray array];
     _lastVisitedTimestamp = [[NSDate date] timeIntervalSince1970];
     _currentNavigationIndex = -1;
     _previousNavigationIndex = -1;
@@ -176,9 +176,7 @@ NSString* const kXCallbackParametersKey = @"xCallbackParameters";
                  browserState:(web::BrowserState*)browserState {
   self = [super init];
   if (self) {
-    _propertyReleaser_CRWSessionController.Init(self,
-                                                [CRWSessionController class]);
-    _tabId = [[self uniqueID] retain];
+    _tabId = [[self uniqueID] copy];
     _openerId = nil;
     _browserState = browserState;
 
@@ -211,14 +209,12 @@ NSString* const kXCallbackParametersKey = @"xCallbackParameters";
 - (id)initWithCoder:(NSCoder*)aDecoder {
   self = [super init];
   if (self) {
-    _propertyReleaser_CRWSessionController.Init(self,
-                                                [CRWSessionController class]);
     NSString* uuid = [aDecoder decodeObjectForKey:kTabIdKey];
     if (!uuid)
       uuid = [self uniqueID];
 
     self.windowName = [aDecoder decodeObjectForKey:kWindowNameKey];
-    _tabId = [uuid retain];
+    _tabId = [uuid copy];
     _openerId = [[aDecoder decodeObjectForKey:kOpenerIdKey] copy];
     _openedByDOM = [aDecoder decodeBoolForKey:kOpenedByDOMKey];
     _openerNavigationIndex =
@@ -232,19 +228,19 @@ NSString* const kXCallbackParametersKey = @"xCallbackParameters";
     NSMutableArray* temp =
         [NSMutableArray arrayWithArray:
             [aDecoder decodeObjectForKey:kEntriesKey]];
-    _entries = [temp retain];
+    _entries = temp;
     // Prior to M34, 0 was used as "no index" instead of -1; adjust for that.
     if (![_entries count])
       _currentNavigationIndex = -1;
     _sessionCertificatePolicyManager =
-       [[aDecoder decodeObjectForKey:kCertificatePolicyManagerKey] retain];
+        [aDecoder decodeObjectForKey:kCertificatePolicyManagerKey];
     if (!_sessionCertificatePolicyManager) {
       _sessionCertificatePolicyManager =
           [[CRWSessionCertificatePolicyManager alloc] init];
     }
 
     _xCallbackParameters =
-        [[aDecoder decodeObjectForKey:kXCallbackParametersKey] retain];
+        [aDecoder decodeObjectForKey:kXCallbackParametersKey];
   }
   return self;
 }
@@ -268,8 +264,6 @@ NSString* const kXCallbackParametersKey = @"xCallbackParameters";
 
 - (id)copyWithZone:(NSZone*)zone {
   CRWSessionController* copy = [[[self class] alloc] init];
-  copy->_propertyReleaser_CRWSessionController.Init(
-      copy, [CRWSessionController class]);
   copy->_tabId = [_tabId copy];
   copy->_openerId = [_openerId copy];
   copy->_openedByDOM = _openedByDOM;
@@ -282,7 +276,8 @@ NSString* const kXCallbackParametersKey = @"xCallbackParameters";
       [[NSMutableArray alloc] initWithArray:_entries copyItems:YES];
   copy->_sessionCertificatePolicyManager =
       [_sessionCertificatePolicyManager copy];
-  copy->_xCallbackParameters = [_xCallbackParameters copy];
+  copy->_xCallbackParameters = [base::mac::ObjCCastStrict<NSObject<NSCopying>>(
+      _xCallbackParameters) copy];
   return copy;
 }
 
@@ -401,11 +396,11 @@ NSString* const kXCallbackParametersKey = @"xCallbackParameters";
       (self.currentEntry.navigationItem &&
        self.currentEntry.navigationItem->IsOverridingUserAgent());
   _useDesktopUserAgentForNextPendingEntry = NO;
-  _pendingEntry.reset([[self sessionEntryWithURL:url
-                                        referrer:ref
-                                      transition:trans
-                             useDesktopUserAgent:useDesktopUserAgent
-                               rendererInitiated:rendererInitiated] retain]);
+  _pendingEntry.reset([self sessionEntryWithURL:url
+                                       referrer:ref
+                                     transition:trans
+                            useDesktopUserAgent:useDesktopUserAgent
+                              rendererInitiated:rendererInitiated]);
 
   if (_navigationManager && _navigationManager->GetFacadeDelegate()) {
     _navigationManager->GetFacadeDelegate()->OnNavigationItemPending();
@@ -454,7 +449,7 @@ NSString* const kXCallbackParametersKey = @"xCallbackParameters";
   // Store removed items in temporary NSArray so they can be deallocated after
   // their facades.
   base::scoped_nsobject<NSArray> removedItems(
-      [[_entries subarrayWithRange:remove] retain]);
+      [_entries subarrayWithRange:remove]);
   [_entries removeObjectsInRange:remove];
   if (_previousNavigationIndex >= forwardEntryStartIndex)
     _previousNavigationIndex = -1;
@@ -487,12 +482,12 @@ NSString* const kXCallbackParametersKey = @"xCallbackParameters";
 }
 
 - (void)addTransientEntryWithURL:(const GURL&)URL {
-  _transientEntry.reset(
-      [[self sessionEntryWithURL:URL
-                        referrer:web::Referrer()
-                      transition:ui::PAGE_TRANSITION_CLIENT_REDIRECT
-             useDesktopUserAgent:NO
-               rendererInitiated:NO] retain]);
+  _transientEntry.reset([self
+      sessionEntryWithURL:URL
+                 referrer:web::Referrer()
+               transition:ui::PAGE_TRANSITION_CLIENT_REDIRECT
+      useDesktopUserAgent:NO
+        rendererInitiated:NO]);
 
   web::NavigationItem* navigationItem = [_transientEntry navigationItem];
   DCHECK(navigationItem);
@@ -510,12 +505,12 @@ NSString* const kXCallbackParametersKey = @"xCallbackParameters";
   web::Referrer referrer(item->GetURL(), web::ReferrerPolicyDefault);
   bool overrideUserAgent =
       self.currentEntry.navigationItem->IsOverridingUserAgent();
-  base::scoped_nsobject<CRWSessionEntry> pushedEntry(
-      [[self sessionEntryWithURL:URL
-                        referrer:referrer
-                      transition:transition
-             useDesktopUserAgent:overrideUserAgent
-               rendererInitiated:NO] retain]);
+  base::scoped_nsobject<CRWSessionEntry> pushedEntry([self
+      sessionEntryWithURL:URL
+                 referrer:referrer
+               transition:transition
+      useDesktopUserAgent:overrideUserAgent
+        rendererInitiated:NO]);
   web::NavigationItemImpl* pushedItem = [pushedEntry navigationItemImpl];
   pushedItem->SetSerializedStateObject(stateObject);
   pushedItem->SetIsCreatedFromPushState(true);
@@ -539,6 +534,7 @@ NSString* const kXCallbackParametersKey = @"xCallbackParameters";
   web::NavigationItemImpl* currentItem = self.currentEntry.navigationItemImpl;
   currentItem->SetURL(url);
   currentItem->SetSerializedStateObject(stateObject);
+  currentItem->SetHasStateBeenReplaced(true);
   currentEntry.navigationItem->SetURL(url);
   // If the change is to a committed entry, notify interested parties.
   if (currentEntry != self.pendingEntry && _navigationManager)
@@ -556,7 +552,6 @@ NSString* const kXCallbackParametersKey = @"xCallbackParameters";
   // entry; since navigations clear the transient entry, these flows might
   // crash. (This should be removable once more session management is handled
   // within this class and/or NavigationManager).
-  [[_transientEntry retain] autorelease];
   _transientEntry.reset();
 }
 
@@ -572,8 +567,8 @@ NSString* const kXCallbackParametersKey = @"xCallbackParameters";
     self.currentNavigationIndex = -1;
     _previousNavigationIndex = -1;
   }
-  self.xCallbackParameters =
-      [[otherSession.xCallbackParameters copy] autorelease];
+  self.xCallbackParameters = [base::mac::ObjCCastStrict<NSObject<NSCopying>>(
+      otherSession.xCallbackParameters) copy];
   self.windowName = otherSession.windowName;
   NSInteger numInitialEntries = [_entries count];
 
@@ -696,6 +691,10 @@ NSString* const kXCallbackParametersKey = @"xCallbackParameters";
 }
 
 - (void)goDelta:(int)delta {
+  // Store the navigation index at the start of this function, as |-goForward|
+  // and |-goBack| will incrementally reset |_previousNavigationIndex| each time
+  // they are called.
+  NSInteger previousNavigationIndex = self.currentNavigationIndex;
   if (delta < 0) {
     while ([self canGoBack] && delta < 0) {
       [self goBack];
@@ -707,6 +706,7 @@ NSString* const kXCallbackParametersKey = @"xCallbackParameters";
       --delta;
     }
   }
+  _previousNavigationIndex = previousNavigationIndex;
 }
 
 - (void)goToEntry:(CRWSessionEntry*)entry {
@@ -716,8 +716,10 @@ NSString* const kXCallbackParametersKey = @"xCallbackParameters";
 
   // Check that |entries_| still contains |entry|. |entry| could have been
   // removed by -clearForwardEntries.
-  if ([_entries containsObject:entry])
+  if ([_entries containsObject:entry]) {
+    _previousNavigationIndex = self.currentNavigationIndex;
     self.currentNavigationIndex = [_entries indexOfObject:entry];
+  }
 }
 
 - (void)removeEntryAtIndex:(NSInteger)index {
@@ -794,11 +796,9 @@ NSString* const kXCallbackParametersKey = @"xCallbackParameters";
   return results;
 }
 
-- (BOOL)isPushStateNavigationBetweenEntry:(CRWSessionEntry*)firstEntry
-                                 andEntry:(CRWSessionEntry*)secondEntry {
-  DCHECK(firstEntry);
-  DCHECK(secondEntry);
-  if (firstEntry == secondEntry)
+- (BOOL)isSameDocumentNavigationBetweenEntry:(CRWSessionEntry*)firstEntry
+                                    andEntry:(CRWSessionEntry*)secondEntry {
+  if (!firstEntry || !secondEntry || firstEntry == secondEntry)
     return NO;
   NSUInteger firstIndex = [_entries indexOfObject:firstEntry];
   NSUInteger secondIndex = [_entries indexOfObject:secondEntry];
@@ -809,8 +809,9 @@ NSString* const kXCallbackParametersKey = @"xCallbackParameters";
 
   for (NSUInteger i = startIndex + 1; i <= endIndex; i++) {
     web::NavigationItemImpl* item = [_entries[i] navigationItemImpl];
-    // Every entry in the sequence has to be created from a pushState() call.
-    if (!item->IsCreatedFromPushState())
+    // Every entry in the sequence has to be created from a hash change or
+    // pushState() call.
+    if (!item->IsCreatedFromPushState() && !item->IsCreatedFromHashChange())
       return NO;
     // Every entry in the sequence has to have a URL that could have been
     // created from a pushState() call.
@@ -850,8 +851,10 @@ NSString* const kXCallbackParametersKey = @"xCallbackParameters";
   CFUUIDRef uuidRef = CFUUIDCreate(NULL);
   CFStringRef uuidStringRef = CFUUIDCreateString(NULL, uuidRef);
   CFRelease(uuidRef);
-  NSString* uuid = [NSString stringWithString:(NSString*)uuidStringRef];
-  CFRelease(uuidStringRef);
+
+  NSString* uuid =
+      [NSString stringWithString:base::mac::ObjCCastStrict<NSString>(
+                                     CFBridgingRelease(uuidStringRef))];
   return uuid;
 }
 
@@ -880,8 +883,7 @@ NSString* const kXCallbackParametersKey = @"xCallbackParameters";
   item->SetTransitionType(transition);
   item->SetIsOverridingUserAgent(useDesktopUserAgent);
   item->set_is_renderer_initiated(rendererInitiated);
-  return [[[CRWSessionEntry alloc] initWithNavigationItem:std::move(item)]
-      autorelease];
+  return [[CRWSessionEntry alloc] initWithNavigationItem:std::move(item)];
 }
 
 @end

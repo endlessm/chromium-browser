@@ -10,7 +10,7 @@
 #include <string>
 
 #include "base/macros.h"
-#include "base/metrics/histogram.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/stl_util.h"
 #include "chrome/app/chrome_command_ids.h"
 #include "chrome/browser/browser_shutdown.h"
@@ -245,7 +245,7 @@ TabStripModel::TabStripModel(TabStripModelDelegate* delegate, Profile* profile)
 }
 
 TabStripModel::~TabStripModel() {
-  STLDeleteElements(&contents_data_);
+  base::STLDeleteElements(&contents_data_);
   order_controller_.reset();
 }
 
@@ -320,7 +320,7 @@ void TabStripModel::InsertWebContentsAt(int index,
   selection_model_.IncrementFrom(index);
 
   FOR_EACH_OBSERVER(TabStripModelObserver, observers_,
-                    TabInsertedAt(contents, index, active));
+                    TabInsertedAt(this, contents, index, active));
   if (active) {
     ui::ListSelectionModel new_model;
     new_model.Copy(selection_model_);
@@ -658,8 +658,8 @@ void TabStripModel::SetTabPinned(int index, bool pinned) {
   }
 
   FOR_EACH_OBSERVER(TabStripModelObserver, observers_,
-                    TabPinnedStateChanged(contents_data_[index]->web_contents(),
-                                          index));
+                    TabPinnedStateChanged(
+                        this, contents_data_[index]->web_contents(), index));
 }
 
 bool TabStripModel::IsTabPinned(int index) const {
@@ -793,7 +793,8 @@ void TabStripModel::AddWebContents(WebContents* contents,
   // new background tab.
   if (WebContents* old_contents = GetActiveWebContents()) {
     if ((add_types & ADD_ACTIVE) == 0) {
-      ResizeWebContents(contents, old_contents->GetContainerBounds().size());
+      ResizeWebContents(
+          contents, gfx::Rect(old_contents->GetContainerBounds().size()));
     }
   }
 }
@@ -1029,20 +1030,15 @@ std::vector<int> TabStripModel::GetIndicesClosedByCommand(
   DCHECK(ContainsIndex(index));
   DCHECK(id == CommandCloseTabsToRight || id == CommandCloseOtherTabs);
   bool is_selected = IsTabSelected(index);
-  int start;
+  int last_unclosed_tab = -1;
   if (id == CommandCloseTabsToRight) {
-    if (is_selected) {
-      start = selection_model_.selected_indices()[
-          selection_model_.selected_indices().size() - 1] + 1;
-    } else {
-      start = index + 1;
-    }
-  } else {
-    start = 0;
+    last_unclosed_tab =
+        is_selected ? selection_model_.selected_indices().back() : index;
   }
+
   // NOTE: callers expect the vector to be sorted in descending order.
   std::vector<int> indices;
-  for (int i = count() - 1; i >= start; --i) {
+  for (int i = count() - 1; i > last_unclosed_tab; --i) {
     if (i != index && !IsTabPinned(i) && (!is_selected || !IsTabSelected(i)))
       indices.push_back(i);
   }

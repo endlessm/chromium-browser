@@ -10,6 +10,7 @@
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/logging.h"
+#include "base/memory/ptr_util.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/strings/string16.h"
 #include "base/strings/string_util.h"
@@ -28,6 +29,7 @@
 #include "components/pref_registry/pref_registry_syncable.h"
 #include "components/prefs/pref_service.h"
 #include "extensions/browser/pref_names.h"
+#include "extensions/common/extension.h"
 #include "extensions/common/manifest_constants.h"
 #include "extensions/common/permissions/api_permission_set.h"
 #include "extensions/common/permissions/permission_set.h"
@@ -58,8 +60,10 @@ ExtensionManagement::ExtensionManagement(PrefService* pref_service)
   // before first call to Refresh(), so in order to resolve this, Refresh() must
   // be called in the initialization of ExtensionManagement.
   Refresh();
-  providers_.push_back(new StandardManagementPolicyProvider(this));
-  providers_.push_back(new PermissionsBasedManagementPolicyProvider(this));
+  providers_.push_back(
+      base::MakeUnique<StandardManagementPolicyProvider>(this));
+  providers_.push_back(
+      base::MakeUnique<PermissionsBasedManagementPolicyProvider>(this));
 }
 
 ExtensionManagement::~ExtensionManagement() {
@@ -78,9 +82,9 @@ void ExtensionManagement::RemoveObserver(Observer* observer) {
   observer_list_.RemoveObserver(observer);
 }
 
-std::vector<ManagementPolicy::Provider*> ExtensionManagement::GetProviders()
-    const {
-  return providers_.get();
+const std::vector<std::unique_ptr<ManagementPolicy::Provider>>&
+ExtensionManagement::GetProviders() const {
+  return providers_;
 }
 
 bool ExtensionManagement::BlacklistedByDefault() const {
@@ -218,7 +222,7 @@ std::unique_ptr<const PermissionSet> ExtensionManagement::GetBlockedPermissions(
 bool ExtensionManagement::IsPermissionSetAllowed(
     const Extension* extension,
     const PermissionSet& perms) const {
-  for (const auto& blocked_api : GetBlockedAPIPermissions(extension)) {
+  for (auto* blocked_api : GetBlockedAPIPermissions(extension)) {
     if (perms.HasAPIPermission(blocked_api->id()))
       return false;
   }

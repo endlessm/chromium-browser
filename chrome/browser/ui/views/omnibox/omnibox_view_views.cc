@@ -9,14 +9,13 @@
 #include "base/command_line.h"
 #include "base/logging.h"
 #include "base/memory/ptr_util.h"
-#include "base/metrics/histogram.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
 #include "chrome/app/chrome_command_ids.h"
 #include "chrome/browser/autocomplete/chrome_autocomplete_scheme_classifier.h"
 #include "chrome/browser/command_updater.h"
-#include "chrome/browser/search/search.h"
 #include "chrome/browser/ui/omnibox/chrome_omnibox_client.h"
 #include "chrome/browser/ui/omnibox/clipboard_utils.h"
 #include "chrome/browser/ui/view_ids.h"
@@ -30,11 +29,10 @@
 #include "components/omnibox/browser/omnibox_edit_model.h"
 #include "components/omnibox/browser/omnibox_field_trial.h"
 #include "components/omnibox/browser/omnibox_popup_model.h"
-#include "components/search/search.h"
+#include "components/strings/grit/components_strings.h"
 #include "components/toolbar/toolbar_model.h"
 #include "content/public/browser/web_contents.h"
 #include "extensions/common/constants.h"
-#include "grit/components_strings.h"
 #include "net/base/escape.h"
 #include "third_party/skia/include/core/SkColor.h"
 #include "ui/accessibility/ax_view_state.h"
@@ -62,10 +60,6 @@
 
 #if defined(OS_WIN)
 #include "chrome/browser/browser_process.h"
-#endif
-
-#if defined(ENABLE_EXTENSIONS)
-#include "chrome/browser/ui/extensions/settings_api_bubble_helpers.h"
 #endif
 
 using bookmarks::BookmarkNodeData;
@@ -105,30 +99,6 @@ OmniboxState::OmniboxState(const OmniboxEditModel::State& model_state,
 }
 
 OmniboxState::~OmniboxState() {
-}
-
-
-// Helpers --------------------------------------------------------------------
-
-// We'd like to set the text input type to TEXT_INPUT_TYPE_URL, because this
-// triggers URL-specific layout in software keyboards, e.g. adding top-level "/"
-// and ".com" keys for English.  However, this also causes IMEs to default to
-// Latin character mode, which makes entering search queries difficult for IME
-// users.  Therefore, we try to guess whether an IME will be used based on the
-// application language, and set the input type accordingly.
-ui::TextInputType DetermineTextInputType() {
-#if defined(OS_WIN)
-  DCHECK(g_browser_process);
-  const std::string& locale = g_browser_process->GetApplicationLocale();
-  const std::string& language = locale.substr(0, 2);
-  // Assume CJK + Thai users are using an IME.
-  if (language == "ja" ||
-      language == "ko" ||
-      language == "th" ||
-      language == "zh")
-    return ui::TEXT_INPUT_TYPE_SEARCH;
-#endif
-  return ui::TEXT_INPUT_TYPE_URL;
 }
 
 }  // namespace
@@ -177,7 +147,7 @@ OmniboxViewViews::~OmniboxViewViews() {
 
 void OmniboxViewViews::Init() {
   set_controller(this);
-  SetTextInputType(DetermineTextInputType());
+  SetTextInputType(ui::TEXT_INPUT_TYPE_URL);
 
   if (popup_window_mode_)
     SetReadOnly(true);
@@ -239,10 +209,6 @@ void OmniboxViewViews::Update() {
       security_level_;
   UpdateSecurityLevel();
   if (model()->UpdatePermanentText()) {
-    // Something visibly changed.  Re-enable URL replacement.
-    controller()->GetToolbarModel()->set_url_replacement_enabled(true);
-    model()->UpdatePermanentText();
-
     // Select all the new text if the user had all the old text selected, or if
     // there was no previous text (for new tab page URL replacement extensions).
     // This makes one particular case better: the user clicks in the box to
@@ -360,9 +326,6 @@ void OmniboxViewViews::ExecuteCommand(int command_id, int event_flags) {
     case IDS_PASTE_AND_GO:
       model()->PasteAndGo(GetClipboardText());
       return;
-    case IDS_SHOW_URL:
-      controller()->ShowURL();
-      return;
     case IDC_EDIT_SEARCH_ENGINES:
       location_bar_view_->command_updater()->ExecuteCommand(command_id);
       return;
@@ -384,6 +347,26 @@ void OmniboxViewViews::ExecuteCommand(int command_id, int event_flags) {
       return;
   }
 }
+
+ui::TextInputType OmniboxViewViews::GetTextInputType() const {
+  ui::TextInputType input_type = views::Textfield::GetTextInputType();
+  // We'd like to set the text input type to TEXT_INPUT_TYPE_URL, because this
+  // triggers URL-specific layout in software keyboards, e.g. adding top-level
+  // "/" and ".com" keys for English.  However, this also causes IMEs to default
+  // to Latin character mode, which makes entering search queries difficult for
+  // IME users. Therefore, we try to guess whether an IME will be used based on
+  // the input language, and set the input type accordingly.
+#if defined(OS_WIN)
+  if (input_type != ui::TEXT_INPUT_TYPE_NONE && location_bar_view_) {
+    ui::InputMethod* input_method =
+        location_bar_view_->GetWidget()->GetInputMethod();
+    if (input_method && input_method->IsInputLocaleCJK())
+      return ui::TEXT_INPUT_TYPE_SEARCH;
+  }
+#endif
+  return input_type;
+}
+
 
 void OmniboxViewViews::SetTextAndSelectedRange(const base::string16& text,
                                                const gfx::Range& range) {
@@ -590,10 +573,6 @@ void OmniboxViewViews::ShowImeIfNeeded() {
 }
 
 void OmniboxViewViews::OnMatchOpened(AutocompleteMatch::Type match_type) {
-#if defined(ENABLE_EXTENSIONS)
-  extensions::MaybeShowExtensionControlledSearchNotification(
-      profile_, location_bar_view_->GetWebContents(), match_type);
-#endif
 }
 
 int OmniboxViewViews::GetOmniboxTextLength() const {
@@ -645,18 +624,11 @@ void OmniboxViewViews::EmphasizeURLComponents() {
     SkColor security_color =
         location_bar_view_->GetSecureTextColor(security_level_);
     const bool strike =
-        (security_level_ == security_state::SecurityStateModel::SECURITY_ERROR);
+        (security_level_ == security_state::SecurityStateModel::DANGEROUS);
     const gfx::Range scheme_range(scheme.begin, scheme.end());
     ApplyColor(security_color, scheme_range);
     ApplyStyle(gfx::DIAGONAL_STRIKE, strike, scheme_range);
   }
-}
-
-bool OmniboxViewViews::OnKeyReleased(const ui::KeyEvent& event) {
-  // The omnibox contents may change while the control key is pressed.
-  if (event.key_code() == ui::VKEY_CONTROL)
-    model()->OnControlKeyChanged(false);
-  return views::Textfield::OnKeyReleased(event);
 }
 
 bool OmniboxViewViews::IsItemForCommandIdDynamic(int command_id) const {
@@ -696,94 +668,29 @@ bool OmniboxViewViews::OnMousePressed(const ui::MouseEvent& event) {
 }
 
 bool OmniboxViewViews::OnMouseDragged(const ui::MouseEvent& event) {
-  if (ExceededDragThreshold(event.location() - last_click_location()))
-    select_all_on_mouse_release_ = false;
-
   if (HasTextBeingDragged())
     CloseOmniboxPopup();
 
-  return views::Textfield::OnMouseDragged(event);
+  bool handled = views::Textfield::OnMouseDragged(event);
+
+  if (HasSelection() ||
+      ExceededDragThreshold(event.location() - last_click_location())) {
+    select_all_on_mouse_release_ = false;
+  }
+
+  return handled;
 }
 
 void OmniboxViewViews::OnMouseReleased(const ui::MouseEvent& event) {
   views::Textfield::OnMouseReleased(event);
-  if (event.IsOnlyLeftMouseButton() || event.IsOnlyRightMouseButton()) {
-    // When the user has clicked and released to give us focus, select all
-    // unless we're omitting the URL (in which case refining an existing query
-    // is common enough that we do click-to-place-cursor).
-    if (select_all_on_mouse_release_ &&
-        !controller()->GetToolbarModel()->WouldReplaceURL()) {
-      // Select all in the reverse direction so as not to scroll the caret
-      // into view and shift the contents jarringly.
-      SelectAll(true);
-    }
+  // When the user has clicked and released to give us focus, select all.
+  if ((event.IsOnlyLeftMouseButton() || event.IsOnlyRightMouseButton()) &&
+      select_all_on_mouse_release_) {
+    // Select all in the reverse direction so as not to scroll the caret
+    // into view and shift the contents jarringly.
+    SelectAll(true);
   }
   select_all_on_mouse_release_ = false;
-}
-
-bool OmniboxViewViews::OnKeyPressed(const ui::KeyEvent& event) {
-  // Skip processing of [Alt]+<num-pad digit> Unicode alt key codes.
-  // Otherwise, if num-lock is off, the events are handled as [Up], [Down], etc.
-  if (event.IsUnicodeKeyCode())
-    return views::Textfield::OnKeyPressed(event);
-
-  const bool shift = event.IsShiftDown();
-  const bool control = event.IsControlDown();
-  const bool alt = event.IsAltDown() || event.IsAltGrDown();
-  switch (event.key_code()) {
-    case ui::VKEY_RETURN:
-      model()->AcceptInput(alt ? NEW_FOREGROUND_TAB : CURRENT_TAB, false);
-      return true;
-    case ui::VKEY_ESCAPE:
-      return model()->OnEscapeKeyPressed();
-    case ui::VKEY_CONTROL:
-      model()->OnControlKeyChanged(true);
-      break;
-    case ui::VKEY_DELETE:
-      if (shift && model()->popup_model()->IsOpen())
-        model()->popup_model()->TryDeletingCurrentItem();
-      break;
-    case ui::VKEY_UP:
-      if (IsTextEditCommandEnabled(ui::TextEditCommand::MOVE_UP)) {
-        ExecuteTextEditCommand(ui::TextEditCommand::MOVE_UP);
-        return true;
-      }
-      break;
-    case ui::VKEY_DOWN:
-      if (IsTextEditCommandEnabled(ui::TextEditCommand::MOVE_DOWN)) {
-        ExecuteTextEditCommand(ui::TextEditCommand::MOVE_DOWN);
-        return true;
-      }
-      break;
-    case ui::VKEY_PRIOR:
-      if (control || alt || shift)
-        return false;
-      model()->OnUpOrDownKeyPressed(-1 * model()->result().size());
-      return true;
-    case ui::VKEY_NEXT:
-      if (control || alt || shift)
-        return false;
-      model()->OnUpOrDownKeyPressed(model()->result().size());
-      return true;
-    case ui::VKEY_V:
-      if (control && !alt &&
-          IsTextEditCommandEnabled(ui::TextEditCommand::PASTE)) {
-        ExecuteTextEditCommand(ui::TextEditCommand::PASTE);
-        return true;
-      }
-      break;
-    case ui::VKEY_INSERT:
-      if (shift && !control &&
-          IsTextEditCommandEnabled(ui::TextEditCommand::PASTE)) {
-        ExecuteTextEditCommand(ui::TextEditCommand::PASTE);
-        return true;
-      }
-      break;
-    default:
-      break;
-  }
-
-  return views::Textfield::OnKeyPressed(event) || HandleEarlyTabActions(event);
 }
 
 void OmniboxViewViews::OnGestureEvent(ui::GestureEvent* event) {
@@ -894,8 +801,6 @@ bool OmniboxViewViews::IsCommandIdEnabled(int command_id) const {
     return !read_only() && !GetClipboardText().empty();
   if (command_id == IDS_PASTE_AND_GO)
     return !read_only() && model()->CanPasteAndGo(GetClipboardText());
-  if (command_id == IDS_SHOW_URL)
-    return controller()->GetToolbarModel()->WouldReplaceURL();
   return Textfield::IsCommandIdEnabled(command_id) ||
          location_bar_view_->command_updater()->IsCommandEnabled(command_id);
 }
@@ -968,39 +873,107 @@ void OmniboxViewViews::ContentsChanged(views::Textfield* sender,
 
 bool OmniboxViewViews::HandleKeyEvent(views::Textfield* textfield,
                                       const ui::KeyEvent& event) {
-  if (event.type() != ui::ET_KEY_PRESSED)
+  if (event.type() == ui::ET_KEY_RELEASED) {
+    // The omnibox contents may change while the control key is pressed.
+    if (event.key_code() == ui::VKEY_CONTROL)
+      model()->OnControlKeyChanged(false);
+
     return false;
+  }
 
   delete_at_end_pressed_ = false;
 
-  if (event.key_code() == ui::VKEY_BACK) {
-    // No extra handling is needed in keyword search mode, if there is a
-    // non-empty selection, or if the cursor is not leading the text.
-    if (model()->is_keyword_hint() || model()->keyword().empty() ||
-        HasSelection() || GetCursorPosition() != 0)
-      return false;
-    model()->ClearKeyword();
-    return true;
+  // Skip processing of [Alt]+<num-pad digit> Unicode alt key codes.
+  // Otherwise, if num-lock is off, the events are handled as [Up], [Down], etc.
+  if (event.IsUnicodeKeyCode())
+    return false;
+
+  const bool shift = event.IsShiftDown();
+  const bool control = event.IsControlDown();
+  const bool alt = event.IsAltDown() || event.IsAltGrDown();
+  switch (event.key_code()) {
+    case ui::VKEY_RETURN:
+      model()->AcceptInput(alt ? WindowOpenDisposition::NEW_FOREGROUND_TAB
+                               : WindowOpenDisposition::CURRENT_TAB,
+                           false);
+      return true;
+    case ui::VKEY_ESCAPE:
+      return model()->OnEscapeKeyPressed();
+    case ui::VKEY_CONTROL:
+      model()->OnControlKeyChanged(true);
+      break;
+    case ui::VKEY_DELETE:
+      if (shift && model()->popup_model()->IsOpen())
+        model()->popup_model()->TryDeletingCurrentItem();
+
+      delete_at_end_pressed_ = (!event.IsAltDown() && !HasSelection() &&
+                                GetCursorPosition() == text().length());
+      break;
+    case ui::VKEY_UP:
+      if (IsTextEditCommandEnabled(ui::TextEditCommand::MOVE_UP)) {
+        ExecuteTextEditCommand(ui::TextEditCommand::MOVE_UP);
+        return true;
+      }
+      break;
+    case ui::VKEY_DOWN:
+      if (IsTextEditCommandEnabled(ui::TextEditCommand::MOVE_DOWN)) {
+        ExecuteTextEditCommand(ui::TextEditCommand::MOVE_DOWN);
+        return true;
+      }
+      break;
+    case ui::VKEY_PRIOR:
+      if (control || alt || shift)
+        return false;
+      model()->OnUpOrDownKeyPressed(-1 * model()->result().size());
+      return true;
+    case ui::VKEY_NEXT:
+      if (control || alt || shift)
+        return false;
+      model()->OnUpOrDownKeyPressed(model()->result().size());
+      return true;
+    case ui::VKEY_V:
+      if (control && !alt &&
+          IsTextEditCommandEnabled(ui::TextEditCommand::PASTE)) {
+        ExecuteTextEditCommand(ui::TextEditCommand::PASTE);
+        return true;
+      }
+      break;
+    case ui::VKEY_INSERT:
+      if (shift && !control &&
+          IsTextEditCommandEnabled(ui::TextEditCommand::PASTE)) {
+        ExecuteTextEditCommand(ui::TextEditCommand::PASTE);
+        return true;
+      }
+      break;
+    case ui::VKEY_BACK:
+      // No extra handling is needed in keyword search mode, if there is a
+      // non-empty selection, or if the cursor is not leading the text.
+      if (model()->is_keyword_hint() || model()->keyword().empty() ||
+          HasSelection() || GetCursorPosition() != 0)
+        return false;
+      model()->ClearKeyword();
+      return true;
+
+    // Handle the right-arrow key for LTR text and the left-arrow key for RTL
+    // text if there is gray text that needs to be committed.
+    case ui::VKEY_RIGHT:
+      if (GetCursorPosition() == text().length() &&
+          GetTextDirection() == base::i18n::LEFT_TO_RIGHT) {
+        return model()->CommitSuggestedText();
+      }
+      break;
+    case ui::VKEY_LEFT:
+      if (GetCursorPosition() == text().length() &&
+          GetTextDirection() == base::i18n::RIGHT_TO_LEFT) {
+        return model()->CommitSuggestedText();
+      }
+      break;
+
+    default:
+      break;
   }
 
-  if (event.key_code() == ui::VKEY_DELETE && !event.IsAltDown()) {
-    delete_at_end_pressed_ =
-        (!HasSelection() && GetCursorPosition() == text().length());
-  }
-
-  // Handle the right-arrow key for LTR text and the left-arrow key for RTL text
-  // if there is gray text that needs to be committed.
-  if (GetCursorPosition() == text().length()) {
-    base::i18n::TextDirection direction = GetTextDirection();
-    if ((direction == base::i18n::LEFT_TO_RIGHT &&
-         event.key_code() == ui::VKEY_RIGHT) ||
-        (direction == base::i18n::RIGHT_TO_LEFT &&
-         event.key_code() == ui::VKEY_LEFT)) {
-      return model()->CommitSuggestedText();
-    }
-  }
-
-  return false;
+  return HandleEarlyTabActions(event);
 }
 
 void OmniboxViewViews::OnBeforeUserAction(views::Textfield* sender) {
@@ -1103,14 +1076,6 @@ void OmniboxViewViews::UpdateContextMenu(ui::SimpleMenuModel* menu_contents) {
       paste_position + 1, IDS_PASTE_AND_GO, IDS_PASTE_AND_GO);
 
   menu_contents->AddSeparator(ui::NORMAL_SEPARATOR);
-
-  if (search::IsQueryExtractionEnabled()) {
-    int select_all_position = menu_contents->GetIndexOfCommandId(
-        IDS_APP_SELECT_ALL);
-    DCHECK_GE(select_all_position, 0);
-    menu_contents->InsertItemWithStringIdAt(
-        select_all_position + 1, IDS_SHOW_URL, IDS_SHOW_URL);
-  }
 
   // Minor note: We use IDC_ for command id here while the underlying textfield
   // is using IDS_ for all its command ids. This is because views cannot depend

@@ -13,7 +13,8 @@
 #include "ui/android/resources/resource_manager_impl.h"
 #include "ui/gfx/transform.h"
 
-namespace chrome {
+using base::android::JavaParamRef;
+
 namespace android {
 
 TabStripSceneLayer::TabStripSceneLayer(JNIEnv* env, jobject jobj)
@@ -328,4 +329,3 @@ bool RegisterTabStripSceneLayer(JNIEnv* env) {
 }
 
 }  // namespace android
-}  // namespace chrome

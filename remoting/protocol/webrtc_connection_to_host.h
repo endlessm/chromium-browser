@@ -37,7 +37,9 @@ class WebrtcConnectionToHost : public ConnectionToHost,
   void set_client_stub(ClientStub* client_stub) override;
   void set_clipboard_stub(ClipboardStub* clipboard_stub) override;
   void set_video_renderer(VideoRenderer* video_renderer) override;
-  void set_audio_stub(AudioStub* audio_stub) override;
+  void InitializeAudio(
+      scoped_refptr<base::SingleThreadTaskRunner> audio_decode_task_runner,
+      base::WeakPtr<AudioStub> audio_stub) override;
   void Connect(std::unique_ptr<Session> session,
                scoped_refptr<TransportContext> transport_context,
                HostEventCallback* event_callback) override;
@@ -55,6 +57,9 @@ class WebrtcConnectionToHost : public ConnectionToHost,
   void OnWebrtcTransportConnecting() override;
   void OnWebrtcTransportConnected() override;
   void OnWebrtcTransportError(ErrorCode error) override;
+  void OnWebrtcTransportIncomingDataChannel(
+      const std::string& name,
+      std::unique_ptr<MessagePipe> pipe) override;
   void OnWebrtcTransportMediaStreamAdded(
       scoped_refptr<webrtc::MediaStreamInterface> stream) override;
   void OnWebrtcTransportMediaStreamRemoved(
@@ -62,10 +67,17 @@ class WebrtcConnectionToHost : public ConnectionToHost,
 
   // ChannelDispatcherBase::EventHandler interface.
   void OnChannelInitialized(ChannelDispatcherBase* channel_dispatcher) override;
+  void OnChannelClosed(ChannelDispatcherBase* channel_dispatcher) override;
 
   void NotifyIfChannelsReady();
 
+  WebrtcVideoRendererAdapter* GetOrCreateVideoAdapter(const std::string& label);
+
   void CloseChannels();
+
+  void OnFrameRendered(uint32_t frame_id,
+                       base::TimeTicks event_timestamp,
+                       base::TimeTicks frame_rendered_time);
 
   void SetState(State state, ErrorCode error);
 

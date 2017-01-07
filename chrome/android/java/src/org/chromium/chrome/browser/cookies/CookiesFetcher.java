@@ -13,7 +13,6 @@ import org.chromium.base.ThreadUtils;
 import org.chromium.base.annotations.CalledByNative;
 import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.content.browser.crypto.CipherFactory;
-import org.chromium.content.common.CleanupReference;
 
 import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
@@ -42,8 +41,6 @@ public class CookiesFetcher {
     /** Native-side pointer. */
     private final long mNativeCookiesFetcher;
 
-    private final CleanupReference mCleanupReference;
-
     private final Context mContext;
 
     /**
@@ -58,9 +55,9 @@ public class CookiesFetcher {
      * would not collect it until the callback has been invoked.
      */
     private CookiesFetcher(Context context) {
+        // Native side is responsible for destroying itself under all code paths.
         mNativeCookiesFetcher = nativeInit();
         mContext = context.getApplicationContext();
-        mCleanupReference = new CleanupReference(this, new DestroyRunnable(mNativeCookiesFetcher));
     }
 
     /**
@@ -150,11 +147,10 @@ public class CookiesFetcher {
             protected void onPostExecute(List<CanonicalCookie> cookies) {
                 // We can only access cookies and profiles on the UI thread.
                 for (CanonicalCookie cookie : cookies) {
-                    nativeRestoreCookies(cookie.getUrl(), cookie.getName(), cookie.getValue(),
-                            cookie.getDomain(), cookie.getPath(), cookie.getCreationDate(),
-                            cookie.getExpirationDate(), cookie.getLastAccessDate(),
-                            cookie.isSecure(), cookie.isHttpOnly(), cookie.getSameSite(),
-                            cookie.getPriority());
+                    nativeRestoreCookies(cookie.getName(), cookie.getValue(), cookie.getDomain(),
+                            cookie.getPath(), cookie.getCreationDate(), cookie.getExpirationDate(),
+                            cookie.getLastAccessDate(), cookie.isSecure(), cookie.isHttpOnly(),
+                            cookie.getSameSite(), cookie.getPriority());
                 }
             }
         }.executeOnExecutor(AsyncTask.SERIAL_EXECUTOR);
@@ -196,10 +192,10 @@ public class CookiesFetcher {
     }
 
     @CalledByNative
-    private CanonicalCookie createCookie(String url, String name, String value, String domain,
-            String path, long creation, long expiration, long lastAccess, boolean secure,
-            boolean httpOnly, int sameSite, int priority) {
-        return new CanonicalCookie(url, name, value, domain, path, creation, expiration, lastAccess,
+    private CanonicalCookie createCookie(String name, String value, String domain, String path,
+            long creation, long expiration, long lastAccess, boolean secure, boolean httpOnly,
+            int sameSite, int priority) {
+        return new CanonicalCookie(name, value, domain, path, creation, expiration, lastAccess,
                 secure, httpOnly, sameSite, priority);
     }
 
@@ -248,28 +244,14 @@ public class CookiesFetcher {
         }
     }
 
-    private static final class DestroyRunnable implements Runnable {
-        private final long mNativeCookiesFetcher;
-
-        private DestroyRunnable(long nativeCookiesFetcher) {
-            mNativeCookiesFetcher = nativeCookiesFetcher;
-        }
-
-        @Override
-        public void run() {
-            if (mNativeCookiesFetcher != 0) nativeDestroy(mNativeCookiesFetcher);
-        }
-    }
-
     @CalledByNative
     private CanonicalCookie[] createCookiesArray(int size) {
         return new CanonicalCookie[size];
     }
 
     private native long nativeInit();
-    private static native void nativeDestroy(long nativeCookiesFetcher);
     private native void nativePersistCookies(long nativeCookiesFetcher);
-    private static native void nativeRestoreCookies(String url, String name, String value,
-            String domain, String path, long creation, long expiration, long lastAccess,
-            boolean secure, boolean httpOnly, int sameSite, int priority);
+    private static native void nativeRestoreCookies(String name, String value, String domain,
+            String path, long creation, long expiration, long lastAccess, boolean secure,
+            boolean httpOnly, int sameSite, int priority);
 }

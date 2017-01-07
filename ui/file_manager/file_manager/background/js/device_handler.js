@@ -121,6 +121,16 @@ DeviceHandler.Notification.DEVICE_FAIL_UNKNOWN = new DeviceHandler.Notification(
  * @type {DeviceHandler.Notification}
  * @const
  */
+DeviceHandler.Notification.DEVICE_FAIL_UNKNOWN_READONLY =
+    new DeviceHandler.Notification(
+        'deviceFail',
+        'REMOVABLE_DEVICE_DETECTION_TITLE',
+        'DEVICE_UNKNOWN_DEFAULT_MESSAGE');
+
+/**
+ * @type {DeviceHandler.Notification}
+ * @const
+ */
 DeviceHandler.Notification.DEVICE_EXTERNAL_STORAGE_DISABLED =
     new DeviceHandler.Notification(
         'deviceFail',
@@ -391,9 +401,15 @@ DeviceHandler.prototype.onMountCompleted_ = function(event) {
         message = volume.deviceLabel ?
             strf('DEVICE_UNKNOWN_MESSAGE', volume.deviceLabel) :
             str('DEVICE_UNKNOWN_DEFAULT_MESSAGE');
-        DeviceHandler.Notification.DEVICE_FAIL_UNKNOWN.show(
-            /** @type {string} */ (volume.devicePath),
-            message);
+        if (event.volumeMetadata.isReadOnly) {
+          DeviceHandler.Notification.DEVICE_FAIL_UNKNOWN_READONLY.show(
+              /** @type {string} */ (volume.devicePath),
+              message);
+        } else {
+          DeviceHandler.Notification.DEVICE_FAIL_UNKNOWN.show(
+              /** @type {string} */ (volume.devicePath),
+              message);
+        }
       }
   }
 };
@@ -407,7 +423,7 @@ DeviceHandler.prototype.onMount_ = function(event) {
   // If this is remounting, which happens when resuming Chrome OS, the device
   // has already inserted to the computer. So we suppress the notification.
   var metadata = event.volumeMetadata;
-  VolumeManager.getInstance()
+  volumeManagerFactory.getInstance()
       .then(
           /**
            * @param {!VolumeManager} volumeManager

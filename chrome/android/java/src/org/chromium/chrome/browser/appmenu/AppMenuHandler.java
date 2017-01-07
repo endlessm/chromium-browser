@@ -4,6 +4,7 @@
 
 package org.chromium.chrome.browser.appmenu;
 
+import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.content.res.TypedArray;
 import android.graphics.Point;
@@ -12,7 +13,6 @@ import android.graphics.drawable.Drawable;
 import android.view.ContextThemeWrapper;
 import android.view.Menu;
 import android.view.MenuItem;
-import android.view.Surface;
 import android.view.View;
 import android.widget.PopupMenu;
 
@@ -78,6 +78,8 @@ public class AppMenuHandler {
      * @return True, if the menu is shown, false, if menu is not shown, example reasons:
      *         the menu is not yet available to be shown, or the menu is already showing.
      */
+    // TODO(crbug.com/635567): Fix this properly.
+    @SuppressLint("ResourceType")
     public boolean showAppMenu(View anchorView, boolean startDragging) {
         if (!mDelegate.shouldShowAppMenu() || isAppMenuShowing()) return false;
         boolean isByPermanentButton = false;
@@ -87,19 +89,6 @@ public class AppMenuHandler {
             // This fixes the bug where the bottom of the menu starts at the top of
             // the keyboard, instead of overlapping the keyboard as it should.
             int displayHeight = mActivity.getResources().getDisplayMetrics().heightPixels;
-            int widthHeight = mActivity.getResources().getDisplayMetrics().widthPixels;
-
-            // In appcompat 23.2.1, DisplayMetrics are not updated after rotation change. This is a
-            // workaround for it. See crbug.com/599048.
-            // TODO(ianwen): Remove the rotation check after we roll to 23.3.0.
-            if (rotation == Surface.ROTATION_0 || rotation == Surface.ROTATION_180) {
-                displayHeight = Math.max(displayHeight, widthHeight);
-            } else if (rotation == Surface.ROTATION_90 || rotation == Surface.ROTATION_270) {
-                displayHeight = Math.min(displayHeight, widthHeight);
-            } else {
-                assert false : "Rotation unexpected";
-            }
-
             Rect rect = new Rect();
             mActivity.getWindow().getDecorView().getWindowVisibleDisplayFrame(rect);
             int statusBarHeight = rect.top;

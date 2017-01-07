@@ -12,6 +12,7 @@
 #include "base/run_loop.h"
 #include "base/single_thread_task_runner.h"
 #include "base/threading/thread_task_runner_handle.h"
+#include "build/build_config.h"
 #include "chrome/browser/download/chrome_download_manager_delegate.h"
 #include "chrome/browser/download/download_item_model.h"
 #include "chrome/browser/download/download_prefs.h"
@@ -33,6 +34,10 @@
 
 #if defined(FULL_SAFE_BROWSING)
 #include "chrome/browser/safe_browsing/download_protection_service.h"
+#endif
+
+#if !defined(OS_ANDROID)
+#include "content/public/browser/plugin_service.h"
 #endif
 
 using ::testing::AtMost;
@@ -204,7 +209,7 @@ void ChromeDownloadManagerDelegateTest::SetUp() {
   web_contents()->SetDelegate(&web_contents_delegate_);
 
   ASSERT_TRUE(test_download_dir_.CreateUniqueTempDir());
-  SetDefaultDownloadPath(test_download_dir_.path());
+  SetDefaultDownloadPath(test_download_dir_.GetPath());
 }
 
 void ChromeDownloadManagerDelegateTest::TearDown() {
@@ -259,7 +264,7 @@ ChromeDownloadManagerDelegateTest::CreateActiveDownloadItem(int32_t id) {
 base::FilePath ChromeDownloadManagerDelegateTest::GetPathInDownloadDir(
     const char* relative_path) {
   base::FilePath full_path =
-      test_download_dir_.path().AppendASCII(relative_path);
+      test_download_dir_.GetPath().AppendASCII(relative_path);
   return full_path.NormalizePathSeparators();
 }
 
@@ -312,7 +317,7 @@ bool ChromeDownloadManagerDelegateTest::CheckForFileExistence(
 
 const base::FilePath& ChromeDownloadManagerDelegateTest::default_download_path()
     const {
-  return test_download_dir_.path();
+  return test_download_dir_.GetPath();
 }
 
 TestChromeDownloadManagerDelegate*
@@ -331,6 +336,8 @@ DownloadPrefs* ChromeDownloadManagerDelegateTest::download_prefs() {
 
 }  // namespace
 
+// There is no "save as" context menu option on Android.
+#if !BUILDFLAG(ANDROID_JAVA_UI)
 TEST_F(ChromeDownloadManagerDelegateTest, StartDownload_LastSavePath) {
   GURL download_url("http://example.com/foo.txt");
 
@@ -403,8 +410,13 @@ TEST_F(ChromeDownloadManagerDelegateTest, StartDownload_LastSavePath) {
     VerifyAndClearExpectations();
   }
 }
+#endif  // !BUILDFLAG(ANDROID_JAVA_UI)
 
 TEST_F(ChromeDownloadManagerDelegateTest, MaybeDangerousContent) {
+#if !defined(OS_ANDROID)
+  content::PluginService::GetInstance()->Init();
+#endif
+
   GURL url("http://example.com/foo");
 
   std::unique_ptr<content::MockDownloadItem> download_item =

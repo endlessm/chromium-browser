@@ -178,7 +178,7 @@ class AutofillTest : public InProcessBrowserTest {
     GURL url = embedded_test_server()->GetURL("/autofill/" + filename);
     chrome::NavigateParams params(browser(), url,
                                   ui::PAGE_TRANSITION_LINK);
-    params.disposition = NEW_FOREGROUND_TAB;
+    params.disposition = WindowOpenDisposition::NEW_FOREGROUND_TAB;
     ui_test_utils::NavigateToURL(&params);
 
     std::unique_ptr<WindowedPersonalDataManagerObserver> observer;
@@ -192,7 +192,7 @@ class AutofillTest : public InProcessBrowserTest {
       // triggered by user gestures are ignored.
       content::SimulateMouseClick(
           browser()->tab_strip_model()->GetActiveWebContents(), 0,
-          blink::WebMouseEvent::ButtonLeft);
+          blink::WebMouseEvent::Button::Left);
     }
     // We may not always be expecting changes in Personal data.
     if (observer.get())

@@ -17,11 +17,12 @@
 
 AppWindowLauncherItemController::AppWindowLauncherItemController(
     Type type,
-    const std::string& app_shelf_id,
     const std::string& app_id,
+    const std::string& launch_id,
     ChromeLauncherController* controller)
-    : LauncherItemController(type, app_id, controller),
-      app_shelf_id_(app_shelf_id),
+    : LauncherItemController(type, app_id, launch_id, controller),
+      app_id_(app_id),
+      launch_id_(launch_id),
       observed_windows_(this) {}
 
 AppWindowLauncherItemController::~AppWindowLauncherItemController() {}
@@ -77,7 +78,7 @@ bool AppWindowLauncherItemController::IsOpen() const {
 
 bool AppWindowLauncherItemController::IsVisible() const {
   // Return true if any windows are visible.
-  for (const auto& window : windows_) {
+  for (const auto* window : windows_) {
     if (window->GetNativeWindow()->IsVisible())
       return true;
   }
@@ -101,7 +102,7 @@ AppWindowLauncherItemController::Activate(ash::LaunchSource source) {
 void AppWindowLauncherItemController::Close() {
   // Note: Closing windows may affect the contents of app_windows_.
   WindowList windows_to_close = windows_;
-  for (const auto& window : windows_)
+  for (auto* window : windows_)
     window->Close();
 }
 

@@ -4,13 +4,14 @@
 
 #include "ash/common/system/cast/tray_cast.h"
 
+#include "ash/common/material_design/material_design_controller.h"
 #include "ash/common/session/session_state_delegate.h"
-#include "ash/common/shelf/shelf_types.h"
 #include "ash/common/shelf/wm_shelf_util.h"
 #include "ash/common/system/chromeos/screen_security/screen_tray_item.h"
 #include "ash/common/system/tray/fixed_sized_image_view.h"
 #include "ash/common/system/tray/fixed_sized_scroll_view.h"
 #include "ash/common/system/tray/hover_highlight_view.h"
+#include "ash/common/system/tray/system_tray.h"
 #include "ash/common/system/tray/system_tray_delegate.h"
 #include "ash/common/system/tray/throbber_view.h"
 #include "ash/common/system/tray/tray_constants.h"
@@ -18,15 +19,16 @@
 #include "ash/common/system/tray/tray_item_more.h"
 #include "ash/common/system/tray/tray_item_view.h"
 #include "ash/common/system/tray/tray_popup_label_button.h"
-#include "ash/common/system/tray/view_click_listener.h"
 #include "ash/common/wm_shell.h"
-#include "ash/system/tray/system_tray.h"
+#include "ash/public/cpp/shelf_types.h"
+#include "ash/resources/vector_icons/vector_icons.h"
 #include "base/bind.h"
 #include "grit/ash_resources.h"
 #include "grit/ash_strings.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/gfx/image/image.h"
+#include "ui/gfx/paint_vector_icon.h"
 #include "ui/gfx/text_elider.h"
 #include "ui/views/controls/button/button.h"
 #include "ui/views/controls/image_view.h"
@@ -57,6 +59,13 @@ base::string16 ElideString(const base::string16& text) {
   return elided;
 }
 
+// Returns a vectorized version of the Cast icon. The icon's interior region is
+// filled in if |is_casting| is true.
+gfx::ImageSkia GetCastIconForSystemMenu(bool is_casting) {
+  return gfx::CreateVectorIcon(
+      kSystemMenuCastIcon, is_casting ? kMenuIconColor : SK_ColorTRANSPARENT);
+}
+
 }  // namespace
 
 namespace tray {
@@ -80,7 +89,11 @@ CastSelectDefaultView::CastSelectDefaultView(SystemTrayItem* owner,
   ui::ResourceBundle& rb = ui::ResourceBundle::GetSharedInstance();
 
   // Update the image and label.
-  SetImage(rb.GetImageNamed(IDR_AURA_UBER_TRAY_CAST).ToImageSkia());
+  if (MaterialDesignController::IsSystemTrayMenuMaterial())
+    SetImage(GetCastIconForSystemMenu(false));
+  else
+    SetImage(*rb.GetImageNamed(IDR_AURA_UBER_TRAY_CAST).ToImageSkia());
+
   base::string16 label =
       rb.GetLocalizedString(IDS_ASH_STATUS_TRAY_CAST_DESKTOP);
   SetLabel(label);
@@ -135,9 +148,13 @@ CastCastView::CastCastView() {
   SetLayoutManager(new views::BoxLayout(views::BoxLayout::kHorizontal,
                                         kTrayPopupPaddingHorizontal, 0,
                                         kTrayPopupPaddingBetweenItems));
-  icon_ = new FixedSizedImageView(0, kTrayPopupItemHeight);
-  icon_->SetImage(
-      bundle.GetImageNamed(IDR_AURA_UBER_TRAY_CAST_ENABLED).ToImageSkia());
+  icon_ = new FixedSizedImageView(0, GetTrayConstant(TRAY_POPUP_ITEM_HEIGHT));
+  if (MaterialDesignController::IsSystemTrayMenuMaterial()) {
+    icon_->SetImage(GetCastIconForSystemMenu(true));
+  } else {
+    icon_->SetImage(
+        bundle.GetImageNamed(IDR_AURA_UBER_TRAY_CAST_ENABLED).ToImageSkia());
+  }
   AddChildView(icon_);
 
   // The label which describes both what we are casting (ie, the desktop) and
@@ -342,10 +359,14 @@ class CastTrayView : public TrayItemView {
 CastTrayView::CastTrayView(SystemTrayItem* tray_item)
     : TrayItemView(tray_item) {
   CreateImageView();
-
-  image_view()->SetImage(ui::ResourceBundle::GetSharedInstance()
-                             .GetImageNamed(IDR_AURA_UBER_TRAY_SCREENSHARE)
-                             .ToImageSkia());
+  if (MaterialDesignController::UseMaterialDesignSystemIcons()) {
+    image_view()->SetImage(
+        gfx::CreateVectorIcon(kSystemTrayCastIcon, kTrayIconColor));
+  } else {
+    image_view()->SetImage(ui::ResourceBundle::GetSharedInstance()
+                               .GetImageNamed(IDR_AURA_UBER_TRAY_SCREENSHARE)
+                               .ToImageSkia());
+  }
 }
 
 CastTrayView::~CastTrayView() {}
@@ -353,8 +374,8 @@ CastTrayView::~CastTrayView() {}
 void CastTrayView::UpdateAlignment(ShelfAlignment alignment) {
   // Center the item dependent on the orientation of the shelf.
   views::BoxLayout::Orientation layout = IsHorizontalAlignment(alignment)
-                                             ? views::BoxLayout::kVertical
-                                             : views::BoxLayout::kHorizontal;
+                                             ? views::BoxLayout::kHorizontal
+                                             : views::BoxLayout::kVertical;
   SetLayoutManager(new views::BoxLayout(layout, 0, 0, 0));
   Layout();
 }
@@ -362,7 +383,7 @@ void CastTrayView::UpdateAlignment(ShelfAlignment alignment) {
 // This view displays a list of cast receivers that can be clicked on and casted
 // to. It is activated by clicking on the chevron inside of
 // |CastSelectDefaultView|.
-class CastDetailedView : public TrayDetailsView, public ViewClickListener {
+class CastDetailedView : public TrayDetailsView {
  public:
   CastDetailedView(SystemTrayItem* owner,
                    LoginStatus login,
@@ -386,10 +407,9 @@ class CastDetailedView : public TrayDetailsView, public ViewClickListener {
       const CastConfigDelegate::ReceiverAndActivity& receiverActivity);
 
   void AppendSettingsEntries();
-  void AppendHeaderEntry();
 
-  // Overridden from ViewClickListener.
-  void OnViewClicked(views::View* sender) override;
+  // TrayDetailsView:
+  void HandleViewClicked(views::View* view) override;
 
   LoginStatus login_;
   views::View* options_ = nullptr;
@@ -417,7 +437,7 @@ void CastDetailedView::SimulateViewClickedForTest(
     const std::string& receiver_id) {
   for (auto& it : receiver_activity_map_) {
     if (it.second == receiver_id) {
-      OnViewClicked(it.first);
+      HandleViewClicked(it.first);
       break;
     }
   }
@@ -427,7 +447,7 @@ void CastDetailedView::CreateItems() {
   CreateScrollableList();
   if (GetCastConfigDelegate()->HasOptions())
     AppendSettingsEntries();
-  AppendHeaderEntry();
+  CreateTitleRow(IDS_ASH_STATUS_TRAY_CAST);
 }
 
 void CastDetailedView::UpdateReceiverList(
@@ -486,7 +506,9 @@ views::View* CastDetailedView::AddToReceiverList(
           .GetImageNamed(IDR_AURA_UBER_TRAY_CAST_DEVICE_ICON)
           .ToImageSkia();
   const base::string16& name = receiverActivity.receiver.name;
-  container->AddIndentedIconAndLabel(*image, name, false);
+  container->AddIconAndLabelCustomSize(
+      *image, name, false, kTrayPopupDetailsIconWidth,
+      kTrayPopupPaddingHorizontal, kTrayPopupPaddingBetweenItems);
 
   scroll_content()->AddChildView(container);
   return container;
@@ -508,25 +530,18 @@ void CastDetailedView::AppendSettingsEntries() {
   options_ = container;
 }
 
-void CastDetailedView::AppendHeaderEntry() {
-  CreateSpecialRow(IDS_ASH_STATUS_TRAY_CAST, this);
-}
+void CastDetailedView::HandleViewClicked(views::View* view) {
+  if (view == options_) {
+    GetCastConfigDelegate()->LaunchCastOptions();
+    return;
+  }
 
-void CastDetailedView::OnViewClicked(views::View* sender) {
-  CastConfigDelegate* cast_config_delegate = GetCastConfigDelegate();
-
-  if (sender == footer()->content()) {
-    TransitionToDefaultView();
-  } else if (sender == options_) {
-    cast_config_delegate->LaunchCastOptions();
-  } else {
-    // Find the receiver we are going to cast to
-    auto it = receiver_activity_map_.find(sender);
-    if (it != receiver_activity_map_.end()) {
-      cast_config_delegate->CastToReceiver(it->second);
-      WmShell::Get()->RecordUserMetricsAction(
-          UMA_STATUS_AREA_DETAILED_CAST_VIEW_LAUNCH_CAST);
-    }
+  // Find the receiver we are going to cast to.
+  auto it = receiver_activity_map_.find(view);
+  if (it != receiver_activity_map_.end()) {
+    GetCastConfigDelegate()->CastToReceiver(it->second);
+    WmShell::Get()->RecordUserMetricsAction(
+        UMA_STATUS_AREA_DETAILED_CAST_VIEW_LAUNCH_CAST);
   }
 }
 

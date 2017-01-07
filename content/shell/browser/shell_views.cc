@@ -13,22 +13,16 @@
 #include "content/public/browser/context_factory.h"
 #include "content/public/browser/render_widget_host_view.h"
 #include "content/public/browser/web_contents.h"
-#include "content/public/common/context_menu_params.h"
 #include "content/shell/browser/shell_platform_data_aura.h"
-#include "ui/aura/client/screen_position_client.h"
 #include "ui/aura/env.h"
 #include "ui/aura/window.h"
 #include "ui/aura/window_event_dispatcher.h"
 #include "ui/base/clipboard/clipboard.h"
-#include "ui/base/models/simple_menu_model.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/display/screen.h"
 #include "ui/events/event.h"
 #include "ui/views/background.h"
-#include "ui/views/controls/button/label_button.h"
-#include "ui/views/controls/button/menu_button.h"
-#include "ui/views/controls/button/menu_button_listener.h"
-#include "ui/views/controls/menu/menu_runner.h"
+#include "ui/views/controls/button/md_text_button.h"
 #include "ui/views/controls/textfield/textfield.h"
 #include "ui/views/controls/textfield/textfield_controller.h"
 #include "ui/views/controls/webview/webview.h"
@@ -54,44 +48,6 @@
 namespace content {
 
 namespace {
-
-// Model for the "Debug" menu
-class ContextMenuModel : public ui::SimpleMenuModel,
-                         public ui::SimpleMenuModel::Delegate {
- public:
-  explicit ContextMenuModel(
-      Shell* shell, const content::ContextMenuParams& params)
-    : ui::SimpleMenuModel(this),
-      shell_(shell),
-      params_(params) {
-    AddItem(COMMAND_OPEN_DEVTOOLS, base::ASCIIToUTF16("Inspect Element"));
-  }
-
-  // ui::SimpleMenuModel::Delegate:
-  bool IsCommandIdChecked(int command_id) const override { return false; }
-  bool IsCommandIdEnabled(int command_id) const override { return true; }
-  bool GetAcceleratorForCommandId(int command_id,
-                                  ui::Accelerator* accelerator) override {
-    return false;
-  }
-  void ExecuteCommand(int command_id, int event_flags) override {
-    switch (command_id) {
-      case COMMAND_OPEN_DEVTOOLS:
-        shell_->ShowDevToolsForElementAt(params_.x, params_.y);
-        break;
-    };
-  }
-
- private:
-  enum CommandID {
-    COMMAND_OPEN_DEVTOOLS
-  };
-
-  Shell* shell_;
-  content::ContextMenuParams params_;
-
-  DISALLOW_COPY_AND_ASSIGN(ContextMenuModel);
-};
 
 // Maintain the UI controls and web view for content shell
 class ShellWindowDelegateView : public views::WidgetDelegateView,
@@ -150,35 +106,6 @@ class ShellWindowDelegateView : public views::WidgetDelegateView,
     }
   }
 
-  void ShowWebViewContextMenu(const content::ContextMenuParams& params) {
-    gfx::Point screen_point(params.x, params.y);
-
-    // Convert from content coordinates to window coordinates.
-    // This code copied from chrome_web_contents_view_delegate_views.cc
-    aura::Window* web_contents_window =
-        shell_->web_contents()->GetNativeView();
-    aura::Window* root_window = web_contents_window->GetRootWindow();
-    aura::client::ScreenPositionClient* screen_position_client =
-        aura::client::GetScreenPositionClient(root_window);
-    if (screen_position_client) {
-        screen_position_client->ConvertPointToScreen(web_contents_window,
-                &screen_point);
-    }
-
-    context_menu_model_.reset(new ContextMenuModel(shell_, params));
-    context_menu_runner_.reset(new views::MenuRunner(
-        context_menu_model_.get(), views::MenuRunner::CONTEXT_MENU));
-
-    if (context_menu_runner_->RunMenuAt(web_view_->GetWidget(),
-                                        NULL,
-                                        gfx::Rect(screen_point, gfx::Size()),
-                                        views::MENU_ANCHOR_TOPRIGHT,
-                                        ui::MENU_SOURCE_NONE) ==
-        views::MenuRunner::MENU_DELETED) {
-      return;
-    }
-  }
-
  private:
   // Initialize the UI control contained in shell window
   void InitShellWindow() {
@@ -204,8 +131,8 @@ class ShellWindowDelegateView : public views::WidgetDelegateView,
       views::ColumnSet* toolbar_column_set =
           toolbar_layout->AddColumnSet(0);
       // Back button
-      back_button_ = new views::LabelButton(this, base::ASCIIToUTF16("Back"));
-      back_button_->SetStyle(views::Button::STYLE_BUTTON);
+      back_button_ =
+          views::MdTextButton::Create(this, base::ASCIIToUTF16("Back"));
       gfx::Size back_button_size = back_button_->GetPreferredSize();
       toolbar_column_set->AddColumn(views::GridLayout::CENTER,
                                     views::GridLayout::CENTER, 0,
@@ -214,8 +141,7 @@ class ShellWindowDelegateView : public views::WidgetDelegateView,
                                     back_button_size.width() / 2);
       // Forward button
       forward_button_ =
-          new views::LabelButton(this, base::ASCIIToUTF16("Forward"));
-      forward_button_->SetStyle(views::Button::STYLE_BUTTON);
+          views::MdTextButton::Create(this, base::ASCIIToUTF16("Forward"));
       gfx::Size forward_button_size = forward_button_->GetPreferredSize();
       toolbar_column_set->AddColumn(views::GridLayout::CENTER,
                                     views::GridLayout::CENTER, 0,
@@ -224,8 +150,7 @@ class ShellWindowDelegateView : public views::WidgetDelegateView,
                                     forward_button_size.width() / 2);
       // Refresh button
       refresh_button_ =
-          new views::LabelButton(this, base::ASCIIToUTF16("Refresh"));
-      refresh_button_->SetStyle(views::Button::STYLE_BUTTON);
+          views::MdTextButton::Create(this, base::ASCIIToUTF16("Refresh"));
       gfx::Size refresh_button_size = refresh_button_->GetPreferredSize();
       toolbar_column_set->AddColumn(views::GridLayout::CENTER,
                                     views::GridLayout::CENTER, 0,
@@ -233,8 +158,8 @@ class ShellWindowDelegateView : public views::WidgetDelegateView,
                                     refresh_button_size.width(),
                                     refresh_button_size.width() / 2);
       // Stop button
-      stop_button_ = new views::LabelButton(this, base::ASCIIToUTF16("Stop"));
-      stop_button_->SetStyle(views::Button::STYLE_BUTTON);
+      stop_button_ =
+          views::MdTextButton::Create(this, base::ASCIIToUTF16("Stop"));
       gfx::Size stop_button_size = stop_button_->GetPreferredSize();
       toolbar_column_set->AddColumn(views::GridLayout::CENTER,
                                     views::GridLayout::CENTER, 0,
@@ -326,7 +251,6 @@ class ShellWindowDelegateView : public views::WidgetDelegateView,
       shell_ = NULL;
     }
   }
-  View* GetContentsView() override { return this; }
 
   // Overridden from View
   gfx::Size GetMinimumSize() const override {
@@ -367,13 +291,11 @@ class ShellWindowDelegateView : public views::WidgetDelegateView,
 
   // Toolbar view contains forward/backward/reload button and URL entry
   View* toolbar_view_;
-  views::LabelButton* back_button_;
-  views::LabelButton* forward_button_;
-  views::LabelButton* refresh_button_;
-  views::LabelButton* stop_button_;
+  views::CustomButton* back_button_;
+  views::CustomButton* forward_button_;
+  views::CustomButton* refresh_button_;
+  views::CustomButton* stop_button_;
   views::Textfield* url_entry_;
-  std::unique_ptr<ContextMenuModel> context_menu_model_;
-  std::unique_ptr<views::MenuRunner> context_menu_runner_;
 
   // Contents view contains the web contents view
   View* contents_view_;
@@ -523,16 +445,6 @@ void Shell::PlatformSetTitle(const base::string16& title) {
     static_cast<ShellWindowDelegateView*>(window_widget_->widget_delegate());
   delegate_view->SetWindowTitle(title);
   window_widget_->UpdateWindowTitle();
-}
-
-bool Shell::PlatformHandleContextMenu(
-    const content::ContextMenuParams& params) {
-  if (headless_)
-    return true;
-  ShellWindowDelegateView* delegate_view =
-    static_cast<ShellWindowDelegateView*>(window_widget_->widget_delegate());
-  delegate_view->ShowWebViewContextMenu(params);
-  return true;
 }
 
 }  // namespace content

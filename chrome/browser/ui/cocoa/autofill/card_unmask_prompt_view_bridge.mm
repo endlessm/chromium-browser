@@ -3,8 +3,8 @@
 // found in the LICENSE file.
 
 #include "base/bind.h"
-#include "base/message_loop/message_loop.h"
 #include "base/strings/sys_string_conversions.h"
+#include "base/threading/thread_task_runner_handle.h"
 #include "chrome/browser/ui/autofill/autofill_dialog_models.h"
 #include "chrome/browser/ui/chrome_style.h"
 #import "chrome/browser/ui/cocoa/autofill/autofill_pop_up_button.h"
@@ -19,11 +19,11 @@
 #import "chrome/browser/ui/cocoa/l10n_util.h"
 #import "chrome/browser/ui/cocoa/spinner_view.h"
 #include "chrome/browser/ui/cocoa/themed_window.h"
+#include "chrome/grit/generated_resources.h"
 #include "components/autofill/core/browser/ui/card_unmask_prompt_controller.h"
+#include "components/grit/components_scaled_resources.h"
+#include "components/strings/grit/components_strings.h"
 #include "content/public/browser/web_contents.h"
-#include "grit/components_scaled_resources.h"
-#include "grit/components_strings.h"
-#include "grit/generated_resources.h"
 #include "skia/ext/skia_utils_mac.h"
 #import "ui/base/cocoa/controls/hyperlink_button_cell.h"
 #include "ui/base/cocoa/window_size_constants.h"
@@ -106,7 +106,7 @@ void CardUnmaskPromptViewBridge::GotVerificationResult(
                               IDS_AUTOFILL_CARD_UNMASK_VERIFICATION_SUCCESS)
                                  showSpinner:NO];
 
-    base::MessageLoop::current()->PostDelayedTask(
+    base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
         FROM_HERE, base::Bind(&CardUnmaskPromptViewBridge::PerformClose,
                               weak_ptr_factory_.GetWeakPtr()),
         base::TimeDelta::FromSeconds(1));
@@ -127,7 +127,7 @@ void CardUnmaskPromptViewBridge::OnConstrainedWindowClosed(
     ConstrainedWindowMac* window) {
   if (controller_)
     controller_->OnUnmaskDialogClosed();
-  base::MessageLoop::current()->DeleteSoon(FROM_HERE, this);
+  base::ThreadTaskRunnerHandle::Get()->DeleteSoon(FROM_HERE, this);
 }
 
 CardUnmaskPromptController* CardUnmaskPromptViewBridge::GetController() {

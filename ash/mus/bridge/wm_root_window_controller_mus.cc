@@ -4,17 +4,15 @@
 
 #include "ash/mus/bridge/wm_root_window_controller_mus.h"
 
-#include "ash/common/wm/workspace/workspace_layout_manager.h"
-#include "ash/common/wm/workspace/workspace_layout_manager_backdrop_delegate.h"
-#include "ash/common/wm_root_window_controller_observer.h"
 #include "ash/mus/bridge/wm_shelf_mus.h"
 #include "ash/mus/bridge/wm_shell_mus.h"
 #include "ash/mus/bridge/wm_window_mus.h"
 #include "ash/mus/container_ids.h"
 #include "ash/mus/root_window_controller.h"
-#include "components/mus/public/cpp/window.h"
-#include "components/mus/public/cpp/window_property.h"
-#include "components/mus/public/cpp/window_tree_client.h"
+#include "ash/mus/window_manager.h"
+#include "services/ui/public/cpp/window.h"
+#include "services/ui/public/cpp/window_property.h"
+#include "services/ui/public/cpp/window_tree_client.h"
 #include "ui/display/display.h"
 #include "ui/views/mus/native_widget_mus.h"
 #include "ui/views/widget/widget.h"
@@ -35,7 +33,9 @@ namespace mus {
 WmRootWindowControllerMus::WmRootWindowControllerMus(
     WmShellMus* shell,
     RootWindowController* root_window_controller)
-    : shell_(shell), root_window_controller_(root_window_controller) {
+    : WmRootWindowController(WmWindowMus::Get(root_window_controller->root())),
+      shell_(shell),
+      root_window_controller_(root_window_controller) {
   shell_->AddRootWindowController(this);
   root_window_controller_->root()->SetLocalProperty(kWmRootWindowControllerKey,
                                                     this);
@@ -47,17 +47,11 @@ WmRootWindowControllerMus::~WmRootWindowControllerMus() {
 
 // static
 const WmRootWindowControllerMus* WmRootWindowControllerMus::Get(
-    const ::mus::Window* window) {
+    const ui::Window* window) {
   if (!window)
     return nullptr;
 
   return window->GetRoot()->GetLocalProperty(kWmRootWindowControllerKey);
-}
-
-void WmRootWindowControllerMus::NotifyFullscreenStateChange(
-    bool is_fullscreen) {
-  FOR_EACH_OBSERVER(WmRootWindowControllerObserver, observers_,
-                    OnFullscreenStateChanged(is_fullscreen));
 }
 
 gfx::Point WmRootWindowControllerMus::ConvertPointToScreen(
@@ -81,27 +75,16 @@ const display::Display& WmRootWindowControllerMus::GetDisplay() const {
   return root_window_controller_->display();
 }
 
+void WmRootWindowControllerMus::MoveWindowsTo(WmWindow* dest) {
+  WmRootWindowController::MoveWindowsTo(dest);
+}
+
 bool WmRootWindowControllerMus::HasShelf() {
   return GetShelf() != nullptr;
 }
 
 WmShell* WmRootWindowControllerMus::GetShell() {
   return shell_;
-}
-
-wm::WorkspaceWindowState WmRootWindowControllerMus::GetWorkspaceWindowState() {
-  NOTIMPLEMENTED();
-  return wm::WORKSPACE_WINDOW_STATE_DEFAULT;
-}
-
-void WmRootWindowControllerMus::SetMaximizeBackdropDelegate(
-    std::unique_ptr<WorkspaceLayoutManagerBackdropDelegate> delegate) {
-  root_window_controller_->workspace_layout_manager()
-      ->SetMaximizeBackdropDelegate(std::move(delegate));
-}
-
-AlwaysOnTopController* WmRootWindowControllerMus::GetAlwaysOnTopController() {
-  return root_window_controller_->always_on_top_controller();
 }
 
 WmShelf* WmRootWindowControllerMus::GetShelf() {
@@ -120,13 +103,13 @@ void WmRootWindowControllerMus::ConfigureWidgetInitParamsForContainer(
       WmWindowMus::Get(root_window_controller_->root())
           ->GetChildByShellWindowId(shell_container_id));
   DCHECK(init_params->parent_mus);
-  ::mus::Window* new_window =
-      root_window_controller_->root()->window_tree()->NewWindow();
+  ui::Window* new_window =
+      root_window_controller_->root()->window_tree()->NewWindow(
+          &(init_params->mus_properties));
   WmWindowMus::Get(new_window)
       ->set_widget(widget, WmWindowMus::WidgetCreationType::INTERNAL);
   init_params->native_widget = new views::NativeWidgetMus(
-      widget, root_window_controller_->GetConnector(), new_window,
-      ::mus::mojom::SurfaceType::DEFAULT);
+      widget, new_window, ui::mojom::SurfaceType::DEFAULT);
 }
 
 WmWindow* WmRootWindowControllerMus::FindEventTarget(
@@ -135,14 +118,20 @@ WmWindow* WmRootWindowControllerMus::FindEventTarget(
   return nullptr;
 }
 
-void WmRootWindowControllerMus::AddObserver(
-    WmRootWindowControllerObserver* observer) {
-  observers_.AddObserver(observer);
+gfx::Point WmRootWindowControllerMus::GetLastMouseLocationInRoot() {
+  gfx::Point location = root_window_controller_->window_manager()
+                            ->window_tree_client()
+                            ->GetCursorScreenPoint();
+  location -=
+      root_window_controller_->display().bounds().origin().OffsetFromOrigin();
+  return location;
 }
 
-void WmRootWindowControllerMus::RemoveObserver(
-    WmRootWindowControllerObserver* observer) {
-  observers_.RemoveObserver(observer);
+bool WmRootWindowControllerMus::ShouldDestroyWindowInCloseChildWindows(
+    WmWindow* window) {
+  ui::Window* ui_window = WmWindowMus::GetMusWindow(window);
+  return ui_window->WasCreatedByThisClient() ||
+         ui_window->window_tree()->GetRoots().count(ui_window);
 }
 
 }  // namespace mus

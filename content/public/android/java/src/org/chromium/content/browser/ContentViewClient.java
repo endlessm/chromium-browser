@@ -11,6 +11,7 @@ import android.view.KeyEvent;
 import android.view.View.MeasureSpec;
 
 import org.chromium.base.Log;
+import org.chromium.base.metrics.RecordUserAction;
 
 /**
  *  Main callback class used by ContentView.
@@ -26,11 +27,15 @@ import org.chromium.base.Log;
  */
 public class ContentViewClient {
     // Tag used for logging.
-    private static final String TAG = "cr.ContentViewClient";
+    private static final String TAG = "cr_ContentViewClient";
 
     // Default value to signal that the ContentView's size should not be overridden.
     private static final int UNSPECIFIED_MEASURE_SPEC =
             MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED);
+
+    private static final String GEO_SCHEME = "geo";
+    private static final String TEL_SCHEME = "tel";
+    private static final String MAILTO_SCHEME = "mailto";
 
     public void onUpdateTitle(String title) {
     }
@@ -43,12 +48,18 @@ public class ContentViewClient {
     }
 
     /**
-     * Notifies the client that the position of the top controls has changed.
-     * @param topControlsOffsetYPix The Y offset of the top controls in physical pixels.
-     * @param contentOffsetYPix The Y offset of the content in physical pixels.
+     * Notifies the client of the position of the top controls.
+     * @param topControlsOffsetY The Y offset of the top controls in physical pixels.
+     * @param topContentOffsetY The Y offset of the content in physical pixels.
      */
-    public void onOffsetsForFullscreenChanged(
-            float topControlsOffsetYPix, float contentOffsetYPix) { }
+    public void onTopControlsChanged(float topControlsOffsetY, float topContentOffsetY) { }
+
+    /**
+     * Notifies the client of the position of the bottom controls.
+     * @param bottomControlsOffsetY The Y offset of the bottom controls in physical pixels.
+     * @param bottomContentOffsetY The Y offset of the content in physical pixels.
+     */
+    public void onBottomControlsChanged(float bottomControlsOffsetY, float bottomContentOffsetY) { }
 
     public boolean shouldOverrideKeyEvent(KeyEvent event) {
         int keyCode = event.getKeyCode();
@@ -138,6 +149,14 @@ public class ContentViewClient {
         // Perform generic parsing of the URI to turn it into an Intent.
         try {
             intent = Intent.parseUri(intentUrl, Intent.URI_INTENT_SCHEME);
+
+            String scheme = intent.getScheme();
+            if (!scheme.equals(GEO_SCHEME) && !scheme.equals(TEL_SCHEME)
+                    && !scheme.equals(MAILTO_SCHEME)) {
+                Log.w(TAG, "Invalid scheme for URI %s", intentUrl);
+                return;
+            }
+
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         } catch (Exception ex) {
             Log.w(TAG, "Bad URI %s", intentUrl, ex);
@@ -145,23 +164,11 @@ public class ContentViewClient {
         }
 
         try {
+            RecordUserAction.record("Android.ContentDetectorActivated");
             context.startActivity(intent);
         } catch (ActivityNotFoundException ex) {
             Log.w(TAG, "No application can handle %s", intentUrl);
         }
-    }
-
-    public ContentVideoViewEmbedder getContentVideoViewEmbedder() {
-        return null;
-    }
-
-    /**
-     * Called when BrowserMediaPlayerManager wants to load a media resource.
-     * @param url the URL of media resource to load.
-     * @return true to prevent the resource from being loaded.
-     */
-    public boolean shouldBlockMediaRequest(String url) {
-        return false;
     }
 
     /**
@@ -252,12 +259,5 @@ public class ContentViewClient {
      */
     public int getSystemWindowInsetBottom() {
         return 0;
-    }
-
-    /**
-     * Return the product version.
-     */
-    public String getProductVersion() {
-        return "";
     }
 }

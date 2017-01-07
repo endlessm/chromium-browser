@@ -368,7 +368,7 @@ void WaitForMultipleFullscreenEvents(
     std::vector<std::string> response_params = base::SplitString(
         response, " ", base::TRIM_WHITESPACE, base::SPLIT_WANT_ALL);
     if (response_params[0] == "fullscreenchange") {
-      EXPECT_TRUE(ContainsKey(remaining_events, response_params[1]));
+      EXPECT_TRUE(base::ContainsKey(remaining_events, response_params[1]));
       remaining_events.erase(response_params[1]);
     } else if (response_params[0] == "resize") {
       resize_validated = true;
@@ -387,8 +387,15 @@ void WaitForMultipleFullscreenEvents(
 // - document.webkitFullscreenElement is correctly updated in both frames.
 // - fullscreenchange events fire in both frames.
 // - fullscreen CSS is applied correctly in both frames.
+//
+// Flaky on Windows: https://crbug.com/647311
+#if defined(OS_WIN)
+#define MAYBE_FullscreenElementInSubframe DISABLED_FullscreenElementInSubframe
+#else
+#define MAYBE_FullscreenElementInSubframe FullscreenElementInSubframe
+#endif
 IN_PROC_BROWSER_TEST_F(SitePerProcessInteractiveBrowserTest,
-                       FullscreenElementInSubframe) {
+                       MAYBE_FullscreenElementInSubframe) {
   // Start on a page with one subframe (id "child-0") that has
   // "allowfullscreen" enabled.
   GURL main_url(embedded_test_server()->GetURL(
@@ -581,8 +588,14 @@ void SitePerProcessInteractiveBrowserTest::FullscreenElementInABA(
   EXPECT_EQ("none", GetFullscreenElementId(grandchild));
 }
 
+// Flaky on Windows: https://crbug.com/647311
+#if defined(OS_WIN)
+#define MAYBE_FullscreenElementInABAAndExitViaEscapeKey DISABLED_FullscreenElementInABAAndExitViaEscapeKey
+#else
+#define MAYBE_FullscreenElementInABAAndExitViaEscapeKey FullscreenElementInABAAndExitViaEscapeKey
+#endif
 IN_PROC_BROWSER_TEST_F(SitePerProcessInteractiveBrowserTest,
-                       FullscreenElementInABAAndExitViaEscapeKey) {
+                       MAYBE_FullscreenElementInABAAndExitViaEscapeKey) {
   FullscreenElementInABA(FullscreenExitMethod::ESC_PRESS);
 }
 

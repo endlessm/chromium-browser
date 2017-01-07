@@ -5,8 +5,8 @@
 """Provides a web interface for seeing recently added points."""
 
 from dashboard import list_tests
-from dashboard import request_handler
-from dashboard import utils
+from dashboard.common import request_handler
+from dashboard.common import utils
 from dashboard.models import graph_data
 
 # Number of points to list if no number of points is specified.

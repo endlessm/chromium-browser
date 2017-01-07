@@ -17,7 +17,7 @@
 #include "base/logging.h"
 #include "base/macros.h"
 #include "base/metrics/field_trial.h"
-#include "base/metrics/histogram.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/metrics/sparse_histogram.h"
 #include "base/metrics/user_metrics.h"
 #include "base/path_service.h"
@@ -32,10 +32,8 @@
 #include "chrome/browser/custom_handlers/protocol_handler_registry.h"
 #include "chrome/browser/net/chrome_extensions_network_delegate.h"
 #include "chrome/browser/net/request_source_bandwidth_histograms.h"
-#include "chrome/browser/net/safe_search_util.h"
 #include "chrome/browser/profiles/profile_manager.h"
-#include "chrome/browser/task_management/task_manager_interface.h"
-#include "chrome/common/chrome_constants.h"
+#include "chrome/browser/task_manager/task_manager_interface.h"
 #include "chrome/common/features.h"
 #include "chrome/common/pref_names.h"
 #include "components/content_settings/core/browser/cookie_settings.h"
@@ -59,6 +57,8 @@
 #include "net/http/http_response_headers.h"
 #include "net/http/http_status_code.h"
 #include "net/log/net_log.h"
+#include "net/log/net_log_event_type.h"
+#include "net/log/net_log_with_source.h"
 #include "net/url_request/url_request.h"
 
 #if BUILDFLAG(ANDROID_JAVA_UI)
@@ -131,126 +131,10 @@ void RecordNetworkErrorHistograms(const net::URLRequest* request) {
     UMA_HISTOGRAM_SPARSE_SLOWLY("Net.HttpRequestCompletionErrorCodes",
                                 std::abs(request->status().error()));
 
-    if (request->load_flags() & net::LOAD_MAIN_FRAME) {
+    if (request->load_flags() & net::LOAD_MAIN_FRAME_DEPRECATED) {
       UMA_HISTOGRAM_SPARSE_SLOWLY(
           "Net.HttpRequestCompletionErrorCodes.MainFrame",
           std::abs(request->status().error()));
-    }
-  }
-}
-
-// Returns whether |request| is likely to be eligible for delta-encoding.
-// This is only a rough approximation right now, based on MIME type.
-bool CanRequestBeDeltaEncoded(const net::URLRequest* request) {
-  struct {
-    const char *prefix;
-    const char *suffix;
-  } kEligibleMasks[] = {
-    // All text/ types are eligible, even if not displayable.
-    { "text/", NULL },
-    // JSON (application/json and application/*+json) is eligible.
-    { "application/", "json" },
-    // Javascript is eligible.
-    { "application/", "javascript" },
-    // XML (application/xml and application/*+xml) is eligible.
-    { "application/", "xml" },
-  };
-
-  std::string mime_type;
-  request->GetMimeType(&mime_type);
-
-  for (size_t i = 0; i < arraysize(kEligibleMasks); i++) {
-    const char *prefix = kEligibleMasks[i].prefix;
-    const char *suffix = kEligibleMasks[i].suffix;
-    if (prefix &&
-        !base::StartsWith(mime_type, prefix, base::CompareCase::SENSITIVE))
-      continue;
-    if (suffix &&
-        !base::EndsWith(mime_type, suffix, base::CompareCase::SENSITIVE))
-      continue;
-    return true;
-  }
-  return false;
-}
-
-// Returns whether |request| was issued by a renderer process, as opposed to
-// the browser process or a plugin process.
-bool IsRendererInitiatedRequest(const net::URLRequest* request) {
-  const ResourceRequestInfo* info = ResourceRequestInfo::ForRequest(request);
-  return info && info->GetProcessType() == content::PROCESS_TYPE_RENDERER;
-}
-
-// Uploads UMA histograms for delta encoding eligibility. This method can only
-// be safely called after the network stack has called both OnStarted and
-// OnCompleted, since it needs the received response content length and the
-// response headers.
-void RecordCacheStateStats(const net::URLRequest* request) {
-  net::HttpRequestHeaders request_headers;
-  if (!request->GetFullRequestHeaders(&request_headers)) {
-    // GetFullRequestHeaders is guaranteed to succeed if OnResponseStarted() has
-    // been called on |request|, so if GetFullRequestHeaders() fails,
-    // RecordCacheStateStats must have been called before
-    // OnResponseStarted().
-    return;
-  }
-
-  if (!IsRendererInitiatedRequest(request)) {
-    // Ignore browser-initiated requests. These are internal requests like safe
-    // browsing and sync, and so on. Some of these could be eligible for
-    // delta-encoding, but to be conservative this function ignores all of them.
-    return;
-  }
-
-  const int kCacheAffectingFlags = net::LOAD_BYPASS_CACHE |
-                                   net::LOAD_DISABLE_CACHE |
-                                   net::LOAD_PREFERRING_CACHE;
-
-  if (request->load_flags() & kCacheAffectingFlags) {
-    // Ignore requests with cache-affecting flags, which would otherwise mess up
-    // these stats.
-    return;
-  }
-
-  enum {
-    CACHE_STATE_FROM_CACHE,
-    CACHE_STATE_STILL_VALID,
-    CACHE_STATE_NO_LONGER_VALID,
-    CACHE_STATE_NO_ENTRY,
-    CACHE_STATE_MAX,
-  } state = CACHE_STATE_NO_ENTRY;
-  bool had_cache_headers =
-      request_headers.HasHeader(net::HttpRequestHeaders::kIfModifiedSince) ||
-      request_headers.HasHeader(net::HttpRequestHeaders::kIfNoneMatch) ||
-      request_headers.HasHeader(net::HttpRequestHeaders::kIfRange);
-  if (request->was_cached() && !had_cache_headers) {
-    // Entry was served directly from cache.
-    state = CACHE_STATE_FROM_CACHE;
-  } else if (request->was_cached() && had_cache_headers) {
-    // Expired entry was present in cache, and server responded with NOT
-    // MODIFIED, indicating the expired entry is still valid.
-    state = CACHE_STATE_STILL_VALID;
-  } else if (!request->was_cached() && had_cache_headers) {
-    // Expired entry was present in cache, and server responded with something
-    // other than NOT MODIFIED, indicating the entry is no longer valid.
-    state = CACHE_STATE_NO_LONGER_VALID;
-  } else if (!request->was_cached() && !had_cache_headers) {
-    // Neither |was_cached| nor |had_cache_headers|, so there's no local cache
-    // entry for this content at all.
-    state = CACHE_STATE_NO_ENTRY;
-  }
-
-  UMA_HISTOGRAM_ENUMERATION("Net.CacheState.AllRequests", state,
-                            CACHE_STATE_MAX);
-  if (CanRequestBeDeltaEncoded(request)) {
-    UMA_HISTOGRAM_ENUMERATION("Net.CacheState.EncodeableRequests", state,
-                              CACHE_STATE_MAX);
-  }
-
-  int64_t size = request->received_response_content_length();
-  if (size >= 0 && state == CACHE_STATE_NO_LONGER_VALID) {
-    UMA_HISTOGRAM_COUNTS("Net.CacheState.AllBytes", size);
-    if (CanRequestBeDeltaEncoded(request)) {
-      UMA_HISTOGRAM_COUNTS("Net.CacheState.EncodeableBytes", size);
     }
   }
 }
@@ -261,14 +145,14 @@ ChromeNetworkDelegate::ChromeNetworkDelegate(
     extensions::EventRouterForwarder* event_router,
     BooleanPrefMember* enable_referrers,
     const metrics::UpdateUsagePrefCallbackType& metrics_data_use_forwarder)
-    : profile_(NULL),
+    : profile_(nullptr),
       enable_referrers_(enable_referrers),
-      enable_do_not_track_(NULL),
-      force_google_safe_search_(NULL),
-      force_youtube_safety_mode_(NULL),
+      enable_do_not_track_(nullptr),
+      force_google_safe_search_(nullptr),
+      force_youtube_restrict_(nullptr),
       allowed_domains_for_apps_(nullptr),
-      url_blacklist_manager_(NULL),
-      domain_reliability_monitor_(NULL),
+      url_blacklist_manager_(nullptr),
+      domain_reliability_monitor_(nullptr),
       data_use_measurement_(metrics_data_use_forwarder),
       experimental_web_platform_features_enabled_(
           base::CommandLine::ForCurrentProcess()->HasSwitch(
@@ -309,33 +193,32 @@ void ChromeNetworkDelegate::InitializePrefsOnUIThread(
     BooleanPrefMember* enable_referrers,
     BooleanPrefMember* enable_do_not_track,
     BooleanPrefMember* force_google_safe_search,
-    BooleanPrefMember* force_youtube_safety_mode,
+    IntegerPrefMember* force_youtube_restrict,
     StringPrefMember* allowed_domains_for_apps,
     PrefService* pref_service) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   enable_referrers->Init(prefs::kEnableReferrers, pref_service);
   enable_referrers->MoveToThread(
-      BrowserThread::GetMessageLoopProxyForThread(BrowserThread::IO));
+      BrowserThread::GetTaskRunnerForThread(BrowserThread::IO));
   if (enable_do_not_track) {
     enable_do_not_track->Init(prefs::kEnableDoNotTrack, pref_service);
     enable_do_not_track->MoveToThread(
-        BrowserThread::GetMessageLoopProxyForThread(BrowserThread::IO));
+        BrowserThread::GetTaskRunnerForThread(BrowserThread::IO));
   }
   if (force_google_safe_search) {
     force_google_safe_search->Init(prefs::kForceGoogleSafeSearch, pref_service);
     force_google_safe_search->MoveToThread(
-        BrowserThread::GetMessageLoopProxyForThread(BrowserThread::IO));
+        BrowserThread::GetTaskRunnerForThread(BrowserThread::IO));
   }
-  if (force_youtube_safety_mode) {
-    force_youtube_safety_mode->Init(prefs::kForceYouTubeSafetyMode,
-                                    pref_service);
-    force_youtube_safety_mode->MoveToThread(
-        BrowserThread::GetMessageLoopProxyForThread(BrowserThread::IO));
+  if (force_youtube_restrict) {
+    force_youtube_restrict->Init(prefs::kForceYouTubeRestrict, pref_service);
+    force_youtube_restrict->MoveToThread(
+        BrowserThread::GetTaskRunnerForThread(BrowserThread::IO));
   }
   if (allowed_domains_for_apps) {
     allowed_domains_for_apps->Init(prefs::kAllowedDomainsForApps, pref_service);
     allowed_domains_for_apps->MoveToThread(
-        BrowserThread::GetMessageLoopProxyForThread(BrowserThread::IO));
+        BrowserThread::GetTaskRunnerForThread(BrowserThread::IO));
   }
 }
 
@@ -353,6 +236,8 @@ int ChromeNetworkDelegate::OnBeforeURLRequest(
       FROM_HERE_WITH_EXPLICIT_FUNCTION(
           "456327 URLRequest::ChromeNetworkDelegate::OnBeforeURLRequest"));
 
+  data_use_measurement_.OnBeforeURLRequest(request);
+
   // TODO(joaodasilva): This prevents extensions from seeing URLs that are
   // blocked. However, an extension might redirect the request to another URL,
   // which is not blocked.
@@ -365,7 +250,7 @@ int ChromeNetworkDelegate::OnBeforeURLRequest(
           request->url(), &error)) {
     // URL access blocked by policy.
     request->net_log().AddEvent(
-        net::NetLog::TYPE_CHROME_POLICY_ABORTED_REQUEST,
+        net::NetLogEventType::CHROME_POLICY_ABORTED_REQUEST,
         net::NetLog::StringCallback("url",
                                     &request->url().possibly_invalid_spec()));
     return error;
@@ -430,8 +315,16 @@ int ChromeNetworkDelegate::OnBeforeStartTransaction(
     net::URLRequest* request,
     const net::CompletionCallback& callback,
     net::HttpRequestHeaders* headers) {
-  if (force_youtube_safety_mode_ && force_youtube_safety_mode_->GetValue())
-    safe_search_util::ForceYouTubeSafetyMode(request, headers);
+  if (force_youtube_restrict_) {
+    int value = force_youtube_restrict_->GetValue();
+    static_assert(safe_search_util::YOUTUBE_RESTRICT_OFF == 0,
+                  "OFF must be first");
+    if (value > safe_search_util::YOUTUBE_RESTRICT_OFF &&
+        value < safe_search_util::YOUTUBE_RESTRICT_COUNT) {
+      safe_search_util::ForceYouTubeRestrict(request, headers,
+          static_cast<safe_search_util::YouTubeRestrictMode>(value));
+    }
+  }
 
   return extensions_delegate_->OnBeforeStartTransaction(request, callback,
                                                         headers);
@@ -459,8 +352,7 @@ int ChromeNetworkDelegate::OnHeadersReceived(
 
 void ChromeNetworkDelegate::OnBeforeRedirect(net::URLRequest* request,
                                              const GURL& new_location) {
-// Recording data use of request on redirects.
-  data_use_measurement_.ReportDataUseUMA(request);
+  data_use_measurement_.OnBeforeRedirect(*request, new_location);
   if (domain_reliability_monitor_)
     domain_reliability_monitor_->OnBeforeRedirect(request);
   extensions_delegate_->OnBeforeRedirect(request, new_location);
@@ -476,30 +368,23 @@ void ChromeNetworkDelegate::OnNetworkBytesReceived(net::URLRequest* request,
 #if defined(ENABLE_TASK_MANAGER)
   // Note: Currently, OnNetworkBytesReceived is only implemented for HTTP jobs,
   // not FTP or other types, so those kinds of bytes will not be reported here.
-  task_management::TaskManagerInterface::OnRawBytesRead(*request,
-                                                        bytes_received);
+  task_manager::TaskManagerInterface::OnRawBytesRead(*request, bytes_received);
 #endif  // defined(ENABLE_TASK_MANAGER)
 
   ReportDataUsageStats(request, 0 /* tx_bytes */, bytes_received);
+  data_use_measurement_.OnNetworkBytesReceived(*request, bytes_received);
 }
 
 void ChromeNetworkDelegate::OnNetworkBytesSent(net::URLRequest* request,
                                                int64_t bytes_sent) {
   ReportDataUsageStats(request, bytes_sent, 0 /* rx_bytes */);
+  data_use_measurement_.OnNetworkBytesSent(*request, bytes_sent);
 }
 
 void ChromeNetworkDelegate::OnCompleted(net::URLRequest* request,
                                         bool started) {
-  // TODO(amohammadkhan): Verify that there is no double recording in data use
-  // of redirected requests.
-  data_use_measurement_.ReportDataUseUMA(request);
+  data_use_measurement_.OnCompleted(*request, started);
   RecordNetworkErrorHistograms(request);
-  if (started) {
-    // Only call in for requests that were started, to obey the precondition
-    // that RecordCacheStateStats can only be called on requests for which
-    // OnResponseStarted was called.
-    RecordCacheStateStats(request);
-  }
 
   if (request->status().status() == net::URLRequestStatus::SUCCESS) {
 #if BUILDFLAG(ANDROID_JAVA_UI)
@@ -541,21 +426,19 @@ ChromeNetworkDelegate::OnAuthRequired(
 bool ChromeNetworkDelegate::OnCanGetCookies(
     const net::URLRequest& request,
     const net::CookieList& cookie_list) {
-  // NULL during tests, or when we're running in the system context.
+  // nullptr during tests, or when we're running in the system context.
   if (!cookie_settings_.get())
     return true;
 
   bool allow = cookie_settings_->IsReadingCookieAllowed(
       request.url(), request.first_party_for_cookies());
 
-  int render_process_id = -1;
-  int render_frame_id = -1;
-  if (content::ResourceRequestInfo::GetRenderFrameForRequest(
-          &request, &render_process_id, &render_frame_id)) {
+  const ResourceRequestInfo* info = ResourceRequestInfo::ForRequest(&request);
+  if (info) {
     BrowserThread::PostTask(
         BrowserThread::UI, FROM_HERE,
         base::Bind(&TabSpecificContentSettings::CookiesRead,
-                   render_process_id, render_frame_id,
+                   info->GetWebContentsGetterForRequest(),
                    request.url(), request.first_party_for_cookies(),
                    cookie_list, !allow));
   }
@@ -566,21 +449,19 @@ bool ChromeNetworkDelegate::OnCanGetCookies(
 bool ChromeNetworkDelegate::OnCanSetCookie(const net::URLRequest& request,
                                            const std::string& cookie_line,
                                            net::CookieOptions* options) {
-  // NULL during tests, or when we're running in the system context.
+  // nullptr during tests, or when we're running in the system context.
   if (!cookie_settings_.get())
     return true;
 
   bool allow = cookie_settings_->IsSettingCookieAllowed(
       request.url(), request.first_party_for_cookies());
 
-  int render_process_id = -1;
-  int render_frame_id = -1;
-  if (content::ResourceRequestInfo::GetRenderFrameForRequest(
-          &request, &render_process_id, &render_frame_id)) {
+  const ResourceRequestInfo* info = ResourceRequestInfo::ForRequest(&request);
+  if (info) {
     BrowserThread::PostTask(
         BrowserThread::UI, FROM_HERE,
         base::Bind(&TabSpecificContentSettings::CookieChanged,
-                   render_process_id, render_frame_id,
+                   info->GetWebContentsGetterForRequest(),
                    request.url(), request.first_party_for_cookies(),
                    cookie_line, *options, !allow));
   }
@@ -639,15 +520,6 @@ bool ChromeNetworkDelegate::OnCanAccessFile(const net::URLRequest& request,
   if (external_storage_path.IsParent(path))
     return true;
 
-  // Allow to load offline pages, which are stored in the $PROFILE_PATH/Offline
-  // Pages/archives.
-  if (!profile_path_.empty()) {
-    const base::FilePath offline_page_archives =
-        profile_path_.Append(chrome::kOfflinePageArchivesDirname);
-    if (offline_page_archives.IsParent(path))
-      return true;
-  }
-
   // Whitelist of other allowed directories.
   static const char* const kLocalAccessWhiteList[] = {
       "/sdcard",
@@ -672,7 +544,7 @@ bool ChromeNetworkDelegate::OnCanAccessFile(const net::URLRequest& request,
 bool ChromeNetworkDelegate::OnCanEnablePrivacyMode(
     const GURL& url,
     const GURL& first_party_for_cookies) const {
-  // NULL during tests, or when we're running in the system context.
+  // nullptr during tests, or when we're running in the system context.
   if (!cookie_settings_.get())
     return false;
 

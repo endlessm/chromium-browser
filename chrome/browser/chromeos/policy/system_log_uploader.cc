@@ -6,12 +6,12 @@
 
 #include "base/bind.h"
 #include "base/bind_helpers.h"
-#include "base/chromeos/logging.h"
 #include "base/command_line.h"
 #include "base/files/file_util.h"
 #include "base/memory/ptr_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/stringprintf.h"
+#include "base/syslog_logging.h"
 #include "base/task_runner_util.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chromeos/policy/upload_job_impl.h"
@@ -46,14 +46,13 @@ std::unique_ptr<policy::SystemLogUploader::SystemLogs> ReadFiles() {
   std::unique_ptr<policy::SystemLogUploader::SystemLogs> system_logs(
       new policy::SystemLogUploader::SystemLogs());
   feedback::AnonymizerTool anonymizer;
-  for (auto const file_path : kSystemLogFileNames) {
+  for (auto* file_path : kSystemLogFileNames) {
     if (!base::PathExists(base::FilePath(file_path)))
       continue;
     std::string data = std::string();
     if (!base::ReadFileToString(base::FilePath(file_path), &data)) {
-      CHROMEOS_SYSLOG(ERROR)
-          << "Failed to read the system log file from the disk " << file_path
-          << std::endl;
+      SYSLOG(ERROR) << "Failed to read the system log file from the disk "
+                    << file_path << std::endl;
     }
     system_logs->push_back(std::make_pair(
         file_path,
@@ -110,7 +109,7 @@ std::unique_ptr<policy::UploadJob> SystemLogDelegate::CreateUploadJob(
   std::string robot_account_id =
       device_oauth2_token_service->GetRobotAccountId();
 
-  CHROMEOS_SYSLOG(WARNING) << "Creating upload job for system log";
+  SYSLOG(INFO) << "Creating upload job for system log";
   return std::unique_ptr<policy::UploadJob>(new policy::UploadJobImpl(
       upload_url, robot_account_id, device_oauth2_token_service,
       system_request_context, delegate,
@@ -196,7 +195,7 @@ SystemLogUploader::SystemLogUploader(
 SystemLogUploader::~SystemLogUploader() {}
 
 void SystemLogUploader::OnSuccess() {
-  CHROMEOS_SYSLOG(WARNING) << "Upload successful.";
+  SYSLOG(INFO) << "Upload successful.";
   upload_job_.reset();
   last_upload_attempt_ = base::Time::NowFromSystemTime();
   retry_count_ = 0;
@@ -214,14 +213,14 @@ void SystemLogUploader::OnFailure(UploadJob::ErrorCode error_code) {
   //  attempt and schedule the next one using the normal delay. Otherwise, retry
   //  uploading after kErrorUploadDelayMs milliseconds.
   if (retry_count_++ < kMaxNumRetries) {
-    CHROMEOS_SYSLOG(ERROR) << "Upload failed with error code " << error_code
-                           << ", retrying later.";
+    SYSLOG(ERROR) << "Upload failed with error code " << error_code
+                  << ", retrying later.";
     ScheduleNextSystemLogUpload(
         base::TimeDelta::FromMilliseconds(kErrorUploadDelayMs));
   } else {
     // No more retries.
-    CHROMEOS_SYSLOG(ERROR) << "Upload failed with error code " << error_code
-                           << ", no more retries.";
+    SYSLOG(ERROR) << "Upload failed with error code " << error_code
+                  << ", no more retries.";
     retry_count_ = 0;
     ScheduleNextSystemLogUpload(upload_frequency_);
   }
@@ -267,7 +266,7 @@ void SystemLogUploader::UploadSystemLogs(
   for (const auto& syslog_entry : *system_logs) {
     std::map<std::string, std::string> header_fields;
     std::unique_ptr<std::string> data =
-        base::WrapUnique(new std::string(syslog_entry.second));
+        base::MakeUnique<std::string>(syslog_entry.second);
     header_fields.insert(std::make_pair(kFileTypeHeaderName, kFileTypeLogFile));
     header_fields.insert(std::make_pair(net::HttpRequestHeaders::kContentType,
                                         kContentTypePlainText));

@@ -19,6 +19,7 @@ from chromite.cbuildbot.builders import generic_builders
 from chromite.lib import cros_test_lib
 from chromite.lib import git
 from chromite.lib import osutils
+from chromite.scripts import cros_show_waterfall_layout
 
 # pylint: disable=protected-access
 
@@ -34,6 +35,9 @@ class GenerateChromeosConfigTestBase(cros_test_lib.TestCase):
   def setUp(self):
     self.all_configs = chromeos_config.GetConfig()
 
+  def isReleaseBranch(self):
+    ge_build_config = config_lib.LoadGEBuildConfigFromFile()
+    return ge_build_config['release_branch']
 
 class ConfigDumpTest(GenerateChromeosConfigTestBase):
   """Tests related to config_dump.json & chromeos_config.py"""
@@ -53,6 +57,23 @@ class ConfigDumpTest(GenerateChromeosConfigTestBase):
     dump = self.all_configs.SaveConfigToString()
     loaded = config_lib.LoadConfigFromString(dump)
     self.assertEqual(self.all_configs, loaded)
+
+
+class WaterfallLayoutTest(cros_test_lib.OutputTestCase):
+  """Make sure waterall_layout_dump.txt is current."""
+
+  def testWaterfallLayout(self):
+    """Make sure that watefall_layout_dump.txt is kept current."""
+    with self.OutputCapturer() as output:
+      cros_show_waterfall_layout.main(['--format', 'text'])
+
+    new_dump = output.GetStdout()
+    old_dump = osutils.ReadFile(constants.WATERFALL_CONFIG_FILE)
+
+    self.assertTrue(
+        new_dump == old_dump, 'waterfall_layout_dump.txt does not match the '
+        'configs defined in chromeos_config.py. Run '
+        'bin/cros_show_waterfall_layout > cbuildbot/waterfall_layout_dump.txt')
 
 
 class ConfigPickleTest(GenerateChromeosConfigTestBase):
@@ -744,12 +765,12 @@ class CBuildBotTest(GenerateChromeosConfigTestBase):
       if config.build_type == constants.PFQ_TYPE:
         expected = 20 * 60
       elif config.build_type == constants.CANARY_TYPE:
-        if not chromeos_config.IS_RELEASE_BRANCH:
-          expected = (7 * 60 + 50) * 60
-        else:
+        if self.isReleaseBranch():
           expected = 12 * 60 * 60
+        else:
+          expected = (7 * 60 + 50) * 60
       elif config.build_type == constants.TOOLCHAIN_TYPE:
-        expected = (9 * 60 + 50) * 60
+        expected = (15 * 60 + 50) * 60
       else:
         expected = (4 * 60 + 30) * 60
 
@@ -782,14 +803,15 @@ class OverrideForTrybotTest(GenerateChromeosConfigTestBase):
 
   def testWaterfallManualConfigIsValid(self):
     """Verify the correctness of the manual waterfall configuration."""
-    # Release branches do not allow for manual configs.
-    if chromeos_config.IS_RELEASE_BRANCH:
+
+    # TODO: Start setting this value for the test, instead of just reading.
+    if self.isReleaseBranch():
       return
+
     all_build_names = set(self.all_configs.iterkeys())
     redundant = set()
     seen = set()
-    waterfall_iter = chromeos_config._waterfall_config_map.iteritems()
-    for waterfall, names in waterfall_iter:
+    for waterfall, names in chromeos_config._waterfall_config_map.iteritems():
       for build_name in names:
         # Every build in the configuration map must be valid.
         self.assertTrue(build_name in all_build_names,
@@ -809,7 +831,7 @@ class OverrideForTrybotTest(GenerateChromeosConfigTestBase):
                          "configuration for: %s" % (build_name,))
 
 
-        default_waterfall = chromeos_config.GetDefaultWaterfall(config)
+        default_waterfall = chromeos_config.GetDefaultWaterfall(config, False)
         if config['active_waterfall'] == default_waterfall:
           redundant.add(build_name)
 
@@ -847,17 +869,14 @@ class OverrideForTrybotTest(GenerateChromeosConfigTestBase):
 class TemplateTest(GenerateChromeosConfigTestBase):
   """Tests for templates."""
 
-  def testTemplatesUsed(self):
-    """Test that all templates are used."""
-    templates_used = set(cfg['_template'] for cfg in self.all_configs.values())
-    templates = set([None] + self.all_configs.GetTemplates().keys())
-    self.assertEqual(templates, templates_used)
-
   def testConfigNamesMatchTemplate(self):
     """Test that all configs have names that match their templates."""
     for name, config in self.all_configs.iteritems():
       template = config._template
       if template:
+        # We mix '-' and '_' in various name spaces.
+        name = name.replace('_', '-')
+        template = template.replace('_', '-')
         child_configs = config.child_configs
         if not child_configs:
           msg = '%s should end with %s to match its template'

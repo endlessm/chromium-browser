@@ -9,8 +9,10 @@
 goog.provide('PanelMenu');
 goog.provide('PanelNodeMenu');
 
+goog.require('Output');
 goog.require('PanelMenuItem');
 goog.require('constants');
+goog.require('cursors.Range');
 
 /**
  * @param {string} menuMsg The msg id of the menu.
@@ -62,6 +64,9 @@ PanelMenu = function(menuMsg) {
    * @private
    */
   this.activeIndex_ = -1;
+
+  this.menuElement.addEventListener(
+      'keypress', this.onKeyPress_.bind(this), true);
 };
 
 PanelMenu.prototype = {
@@ -166,6 +171,22 @@ PanelMenu.prototype = {
   },
 
   /**
+   * Sets the active menu item index to be 0.
+   */
+  scrollToTop: function() {
+    this.activeIndex_ = 0;
+    this.items_[this.activeIndex_].element.focus();
+  },
+
+  /**
+   * Sets the active menu item index to be the last index.
+   */
+  scrollToBottom: function() {
+    this.activeIndex_ = this.items_.length - 1;
+    this.items_[this.activeIndex_].element.focus();
+  },
+
+  /**
    * Get the callback for the active menu item.
    * @return {Function} The callback.
    */
@@ -187,6 +208,20 @@ PanelMenu.prototype = {
         return this.items_[i].callback;
     }
     return null;
+  },
+
+  /**
+   * Handles key presses for first letter accelerators.
+   */
+  onKeyPress_: function(evt) {
+    var query = String.fromCharCode(evt.charCode).toLowerCase();
+
+    for (var i = this.activeIndex_ + 1; i < this.items_.length; i++) {
+      if (this.items_[i].text.toLowerCase().indexOf(query) == 0) {
+        this.activateItem(i);
+        break;
+      }
+    }
   }
 };
 
@@ -208,7 +243,11 @@ PanelNodeMenu = function(menuMsg, node, pred) {
           selectNext = true;
 
         if (pred(n)) {
-          this.addMenuItem(n.name, '', function() {
+          var output = new Output();
+          var range = cursors.Range.fromNode(n);
+          output.withSpeech(range, range, Output.EventType.NAVIGATE);
+          var label = output.toString();
+          this.addMenuItem(label, '', function() {
             chrome.extension.getBackgroundPage().ChromeVoxState
                 .instance['navigateToRange'](cursors.Range.fromNode(n));
           });

@@ -9,9 +9,9 @@
 #include "chrome/browser/ui/views/frame/browser_frame.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
 #include "chrome/common/extensions/extension_constants.h"
-#include "components/mus/public/cpp/property_type_converters.h"
-#include "components/mus/public/cpp/window.h"
-#include "components/mus/public/interfaces/window_tree.mojom.h"
+#include "services/ui/public/cpp/property_type_converters.h"
+#include "services/ui/public/cpp/window.h"
+#include "services/ui/public/interfaces/window_tree.mojom.h"
 #include "ui/views/mus/window_manager_connection.h"
 #include "ui/views/mus/window_manager_frame_values.h"
 
@@ -24,12 +24,15 @@ views::Widget::InitParams GetWidgetParamsImpl(BrowserView* browser_view) {
   return params;
 }
 
-mus::Window* CreateMusWindow(BrowserView* browser_view) {
+ui::Window* CreateMusWindow(BrowserView* browser_view) {
   std::map<std::string, std::vector<uint8_t>> properties;
   views::NativeWidgetMus::ConfigurePropertiesForNewWindow(
       GetWidgetParamsImpl(browser_view), &properties);
   const std::string chrome_app_id(extension_misc::kChromeAppId);
-  properties[mus::mojom::WindowManager::kAppID_Property] =
+  // Indicates mash shouldn't handle immersive, rather we will.
+  properties[ui::mojom::WindowManager::kDisableImmersive_Property] =
+      mojo::ConvertTo<std::vector<uint8_t>>(true);
+  properties[ui::mojom::WindowManager::kAppID_Property] =
       mojo::ConvertTo<std::vector<uint8_t>>(chrome_app_id);
   return views::WindowManagerConnection::Get()->NewWindow(properties);
 }
@@ -38,11 +41,9 @@ mus::Window* CreateMusWindow(BrowserView* browser_view) {
 
 BrowserFrameMus::BrowserFrameMus(BrowserFrame* browser_frame,
                                  BrowserView* browser_view)
-    : views::NativeWidgetMus(
-          browser_frame,
-          views::WindowManagerConnection::Get()->connector(),
-          CreateMusWindow(browser_view),
-          mus::mojom::SurfaceType::DEFAULT),
+    : views::NativeWidgetMus(browser_frame,
+                             CreateMusWindow(browser_view),
+                             ui::mojom::SurfaceType::DEFAULT),
       browser_view_(browser_view) {}
 
 BrowserFrameMus::~BrowserFrameMus() {}

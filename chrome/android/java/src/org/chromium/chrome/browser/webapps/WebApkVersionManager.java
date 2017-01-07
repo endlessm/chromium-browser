@@ -4,6 +4,7 @@
 
 package org.chromium.chrome.browser.webapps;
 
+import android.annotation.SuppressLint;
 import android.content.Context;
 import android.content.SharedPreferences;
 
@@ -14,7 +15,7 @@ import org.chromium.base.ThreadUtils;
 import org.chromium.chrome.browser.ChromeSwitches;
 import org.chromium.webapk.lib.client.DexOptimizer;
 import org.chromium.webapk.lib.client.WebApkVersion;
-import org.chromium.webapk.lib.common.WebApkUtils;
+import org.chromium.webapk.lib.common.WebApkVersionUtils;
 
 import java.io.File;
 
@@ -32,6 +33,8 @@ public class WebApkVersionManager {
      * Tries to extract the WebAPK runtime dex from the Chrome APK if it has not tried already.
      * Should not be called on UI thread.
      */
+    // TODO(crbug.com/635567): Fix this properly.
+    @SuppressLint("SetWorldReadable")
     public static void updateWebApksIfNeeded() {
         assert !ThreadUtils.runningOnUiThread();
 
@@ -58,7 +61,7 @@ public class WebApkVersionManager {
         dexDir = context.getDir("dex", Context.MODE_PRIVATE);
 
         String dexName =
-                WebApkUtils.getRuntimeDexName(WebApkVersion.CURRENT_RUNTIME_DEX_VERSION);
+                WebApkVersionUtils.getRuntimeDexName(WebApkVersion.CURRENT_RUNTIME_DEX_VERSION);
         File dexFile = new File(dexDir, dexName);
         if (!FileUtils.extractAsset(context, dexName, dexFile) || !DexOptimizer.optimize(dexFile)) {
             return;

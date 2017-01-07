@@ -9,7 +9,6 @@
 #include "base/metrics/sparse_histogram.h"
 #include "base/strings/string_util.h"
 #include "chrome/grit/browser_resources.h"
-#include "chrome/grit/generated_resources.h"
 #include "ui/base/resource/resource_bundle.h"
 
 namespace safe_browsing {
@@ -40,7 +39,7 @@ FileTypePolicies::FileTypePolicies() {
   // This should normally never be used.
   last_resort_default_.set_uma_value(-1l);
   last_resort_default_.set_ping_setting(DownloadFileType::NO_PING);
-  auto settings = last_resort_default_.add_platform_settings();
+  auto* settings = last_resort_default_.add_platform_settings();
   settings->set_danger_level(DownloadFileType::ALLOW_ON_USER_GESTURE);
   settings->set_auto_open_hint(DownloadFileType::DISALLOW_AUTO_OPEN);
 }

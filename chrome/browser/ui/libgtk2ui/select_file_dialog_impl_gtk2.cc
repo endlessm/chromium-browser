@@ -4,6 +4,7 @@
 
 #include "chrome/browser/ui/libgtk2ui/select_file_dialog_impl_gtk2.h"
 
+#include <gdk/gdkx.h>
 #include <gtk/gtk.h>
 #include <stddef.h>
 #include <sys/stat.h>
@@ -30,9 +31,10 @@
 #include "chrome/browser/ui/libgtk2ui/select_file_dialog_impl.h"
 #include "ui/aura/window_observer.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/events/platform/x11/x11_event_source.h"
 #include "ui/shell_dialogs/select_file_dialog.h"
 #include "ui/strings/grit/ui_strings.h"
-#include "ui/views/widget/desktop_aura/x11_desktop_handler.h"
+#include "ui/views/widget/desktop_aura/desktop_window_tree_host_x11.h"
 
 namespace {
 
@@ -46,6 +48,12 @@ gboolean FileFilterCaseInsensitive(const GtkFileFilterInfo* file_info,
 // Deletes |data| when gtk_file_filter_add_custom() is done with it.
 void OnFileFilterDataDestroyed(std::string* file_extension) {
   delete file_extension;
+}
+
+// Runs DesktopWindowTreeHostX11::EnableEventListening() when the file-picker
+// is closed.
+void OnFilePickerDestroy(base::Closure* callback) {
+  callback->Run();
 }
 
 }  // namespace
@@ -161,16 +169,26 @@ void SelectFileDialogImplGTK::SelectFileImpl(
 
   params_map_[dialog] = params;
 
-  // TODO(erg): Figure out how to fake GTK window-to-parent modality without
-  // having the parent be a real GtkWindow.
-  gtk_window_set_modal(GTK_WINDOW(dialog), TRUE);
+  // Disable input events handling in the host window to make this dialog modal.
+  aura::WindowTreeHost* host = owning_window->GetHost();
+  if (host) {
+    std::unique_ptr<base::Closure> callback =
+        views::DesktopWindowTreeHostX11::GetHostForXID(
+        host->GetAcceleratedWidget())->DisableEventListening(
+        GDK_WINDOW_XID(gtk_widget_get_window(dialog)));
+    // OnFilePickerDestroy() is called when |dialog| destroyed, which allows to
+    // invoke the callback function to re-enable events on the owning window.
+    g_object_set_data_full(G_OBJECT(dialog), "callback", callback.release(),
+        reinterpret_cast<GDestroyNotify>(OnFilePickerDestroy));
+    gtk_window_set_modal(GTK_WINDOW(dialog), TRUE);
+  }
 
   gtk_widget_show_all(dialog);
 
   // We need to call gtk_window_present after making the widgets visible to make
   // sure window gets correctly raised and gets focus.
-  int time = views::X11DesktopHandler::get()->wm_user_time_ms();
-  gtk_window_present_with_time(GTK_WINDOW(dialog), time);
+  gtk_window_present_with_time(
+      GTK_WINDOW(dialog), ui::X11EventSource::GetInstance()->GetTimestamp());
 }
 
 void SelectFileDialogImplGTK::AddFilters(GtkFileChooser* chooser) {
@@ -276,7 +294,7 @@ GtkWidget* SelectFileDialogImplGTK::CreateFileOpenHelper(
                                   GTK_FILE_CHOOSER_ACTION_OPEN,
                                   "_Cancel", GTK_RESPONSE_CANCEL,
                                   "_Open", GTK_RESPONSE_ACCEPT,
-                                  NULL);
+                                  nullptr);
   SetGtkTransientForAura(dialog, parent);
   AddFilters(GTK_FILE_CHOOSER(dialog));
 
@@ -318,7 +336,7 @@ GtkWidget* SelectFileDialogImplGTK::CreateSelectFolderDialog(
                                   "_Cancel", GTK_RESPONSE_CANCEL,
                                   accept_button_label.c_str(),
                                   GTK_RESPONSE_ACCEPT,
-                                  NULL);
+                                  nullptr);
   SetGtkTransientForAura(dialog, parent);
 
   if (!default_path.empty()) {
@@ -372,7 +390,7 @@ GtkWidget* SelectFileDialogImplGTK::CreateSaveAsDialog(const std::string& title,
                                   GTK_FILE_CHOOSER_ACTION_SAVE,
                                   "_Cancel", GTK_RESPONSE_CANCEL,
                                   "_Save", GTK_RESPONSE_ACCEPT,
-                                  NULL);
+                                  nullptr);
   SetGtkTransientForAura(dialog, parent);
 
   AddFilters(GTK_FILE_CHOOSER(dialog));
@@ -409,23 +427,6 @@ void* SelectFileDialogImplGTK::PopParamsForDialog(GtkWidget* dialog) {
   void* params = iter->second;
   params_map_.erase(iter);
   return params;
-}
-
-void SelectFileDialogImplGTK::FileDialogDestroyed(GtkWidget* dialog) {
-  dialogs_.erase(dialog);
-
-  // |parent| can be NULL when closing the host window
-  // while opening the file-picker.
-  aura::Window* parent = GetAuraTransientParent(dialog);
-  if (!parent)
-    return;
-  std::set<aura::Window*>::iterator iter = parents_.find(parent);
-  if (iter != parents_.end()) {
-    (*iter)->RemoveObserver(this);
-    parents_.erase(iter);
-  } else {
-    NOTREACHED();
-  }
 }
 
 bool SelectFileDialogImplGTK::IsCancelResponse(gint response_id) {
@@ -507,7 +508,20 @@ void SelectFileDialogImplGTK::OnSelectMultiFileDialogResponse(GtkWidget* dialog,
 }
 
 void SelectFileDialogImplGTK::OnFileChooserDestroy(GtkWidget* dialog) {
-  FileDialogDestroyed(dialog);
+  dialogs_.erase(dialog);
+
+  // |parent| can be NULL when closing the host window
+  // while opening the file-picker.
+  aura::Window* parent = GetAuraTransientParent(dialog);
+  if (!parent)
+    return;
+  std::set<aura::Window*>::iterator iter = parents_.find(parent);
+  if (iter != parents_.end()) {
+    (*iter)->RemoveObserver(this);
+    parents_.erase(iter);
+  } else {
+    NOTREACHED();
+  }
 }
 
 void SelectFileDialogImplGTK::OnUpdatePreview(GtkWidget* chooser) {

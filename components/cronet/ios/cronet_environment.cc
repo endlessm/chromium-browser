@@ -9,6 +9,7 @@
 #include "base/at_exit.h"
 #include "base/atomicops.h"
 #include "base/command_line.h"
+#include "base/feature_list.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/files/scoped_file.h"
@@ -16,8 +17,10 @@
 #include "base/mac/bind_objc_block.h"
 #include "base/mac/foundation_util.h"
 #include "base/macros.h"
+#include "base/memory/ptr_util.h"
 #include "base/metrics/statistics_recorder.h"
 #include "base/path_service.h"
+#include "base/single_thread_task_runner.h"
 #include "base/synchronization/waitable_event.h"
 #include "base/threading/worker_pool.h"
 #include "components/cronet/ios/version.h"
@@ -25,8 +28,11 @@
 #include "components/prefs/pref_filter.h"
 #include "net/base/net_errors.h"
 #include "net/base/network_change_notifier.h"
-#include "net/cert/cert_verify_result.h"
+#include "net/cert/cert_verifier.h"
+#include "net/cert/ct_known_logs.h"
+#include "net/cert/ct_log_verifier.h"
 #include "net/cert/ct_policy_enforcer.h"
+#include "net/cert/ct_verifier.h"
 #include "net/cert/multi_log_ct_verifier.h"
 #include "net/dns/host_resolver.h"
 #include "net/dns/mapped_host_resolver.h"
@@ -37,6 +43,7 @@
 #include "net/http/http_stream_factory.h"
 #include "net/http/http_util.h"
 #include "net/log/net_log.h"
+#include "net/log/net_log_capture_mode.h"
 #include "net/log/write_to_file_net_log_observer.h"
 #include "net/proxy/proxy_service.h"
 #include "net/socket/ssl_client_socket.h"
@@ -73,7 +80,7 @@ void CronetEnvironment::PostToNetworkThread(
 void CronetEnvironment::PostToFileUserBlockingThread(
     const tracked_objects::Location& from_here,
     const base::Closure& task) {
-  file_user_blocking_thread_->message_loop()->PostTask(from_here, task);
+  file_user_blocking_thread_->task_runner()->PostTask(from_here, task);
 }
 
 net::URLRequestContext* CronetEnvironment::GetURLRequestContext() const {
@@ -234,6 +241,7 @@ CronetEnvironment::~CronetEnvironment() {
 
 void CronetEnvironment::InitializeOnNetworkThread() {
   DCHECK(network_io_thread_->task_runner()->BelongsToCurrentThread());
+  base::FeatureList::InitializeInstance(std::string(), std::string());
   // TODO(mef): Use net:UrlRequestContextBuilder instead of manual build.
   main_context_.reset(new net::URLRequestContext);
   main_context_->set_net_log(net_log_.get());
@@ -263,7 +271,10 @@ void CronetEnvironment::InitializeOnNetworkThread() {
     cert_verifier_ = net::CertVerifier::CreateDefault();
   main_context_->set_cert_verifier(cert_verifier_.get());
 
-  main_context_->set_cert_transparency_verifier(new net::MultiLogCTVerifier());
+  std::unique_ptr<net::MultiLogCTVerifier> ct_verifier =
+      base::MakeUnique<net::MultiLogCTVerifier>();
+  ct_verifier->AddLogs(net::ct::CreateLogVerifiersForKnownLogs());
+  main_context_->set_cert_transparency_verifier(ct_verifier.release());
   main_context_->set_ct_policy_enforcer(new net::CTPolicyEnforcer());
 
   main_context_->set_http_auth_handler_factory(

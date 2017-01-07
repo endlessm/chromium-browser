@@ -14,7 +14,6 @@
 #include "base/path_service.h"
 #include "base/threading/thread.h"
 #include "build/build_config.h"
-#include "components/network_session_configurator/switches.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/storage_partition.h"
 #include "content/public/common/content_switches.h"
@@ -63,6 +62,7 @@ ShellBrowserContext::ShellBrowserContext(bool off_the_record,
 }
 
 ShellBrowserContext::~ShellBrowserContext() {
+  ShutdownStoragePartitions();
   if (resource_context_) {
     BrowserThread::DeleteSoon(
       BrowserThread::IO, FROM_HERE, resource_context_.release());
@@ -75,9 +75,20 @@ void ShellBrowserContext::InitWhileIOAllowed() {
     ignore_certificate_errors_ = true;
   if (cmd_line->HasSwitch(switches::kContentShellDataPath)) {
     path_ = cmd_line->GetSwitchValuePath(switches::kContentShellDataPath);
-    BrowserContext::Initialize(this, path_);
-    return;
+    if (base::DirectoryExists(path_) || base::CreateDirectory(path_))  {
+      // BrowserContext needs an absolute path, which we would normally get via
+      // PathService. In this case, manually ensure the path is absolute.
+      if (!path_.IsAbsolute())
+        path_ = base::MakeAbsoluteFilePath(path_);
+      if (!path_.empty()) {
+        BrowserContext::Initialize(this, path_);
+        return;
+      }
+    } else {
+      LOG(WARNING) << "Unable to create data-path directory: " << path_.value();
+    }
   }
+
 #if defined(OS_WIN)
   CHECK(PathService::Get(base::DIR_LOCAL_APP_DATA, &path_));
   path_ = path_.Append(std::wstring(L"content_shell"));
@@ -132,8 +143,8 @@ ShellBrowserContext::CreateURLRequestContextGetter(
     URLRequestInterceptorScopedVector request_interceptors) {
   return new ShellURLRequestContextGetter(
       ignore_certificate_errors_, GetPath(),
-      BrowserThread::GetMessageLoopProxyForThread(BrowserThread::IO),
-      BrowserThread::GetMessageLoopProxyForThread(BrowserThread::FILE),
+      BrowserThread::GetTaskRunnerForThread(BrowserThread::IO),
+      BrowserThread::GetTaskRunnerForThread(BrowserThread::FILE),
       protocol_handlers, std::move(request_interceptors), net_log_);
 }
 

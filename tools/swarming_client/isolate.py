@@ -1,7 +1,7 @@
 #!/usr/bin/env python
-# Copyright 2012 The Swarming Authors. All rights reserved.
-# Use of this source code is governed under the Apache License, Version 2.0 that
-# can be found in the LICENSE file.
+# Copyright 2012 The LUCI Authors. All rights reserved.
+# Use of this source code is governed under the Apache License, Version 2.0
+# that can be found in the LICENSE file.
 
 """Front end tool to operate on .isolate files.
 
@@ -37,6 +37,7 @@ from third_party.depot_tools import subcommand
 from utils import logging_utils
 from utils import file_path
 from utils import fs
+from utils import subprocess42
 from utils import tools
 
 
@@ -103,9 +104,7 @@ def recreate_tree(outdir, indir, infiles, action, as_hash):
           fs.remove(outfile)
     else:
       outfile = os.path.join(outdir, relfile)
-      outsubdir = os.path.dirname(outfile)
-      if not os.path.isdir(outsubdir):
-        fs.makedirs(outsubdir)
+      file_path.ensure_tree(os.path.dirname(outfile))
 
     if 'l' in metadata:
       pointed = metadata['l']
@@ -717,11 +716,12 @@ def create_isolate_tree(outdir, root_dir, files, relative_cwd, read_only):
       action=action,
       as_hash=False)
   cwd = os.path.normpath(os.path.join(outdir, relative_cwd))
-  if not fs.isdir(cwd):
-    # It can happen when no files are mapped from the directory containing the
-    # .isolate file. But the directory must exist to be the current working
-    # directory.
-    fs.makedirs(cwd)
+
+  # cwd may not exist when no files are mapped from the directory containing the
+  # .isolate file. But the directory must exist to be the current working
+  # directory.
+  file_path.ensure_tree(cwd)
+
   run_isolated.change_tree_read_only(outdir, read_only)
   return cwd
 
@@ -856,7 +856,7 @@ def CMDarchive(parser, args):
     parser.error('Unsupported argument: %s' % args)
   process_isolate_options(parser, options)
   auth.process_auth_options(parser, options)
-  isolateserver.process_isolate_server_options(parser, options, True)
+  isolateserver.process_isolate_server_options(parser, options, True, True)
   result = isolate_and_archive(
       [(options, unicode(os.getcwd()))],
       options.isolate_server,
@@ -895,7 +895,7 @@ def CMDbatcharchive(parser, args):
       help='Write isolated hashes of archived trees to this file as JSON')
   options, args = parser.parse_args(args)
   auth.process_auth_options(parser, options)
-  isolateserver.process_isolate_server_options(parser, options, True)
+  isolateserver.process_isolate_server_options(parser, options, True, True)
 
   # Validate all incoming options, prepare what needs to be archived as a list
   # of tuples (archival options, working directory).
@@ -973,8 +973,7 @@ def CMDremap(parser, args):
   process_outdir_options(parser, options, cwd)
   complete_state = load_complete_state(options, cwd, None, options.skip_refresh)
 
-  if not fs.isdir(options.outdir):
-    fs.makedirs(options.outdir)
+  file_path.ensure_tree(options.outdir)
   print('Remapping into %s' % options.outdir)
   if fs.listdir(options.outdir):
     raise ExecutionError('Can\'t remap in a non-empty directory')
@@ -1220,6 +1219,7 @@ def main(argv):
 
 
 if __name__ == '__main__':
+  subprocess42.inhibit_os_error_reporting()
   fix_encoding.fix_encoding()
   tools.disable_buffering()
   colorama.init()

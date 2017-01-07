@@ -24,7 +24,6 @@ import android.net.wifi.WifiManager;
 import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
-import android.telephony.TelephonyManager;
 import android.test.ActivityTestCase;
 import android.test.UiThreadTest;
 import android.test.suitebuilder.annotation.MediumTest;
@@ -38,8 +37,7 @@ public class NetworkMonitorTest extends ActivityTestCase {
   /**
    * Listens for alerts fired by the NetworkMonitor when network status changes.
    */
-  private static class NetworkMonitorTestObserver
-      implements NetworkMonitor.NetworkObserver {
+  private static class NetworkMonitorTestObserver implements NetworkMonitor.NetworkObserver {
     private boolean receivedNotification = false;
 
     @Override
@@ -72,7 +70,7 @@ public class NetworkMonitorTest extends ActivityTestCase {
     // Dummy implementations to avoid NullPointerExceptions in default implementations:
 
     @Override
-    public int getDefaultNetId() {
+    public long getDefaultNetId() {
       return INVALID_NET_ID;
     }
 
@@ -119,7 +117,6 @@ public class NetworkMonitorTest extends ActivityTestCase {
   // A dummy NetworkMonitorAutoDetect.Observer.
   private static class TestNetworkMonitorAutoDetectObserver
       implements NetworkMonitorAutoDetect.Observer {
-
     @Override
     public void onConnectionTypeChanged(ConnectionType newConnectionType) {}
 
@@ -127,7 +124,7 @@ public class NetworkMonitorTest extends ActivityTestCase {
     public void onNetworkConnect(NetworkInformation networkInfo) {}
 
     @Override
-    public void onNetworkDisconnect(int networkHandle) {}
+    public void onNetworkDisconnect(long networkHandle) {}
   }
 
   private static final Object lock = new Object();
@@ -139,7 +136,7 @@ public class NetworkMonitorTest extends ActivityTestCase {
 
   private static Handler getUiThreadHandler() {
     synchronized (lock) {
-      if (uiThreadHandler == null ) {
+      if (uiThreadHandler == null) {
         uiThreadHandler = new Handler(Looper.getMainLooper());
       }
       return uiThreadHandler;
@@ -166,8 +163,7 @@ public class NetworkMonitorTest extends ActivityTestCase {
   }
 
   private NetworkMonitorAutoDetect.ConnectionType getCurrentConnectionType() {
-    final NetworkMonitorAutoDetect.NetworkState networkState =
-        receiver.getCurrentNetworkState();
+    final NetworkMonitorAutoDetect.NetworkState networkState = receiver.getCurrentNetworkState();
     return receiver.getConnectionType(networkState);
   }
 

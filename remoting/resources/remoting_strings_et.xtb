@@ -65,7 +65,6 @@ Lisateavet privaatsuse kohta vaadake Google'i privaatsuseeskirjadest (http://goo
 <translation id="2359808026110333948">Jätka</translation>
 <translation id="2366718077645204424">Hostiga ei saa ühendust. Seda põhjustab ilmselt kasutatava võrgu konfiguratsioon.</translation>
 <translation id="2370754117186920852"><ph name="OPTIONAL_OFFLINE_REASON" /> Viimati nähtud võrgus <ph name="RELATIVE_TIMESTAMP" />.</translation>
-<translation id="2498359688066513246">Abi ja tagasiside</translation>
 <translation id="2499160551253595098">Aidake meil Chrome Remote Desktopi täiustada, lubades meil koguda kasutusstatistikat ja krahhiaruandeid.</translation>
 <translation id="2512228156274966424">MÄRKUS: kõigi klaviatuuri otseteede saadavuse tagamiseks saate rakenduse Chrome Remote Desktop seadistada valikule „Ava aknana”.</translation>
 <translation id="2540992418118313681">Kas soovite jagada seda arvutit teise kasutajaga, nii et ta saab seda kasutada ja juhtida?</translation>
@@ -74,7 +73,6 @@ Lisateavet privaatsuse kohta vaadake Google'i privaatsuseeskirjadest (http://goo
 <translation id="2676780859508944670">Töötab …</translation>
 <translation id="2699970397166997657">Chromoting</translation>
 <translation id="2747641796667576127">Tarkvaravärskendused toimuvad tavaliselt automaatselt, kuid mõnel üksikul juhul võivad need ebaõnnestuda. Tarkvara värskendamine ei tohiks võtta üle paari minuti ja saate seda teha, kui olete oma arvutiga ühendatud kaugühenduse abil.</translation>
-<translation id="2813770873348017932">Ühendused kaugarvutiga on ajutiselt blokeeritud, sest keegi püüdis luua ühendust vale PIN-koodi kasutades. Proovige hiljem uuesti.</translation>
 <translation id="2841013758207633010">Aeg</translation>
 <translation id="2851674870054673688">Kui ta on koodi sisestanud, algab teie jagamisseanss.</translation>
 <translation id="2851754573186462851">Chromiumi rakenduste voogesitus</translation>
@@ -149,7 +147,6 @@ Host</translation>
 <translation id="4573676252416618192">Chrome Remote
 Desktopi host</translation>
 <translation id="4619978527973181021">Nõustu ja installi</translation>
-<translation id="4647791084836149355">Kuva Cardboardi vaade</translation>
 <translation id="4703302905453407178">Nõutav komponent peatas töö. Teavitage sellest probleemist arendajaid.</translation>
 <translation id="4703799847237267011">Teie rakenduse Chromoting seanss on lõppenud.</translation>
 <translation id="4736223761657662401">Ühenduse ajalugu</translation>
@@ -210,7 +207,6 @@ Desktopi host</translation>
 <translation id="6284412385303060032">Konsooli loogikakuval käitatav host on varjatud režiimi toetamiseks välja lülitatud, lülitades hostile, mida käitatakse kasutajapõhises seansis.</translation>
 <translation id="629730747756840877">Konto</translation>
 <translation id="6304318647555713317">Klient</translation>
-<translation id="6324708100353784493">Lubasite Google Cardboardi integreerimise režiimi. Selle režiimi kasutamiseks sisestage oma seade Google Cardboardiga ühilduvasse vaaturisse.</translation>
 <translation id="6381670701864002291">Midagi muud.</translation>
 <translation id="6398765197997659313">Välju täisekraanilt</translation>
 <translation id="6408143143164565232">• Kuulake heli Windowsi või Linuxi arvutitest.
@@ -236,6 +232,7 @@ Desktopi host</translation>
 <translation id="6930242544192836755">Kestus</translation>
 <translation id="6939719207673461467">Kuva/peida klaviatuur.</translation>
 <translation id="6944854424004126054">Akna taastamine</translation>
+<translation id="6963936880795878952">Ühendused kaugarvutiga on ajutiselt blokeeritud, sest keegi püüdis luua ühendust vale PIN-koodiga. Proovige hiljem uuesti.</translation>
 <translation id="6965382102122355670">OK</translation>
 <translation id="6985691951107243942">Kas olete kindel, et soovite keelata kaugühenduse hostiga <ph name="HOSTNAME" />? Kui mõtlete ümber, peate selles arvutis ühendused uuesti lubama.</translation>
 <translation id="6998989275928107238">Kellele</translation>
@@ -266,6 +263,7 @@ Desktopi host</translation>
 <translation id="7948001860594368197">Ekraani valikud</translation>
 <translation id="7970576581263377361">Autentimine ebaõnnestus. Logige uuesti Chromiumi sisse.</translation>
 <translation id="7981525049612125370">Kaugseanss on aegunud.</translation>
+<translation id="8041089156583427627">Saada tagasiside</translation>
 <translation id="8041721485428375115">Chrome Remote Desktopi hosti installiprogrammi allalaadimisel nõustute Google'i <ph name="LINK_BEGIN" />teenusetingimustega<ph name="LINK_END" />.</translation>
 <translation id="8073845705237259513">Chrome Remote Desktopi kasutamiseks peate lisama seadmele Google'i konto.</translation>
 <translation id="80739703311984697">Kaughost vajab autentimist kolmanda osapoole veebisaidil. Jätkamiseks peate andma chromootimisele täiendavad load juurdepääsuks sellele aadressile:</translation>
@@ -289,6 +287,7 @@ Desktopi host</translation>
 <translation id="8548209692293300397">Olete varem sisse loginud kasutajana <ph name="USER_NAME" /> (<ph name="USER_EMAIL" />). Sellel kontol oma arvutitele juurdepääsemiseks <ph name="LINK_BEGIN" />logige Google Chrome'i sisse<ph name="LINK_END" /> selle kontoga ja installige Chrome Remote Desktop uuesti.</translation>
 <translation id="8642984861538780905">Rahuldav</translation>
 <translation id="8712909229180978490">Ma ei näe võrgus oma salvestatud faile Google Drive'is.</translation>
+<translation id="8743328882720071828">Kas lubate kasutajal <ph name="CLIENT_USERNAME" /> oma arvutit vaadata ja juhtida?</translation>
 <translation id="8759753423332885148">Lisateave.</translation>
 <translation id="8791202241915690908">Chromootimise hosti installiprogrammi allalaadimine</translation>
 <translation id="894763922177556086">Hea</translation>

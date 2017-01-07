@@ -20,7 +20,7 @@
 #include "base/i18n/rtl.h"
 #include "base/location.h"
 #include "base/macros.h"
-#include "base/metrics/histogram.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/path_service.h"
 #include "base/scoped_native_library.h"
 #include "base/strings/string_number_conversions.h"
@@ -83,10 +83,9 @@ typedef HRESULT (STDAPICALLTYPE* RegisterApplicationRestartProc)(
 void InitializeWindowProcExceptions() {
   // Get the breakpad pointer from chrome.exe
   base::win::WinProcExceptionFilter exception_filter =
-      reinterpret_cast<base::win::WinProcExceptionFilter>(
-          ::GetProcAddress(::GetModuleHandle(
-                               chrome::kBrowserProcessExecutableName),
-                           "CrashForException"));
+      reinterpret_cast<base::win::WinProcExceptionFilter>(::GetProcAddress(
+          ::GetModuleHandle(chrome::kChromeElfDllName), "CrashForException"));
+  CHECK(exception_filter);
   exception_filter = base::win::SetWinProcExceptionFilter(exception_filter);
   DCHECK(!exception_filter);
 }
@@ -318,7 +317,7 @@ void ChromeBrowserMainPartsWin::PostProfileInit() {
   base::FilePath path(
       profile()->GetPath().AppendASCII("ChromeDWriteFontCache"));
   content::BrowserThread::PostAfterStartupTask(
-      FROM_HERE, content::BrowserThread::GetMessageLoopProxyForThread(
+      FROM_HERE, content::BrowserThread::GetTaskRunnerForThread(
                      content::BrowserThread::FILE),
       base::Bind(base::IgnoreResult(&base::DeleteFile), path, false));
 }
@@ -458,7 +457,7 @@ bool ChromeBrowserMainPartsWin::CheckMachineLevelInstall() {
   // TODO(tommi): Check if using the default distribution is always the right
   // thing to do.
   BrowserDistribution* dist = BrowserDistribution::GetDistribution();
-  Version version;
+  base::Version version;
   InstallUtil::GetChromeVersion(dist, true, &version);
   if (version.IsValid()) {
     base::FilePath exe_path;

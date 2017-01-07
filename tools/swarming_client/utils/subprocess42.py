@@ -1,6 +1,6 @@
-# Copyright 2013 The Swarming Authors. All rights reserved.
-# Use of this source code is governed under the Apache License, Version 2.0 that
-# can be found in the LICENSE file.
+# Copyright 2013 The LUCI Authors. All rights reserved.
+# Use of this source code is governed under the Apache License, Version 2.0
+# that can be found in the LICENSE file.
 
 """subprocess42 is the answer to life the universe and everything.
 
@@ -27,10 +27,12 @@ Example:
 TODO(maruel): Add VOID support like subprocess2.
 """
 
+import collections
 import contextlib
 import errno
 import os
 import signal
+import sys
 import threading
 import time
 
@@ -44,7 +46,12 @@ from subprocess import list2cmdline
 MAX_SIZE = 16384
 
 
+# Set to True when inhibit_crash_dump() has been called.
+_OS_ERROR_REPORTING_INHIBITED = False
+
+
 if subprocess.mswindows:
+  import ctypes
   import msvcrt  # pylint: disable=F0401
   from ctypes import wintypes
   from ctypes import windll
@@ -165,10 +172,18 @@ else:
       # pylint: disable=E1101
       fcntl.fcntl(conn, fcntl.F_SETFL, flags | os.O_NONBLOCK)
     try:
-      data = conn.read(maxsize)
+      try:
+        data = conn.read(maxsize)
+      except IOError as e:
+        # On posix, this means the read would block.
+        if e.errno == errno.EAGAIN:
+          return conns.index(conn), None, False
+        raise e
+
       if not data:
         # On posix, this means the channel closed.
         return conns.index(conn), None, True
+
       return conns.index(conn), data, False
     finally:
       if not conn.closed:
@@ -238,7 +253,11 @@ class Popen(subprocess.Popen):
       super(Popen, self).__init__(args, **kwargs)
     self.args = args
     if self.detached and not subprocess.mswindows:
-      self.gid = os.getpgid(self.pid)
+      try:
+        self.gid = os.getpgid(self.pid)
+      except OSError:
+        # sometimes the process can run+finish before we collect its pgid. fun.
+        pass
 
   def duration(self):
     """Duration of the child process.
@@ -369,6 +388,13 @@ class Popen(subprocess.Popen):
       self.end = time.time()
     return ret
 
+  def yield_any_line(self, **kwargs):
+    """Yields lines until the process terminates.
+
+    Like yield_any, but yields lines.
+    """
+    return split(self.yield_any(**kwargs))
+
   def yield_any(self, maxsize=None, timeout=None):
     """Yields output until the process terminates.
 
@@ -400,8 +426,9 @@ class Popen(subprocess.Popen):
 
     last_yield = time.time()
     while self.poll() is None:
-      to = (None if timeout is None
-            else max(timeout() - (time.time() - last_yield), 0))
+      to = timeout() if timeout else None
+      if to is not None:
+        to = max(to - (time.time() - last_yield), 0)
       t, data = self.recv_any(
           maxsize=maxsize() if callable(maxsize) else maxsize, timeout=to)
       if data or to is 0:
@@ -428,7 +455,7 @@ class Popen(subprocess.Popen):
   def recv_any(self, maxsize=None, timeout=None):
     """Reads from the first pipe available from stdout and stderr.
 
-    Unlike wait(), it does not throw TimeoutExpired.
+    Unlike wait(), does not throw TimeoutExpired.
 
     Arguments:
     - maxsize: Maximum number of bytes to return. Defaults to MAX_SIZE.
@@ -466,7 +493,7 @@ class Popen(subprocess.Popen):
             timeout -= (time.time() - start)
           continue
 
-      if self.universal_newlines:
+      if self.universal_newlines and data:
         data = self._translate_newlines(data)
       return names[index], data
 
@@ -589,3 +616,74 @@ def call_with_timeout(args, timeout, **kwargs):
     proc.kill()
     proc.wait()
   return out, err, proc.returncode, proc.duration()
+
+
+def inhibit_os_error_reporting():
+  """Inhibits error reporting UI and core files.
+
+  This function should be called as early as possible in the process lifetime.
+  """
+  global _OS_ERROR_REPORTING_INHIBITED
+  if not _OS_ERROR_REPORTING_INHIBITED:
+    _OS_ERROR_REPORTING_INHIBITED = True
+    if sys.platform == 'win32':
+      # Windows has a bad habit of opening a dialog when a console program
+      # crashes, rather than just letting it crash. Therefore, when a program
+      # crashes on Windows, we don't find out until the build step times out.
+      # This code prevents the dialog from appearing, so that we find out
+      # immediately and don't waste time waiting for a user to close the dialog.
+      # https://msdn.microsoft.com/en-us/library/windows/desktop/ms680621.aspx
+      SEM_FAILCRITICALERRORS = 1
+      SEM_NOGPFAULTERRORBOX = 2
+      SEM_NOALIGNMENTFAULTEXCEPT = 0x8000
+      ctypes.windll.kernel32.SetErrorMode(
+          SEM_FAILCRITICALERRORS|SEM_NOGPFAULTERRORBOX|
+            SEM_NOALIGNMENTFAULTEXCEPT)
+  # TODO(maruel): Other OSes.
+  # - OSX, need to figure out a way to make the following process tree local:
+  #     defaults write com.apple.CrashReporter UseUNC 1
+  #     defaults write com.apple.CrashReporter DialogType none
+  # - Ubuntu, disable apport if needed.
+
+
+def split(data, sep='\n'):
+  """Splits pipe data by |sep|. Does some buffering.
+
+  For example, [('stdout', 'a\nb'), ('stdout', '\n'), ('stderr', 'c\n')] ->
+  [('stdout', 'a'), ('stdout', 'b'), ('stderr', 'c')].
+
+  Args:
+    data: iterable of tuples (pipe_name, bytes).
+
+  Returns:
+    An iterator of tuples (pipe_name, bytes) where bytes is the input data
+    but split by sep into separate tuples.
+  """
+  # A dict {pipe_name -> list of pending chunks without separators}
+  pending_chunks = collections.defaultdict(list)
+  for pipe_name, chunk in data:
+    if chunk is None:
+      # Happens if a pipe is closed.
+      continue
+
+    pending = pending_chunks[pipe_name]
+    start = 0  # offset in chunk to start |sep| search from
+    while start < len(chunk):
+      j = chunk.find(sep, start)
+      if j == -1:
+        pending_chunks[pipe_name].append(chunk[start:])
+        break
+
+      to_emit = chunk[start:j]
+      start = j + 1
+      if pending:
+        # prepend and forget
+        to_emit = ''.join(pending) + to_emit
+        pending = []
+        pending_chunks[pipe_name] = pending
+      yield pipe_name, to_emit
+
+  # Emit remaining chunks that don't end with separators as is.
+  for pipe_name, chunks in sorted(pending_chunks.iteritems()):
+    if chunks:
+      yield pipe_name, ''.join(chunks)

@@ -90,6 +90,7 @@ cr.define('cr.ui.Oobe', function() {
      * be invoked to do final setup.
      */
     initialize: function() {
+      this.setMDMode_();
       cr.ui.login.DisplayManager.initialize();
       login.HIDDetectionScreen.register();
       login.WrongHWIDScreen.register();
@@ -246,6 +247,7 @@ cr.define('cr.ui.Oobe', function() {
      */
     setUsageStats: function(checked) {
       $('usage-stats').checked = checked;
+      $('oobe-eula-md').usageStatsChecked = checked;
     },
 
     /**
@@ -287,6 +289,8 @@ cr.define('cr.ui.Oobe', function() {
       $('screen-magnifier').checked = data.screenMagnifierEnabled;
       $('large-cursor').checked = data.largeCursorEnabled;
       $('virtual-keyboard').checked = data.virtualKeyboardEnabled;
+
+      $('oobe-welcome-md').a11yStatus = data;
     },
 
     /**
@@ -304,18 +308,7 @@ cr.define('cr.ui.Oobe', function() {
       Oobe.setupSelect($('keyboard-select'), data.inputMethodsList);
       Oobe.setupSelect($('timezone-select'), data.timezoneList);
 
-      // ---------- Welcome screen
-      $('oobe-welcome-md').currentLanguage =
-          Oobe.getSelectedTitle(data.languageList);
-
-      if (data.newOobeUI == 'on') {
-        $('oobe-connect').hidden = true;
-        $('oobe-welcome-md').hidden = false;
-      } else {
-        $('oobe-connect').hidden = false;
-        $('oobe-welcome-md').hidden = true;
-      }
-      // ----------
+      this.setMDMode_();
 
       // Update localized content of the screens.
       Oobe.updateLocalizedContent();
@@ -328,6 +321,18 @@ cr.define('cr.ui.Oobe', function() {
     updateLocalizedContent: function() {
       // Buttons, headers and links.
       Oobe.getInstance().updateLocalizedContent_();
-    }
+    },
+
+    /**
+     * This method takes care of switching to material-design OOBE.
+     * @private
+     */
+    setMDMode_: function() {
+      if (loadTimeData.getString('newOobeUI') == 'on') {
+        $('oobe').setAttribute('md-mode', 'true');
+      } else {
+        $('oobe').removeAttribute('md-mode');
+      }
+    },
   };
 });

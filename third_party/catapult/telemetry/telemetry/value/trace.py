@@ -12,7 +12,7 @@ import subprocess
 import sys
 import tempfile
 
-from catapult_base import cloud_storage  # pylint: disable=import-error
+from py_utils import cloud_storage  # pylint: disable=import-error
 
 from telemetry.internal.util import file_handle
 from telemetry.timeline import trace_data as trace_data_module
@@ -37,6 +37,13 @@ class TraceValue(value_module.Value):
     self._temp_file = self._GetTempFileHandle(trace_data)
     self._cloud_url = None
     self._serialized_file_handle = None
+
+  @property
+  def value(self):
+    if self._cloud_url:
+      return self._cloud_url
+    elif self._serialized_file_handle:
+      return self._serialized_file_handle.GetAbsPath()
 
   def _GetTraceParts(self, trace_data):
     return [(trace_data.GetTraceFor(p), p)
@@ -73,7 +80,7 @@ class TraceValue(value_module.Value):
           title = self.page.display_name
         cmd = (['python', _TRACE2HTML_PATH] + trace_files +
                ['--output', tf.name] + ['--title', title])
-        subprocess.check_call(cmd)
+        subprocess.check_output(cmd)
       else:
         logging.warning('No traces to convert to html.')
       return file_handle.FromTempFile(tf)

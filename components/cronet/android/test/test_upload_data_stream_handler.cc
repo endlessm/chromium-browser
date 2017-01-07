@@ -13,6 +13,9 @@
 #include "base/bind.h"
 #include "jni/TestUploadDataStreamHandler_jni.h"
 #include "net/base/net_errors.h"
+#include "net/log/net_log_with_source.h"
+
+using base::android::JavaParamRef;
 
 namespace cronet {
 
@@ -54,7 +57,7 @@ void TestUploadDataStreamHandler::OnInitCompleted(int res) {
   init_callback_invoked_ = true;
   JNIEnv* env = base::android::AttachCurrentThread();
   cronet::Java_TestUploadDataStreamHandler_onInitCompleted(
-      env, jtest_upload_data_stream_handler_.obj(), res);
+      env, jtest_upload_data_stream_handler_, res);
 }
 
 void TestUploadDataStreamHandler::OnReadCompleted(int res) {
@@ -113,15 +116,17 @@ void TestUploadDataStreamHandler::InitOnNetworkThread() {
   init_callback_invoked_ = false;
   read_buffer_ = nullptr;
   bytes_read_ = 0;
-  int res = upload_data_stream_->Init(base::Bind(
-      &TestUploadDataStreamHandler::OnInitCompleted, base::Unretained(this)));
+  int res = upload_data_stream_->Init(
+      base::Bind(&TestUploadDataStreamHandler::OnInitCompleted,
+                 base::Unretained(this)),
+      net::NetLogWithSource());
   JNIEnv* env = base::android::AttachCurrentThread();
   cronet::Java_TestUploadDataStreamHandler_onInitCalled(
-      env, jtest_upload_data_stream_handler_.obj(), res);
+      env, jtest_upload_data_stream_handler_, res);
 
   if (res == net::OK) {
     cronet::Java_TestUploadDataStreamHandler_onInitCompleted(
-        env, jtest_upload_data_stream_handler_.obj(), res);
+        env, jtest_upload_data_stream_handler_, res);
   }
 }
 
@@ -148,21 +153,21 @@ void TestUploadDataStreamHandler::ResetOnNetworkThread() {
   upload_data_stream_->Reset();
   JNIEnv* env = base::android::AttachCurrentThread();
   cronet::Java_TestUploadDataStreamHandler_onResetCompleted(
-      env, jtest_upload_data_stream_handler_.obj());
+      env, jtest_upload_data_stream_handler_);
 }
 
 void TestUploadDataStreamHandler::CheckInitCallbackNotInvokedOnNetworkThread() {
   DCHECK(network_thread_->task_runner()->BelongsToCurrentThread());
   JNIEnv* env = base::android::AttachCurrentThread();
   cronet::Java_TestUploadDataStreamHandler_onCheckInitCallbackNotInvoked(
-      env, jtest_upload_data_stream_handler_.obj(), !init_callback_invoked_);
+      env, jtest_upload_data_stream_handler_, !init_callback_invoked_);
 }
 
 void TestUploadDataStreamHandler::CheckReadCallbackNotInvokedOnNetworkThread() {
   DCHECK(network_thread_->task_runner()->BelongsToCurrentThread());
   JNIEnv* env = base::android::AttachCurrentThread();
   cronet::Java_TestUploadDataStreamHandler_onCheckReadCallbackNotInvoked(
-      env, jtest_upload_data_stream_handler_.obj(), !read_callback_invoked_);
+      env, jtest_upload_data_stream_handler_, !read_callback_invoked_);
 }
 
 void TestUploadDataStreamHandler::NotifyJavaReadCompleted() {
@@ -172,7 +177,7 @@ void TestUploadDataStreamHandler::NotifyJavaReadCompleted() {
   if (read_buffer_.get() && bytes_read_ > 0)
     data_read = std::string(read_buffer_->data(), bytes_read_);
   cronet::Java_TestUploadDataStreamHandler_onReadCompleted(
-      env, jtest_upload_data_stream_handler_.obj(), bytes_read_,
+      env, jtest_upload_data_stream_handler_, bytes_read_,
       base::android::ConvertUTF8ToJavaString(env, data_read).obj());
 }
 

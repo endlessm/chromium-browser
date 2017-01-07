@@ -14,10 +14,9 @@ import android.widget.TextView;
 import junit.framework.Assert;
 
 import org.chromium.base.ThreadUtils;
-import org.chromium.base.test.util.CommandLineFlags;
+import org.chromium.base.test.util.RetryOnFailure;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.ChromeActivity;
-import org.chromium.chrome.browser.ChromeSwitches;
 import org.chromium.chrome.browser.UrlConstants;
 import org.chromium.chrome.browser.bookmarks.BookmarkBridge.BookmarkItem;
 import org.chromium.chrome.test.ChromeActivityTestCaseBase;
@@ -37,6 +36,7 @@ import java.util.concurrent.Callable;
 /**
  * Tests for the bookmark manager.
  */
+@RetryOnFailure
 public class BookmarkTest extends ChromeActivityTestCaseBase<ChromeActivity> {
 
     public BookmarkTest() {
@@ -167,13 +167,12 @@ public class BookmarkTest extends ChromeActivityTestCaseBase<ChromeActivity> {
                 BookmarkUIState.createFolderUrl(otherId).toString());
     }
 
-    @CommandLineFlags.Add(ChromeSwitches.ENABLE_ALL_BOOKMARKS_VIEW + "=true")
     @SmallTest
     public void testOpenBookmarkManager() throws InterruptedException {
         openBookmarkManager();
         BookmarkDelegate delegate = mItemsContainer.getDelegateForTesting();
-        assertEquals(BookmarkUIState.STATE_ALL_BOOKMARKS, delegate.getCurrentState());
-        assertEquals(UrlConstants.BOOKMARKS_URL,
+        assertEquals(BookmarkUIState.STATE_FOLDER, delegate.getCurrentState());
+        assertEquals("chrome-native://bookmarks/folder/3",
                 BookmarkUtils.getLastUsedUrl(getActivity()));
     }
 

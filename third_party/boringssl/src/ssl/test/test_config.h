@@ -16,15 +16,17 @@
 #define HEADER_TEST_CONFIG
 
 #include <string>
+#include <vector>
 
 
 struct TestConfig {
   int port = 0;
   bool is_server = false;
   bool is_dtls = false;
-  bool resume = false;
+  int resume_count = 0;
   bool fallback_scsv = false;
   std::string digest_prefs;
+  std::vector<int> signing_prefs;
   std::string key_file;
   std::string cert_file;
   std::string expected_server_name;
@@ -44,6 +46,7 @@ struct TestConfig {
   bool no_tls1 = false;
   bool no_ssl3 = false;
   std::string expected_channel_id;
+  bool enable_channel_id = false;
   std::string send_channel_id;
   bool shim_writes_first = false;
   std::string host_name;
@@ -99,13 +102,18 @@ struct TestConfig {
   bool renegotiate_freely = false;
   bool renegotiate_ignore = false;
   bool disable_npn = false;
-  int expect_server_key_exchange_hash = 0;
+  int expect_peer_signature_algorithm = 0;
   bool p384_only = false;
   bool enable_all_curves = false;
   bool use_sparse_dh_prime = false;
-  int expect_key_exchange_info = 0;
+  int expect_curve_id = 0;
+  int expect_dhe_group_size = 0;
   bool use_old_client_cert_callback = false;
   int initial_timeout_duration_ms = 0;
+  bool use_null_client_ca_list = false;
+  bool send_alert = false;
+  bool peek_then_read = false;
+  bool enable_grease = false;
 };
 
 bool ParseConfig(int argc, char **argv, TestConfig *out_config);

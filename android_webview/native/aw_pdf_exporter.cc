@@ -11,14 +11,17 @@
 #include "printing/print_settings.h"
 #include "printing/units.h"
 
+using base::android::JavaParamRef;
+using base::android::JavaRef;
+using base::android::ScopedJavaLocalRef;
+
 namespace android_webview {
 
 AwPdfExporter::AwPdfExporter(JNIEnv* env,
-                             jobject obj,
+                             const JavaRef<jobject>& obj,
                              content::WebContents* web_contents)
-    : java_ref_(env, obj),
-      web_contents_(web_contents) {
-  DCHECK(obj);
+    : java_ref_(env, obj), web_contents_(web_contents) {
+  DCHECK(!obj.is_null());
   Java_AwPdfExporter_setNativeAwPdfExporter(
       env, obj, reinterpret_cast<intptr_t>(this));
 }
@@ -29,7 +32,7 @@ AwPdfExporter::~AwPdfExporter() {
   if (obj.is_null())
     return;
   // Clear the Java peer's weak pointer to |this| object.
-  Java_AwPdfExporter_setNativeAwPdfExporter(env, obj.obj(), 0);
+  Java_AwPdfExporter_setNativeAwPdfExporter(env, obj, 0);
 }
 
 void AwPdfExporter::ExportToPdf(JNIEnv* env,
@@ -56,7 +59,7 @@ int MilsToDots(int val, int dpi) {
 }  // anonymous namespace
 
 void AwPdfExporter::InitPdfSettings(JNIEnv* env,
-                                    jobject obj,
+                                    const JavaRef<jobject>& obj,
                                     printing::PrintSettings& settings) {
   int dpi = Java_AwPdfExporter_getDpi(env, obj);
   int width = Java_AwPdfExporter_getPageWidth(env, obj);
@@ -95,7 +98,7 @@ void AwPdfExporter::DidExportPdf(int fd, bool success) {
   ScopedJavaLocalRef<jobject> obj = java_ref_.get(env);
   if (obj.is_null())
     return;
-  Java_AwPdfExporter_didExportPdf(env, obj.obj(), success);
+  Java_AwPdfExporter_didExportPdf(env, obj, success);
 }
 
 bool RegisterAwPdfExporter(JNIEnv* env) {

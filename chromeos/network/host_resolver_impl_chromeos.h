@@ -48,8 +48,8 @@ class CHROMEOS_EXPORT HostResolverImplChromeOS : public net::HostResolverImpl {
               net::RequestPriority priority,
               net::AddressList* addresses,
               const net::CompletionCallback& callback,
-              RequestHandle* out_req,
-              const net::BoundNetLog& source_net_log) override;
+              std::unique_ptr<Request>* out_req,
+              const net::NetLogWithSource& source_net_log) override;
 
  private:
   friend class net::HostResolver;

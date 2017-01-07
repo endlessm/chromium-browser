@@ -8,7 +8,6 @@
 #include <string>
 #include <vector>
 
-#include "base/threading/sequenced_worker_pool.h"
 #include "chrome/browser/chromeos/extensions/wallpaper_function_base.h"
 #include "chrome/common/extensions/api/wallpaper_private.h"
 #include "components/signin/core/account_id/account_id.h"
@@ -24,7 +23,7 @@ class UserImage;
 }  // namespace chromeos
 
 // Wallpaper manager strings.
-class WallpaperPrivateGetStringsFunction : public SyncExtensionFunction {
+class WallpaperPrivateGetStringsFunction : public UIThreadExtensionFunction {
  public:
   DECLARE_EXTENSION_FUNCTION("wallpaperPrivate.getStrings",
                              WALLPAPERPRIVATE_GETSTRINGS)
@@ -32,12 +31,13 @@ class WallpaperPrivateGetStringsFunction : public SyncExtensionFunction {
  protected:
   ~WallpaperPrivateGetStringsFunction() override {}
 
-  // SyncExtensionFunction overrides.
-  bool RunSync() override;
+  // ExtensionFunction:
+  ResponseAction Run() override;
 };
 
 // Check if sync themes setting is enabled.
-class WallpaperPrivateGetSyncSettingFunction : public SyncExtensionFunction {
+class WallpaperPrivateGetSyncSettingFunction
+    : public UIThreadExtensionFunction {
  public:
   DECLARE_EXTENSION_FUNCTION("wallpaperPrivate.getSyncSetting",
                              WALLPAPERPRIVATE_GETSYNCSETTING)
@@ -45,8 +45,8 @@ class WallpaperPrivateGetSyncSettingFunction : public SyncExtensionFunction {
  protected:
   ~WallpaperPrivateGetSyncSettingFunction() override {}
 
-  // SyncExtensionFunction overrides.
-  bool RunSync() override;
+  // ExtensionFunction:
+  ResponseAction Run() override;
 };
 
 class WallpaperPrivateSetWallpaperIfExistsFunction
@@ -80,10 +80,6 @@ class WallpaperPrivateSetWallpaperIfExistsFunction
 
   // User id of the active user when this api is been called.
   AccountId account_id_ = EmptyAccountId();
-
-  // Sequence token associated with wallpaper operations. Shared with
-  // WallpaperManager.
-  base::SequencedWorkerPool::SequenceToken sequence_token_;
 };
 
 class WallpaperPrivateSetWallpaperFunction : public WallpaperFunctionBase {
@@ -117,10 +113,6 @@ class WallpaperPrivateSetWallpaperFunction : public WallpaperFunctionBase {
 
   // User account id of the active user when this api is been called.
   AccountId account_id_ = EmptyAccountId();
-
-  // Sequence token associated with wallpaper operations. Shared with
-  // WallpaperManager.
-  base::SequencedWorkerPool::SequenceToken sequence_token_;
 };
 
 class WallpaperPrivateResetWallpaperFunction
@@ -172,10 +164,6 @@ class WallpaperPrivateSetCustomWallpaperFunction
 
   // User id hash of the logged in user.
   wallpaper::WallpaperFilesId wallpaper_files_id_;
-
-  // Sequence token associated with wallpaper operations. Shared with
-  // WallpaperManager.
-  base::SequencedWorkerPool::SequenceToken sequence_token_;
 };
 
 class WallpaperPrivateSetCustomWallpaperLayoutFunction
@@ -246,10 +234,6 @@ class WallpaperPrivateGetThumbnailFunction : public AsyncExtensionFunction {
 
   // Gets thumbnail from |path|. If |path| does not exist, call FileNotLoaded().
   void Get(const base::FilePath& path);
-
-  // Sequence token associated with wallpaper operations. Shared with
-  // WallpaperManager.
-  base::SequencedWorkerPool::SequenceToken sequence_token_;
 };
 
 class WallpaperPrivateSaveThumbnailFunction : public AsyncExtensionFunction {
@@ -274,10 +258,6 @@ class WallpaperPrivateSaveThumbnailFunction : public AsyncExtensionFunction {
 
   // Saves thumbnail to thumbnail directory as |file_name|.
   void Save(const std::vector<char>& data, const std::string& file_name);
-
-  // Sequence token associated with wallpaper operations. Shared with
-  // WallpaperManager.
-  base::SequencedWorkerPool::SequenceToken sequence_token_;
 };
 
 class WallpaperPrivateGetOfflineWallpaperListFunction
@@ -300,16 +280,12 @@ class WallpaperPrivateGetOfflineWallpaperListFunction
   // Sends the list of files to extension api caller. If no files or no
   // directory, sends empty list.
   void OnComplete(const std::vector<std::string>& file_list);
-
-  // Sequence token associated with wallpaper operations. Shared with
-  // WallpaperManager.
-  base::SequencedWorkerPool::SequenceToken sequence_token_;
 };
 
 // The wallpaper UMA is recorded when a new wallpaper is set, either by the
 // built-in Wallpaper Picker App, or by a third party App.
 class WallpaperPrivateRecordWallpaperUMAFunction
-    : public SyncExtensionFunction {
+    : public UIThreadExtensionFunction {
  public:
   DECLARE_EXTENSION_FUNCTION("wallpaperPrivate.recordWallpaperUMA",
                              WALLPAPERPRIVATE_RECORDWALLPAPERUMA)
@@ -317,8 +293,8 @@ class WallpaperPrivateRecordWallpaperUMAFunction
  protected:
   ~WallpaperPrivateRecordWallpaperUMAFunction() override {}
 
-  // SyncExtensionFunction overrides.
-  bool RunSync() override;
+  // ExtensionFunction:
+  ResponseAction Run() override;
 };
 
 #endif  // CHROME_BROWSER_CHROMEOS_EXTENSIONS_WALLPAPER_PRIVATE_API_H_

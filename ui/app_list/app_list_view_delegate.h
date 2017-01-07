@@ -32,7 +32,6 @@ class View;
 namespace app_list {
 
 class AppListModel;
-class AppListViewDelegateObserver;
 class SearchResult;
 class SpeechUIModel;
 
@@ -75,12 +74,6 @@ class APP_LIST_EXPORT AppListViewDelegate {
   // Gets the SpeechUIModel for the app list. Owned by the AppListViewDelegate.
   virtual SpeechUIModel* GetSpeechUI() = 0;
 
-  // Gets a path to a shortcut for the given app. Returns asynchronously as the
-  // shortcut may not exist yet.
-  virtual void GetShortcutPathForApp(
-      const std::string& app_id,
-      const base::Callback<void(const base::FilePath&)>& callback) = 0;
-
   // Invoked to start a new search. Delegate collects query input from
   // SearchBoxModel and populates SearchResults. Both models are sub models
   // of AppListModel.
@@ -117,9 +110,6 @@ class APP_LIST_EXPORT AppListViewDelegate {
   // Invoked when the app list is closing.
   virtual void ViewClosing() = 0;
 
-  // Open the settings UI.
-  virtual void OpenSettings() = 0;
-
   // Open the help UI.
   virtual void OpenHelp() = 0;
 
@@ -155,28 +145,6 @@ class APP_LIST_EXPORT AppListViewDelegate {
 
   // Returns the list of users (for AppListMenu).
   virtual const Users& GetUsers() const = 0;
-
-  // Returns true if the app list should be centered and in landscape mode.
-  virtual bool ShouldCenterWindow() const = 0;
-
-  // Adds/removes an observer for profile changes.
-  virtual void AddObserver(AppListViewDelegateObserver* observer) {}
-  virtual void RemoveObserver(AppListViewDelegateObserver* observer) {}
-
-#if !defined(OS_CHROMEOS)
-  // Methods to retrieve properties of the message displayed on the app launcher
-  // above the apps grid.
-  virtual base::string16 GetMessageTitle() const;
-  // Returns the message text (with the placeholder symbol removed).
-  // |message_break| is set to the index where the placeholder was in the
-  // string.
-  virtual base::string16 GetMessageText(size_t* message_break) const;
-  virtual base::string16 GetAppsShortcutName() const;
-  virtual base::string16 GetLearnMoreText() const;
-  virtual base::string16 GetLearnMoreLink() const;
-  virtual gfx::ImageSkia* GetAppsIcon() const;
-  virtual void OpenLearnMoreLink();
-#endif
 };
 
 }  // namespace app_list

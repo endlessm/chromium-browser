@@ -10,7 +10,7 @@
 #include "base/callback.h"
 #include "base/macros.h"
 #include "base/memory/ptr_util.h"
-#include "base/metrics/histogram.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/app/chrome_command_ids.h"
 #include "chrome/browser/autocomplete/autocomplete_classifier_factory.h"
@@ -34,8 +34,8 @@
 #include "chrome/browser/ui/omnibox/chrome_omnibox_navigation_observer.h"
 #include "chrome/browser/ui/search/instant_search_prerenderer.h"
 #include "chrome/browser/ui/search/search_tab_helper.h"
-#include "chrome/common/instant_types.h"
 #include "chrome/common/pref_names.h"
+#include "chrome/common/search/instant_types.h"
 #include "chrome/common/url_constants.h"
 #include "components/favicon/content/content_favicon_driver.h"
 #include "components/omnibox/browser/autocomplete_match.h"
@@ -60,22 +60,13 @@ namespace {
 //
 // The SearchProvider may mark some suggestions to be prefetched based on
 // instructions from the suggest server. If such a match ranks sufficiently
-// highly or if kAllowPrefetchNonDefaultMatch field trial is enabled, we'll
-// return it.
+// highly, we'll return it.
 //
-// If the kAllowPrefetchNonDefaultMatch field trial is enabled we return the
-// prefetch suggestion even if it is not the default match. Otherwise we only
-// care about matches that are the default or the second entry in the dropdown
-// (which can happen for non-default matches when a top verbatim match is
-// shown); for other matches, we think the likelihood of the user selecting
+// We only care about matches that are the default or the second entry in the
+// dropdown (which can happen for non-default matches when a top verbatim match
+// is shown); for other matches, we think the likelihood of the user selecting
 // them is low enough that prefetching isn't worth doing.
 const AutocompleteMatch* GetMatchToPrefetch(const AutocompleteResult& result) {
-  if (search::ShouldAllowPrefetchNonDefaultMatch()) {
-    const AutocompleteResult::const_iterator prefetch_match = std::find_if(
-        result.begin(), result.end(), SearchProvider::ShouldPrefetch);
-    return prefetch_match != result.end() ? &(*prefetch_match) : NULL;
-  }
-
   // If the default match should be prefetched, do that.
   const auto default_match = result.default_match();
   if ((default_match != result.end()) &&
@@ -136,7 +127,7 @@ ChromeOmniboxClient::~ChromeOmniboxClient() {
 
 std::unique_ptr<AutocompleteProviderClient>
 ChromeOmniboxClient::CreateAutocompleteProviderClient() {
-  return base::WrapUnique(new ChromeAutocompleteProviderClient(profile_));
+  return base::MakeUnique<ChromeAutocompleteProviderClient>(profile_);
 }
 
 std::unique_ptr<OmniboxNavigationObserver>
@@ -144,8 +135,8 @@ ChromeOmniboxClient::CreateOmniboxNavigationObserver(
     const base::string16& text,
     const AutocompleteMatch& match,
     const AutocompleteMatch& alternate_nav_match) {
-  return base::WrapUnique(new ChromeOmniboxNavigationObserver(
-      profile_, text, match, alternate_nav_match));
+  return base::MakeUnique<ChromeOmniboxNavigationObserver>(
+      profile_, text, match, alternate_nav_match);
 }
 
 bool ChromeOmniboxClient::CurrentPageExists() const {
@@ -199,7 +190,7 @@ const SessionID& ChromeOmniboxClient::GetSessionID() const {
 }
 
 bookmarks::BookmarkModel* ChromeOmniboxClient::GetBookmarkModel() {
-  return BookmarkModelFactory::GetForProfile(profile_);
+  return BookmarkModelFactory::GetForBrowserContext(profile_);
 }
 
 TemplateURLService* ChromeOmniboxClient::GetTemplateURLService() {
@@ -221,7 +212,7 @@ gfx::Image ChromeOmniboxClient::GetIconIfExtensionMatch(
       TemplateURLServiceFactory::GetForProfile(profile_);
   const TemplateURL* template_url = match.GetTemplateURL(service, false);
   if (template_url &&
-      (template_url->GetType() == TemplateURL::OMNIBOX_API_EXTENSION)) {
+      (template_url->type() == TemplateURL::OMNIBOX_API_EXTENSION)) {
     return extensions::OmniboxAPI::Get(profile_)
         ->GetOmniboxPopupIcon(template_url->GetExtensionId());
   }
@@ -233,7 +224,7 @@ bool ChromeOmniboxClient::ProcessExtensionKeyword(
     const AutocompleteMatch& match,
     WindowOpenDisposition disposition,
     OmniboxNavigationObserver* observer) {
-  if (template_url->GetType() != TemplateURL::OMNIBOX_API_EXTENSION)
+  if (template_url->type() != TemplateURL::OMNIBOX_API_EXTENSION)
     return false;
 
   // Strip the keyword + leading space off the input, but don't exceed
@@ -274,8 +265,7 @@ void ChromeOmniboxClient::OnResultChanged(
     bool default_match_changed,
     const base::Callback<void(const SkBitmap& bitmap)>& on_bitmap_fetched) {
   if (search::IsInstantExtendedAPIEnabled() &&
-      ((default_match_changed && result.default_match() != result.end()) ||
-       (search::ShouldAllowPrefetchNonDefaultMatch() && !result.empty()))) {
+      (default_match_changed && result.default_match() != result.end())) {
     InstantSuggestion prefetch_suggestion;
     const AutocompleteMatch* match_to_prefetch = GetMatchToPrefetch(result);
     if (match_to_prefetch) {
@@ -457,19 +447,10 @@ void ChromeOmniboxClient::DoPreconnect(const AutocompleteMatch& match) {
 void ChromeOmniboxClient::SetSuggestionToPrefetch(
       const InstantSuggestion& suggestion) {
   DCHECK(search::IsInstantExtendedAPIEnabled());
-  content::WebContents* web_contents = controller_->GetWebContents();
-  if (web_contents &&
-      SearchTabHelper::FromWebContents(web_contents)->IsSearchResultsPage()) {
-    if (search::ShouldPrefetchSearchResultsOnSRP()) {
-      SearchTabHelper::FromWebContents(web_contents)->
-          SetSuggestionToPrefetch(suggestion);
-    }
-  } else {
-    InstantSearchPrerenderer* prerenderer =
-        InstantSearchPrerenderer::GetForProfile(profile_);
-    if (prerenderer)
-      prerenderer->Prerender(suggestion);
-  }
+  InstantSearchPrerenderer* prerenderer =
+      InstantSearchPrerenderer::GetForProfile(profile_);
+  if (prerenderer)
+    prerenderer->Prerender(suggestion);
 }
 
 void ChromeOmniboxClient::OnBitmapFetched(const BitmapFetchedCallback& callback,

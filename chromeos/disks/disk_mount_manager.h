@@ -8,6 +8,7 @@
 #include <stdint.h>
 
 #include <map>
+#include <memory>
 
 #include "base/callback_forward.h"
 #include "chromeos/chromeos_export.h"
@@ -148,6 +149,8 @@ class CHROMEOS_EXPORT DiskMountManager {
       mount_path_ = mount_path;
     }
 
+    void set_read_only(bool is_read_only) { is_read_only_ = is_read_only; }
+
     void clear_mount_path() { mount_path_.clear(); }
 
    private:
@@ -172,7 +175,7 @@ class CHROMEOS_EXPORT DiskMountManager {
     bool on_removable_device_;
     bool is_hidden_;
   };
-  typedef std::map<std::string, Disk*> DiskMap;
+  typedef std::map<std::string, std::unique_ptr<Disk>> DiskMap;
 
   // A struct to store information about mount point.
   struct MountPointInfo {
@@ -254,14 +257,19 @@ class CHROMEOS_EXPORT DiskMountManager {
       const EnsureMountInfoRefreshedCallback& callback,
       bool force) = 0;
 
-  // Mounts a device.
+  // Mounts a device or an archive file.
+  // |source_path| specifies either a device or an archive file path.
+  // When |type|=MOUNT_TYPE_ARCHIVE, caller may set two optional arguments:
+  // |source_format| and |mount_label|. See CrosDisksClient::Mount for detail.
+  // |access_mode| specifies read-only or read-write mount mode for a device.
   // Note that the mount operation may fail. To find out the result, one should
   // observe DiskMountManager for |Observer::OnMountEvent| event, which will be
   // raised upon the mount operation completion.
   virtual void MountPath(const std::string& source_path,
                          const std::string& source_format,
                          const std::string& mount_label,
-                         MountType type) = 0;
+                         MountType type,
+                         MountAccessMode access_mode) = 0;
 
   // Unmounts a mounted disk.
   // |UnmountOptions| enum defined in chromeos/dbus/cros_disks_client.h.
@@ -284,7 +292,7 @@ class CHROMEOS_EXPORT DiskMountManager {
 
   // Used in tests to initialize the manager's disk and mount point sets.
   // Default implementation does noting. It just fails.
-  virtual bool AddDiskForTest(Disk* disk);
+  virtual bool AddDiskForTest(std::unique_ptr<Disk> disk);
   virtual bool AddMountPointForTest(const MountPointInfo& mount_point);
 
   // Returns corresponding string to |type| like "unknown_filesystem".

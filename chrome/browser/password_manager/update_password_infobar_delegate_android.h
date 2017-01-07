@@ -40,7 +40,8 @@ class UpdatePasswordInfoBarDelegate : public PasswordManagerInfoBarDelegate {
   // credential is being affected.
   bool ShowMultipleAccounts() const;
 
-  const std::vector<const autofill::PasswordForm*>& GetCurrentForms() const;
+  const std::vector<std::unique_ptr<autofill::PasswordForm>>&
+  GetCurrentForms() const;
 
   // Returns the username of the saved credentials in the case when there is
   // only one credential pair stored.
@@ -58,9 +59,9 @@ class UpdatePasswordInfoBarDelegate : public PasswordManagerInfoBarDelegate {
 
   // ConfirmInfoBarDelegate:
   infobars::InfoBarDelegate::InfoBarIdentifier GetIdentifier() const override;
+  int GetButtons() const override;
   base::string16 GetButtonLabel(InfoBarButton button) const override;
   bool Accept() override;
-  bool Cancel() override;
 
   ManagePasswordsState passwords_state_;
   base::string16 branding_;

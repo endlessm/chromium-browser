@@ -23,6 +23,7 @@ class Rect;
 }
 
 namespace views {
+class MenuModelAdapter;
 class MenuRunner;
 class Widget;
 }
@@ -38,9 +39,14 @@ class DownloadShelfContextMenuView : public DownloadShelfContextMenu {
   // The menu will be positioned above or below but not overlapping |rect|.
   void Run(views::Widget* parent_widget,
            const gfx::Rect& rect,
-           ui::MenuSourceType source_type);
+           ui::MenuSourceType source_type,
+           const base::Closure& on_menu_closed_callback);
 
  private:
+  // Callback for MenuModelAdapter
+  void OnMenuClosed(const base::Closure& on_menu_closed_callback);
+
+  std::unique_ptr<views::MenuModelAdapter> menu_model_adapter_;
   std::unique_ptr<views::MenuRunner> menu_runner_;
 
   // Time the menu was closed.

@@ -17,6 +17,7 @@
 #include "components/ssl_errors/error_classification.h"
 #include "content/public/browser/notification_observer.h"
 #include "content/public/browser/notification_registrar.h"
+#include "content/public/browser/restore_type.h"
 #include "content/public/browser/web_contents_observer.h"
 #include "content/public/browser/web_contents_user_data.h"
 #include "net/ssl/ssl_info.h"
@@ -56,13 +57,15 @@ class SSLErrorHandler : public content::WebContentsUserData<SSLErrorHandler>,
 
   // Entry point for the class. The parameters are the same as SSLBlockingPage
   // constructor.
-  static void HandleSSLError(content::WebContents* web_contents,
-                             int cert_error,
-                             const net::SSLInfo& ssl_info,
-                             const GURL& request_url,
-                             int options_mask,
-                             std::unique_ptr<SSLCertReporter> ssl_cert_reporter,
-                             const base::Callback<void(bool)>& callback);
+  static void HandleSSLError(
+      content::WebContents* web_contents,
+      int cert_error,
+      const net::SSLInfo& ssl_info,
+      const GURL& request_url,
+      int options_mask,
+      std::unique_ptr<SSLCertReporter> ssl_cert_reporter,
+      const base::Callback<void(content::CertificateRequestResultType)>&
+          callback);
 
   // Testing methods.
   static void SetInterstitialDelayForTest(base::TimeDelta delay);
@@ -79,7 +82,8 @@ class SSLErrorHandler : public content::WebContentsUserData<SSLErrorHandler>,
                   const GURL& request_url,
                   int options_mask,
                   std::unique_ptr<SSLCertReporter> ssl_cert_reporter,
-                  const base::Callback<void(bool)>& callback);
+                  const base::Callback<
+                      void(content::CertificateRequestResultType)>& callback);
 
   ~SSLErrorHandler() override;
 
@@ -118,7 +122,7 @@ class SSLErrorHandler : public content::WebContentsUserData<SSLErrorHandler>,
   // content::WebContentsObserver:
   void DidStartNavigationToPendingEntry(
       const GURL& url,
-      content::NavigationController::ReloadType reload_type) override;
+      content::ReloadType reload_type) override;
 
   // content::WebContentsObserver:
   void NavigationStopped() override;
@@ -132,7 +136,7 @@ class SSLErrorHandler : public content::WebContentsUserData<SSLErrorHandler>,
   const net::SSLInfo ssl_info_;
   const GURL request_url_;
   const int options_mask_;
-  base::Callback<void(bool)> callback_;
+  base::Callback<void(content::CertificateRequestResultType)> callback_;
   Profile* const profile_;
 
   content::NotificationRegistrar registrar_;

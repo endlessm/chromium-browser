@@ -19,7 +19,9 @@
 
 using base::android::AttachCurrentThread;
 using base::android::ConvertJavaStringToUTF8;
+using base::android::JavaParamRef;
 using base::android::ScopedJavaGlobalRef;
+using base::android::ScopedJavaLocalRef;
 using content::BrowserThread;
 
 namespace android_webview {
@@ -29,7 +31,7 @@ namespace {
 void ClientCertificatesCleared(ScopedJavaGlobalRef<jobject>* callback) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   JNIEnv* env = AttachCurrentThread();
-  Java_AwContentsStatics_clientCertificatesCleared(env, callback->obj());
+  Java_AwContentsStatics_clientCertificatesCleared(env, *callback);
 }
 
 void NotifyClientCertificatesChanged() {

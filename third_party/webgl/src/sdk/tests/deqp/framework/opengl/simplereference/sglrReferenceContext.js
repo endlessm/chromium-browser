@@ -72,8 +72,7 @@ goog.scope(function() {
      */
     sglrReferenceContext.GLU_EXPECT_NO_ERROR = function(error, message) {
         if (error !== gl.NONE) {
-            console.log('Assertion failed message:' + message);
-            // throw new Error(message);
+            bufferedLogToConsole('Assertion failed message:' + message);
         }
     };
 
@@ -3133,7 +3132,8 @@ goog.scope(function() {
         if (hasColor0 && (buffers & gl.COLOR_BUFFER_BIT) != 0) {
             /** @type {Array<number>} */ var colorArea = deMath.intersect(baseArea, sglrReferenceContext.getBufferRect(colorBuf0));
             access = colorBuf0.getSubregion(colorArea);
-            /** @type {Array<number>} */ var c = this.m_clearColor;
+            /** @type {boolean} */ var isSRGB = colorBuf0.raw().getFormat().isSRGB();
+            /** @type {Array<number>} */ var c = (isSRGB && this.m_sRGBUpdateEnabled) ? tcuTextureUtil.linearToSRGB(this.m_clearColor) : this.m_clearColor;
             /** @type {boolean} */ var maskUsed = !this.m_colorMask[0] || !this.m_colorMask[1] || !this.m_colorMask[2] || !this.m_colorMask[3];
             /** @type {boolean} */ var maskZero = !this.m_colorMask[0] && !this.m_colorMask[1] && !this.m_colorMask[2] && !this.m_colorMask[3];
 

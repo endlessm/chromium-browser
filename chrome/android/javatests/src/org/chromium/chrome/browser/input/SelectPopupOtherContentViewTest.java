@@ -8,6 +8,7 @@ import android.test.suitebuilder.annotation.LargeTest;
 
 import org.chromium.base.ThreadUtils;
 import org.chromium.base.test.util.Feature;
+import org.chromium.base.test.util.RetryOnFailure;
 import org.chromium.base.test.util.UrlUtils;
 import org.chromium.chrome.browser.ChromeActivity;
 import org.chromium.chrome.browser.WebContentsFactory;
@@ -19,6 +20,7 @@ import org.chromium.content.browser.test.util.CriteriaHelper;
 import org.chromium.content.browser.test.util.DOMUtils;
 import org.chromium.content_public.browser.WebContents;
 import org.chromium.ui.base.ActivityWindowAndroid;
+import org.chromium.ui.base.ViewAndroidDelegate;
 import org.chromium.ui.base.WindowAndroid;
 
 /**
@@ -67,6 +69,7 @@ public class SelectPopupOtherContentViewTest extends ChromeActivityTestCaseBase<
      */
     @LargeTest
     @Feature({"Browser"})
+    @RetryOnFailure
     public void testPopupNotClosedByOtherContentView()
             throws InterruptedException, Exception, Throwable {
         // Load the test page.
@@ -85,9 +88,10 @@ public class SelectPopupOtherContentViewTest extends ChromeActivityTestCaseBase<
                 WebContents webContents = WebContentsFactory.createWebContents(false, false);
                 WindowAndroid windowAndroid = new ActivityWindowAndroid(getActivity());
 
-                ContentViewCore contentViewCore = new ContentViewCore(getActivity());
+                ContentViewCore contentViewCore = new ContentViewCore(getActivity(), "");
                 ContentView cv = ContentView.createContentView(getActivity(), contentViewCore);
-                contentViewCore.initialize(cv, cv, webContents, windowAndroid);
+                contentViewCore.initialize(ViewAndroidDelegate.createBasicDelegate(cv), cv,
+                        webContents, windowAndroid);
                 contentViewCore.destroy();
             }
         });

@@ -10,18 +10,17 @@
 
 package org.appspot.apprtc.test;
 
-import java.util.LinkedList;
-import java.util.List;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.Executor;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
-
 import org.appspot.apprtc.AppRTCClient.SignalingParameters;
 import org.appspot.apprtc.PeerConnectionClient;
 import org.appspot.apprtc.PeerConnectionClient.PeerConnectionEvents;
 import org.appspot.apprtc.PeerConnectionClient.PeerConnectionParameters;
+
+import android.os.Build;
+import android.test.InstrumentationTestCase;
+import android.test.suitebuilder.annotation.SmallTest;
+import android.util.Log;
+
+import org.webrtc.Camera2Enumerator;
 import org.webrtc.EglBase;
 import org.webrtc.IceCandidate;
 import org.webrtc.MediaCodecVideoEncoder;
@@ -31,13 +30,15 @@ import org.webrtc.SessionDescription;
 import org.webrtc.StatsReport;
 import org.webrtc.VideoRenderer;
 
-import android.os.Build;
-import android.test.InstrumentationTestCase;
-import android.test.suitebuilder.annotation.SmallTest;
-import android.util.Log;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
-public class PeerConnectionClientTest extends InstrumentationTestCase
-    implements PeerConnectionEvents {
+public class PeerConnectionClientTest
+    extends InstrumentationTestCase implements PeerConnectionEvents {
   private static final String TAG = "RTCClientTest";
   private static final int ICE_CONNECTION_WAIT_TIMEOUT = 10000;
   private static final int WAIT_TIMEOUT = 7000;
@@ -102,8 +103,8 @@ public class PeerConnectionClientTest extends InstrumentationTestCase
     public synchronized void renderFrame(VideoRenderer.I420Frame frame) {
       if (!renderFrameCalled) {
         if (rendererName != null) {
-          Log.d(TAG, rendererName + " render frame: "
-              + frame.rotatedWidth() + " x " + frame.rotatedHeight());
+          Log.d(TAG, rendererName + " render frame: " + frame.rotatedWidth() + " x "
+                  + frame.rotatedHeight());
         } else {
           Log.d(TAG, "Render frame: " + frame.rotatedWidth() + " x " + frame.rotatedHeight());
         }
@@ -113,11 +114,9 @@ public class PeerConnectionClientTest extends InstrumentationTestCase
       doneRendering.countDown();
     }
 
-
     // This method shouldn't hold any locks or touch member variables since it
     // blocks.
-    public boolean waitForFramesRendered(int timeoutMs)
-        throws InterruptedException {
+    public boolean waitForFramesRendered(int timeoutMs) throws InterruptedException {
       doneRendering.await(timeoutMs, TimeUnit.MILLISECONDS);
       return (doneRendering.getCount() <= 0);
     }
@@ -135,7 +134,7 @@ public class PeerConnectionClientTest extends InstrumentationTestCase
 
   @Override
   public void onIceCandidate(final IceCandidate candidate) {
-    synchronized(iceCandidateEvent) {
+    synchronized (iceCandidateEvent) {
       Log.d(TAG, "IceCandidate #" + iceCandidates.size() + " : " + candidate.toString());
       if (loopback) {
         // Loopback local ICE candidate in a separate thread to avoid adding
@@ -160,7 +159,7 @@ public class PeerConnectionClientTest extends InstrumentationTestCase
   @Override
   public void onIceConnected() {
     Log.d(TAG, "ICE Connected");
-    synchronized(iceConnectedEvent) {
+    synchronized (iceConnectedEvent) {
       isIceConnected = true;
       iceConnectedEvent.notifyAll();
     }
@@ -169,7 +168,7 @@ public class PeerConnectionClientTest extends InstrumentationTestCase
   @Override
   public void onIceDisconnected() {
     Log.d(TAG, "ICE Disconnected");
-    synchronized(iceConnectedEvent) {
+    synchronized (iceConnectedEvent) {
       isIceConnected = false;
       iceConnectedEvent.notifyAll();
     }
@@ -178,7 +177,7 @@ public class PeerConnectionClientTest extends InstrumentationTestCase
   @Override
   public void onPeerConnectionClosed() {
     Log.d(TAG, "PeerConnection closed");
-    synchronized(closeEvent) {
+    synchronized (closeEvent) {
       isClosed = true;
       closeEvent.notifyAll();
     }
@@ -190,13 +189,11 @@ public class PeerConnectionClientTest extends InstrumentationTestCase
   }
 
   @Override
-  public void onPeerConnectionStatsReady(StatsReport[] reports) {
-  }
+  public void onPeerConnectionStatsReady(StatsReport[] reports) {}
 
   // Helper wait functions.
-  private boolean waitForLocalSDP(int timeoutMs)
-      throws InterruptedException {
-    synchronized(localSdpEvent) {
+  private boolean waitForLocalSDP(int timeoutMs) throws InterruptedException {
+    synchronized (localSdpEvent) {
       if (localSdp == null) {
         localSdpEvent.wait(timeoutMs);
       }
@@ -204,9 +201,8 @@ public class PeerConnectionClientTest extends InstrumentationTestCase
     }
   }
 
-  private boolean waitForIceCandidates(int timeoutMs)
-      throws InterruptedException {
-    synchronized(iceCandidateEvent) {
+  private boolean waitForIceCandidates(int timeoutMs) throws InterruptedException {
+    synchronized (iceCandidateEvent) {
       if (iceCandidates.size() == 0) {
         iceCandidateEvent.wait(timeoutMs);
       }
@@ -214,9 +210,8 @@ public class PeerConnectionClientTest extends InstrumentationTestCase
     }
   }
 
-  private boolean waitForIceConnected(int timeoutMs)
-      throws InterruptedException {
-    synchronized(iceConnectedEvent) {
+  private boolean waitForIceConnected(int timeoutMs) throws InterruptedException {
+    synchronized (iceConnectedEvent) {
       if (!isIceConnected) {
         iceConnectedEvent.wait(timeoutMs);
       }
@@ -228,9 +223,8 @@ public class PeerConnectionClientTest extends InstrumentationTestCase
     }
   }
 
-  private boolean waitForPeerConnectionClosed(int timeoutMs)
-      throws InterruptedException {
-    synchronized(closeEvent) {
+  private boolean waitForPeerConnectionClosed(int timeoutMs) throws InterruptedException {
+    synchronized (closeEvent) {
       if (!isClosed) {
         closeEvent.wait(timeoutMs);
       }
@@ -238,15 +232,14 @@ public class PeerConnectionClientTest extends InstrumentationTestCase
     }
   }
 
-  PeerConnectionClient createPeerConnectionClient(
-      MockRenderer localRenderer, MockRenderer remoteRenderer,
-      PeerConnectionParameters peerConnectionParameters, EglBase.Context eglContext) {
-    List<PeerConnection.IceServer> iceServers =
-        new LinkedList<PeerConnection.IceServer>();
-    SignalingParameters signalingParameters = new SignalingParameters(
-        iceServers, true, // iceServers, initiator.
-        null, null, null, // clientId, wssUrl, wssPostUrl.
-        null, null); // offerSdp, iceCandidates.
+  PeerConnectionClient createPeerConnectionClient(MockRenderer localRenderer,
+      MockRenderer remoteRenderer, PeerConnectionParameters peerConnectionParameters,
+      EglBase.Context eglContext) {
+    List<PeerConnection.IceServer> iceServers = new LinkedList<PeerConnection.IceServer>();
+    SignalingParameters signalingParameters =
+        new SignalingParameters(iceServers, true, // iceServers, initiator.
+            null, null, null, // clientId, wssUrl, wssPostUrl.
+            null, null); // offerSdp, iceCandidates.
 
     PeerConnectionClient client = PeerConnectionClient.getInstance();
     PeerConnectionFactory.Options options = new PeerConnectionFactory.Options();
@@ -254,7 +247,7 @@ public class PeerConnectionClientTest extends InstrumentationTestCase
     options.disableNetworkMonitor = true;
     client.setPeerConnectionFactoryOptions(options);
     client.createPeerConnectionFactory(
-        getInstrumentation().getContext(), peerConnectionParameters, this);
+        getInstrumentation().getTargetContext(), peerConnectionParameters, this);
     client.createPeerConnection(eglContext, localRenderer, remoteRenderer, signalingParameters);
     client.createOffer();
     return client;
@@ -262,11 +255,11 @@ public class PeerConnectionClientTest extends InstrumentationTestCase
 
   private PeerConnectionParameters createParametersForAudioCall() {
     PeerConnectionParameters peerConnectionParameters =
-        new PeerConnectionParameters(
-            false, /* videoCallEnabled */
+        new PeerConnectionParameters(false, /* videoCallEnabled */
             true, /* loopback */
             false, /* tracing */
             // Video codec parameters.
+            true, /* useCamera2 */
             0, /* videoWidth */
             0, /* videoHeight */
             0, /* videoFps */
@@ -279,19 +272,22 @@ public class PeerConnectionClientTest extends InstrumentationTestCase
             "OPUS", /* audioCodec */
             false, /* noAudioProcessing */
             false, /* aecDump */
-            false /* useOpenSLES */,
-            false /* disableBuiltInAEC */);
+            false /* useOpenSLES */, false /* disableBuiltInAEC */, false /* disableBuiltInAGC */,
+            false /* disableBuiltInNS */, false /* enableLevelControl */);
     return peerConnectionParameters;
   }
 
   private PeerConnectionParameters createParametersForVideoCall(
       String videoCodec, boolean captureToTexture) {
+    final boolean useCamera2 =
+        captureToTexture && Camera2Enumerator.isSupported(getInstrumentation().getTargetContext());
+
     PeerConnectionParameters peerConnectionParameters =
-        new PeerConnectionParameters(
-            true, /* videoCallEnabled */
+        new PeerConnectionParameters(true, /* videoCallEnabled */
             true, /* loopback */
             false, /* tracing */
             // Video codec parameters.
+            useCamera2, /* useCamera2 */
             0, /* videoWidth */
             0, /* videoHeight */
             0, /* videoFps */
@@ -304,8 +300,8 @@ public class PeerConnectionClientTest extends InstrumentationTestCase
             "OPUS", /* audioCodec */
             false, /* noAudioProcessing */
             false, /* aecDump */
-            false /* useOpenSLES */,
-            false /* disableBuiltInAEC */);
+            false /* useOpenSLES */, false /* disableBuiltInAEC */, false /* disableBuiltInAGC */,
+            false /* disableBuiltInNS */, false /* enableLevelControl */);
     return peerConnectionParameters;
   }
 
@@ -326,26 +322,23 @@ public class PeerConnectionClientTest extends InstrumentationTestCase
   }
 
   @SmallTest
-  public void testSetLocalOfferMakesVideoFlowLocally()
-      throws InterruptedException {
+  public void testSetLocalOfferMakesVideoFlowLocally() throws InterruptedException {
     Log.d(TAG, "testSetLocalOfferMakesVideoFlowLocally");
     MockRenderer localRenderer = new MockRenderer(EXPECTED_VIDEO_FRAMES, LOCAL_RENDERER_NAME);
-    pcClient = createPeerConnectionClient(
-        localRenderer, new MockRenderer(0, null),
+    pcClient = createPeerConnectionClient(localRenderer, new MockRenderer(0, null),
         createParametersForVideoCall(VIDEO_CODEC_VP8, false), null);
 
     // Wait for local SDP and ice candidates set events.
     assertTrue("Local SDP was not set.", waitForLocalSDP(WAIT_TIMEOUT));
-    assertTrue("ICE candidates were not generated.",
-        waitForIceCandidates(WAIT_TIMEOUT));
+    assertTrue("ICE candidates were not generated.", waitForIceCandidates(WAIT_TIMEOUT));
 
     // Check that local video frames were rendered.
-    assertTrue("Local video frames were not rendered.",
-        localRenderer.waitForFramesRendered(WAIT_TIMEOUT));
+    assertTrue(
+        "Local video frames were not rendered.", localRenderer.waitForFramesRendered(WAIT_TIMEOUT));
 
     pcClient.close();
-    assertTrue("PeerConnection close event was not received.",
-        waitForPeerConnectionClosed(WAIT_TIMEOUT));
+    assertTrue(
+        "PeerConnection close event was not received.", waitForPeerConnectionClosed(WAIT_TIMEOUT));
     Log.d(TAG, "testSetLocalOfferMakesVideoFlowLocally Done.");
   }
 
@@ -367,8 +360,7 @@ public class PeerConnectionClientTest extends InstrumentationTestCase
     // Wait for local SDP, rename it to answer and set as remote SDP.
     assertTrue("Local SDP was not set.", waitForLocalSDP(WAIT_TIMEOUT));
     SessionDescription remoteSdp = new SessionDescription(
-        SessionDescription.Type.fromCanonicalForm("answer"),
-        localSdp.description);
+        SessionDescription.Type.fromCanonicalForm("answer"), localSdp.description);
     pcClient.setRemoteDescription(remoteSdp);
 
     // Wait for ICE connection.
@@ -480,15 +472,14 @@ public class PeerConnectionClientTest extends InstrumentationTestCase
     eglBase = null;
 
     SessionDescription remoteSdp = new SessionDescription(
-        SessionDescription.Type.fromCanonicalForm("answer"),
-        localSdp.description);
+        SessionDescription.Type.fromCanonicalForm("answer"), localSdp.description);
     pcClient.setRemoteDescription(remoteSdp);
 
     // Wait for ICE connection.
     assertTrue("ICE connection failure.", waitForIceConnected(ICE_CONNECTION_WAIT_TIMEOUT));
     // Check that local and remote video frames were rendered.
-    assertTrue("Local video frames were not rendered.",
-        localRenderer.waitForFramesRendered(WAIT_TIMEOUT));
+    assertTrue(
+        "Local video frames were not rendered.", localRenderer.waitForFramesRendered(WAIT_TIMEOUT));
     assertTrue("Remote video frames were not rendered.",
         remoteRenderer.waitForFramesRendered(WAIT_TIMEOUT));
 
@@ -512,7 +503,6 @@ public class PeerConnectionClientTest extends InstrumentationTestCase
     doLoopbackTest(createParametersForVideoCall(VIDEO_CODEC_H264, true), true);
   }
 
-
   // Checks if default front camera can be switched to back camera and then
   // again to front camera.
   @SmallTest
@@ -529,8 +519,7 @@ public class PeerConnectionClientTest extends InstrumentationTestCase
     // Wait for local SDP, rename it to answer and set as remote SDP.
     assertTrue("Local SDP was not set.", waitForLocalSDP(WAIT_TIMEOUT));
     SessionDescription remoteSdp = new SessionDescription(
-        SessionDescription.Type.fromCanonicalForm("answer"),
-        localSdp.description);
+        SessionDescription.Type.fromCanonicalForm("answer"), localSdp.description);
     pcClient.setRemoteDescription(remoteSdp);
 
     // Wait for ICE connection.
@@ -576,8 +565,7 @@ public class PeerConnectionClientTest extends InstrumentationTestCase
     // Wait for local SDP, rename it to answer and set as remote SDP.
     assertTrue("Local SDP was not set.", waitForLocalSDP(WAIT_TIMEOUT));
     SessionDescription remoteSdp = new SessionDescription(
-        SessionDescription.Type.fromCanonicalForm("answer"),
-        localSdp.description);
+        SessionDescription.Type.fromCanonicalForm("answer"), localSdp.description);
     pcClient.setRemoteDescription(remoteSdp);
 
     // Wait for ICE connection.
@@ -624,8 +612,7 @@ public class PeerConnectionClientTest extends InstrumentationTestCase
     // Wait for local SDP, rename it to answer and set as remote SDP.
     assertTrue("Local SDP was not set.", waitForLocalSDP(WAIT_TIMEOUT));
     SessionDescription remoteSdp = new SessionDescription(
-        SessionDescription.Type.fromCanonicalForm("answer"),
-        localSdp.description);
+        SessionDescription.Type.fromCanonicalForm("answer"), localSdp.description);
     pcClient.setRemoteDescription(remoteSdp);
 
     // Wait for ICE connection.
@@ -659,5 +646,4 @@ public class PeerConnectionClientTest extends InstrumentationTestCase
     assertTrue(waitForPeerConnectionClosed(WAIT_TIMEOUT));
     Log.d(TAG, "testCaptureFormatChange done.");
   }
-
 }

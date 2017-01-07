@@ -8,8 +8,8 @@
 #include <string>
 
 #include "base/location.h"
-#include "base/metrics/histogram.h"
 #include "base/metrics/histogram_base.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/single_thread_task_runner.h"
 #include "base/stl_util.h"
 #include "base/threading/thread_task_runner_handle.h"
@@ -276,11 +276,13 @@ void ToolbarActionsModel::OnReady() {
   actions_initialized_ = true;
   FOR_EACH_OBSERVER(Observer, observers_, OnToolbarModelInitialized());
 
-  // Handle component action migrations.  We must make sure that observers are
-  // notified of initialization first, so that the associated widgets are
-  // created.
-  ComponentToolbarActionsFactory::GetInstance()->HandleComponentMigrations(
-      component_migration_helper_.get(), profile_);
+  if (use_redesign_) {
+    // Handle component action migrations.  We must make sure that observers are
+    // notified of initialization first, so that the associated widgets are
+    // created.
+    ComponentToolbarActionsFactory::GetInstance()->HandleComponentMigrations(
+        component_migration_helper_.get(), profile_);
+  }
 }
 
 size_t ToolbarActionsModel::FindNewPositionFromLastKnownGood(
@@ -327,23 +329,21 @@ void ToolbarActionsModel::AddExtension(const extensions::Extension* extension) {
   if (!ShouldAddExtension(extension))
     return;
 
-  AddItem(ToolbarItem(extension->id(), EXTENSION_ACTION),
-          extensions::Manifest::IsComponentLocation(extension->location()));
+  AddItem(ToolbarItem(extension->id(), EXTENSION_ACTION));
 }
 
-void ToolbarActionsModel::AddItem(const ToolbarItem& item, bool is_component) {
+void ToolbarActionsModel::AddItem(const ToolbarItem& item) {
   // We only use AddItem() once the system is initialized.
   DCHECK(actions_initialized_);
 
   // See if we have a last known good position for this extension.
-  bool is_new_extension =
-      !ContainsValue(last_known_positions_, item.id);
+  bool is_new_extension = !base::ContainsValue(last_known_positions_, item.id);
 
   // New extensions go at the right (end) of the visible extensions. Other
   // extensions go at their previous position.
   size_t new_index = 0;
   if (is_new_extension) {
-    new_index = is_component ? 0 : visible_icon_count();
+    new_index = visible_icon_count();
     // For the last-known position, we use the index of the extension that is
     // just before this extension, plus one. (Note that this isn't the same
     // as new_index + 1, because last_known_positions_ can include disabled
@@ -620,7 +620,7 @@ void ToolbarActionsModel::Populate() {
 }
 
 bool ToolbarActionsModel::HasItem(const ToolbarItem& item) const {
-  return ContainsValue(toolbar_items_, item);
+  return base::ContainsValue(toolbar_items_, item);
 }
 
 bool ToolbarActionsModel::HasComponentAction(
@@ -630,10 +630,15 @@ bool ToolbarActionsModel::HasComponentAction(
 }
 
 void ToolbarActionsModel::AddComponentAction(const std::string& action_id) {
+  if (!actions_initialized_) {
+    // TODO(crbug.com/660972): Add these component actions at initialization.
+    return;
+  }
+
   DCHECK(use_redesign_);
   ToolbarItem component_item(action_id, COMPONENT_ACTION);
   DCHECK(!HasItem(component_item));
-  AddItem(component_item, true);
+  AddItem(component_item);
 }
 
 void ToolbarActionsModel::RemoveComponentAction(const std::string& action_id) {
@@ -743,7 +748,7 @@ void ToolbarActionsModel::OnActionToolbarPrefChange() {
   std::vector<std::string> pref_positions = extension_prefs_->GetToolbarOrder();
   size_t pref_position_size = pref_positions.size();
   for (size_t i = 0; i < last_known_positions_.size(); ++i) {
-    if (!ContainsValue(pref_positions, last_known_positions_[i])) {
+    if (!base::ContainsValue(pref_positions, last_known_positions_[i])) {
       pref_positions.push_back(last_known_positions_[i]);
     }
   }

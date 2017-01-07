@@ -80,9 +80,8 @@ class _OctaneMeasurement(legacy_page_test.LegacyPageTest):
     self._power_metric = power.PowerMetric(platform)
 
   def WillNavigateToPage(self, page, tab):
-    memory_stats = tab.browser.memory_stats
-    if ('SystemTotalPhysicalMemory' in memory_stats and
-        memory_stats['SystemTotalPhysicalMemory'] < 1 * _GB):
+    total_memory = tab.browser.platform.GetSystemTotalPhysicalMemory()
+    if total_memory is not None and total_memory < 1 * _GB:
       skipBenchmarks = '"zlib"'
     else:
       skipBenchmarks = ''
@@ -135,7 +134,7 @@ class _OctaneMeasurement(legacy_page_test.LegacyPageTest):
 class Octane(perf_benchmark.PerfBenchmark):
   """Google's Octane JavaScript benchmark.
 
-  http://octane-benchmark.googlecode.com/svn/latest/index.html
+  http://chromium.github.io/octane/index.html?auto=1
   """
   test = _OctaneMeasurement
 
@@ -149,6 +148,6 @@ class Octane(perf_benchmark.PerfBenchmark):
         base_dir=os.path.dirname(os.path.abspath(__file__)),
         cloud_storage_bucket=story.PUBLIC_BUCKET)
     ps.AddStory(page_module.Page(
-        'http://octane-benchmark.googlecode.com/svn/latest/index.html?auto=1',
+        'http://chromium.github.io/octane/index.html?auto=1',
         ps, ps.base_dir, make_javascript_deterministic=False))
     return ps

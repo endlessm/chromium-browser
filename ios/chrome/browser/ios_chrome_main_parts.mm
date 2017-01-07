@@ -39,6 +39,7 @@
 #include "ios/chrome/browser/ios_chrome_field_trials.h"
 #include "ios/chrome/browser/metrics/field_trial_synchronizer.h"
 #include "ios/chrome/browser/open_from_clipboard/create_clipboard_recent_content.h"
+#include "ios/chrome/browser/physical_web/start_physical_web_discovery.h"
 #include "ios/chrome/browser/pref_names.h"
 #include "ios/chrome/browser/translate/translate_service_ios.h"
 #include "ios/public/provider/chrome/browser/chrome_browser_provider.h"
@@ -100,20 +101,21 @@ void IOSChromeMainParts::PreCreateThreads() {
   local_state_ = application_context_->GetLocalState();
   DCHECK(local_state_);
 
-  flags_ui::PrefServiceFlagsStorage flags_storage_(
+  flags_ui::PrefServiceFlagsStorage flags_storage(
       application_context_->GetLocalState());
-  ConvertFlagsToSwitches(&flags_storage_,
+  ConvertFlagsToSwitches(&flags_storage,
                          base::CommandLine::ForCurrentProcess());
 
   // Initialize tracking synchronizer system.
   tracking_synchronizer_ = new metrics::TrackingSynchronizer(
-      base::WrapUnique(new base::DefaultTickClock()),
+      base::MakeUnique<base::DefaultTickClock>(),
       base::Bind(&metrics::IOSTrackingSynchronizerDelegate::Create));
 
   // Now the command line has been mutated based on about:flags, we can setup
   // metrics and initialize field trials that are needed by IOSChromeIOThread's
   // initialization which happens in ApplicationContext:PreCreateThreads.
-  SetUpMetricsAndFieldTrials();
+  SetupFieldTrials();
+  SetupMetrics();
 
   // Initialize FieldTrialSynchronizer system.
   field_trial_synchronizer_.reset(new ios::FieldTrialSynchronizer);
@@ -177,6 +179,8 @@ void IOSChromeMainParts::PreMainMessageLoopRun() {
 
   translate::TranslateDownloadManager::RequestLanguageList(
       last_used_browser_state->GetPrefs());
+
+  StartPhysicalWebDiscovery(last_used_browser_state->GetPrefs());
 }
 
 void IOSChromeMainParts::PostMainMessageLoopRun() {
@@ -189,19 +193,16 @@ void IOSChromeMainParts::PostDestroyThreads() {
 }
 
 // This will be called after the command-line has been mutated by about:flags
-void IOSChromeMainParts::SetUpMetricsAndFieldTrials() {
+void IOSChromeMainParts::SetupFieldTrials() {
   base::SetRecordActionTaskRunner(
       web::WebThread::GetTaskRunnerForThread(web::WebThread::UI));
 
-  // Must initialize metrics after labs have been converted into switches,
-  // but before field trials are set up (so that client ID is available for
-  // one-time randomized field trials).
-  metrics::MetricsService* metrics = application_context_->GetMetricsService();
-
   // Initialize FieldTrialList to support FieldTrials that use one-time
   // randomization.
+  DCHECK(!field_trial_list_);
   field_trial_list_.reset(
-      new base::FieldTrialList(metrics->CreateEntropyProvider().release()));
+      new base::FieldTrialList(application_context_->GetMetricsServicesManager()
+                                   ->CreateEntropyProvider()));
 
   const base::CommandLine* command_line =
       base::CommandLine::ForCurrentProcess();
@@ -216,17 +217,25 @@ void IOSChromeMainParts::SetUpMetricsAndFieldTrials() {
     CHECK(result) << "Invalid --" << switches::kForceFieldTrials
                   << " list specified.";
   }
-  if (command_line->HasSwitch(switches::kIOSForceVariationIds)) {
-    // Create default variation ids which will always be included in the
-    // X-Client-Data request header.
-    variations::VariationsHttpHeaderProvider* provider =
-        variations::VariationsHttpHeaderProvider::GetInstance();
-    bool result = provider->SetDefaultVariationIds(
-        command_line->GetSwitchValueASCII(switches::kIOSForceVariationIds));
-    CHECK(result) << "Invalid --" << switches::kIOSForceVariationIds
-                  << " list specified.";
-  }
+
   std::unique_ptr<base::FeatureList> feature_list(new base::FeatureList);
+
+  // Associate parameters chosen in about:flags and create trial/group for them.
+  flags_ui::PrefServiceFlagsStorage flags_storage(
+      application_context_->GetLocalState());
+  std::vector<std::string> variation_ids =
+      RegisterAllFeatureVariationParameters(&flags_storage, feature_list.get());
+
+  variations::VariationsHttpHeaderProvider* http_header_provider =
+      variations::VariationsHttpHeaderProvider::GetInstance();
+  // Force the variation ids selected in chrome://flags and/or specified using
+  // the command-line flag.
+  bool result = http_header_provider->ForceVariationIds(
+      command_line->GetSwitchValueASCII(switches::kIOSForceVariationIds),
+      &variation_ids);
+  CHECK(result) << "Invalid list of variation ids specified (either in --"
+                << switches::kIOSForceVariationIds << " or in chrome://flags)";
+
   feature_list->InitializeFromCommandLine(
       command_line->GetSwitchValueASCII(switches::kEnableIOSFeatures),
       command_line->GetSwitchValueASCII(switches::kDisableIOSFeatures));
@@ -238,9 +247,13 @@ void IOSChromeMainParts::SetUpMetricsAndFieldTrials() {
 
   base::FeatureList::SetInstance(std::move(feature_list));
 
-  SetupFieldTrials(parsed_command_line_,
-                   base::Time::FromTimeT(metrics->GetInstallDate()));
+  SetupIOSFieldTrials();
+}
 
+void IOSChromeMainParts::SetupMetrics() {
+  metrics::MetricsService* metrics = application_context_->GetMetricsService();
+  metrics->AddSyntheticTrialObserver(
+      variations::VariationsHttpHeaderProvider::GetInstance());
   // Now that field trials have been created, initializes metrics recording.
   metrics->InitializeMetricsRecordingState();
 }

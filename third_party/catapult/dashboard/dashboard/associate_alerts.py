@@ -9,12 +9,12 @@ import re
 from google.appengine.api import users
 from google.appengine.ext import ndb
 
-from dashboard import issue_tracker_service
 from dashboard import oauth2_decorator
-from dashboard import request_handler
-from dashboard import utils
+from dashboard.common import request_handler
+from dashboard.common import utils
 from dashboard.models import anomaly
 from dashboard.models import stoppage_alert
+from dashboard.services import issue_tracker_service
 
 
 class AssociateAlertsHandler(request_handler.RequestHandler):
@@ -85,7 +85,7 @@ class AssociateAlertsHandler(request_handler.RequestHandler):
 
   def _FetchBugs(self):
     http = oauth2_decorator.DECORATOR.http()
-    issue_tracker = issue_tracker_service.IssueTrackerService(http=http)
+    issue_tracker = issue_tracker_service.IssueTrackerService(http)
     response = issue_tracker.List(
         q='opened-after:today-5', label='Type-Bug-Regression,Performance',
         sort='-id')

@@ -4,6 +4,7 @@
 
 package org.chromium.android_webview.test;
 
+import android.annotation.SuppressLint;
 import android.content.Context;
 import android.test.suitebuilder.annotation.SmallTest;
 import android.view.View;
@@ -16,6 +17,7 @@ import org.chromium.android_webview.test.util.JavascriptEventObserver;
 import org.chromium.base.ThreadUtils;
 import org.chromium.base.annotations.SuppressFBWarnings;
 import org.chromium.base.test.util.Feature;
+import org.chromium.base.test.util.RetryOnFailure;
 import org.chromium.base.test.util.parameter.ParameterizedTest;
 import org.chromium.content.browser.test.util.CallbackHelper;
 import org.chromium.content_public.browser.GestureStateListener;
@@ -346,6 +348,7 @@ public class AndroidScrollIntegrationTest extends AwTestBase {
 
     @SmallTest
     @Feature({"AndroidWebView"})
+    @SuppressLint("DefaultLocale")
     public void testJsScrollReflectedInUi() throws Throwable {
         final TestAwContentsClient contentsClient = new TestAwContentsClient();
         final ScrollTestContainerView testContainerView =
@@ -440,6 +443,7 @@ public class AndroidScrollIntegrationTest extends AwTestBase {
     @SmallTest
     @Feature({"AndroidWebView"})
     @ParameterizedTest.Set  // crbug.com/616505
+    @RetryOnFailure
     public void testTouchScrollCanBeAlteredByUi() throws Throwable {
         final TestAwContentsClient contentsClient = new TestAwContentsClient();
         final ScrollTestContainerView testContainerView =
@@ -723,9 +727,7 @@ public class AndroidScrollIntegrationTest extends AwTestBase {
         }
 
         @Override
-        public void onFlingStartGesture(
-                int velocityX, int velocityY, int scrollOffsetY, int scrollExtentY) {
-        }
+        public void onFlingStartGesture(int scrollOffsetY, int scrollExtentY) {}
 
         @Override
         public void onScrollUpdateGestureConsumed() {
@@ -837,5 +839,45 @@ public class AndroidScrollIntegrationTest extends AwTestBase {
                            atomicContentHeight.get(), atomicNewContentHeightApproximation.get()),
                 Math.abs(atomicContentHeight.get() - atomicNewContentHeightApproximation.get())
                         <= 1);
+    }
+
+    @SmallTest
+    @Feature("AndroidWebView")
+    public void testScrollOffsetAfterCapturePicture() throws Throwable {
+        final TestAwContentsClient contentsClient = new TestAwContentsClient();
+        final ScrollTestContainerView testContainerView =
+                (ScrollTestContainerView) createAwTestContainerViewOnMainSync(contentsClient);
+        enableJavaScriptOnUiThread(testContainerView.getAwContents());
+
+        final int targetScrollYPix = 322;
+
+        loadTestPageAndWaitForFirstFrame(testContainerView, contentsClient, null, "");
+
+        assertScrollOnMainSync(testContainerView, 0, 0);
+
+        scrollToOnMainSync(testContainerView, 0, targetScrollYPix);
+
+        final int scrolledYPix = runTestOnUiThreadAndGetResult(new Callable<Integer>() {
+            @Override
+            public Integer call() {
+                return testContainerView.getScrollY();
+            }
+        });
+
+        assertTrue(scrolledYPix > 0);
+
+        getInstrumentation().runOnMainSync(new Runnable() {
+            @Override
+            public void run() {
+                testContainerView.getAwContents().capturePicture();
+            }
+        });
+
+        getInstrumentation().runOnMainSync(new Runnable() {
+            @Override
+            public void run() {
+                assertEquals(testContainerView.getScrollY(), scrolledYPix);
+            }
+        });
     }
 }

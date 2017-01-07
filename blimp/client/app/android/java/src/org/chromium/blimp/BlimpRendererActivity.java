@@ -4,6 +4,7 @@
 
 package org.chromium.blimp;
 
+import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.content.Intent;
 import android.os.Bundle;
@@ -19,13 +20,14 @@ import org.chromium.base.library_loader.ProcessInitException;
 import org.chromium.blimp.auth.RetryingTokenSource;
 import org.chromium.blimp.auth.TokenSource;
 import org.chromium.blimp.auth.TokenSourceImpl;
-import org.chromium.blimp.input.WebInputBox;
+import org.chromium.blimp.core.BlimpClientSwitches;
 import org.chromium.blimp.preferences.PreferencesUtil;
 import org.chromium.blimp.session.BlimpClientSession;
 import org.chromium.blimp.session.EngineInfo;
 import org.chromium.blimp.session.TabControlFeature;
 import org.chromium.blimp.toolbar.Toolbar;
 import org.chromium.blimp.toolbar.ToolbarMenu;
+import org.chromium.ui.base.WindowAndroid;
 import org.chromium.ui.widget.Toast;
 
 /**
@@ -52,7 +54,7 @@ public class BlimpRendererActivity
     private Toolbar mToolbar;
     private BlimpClientSession mBlimpClientSession;
     private TabControlFeature mTabControlFeature;
-    private WebInputBox mWebInputBox;
+    private WindowAndroid mWindowAndroid;
 
     private Handler mHandler = new Handler();
 
@@ -72,11 +74,9 @@ public class BlimpRendererActivity
     @SuppressFBWarnings("DM_EXIT")  // FindBugs doesn't like System.exit().
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-
         buildAndTriggerTokenSourceIfNeeded();
-
         try {
-            BlimpLibraryLoader.startAsync(this, this);
+            BlimpLibraryLoader.startAsync(this);
         } catch (ProcessInitException e) {
             Log.e(TAG, "Native startup exception", e);
             System.exit(-1);
@@ -99,11 +99,6 @@ public class BlimpRendererActivity
         if (mToolbar != null) {
             mToolbar.destroy();
             mToolbar = null;
-        }
-
-        if (mWebInputBox != null) {
-            mWebInputBox.destroy();
-            mWebInputBox = null;
         }
 
         if (mTokenSource != null) {
@@ -157,7 +152,9 @@ public class BlimpRendererActivity
 
         setContentView(R.layout.blimp_main);
 
-        mBlimpClientSession = new BlimpClientSession(PreferencesUtil.findAssignerUrl(this));
+        mWindowAndroid = new WindowAndroid(BlimpRendererActivity.this);
+        mBlimpClientSession =
+                new BlimpClientSession(PreferencesUtil.findAssignerUrl(this), mWindowAndroid);
         mBlimpClientSession.addObserver(this);
 
         mBlimpView = (BlimpView) findViewById(R.id.renderer);
@@ -165,9 +162,6 @@ public class BlimpRendererActivity
 
         mToolbar = (Toolbar) findViewById(R.id.toolbar);
         mToolbar.initialize(mBlimpClientSession, this);
-
-        mWebInputBox = (WebInputBox) findViewById(R.id.editText);
-        mWebInputBox.initialize(mBlimpClientSession);
 
         mTabControlFeature = new TabControlFeature(mBlimpClientSession, mBlimpView);
 
@@ -288,6 +282,7 @@ public class BlimpRendererActivity
      * Displays debug metrics up to one decimal place.
      */
     @Override
+    @SuppressLint("DefaultLocale")
     public void updateDebugStatsUI(int received, int sent, int commits) {
         TextView tv = (TextView) findViewById(R.id.bytes_received_client);
         tv.setText(String.format("%.1f", (float) received / BYTES_PER_KILO));

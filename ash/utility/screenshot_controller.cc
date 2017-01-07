@@ -11,13 +11,14 @@
 #include "ash/screenshot_delegate.h"
 #include "ash/shell.h"
 #include "ash/wm/window_util.h"
-#include "base/stl_util.h"
+#include "base/memory/ptr_util.h"
 #include "ui/aura/client/capture_client.h"
 #include "ui/aura/client/screen_position_client.h"
 #include "ui/aura/window_targeter.h"
 #include "ui/compositor/paint_recorder.h"
 #include "ui/display/screen.h"
 #include "ui/events/event.h"
+#include "ui/events/event_constants.h"
 #include "ui/events/event_handler.h"
 #include "ui/gfx/canvas.h"
 #include "ui/views/widget/widget.h"
@@ -85,8 +86,9 @@ class ScreenshotWindowTargeter : public aura::WindowTargeter {
 class ScreenshotController::ScreenshotLayer : public ui::LayerOwner,
                                               public ui::LayerDelegate {
  public:
-  ScreenshotLayer(ui::Layer* parent) {
-    SetLayer(new ui::Layer(ui::LAYER_TEXTURED));
+  ScreenshotLayer(ui::Layer* parent, bool immediate_overlay)
+      : draw_inactive_overlay_(immediate_overlay) {
+    SetLayer(base::MakeUnique<ui::Layer>(ui::LAYER_TEXTURED));
     layer()->SetFillsBoundsOpaquely(false);
     layer()->SetBounds(parent->bounds());
     parent->Add(layer());
@@ -106,6 +108,13 @@ class ScreenshotController::ScreenshotLayer : public ui::LayerOwner,
     union_rect.Inset(-kCursorSize, -kCursorSize, -kCursorSize, -kCursorSize);
     region_ = region;
     layer()->SchedulePaint(union_rect);
+
+    // If we are going to start drawing the inactive overlay, we need to
+    // invalidate the entire layer.
+    bool is_drawing_inactive_overlay = draw_inactive_overlay_;
+    draw_inactive_overlay_ = draw_inactive_overlay_ || !region.IsEmpty();
+    if (draw_inactive_overlay_ && !is_drawing_inactive_overlay)
+      layer()->SchedulePaint(layer()->parent()->bounds());
   }
 
   void set_cursor_location_in_root(const gfx::Point& point) {
@@ -120,8 +129,10 @@ class ScreenshotController::ScreenshotLayer : public ui::LayerOwner,
     // overlay.
     ui::PaintRecorder recorder(context, layer()->size());
 
-    recorder.canvas()->FillRect(gfx::Rect(layer()->size()),
-                                kSelectedAreaOverlayColor);
+    if (draw_inactive_overlay_) {
+      recorder.canvas()->FillRect(gfx::Rect(layer()->size()),
+                                  kSelectedAreaOverlayColor);
+    }
 
     DrawPseudoCursor(recorder.canvas());
 
@@ -180,6 +191,8 @@ class ScreenshotController::ScreenshotLayer : public ui::LayerOwner,
                      paint);
   }
 
+  bool draw_inactive_overlay_;
+
   gfx::Rect region_;
 
   gfx::Point cursor_location_in_root_;
@@ -232,7 +245,7 @@ ScreenshotController::ScreenshotController()
 
 ScreenshotController::~ScreenshotController() {
   if (screenshot_delegate_)
-    Cancel();
+    CancelScreenshotSession();
   Shell::GetInstance()->RemovePreTargetHandler(this);
 }
 
@@ -247,8 +260,9 @@ void ScreenshotController::StartWindowScreenshotSession(
 
   display::Screen::GetScreen()->AddObserver(this);
   for (aura::Window* root : Shell::GetAllRootWindows()) {
-    layers_[root] = new ScreenshotLayer(
-        Shell::GetContainer(root, kShellWindowId_OverlayContainer)->layer());
+    layers_[root] = base::MakeUnique<ScreenshotLayer>(
+        Shell::GetContainer(root, kShellWindowId_OverlayContainer)->layer(),
+        true);
   }
   SetSelectedWindow(wm::GetActiveWindow());
 
@@ -259,7 +273,8 @@ void ScreenshotController::StartWindowScreenshotSession(
 }
 
 void ScreenshotController::StartPartialScreenshotSession(
-    ScreenshotDelegate* screenshot_delegate) {
+    ScreenshotDelegate* screenshot_delegate,
+    bool draw_overlay_immediately) {
   // Already in a screenshot session.
   if (screenshot_delegate_) {
     DCHECK_EQ(screenshot_delegate_, screenshot_delegate);
@@ -270,14 +285,37 @@ void ScreenshotController::StartPartialScreenshotSession(
   mode_ = PARTIAL;
   display::Screen::GetScreen()->AddObserver(this);
   for (aura::Window* root : Shell::GetAllRootWindows()) {
-    layers_[root] = new ScreenshotLayer(
-        Shell::GetContainer(root, kShellWindowId_OverlayContainer)->layer());
+    layers_[root] = base::MakeUnique<ScreenshotLayer>(
+        Shell::GetContainer(root, kShellWindowId_OverlayContainer)->layer(),
+        draw_overlay_immediately);
   }
 
-  cursor_setter_.reset(new ScopedCursorSetter(
-      Shell::GetInstance()->cursor_manager(), ui::kCursorCross));
+  if (!pen_events_only_) {
+    cursor_setter_.reset(new ScopedCursorSetter(
+        Shell::GetInstance()->cursor_manager(), ui::kCursorCross));
+  }
 
   EnableMouseWarp(false);
+}
+
+void ScreenshotController::CancelScreenshotSession() {
+  mode_ = NONE;
+  pen_events_only_ = false;
+  root_window_ = nullptr;
+  SetSelectedWindow(nullptr);
+  screenshot_delegate_ = nullptr;
+  display::Screen::GetScreen()->RemoveObserver(this);
+  layers_.clear();
+  cursor_setter_.reset();
+  EnableMouseWarp(true);
+
+  if (on_screenshot_session_done_) {
+    // Copy the closure to a temporary value so that if it calls
+    // CancelScreenshotSession we do not loop forever.
+    base::Closure on_done = on_screenshot_session_done_;
+    on_screenshot_session_done_.Reset();
+    on_done.Run();
+  }
 }
 
 void ScreenshotController::MaybeStart(const ui::LocatedEvent& event) {
@@ -294,11 +332,13 @@ void ScreenshotController::MaybeStart(const ui::LocatedEvent& event) {
   } else {
     root_window_ = current_root;
     start_position_ = event.root_location();
-    // ScopedCursorSetter must be reset first to make sure that its dtor is
-    // called before ctor is called.
-    cursor_setter_.reset();
-    cursor_setter_.reset(new ScopedCursorSetter(
-        Shell::GetInstance()->cursor_manager(), ui::kCursorNone));
+    if (!pen_events_only_) {
+      // ScopedCursorSetter must be reset first to make sure that its dtor is
+      // called before ctor is called.
+      cursor_setter_.reset();
+      cursor_setter_.reset(new ScopedCursorSetter(
+          Shell::GetInstance()->cursor_manager(), ui::kCursorNone));
+    }
     Update(event);
   }
 }
@@ -306,7 +346,7 @@ void ScreenshotController::MaybeStart(const ui::LocatedEvent& event) {
 void ScreenshotController::CompleteWindowScreenshot() {
   if (selected_)
     screenshot_delegate_->HandleTakeWindowScreenshot(selected_);
-  Cancel();
+  CancelScreenshotSession();
 }
 
 void ScreenshotController::CompletePartialScreenshot() {
@@ -327,18 +367,7 @@ void ScreenshotController::CompletePartialScreenshot() {
     screenshot_delegate_->HandleTakePartialScreenshot(
         root_window_, gfx::IntersectRects(root_window_->bounds(), region));
   }
-  Cancel();
-}
-
-void ScreenshotController::Cancel() {
-  mode_ = NONE;
-  root_window_ = nullptr;
-  SetSelectedWindow(nullptr);
-  screenshot_delegate_ = nullptr;
-  display::Screen::GetScreen()->RemoveObserver(this);
-  STLDeleteValues(&layers_);
-  cursor_setter_.reset();
-  EnableMouseWarp(true);
+  CancelScreenshotSession();
 }
 
 void ScreenshotController::Update(const ui::LocatedEvent& event) {
@@ -348,7 +377,7 @@ void ScreenshotController::Update(const ui::LocatedEvent& event) {
     MaybeStart(event);
   DCHECK(layers_.find(root_window_) != layers_.end());
 
-  ScreenshotLayer* layer = layers_.at(root_window_);
+  ScreenshotLayer* layer = layers_.at(root_window_).get();
   layer->set_cursor_location_in_root(event.root_location());
   layer->SetRegion(
       gfx::Rect(std::min(start_position_.x(), event.root_location().x()),
@@ -366,8 +395,8 @@ void ScreenshotController::UpdateSelectedWindow(ui::LocatedEvent* event) {
     selected = selected->parent();
   }
 
-  if (selected->parent()->id() == kShellWindowId_DesktopBackgroundContainer ||
-      selected->parent()->id() == kShellWindowId_LockScreenBackgroundContainer)
+  if (selected->parent()->id() == kShellWindowId_WallpaperContainer ||
+      selected->parent()->id() == kShellWindowId_LockScreenWallpaperContainer)
     selected = nullptr;
 
   SetSelectedWindow(selected);
@@ -390,24 +419,34 @@ void ScreenshotController::SetSelectedWindow(aura::Window* selected) {
   }
 }
 
+bool ScreenshotController::ShouldProcessEvent(
+    const ui::PointerDetails& pointer_details) const {
+  return !pen_events_only_ ||
+         pointer_details.pointer_type == ui::EventPointerType::POINTER_TYPE_PEN;
+}
+
 void ScreenshotController::OnKeyEvent(ui::KeyEvent* event) {
   if (!screenshot_delegate_)
     return;
 
   if (event->type() == ui::ET_KEY_RELEASED) {
     if (event->key_code() == ui::VKEY_ESCAPE) {
-      Cancel();
+      CancelScreenshotSession();
+      event->StopPropagation();
     } else if (event->key_code() == ui::VKEY_RETURN && mode_ == WINDOW) {
       CompleteWindowScreenshot();
+      event->StopPropagation();
     }
   }
 
-  // Intercepts all key events.
-  event->StopPropagation();
+  // Stop all key events except if the user is using a pointer, in which case
+  // they should be able to continue manipulating the screen.
+  if (!pen_events_only_)
+    event->StopPropagation();
 }
 
 void ScreenshotController::OnMouseEvent(ui::MouseEvent* event) {
-  if (!screenshot_delegate_)
+  if (!screenshot_delegate_ || !ShouldProcessEvent(event->pointer_details()))
     return;
   switch (mode_) {
     case NONE:
@@ -448,7 +487,7 @@ void ScreenshotController::OnMouseEvent(ui::MouseEvent* event) {
 }
 
 void ScreenshotController::OnTouchEvent(ui::TouchEvent* event) {
-  if (!screenshot_delegate_)
+  if (!screenshot_delegate_ || !ShouldProcessEvent(event->pointer_details()))
     return;
   switch (mode_) {
     case NONE:
@@ -491,14 +530,14 @@ void ScreenshotController::OnTouchEvent(ui::TouchEvent* event) {
 void ScreenshotController::OnDisplayAdded(const display::Display& new_display) {
   if (!screenshot_delegate_)
     return;
-  Cancel();
+  CancelScreenshotSession();
 }
 
 void ScreenshotController::OnDisplayRemoved(
     const display::Display& old_display) {
   if (!screenshot_delegate_)
     return;
-  Cancel();
+  CancelScreenshotSession();
 }
 
 void ScreenshotController::OnDisplayMetricsChanged(

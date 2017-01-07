@@ -14,8 +14,8 @@ import json
 from google.appengine.ext import ndb
 
 from dashboard import layered_cache
-from dashboard import request_handler
-from dashboard import utils
+from dashboard.common import request_handler
+from dashboard.common import utils
 from dashboard.models import graph_data
 
 
@@ -205,9 +205,10 @@ def GetTestsMatchingPattern(pattern, only_with_rows=False, list_entities=False):
   """
   property_names = [
       'master_name', 'bot_name', 'suite_name', 'test_part1_name',
-      'test_part2_name', 'test_part3_name', 'test_part4_name']
+      'test_part2_name', 'test_part3_name', 'test_part4_name',
+      'test_part5_name']
   pattern_parts = pattern.split('/')
-  if len(pattern_parts) > 7:
+  if len(pattern_parts) > 8:
     return []
 
   # Below, we first build a list of (property_name, value) pairs to filter on.
@@ -218,6 +219,10 @@ def GetTestsMatchingPattern(pattern, only_with_rows=False, list_entities=False):
   for index in range(len(pattern_parts), 7):
     # Tests longer than the desired pattern will have non-empty property names,
     # so they can be filtered out by matching against an empty string.
+    # Bug: 'test_part5_name' was added recently, and TestMetadata entities which
+    # were created before then do not match it. Since it is the last part, and
+    # rarely used, it's okay not to test for it. See
+    # https://github.com/catapult-project/catapult/issues/2885
     query_filters.append((property_names[index], ''))
 
   # Query tests based on the above filters. Pattern parts with * won't be

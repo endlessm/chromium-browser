@@ -58,13 +58,13 @@ var RoleType = chrome.automation.RoleType;
  */
 Output = function() {
   // TODO(dtseng): Include braille specific rules.
-  /** @type {!Array<!Spannable>} */
+  /** @type {!Array<!Spannable>} @private */
   this.speechBuffer_ = [];
-  /** @type {!Array<!Spannable>} */
+  /** @type {!Array<!Spannable>} @private */
   this.brailleBuffer_ = [];
-  /** @type {!Array<!Object>} */
+  /** @type {!Array<!Object>} @private */
   this.locations_ = [];
-  /** @type {function(?)} */
+  /** @type {function(?)} @private */
   this.speechEndCallback_;
 
   /**
@@ -87,6 +87,12 @@ Output = function() {
    * @private
    */
   this.queueMode_ = cvox.QueueMode.QUEUE;
+
+  /**
+   * @type {boolean}
+   * @private
+   */
+  this.outputContextFirst_ = localStorage['outputContextFirst'] == 'true';
 };
 
 /**
@@ -135,15 +141,12 @@ Output.ROLE_INFO_ = {
     msgId: 'role_button',
     earconId: 'BUTTON'
   },
-  cell: {
-    msgId: 'role_gridcell'
-  },
   checkBox: {
     msgId: 'role_checkbox'
   },
   columnHeader: {
     msgId: 'role_columnheader',
-    inherits: 'abstractContainer'
+    inherits: 'cell'
   },
   comboBox: {
     msgId: 'role_combobox'
@@ -183,7 +186,8 @@ Output.ROLE_INFO_ = {
     msgId: 'role_grid'
   },
   group: {
-    msgId: 'role_group'
+    msgId: 'role_group',
+    inherits: 'abstractContainer'
   },
   heading: {
     msgId: 'role_heading',
@@ -232,20 +236,16 @@ Output.ROLE_INFO_ = {
     msgId: 'role_menubar',
   },
   menuItem: {
-    msgId: 'role_menuitem',
-    ignoreAncestry: true
+    msgId: 'role_menuitem'
   },
   menuItemCheckBox: {
-    msgId: 'role_menuitemcheckbox',
-    ignoreAncestry: true
+    msgId: 'role_menuitemcheckbox'
   },
   menuItemRadio: {
-    msgId: 'role_menuitemradio',
-    ignoreAncestry: true
+    msgId: 'role_menuitemradio'
   },
   menuListOption: {
-    msgId: 'role_menuitem',
-    ignoreAncestry: true
+    msgId: 'role_menuitem'
   },
   menuListPopup: {
     msgId: 'role_menu'
@@ -268,9 +268,13 @@ Output.ROLE_INFO_ = {
   radioGroup: {
     msgId: 'role_radiogroup',
   },
+  row: {
+    msgId: 'role_row',
+    inherits: 'abstractContainer'
+  },
   rowHeader: {
     msgId: 'role_rowheader',
-    inherits: 'abstractContainer'
+    inherits: 'cell'
   },
   scrollBar: {
     msgId: 'role_scrollbar',
@@ -359,23 +363,17 @@ Output.STATE_INFO_ = {
       msgId: 'aria_expanded_true'
     }
   },
+  disabled: {
+    on: {
+      msgId: 'aria_disabled_true'
+    }
+  },
   expanded: {
     on: {
       msgId: 'aria_expanded_true'
     },
     off: {
       msgId: 'aria_expanded_false'
-    }
-  },
-  pressed: {
-    on: {
-      msgId: 'aria_pressed_true'
-    },
-    off: {
-      msgId: 'aria_pressed_false'
-    },
-        omitted: {
-      msgId: 'aria_pressed_false'
     }
   },
   visited: {
@@ -411,22 +409,31 @@ Output.RULES = {
       braille: ''
     },
     abstractContainer: {
-      enter: '$nameFromNode $role $description',
+      enter: '$nameFromNode $role $state $description',
       leave: '@exited_container($role)'
     },
     alert: {
-      speak: '!doNotInterrupt $role $descendants'
+      speak: '!doNotInterrupt $role $descendants $state'
     },
     alertDialog: {
       enter: '$nameFromNode $role $description',
-      speak: '$name $role $descendants'
+      speak: '$name $role $descendants $state'
     },
     cell: {
-      enter: '@column_granularity $tableCellColumnIndex'
+      enter: '@cell_summary($tableCellRowIndex, $tableCellColumnIndex) ' +
+          '$node(tableColumnHeader)',
+      speak: '@cell_summary($tableCellRowIndex, $tableCellColumnIndex) ' +
+          '$node(tableColumnHeader) $state'
     },
     checkBox: {
       speak: '$if($checked, $earcon(CHECK_ON), $earcon(CHECK_OFF)) ' +
-             '$name $role $checked $description'
+             '$name $role $checked $description $state'
+    },
+    client: {
+      speak: '$name'
+    },
+    date: {
+      enter: '$nameFromNode $role $description'
     },
     dialog: {
       enter: '$nameFromNode $role $description'
@@ -438,21 +445,31 @@ Output.RULES = {
     grid: {
       enter: '$nameFromNode $role $description'
     },
+    group: {
+      enter: '$nameFromNode $state $description',
+      speak: '$nameOrDescendants $value $state $description',
+      leave: ''
+    },
     heading: {
       enter: '!relativePitch(hierarchicalLevel) ' +
-          '$nameFromNode= @tag_h+$hierarchicalLevel',
-      speak: '!relativePitch(hierarchicalLevel)' +
-          ' $nameOrDescendants= @tag_h+$hierarchicalLevel'
+          '$nameFromNode= ' +
+          '$if($hierarchicalLevel, @tag_h+$hierarchicalLevel, $role) $state',
+      speak: '!relativePitch(hierarchicalLevel) ' +
+          '$nameOrDescendants= ' +
+          '$if($hierarchicalLevel, @tag_h+$hierarchicalLevel, $role) $state'
     },
     inlineTextBox: {
       speak: '$name='
     },
+    inputTime: {
+      enter: '$nameFromNode $role $description'
+    },
     link: {
-      enter: '$nameFromNode= $if($visited, @visited_link, $role)',
-      speak: '$name= $if($visited, @visited_link, $role) $description'
+      enter: '$nameFromNode= $role $state'
     },
     list: {
-      enter: '$role @@list_with_items($countChildren(listItem))'
+      enter: '$role @@list_with_items($countChildren(listItem))',
+      speak: '$descendants $role @@list_with_items($countChildren(listItem))'
     },
     listBox: {
       enter: '$nameFromNode ' +
@@ -461,19 +478,19 @@ Output.RULES = {
     },
     listBoxOption: {
       speak: '$name $role @describe_index($indexInParent, $parentChildCount) ' +
-          '$description'
+          '$description $state'
     },
     listItem: {
       enter: '$role'
     },
     menu: {
       enter: '$name $role',
-      speak: '$name $role @@list_with_items($countChildren(menuItem))'
+      speak: '$name $role @@list_with_items($countChildren(menuItem)) $state'
     },
     menuItem: {
       speak: '$name $role $if($haspopup, @has_submenu) ' +
           '@describe_index($indexInParent, $parentChildCount) ' +
-          '$description'
+          '$description $state'
     },
     menuItemCheckBox: {
       speak: '$if($checked, $earcon(CHECK_ON), $earcon(CHECK_OFF)) ' +
@@ -495,8 +512,7 @@ Output.RULES = {
     },
     popUpButton: {
       speak: '$value $name $role @aria_has_popup ' +
-          '$if($collapsed, @aria_expanded_false, @aria_expanded_true) ' +
-          '$description'
+          '$state $description'
     },
     radioButton: {
       speak: '$if($checked, $earcon(CHECK_ON), $earcon(CHECK_OFF)) ' +
@@ -514,25 +530,41 @@ Output.RULES = {
       speak: '$descendants'
     },
     row: {
-      enter: '@row_granularity $tableRowIndex'
+      enter: '$node(tableRowHeader)'
+    },
+    rowHeader: {
+      speak: '$descendants $state'
     },
     slider: {
-      speak: '$earcon(SLIDER) @describe_slider($value, $name) $description'
+      speak: '$earcon(SLIDER) @describe_slider($value, $name) $description ' +
+          '$state'
     },
     staticText: {
       speak: '$name='
     },
     tab: {
-      speak: '@describe_tab($name)'
+      speak: '@describe_tab($name) $state $description'
+    },
+    table: {
+      enter: '@table_summary($name, $tableRowCount, $tableColumnCount) ' +
+          '$node(tableHeader)'
+    },
+    tableHeaderContainer: {
+      speak: '$descendants $state $description'
     },
     textField: {
       speak: '$name $value $if($multiline, @tag_textarea, $if(' +
-          '$inputType, $inputType, $role)) $description',
+          '$inputType, $inputType, $role)) $description $state',
       braille: ''
+    },
+        timer: {
+      speak: '$nameFromNode $descendants $value $state $description'
     },
     toggleButton: {
       speak: '$if($pressed, $earcon(CHECK_ON), $earcon(CHECK_OFF)) ' +
-             '$name $role $pressed $description'
+          '$name $role ' +
+          '$if($pressed, @aria_pressed_true, @aria_pressed_false) ' +
+          '$description $state'
     },
     toolbar: {
       enter: '$name $role $description'
@@ -542,6 +574,10 @@ Output.RULES = {
     },
     treeItem: {
       enter: '$role $expanded $collapsed ' +
+          '@describe_index($indexInParent, $parentChildCount) ' +
+          '@describe_depth($hierarchicalLevel)',
+      speak: '$name ' +
+          '$role $state ' +
           '@describe_index($indexInParent, $parentChildCount) ' +
           '@describe_depth($hierarchicalLevel)'
     },
@@ -648,44 +684,24 @@ Output.EventType = {
 };
 
 /**
- * If true, the next speech utterance will flush instead of the normal
+ * If set, the next speech utterance will use this value instead of the normal
  * queueing mode.
- * @type {boolean}
+ * @type {cvox.QueueMode|undefined}
  * @private
  */
-Output.flushNextSpeechUtterance_ = false;
+Output.forceModeForNextSpeechUtterance_;
 
 /**
- * Calling this will make the next speech utterance flush even if it would
- * normally queue or do a category flush.
+ * Calling this will make the next speech utterance use |mode| even if it would
+ * normally queue or do a category flush. This differs from the |withQueueMode|
+ * instance method as it can apply to future output.
+   * @param {cvox.QueueMode} mode
  */
-Output.flushNextSpeechUtterance = function() {
-  Output.flushNextSpeechUtterance_ = true;
+Output.forceModeForNextSpeechUtterance = function(mode) {
+  Output.forceModeForNextSpeechUtterance_ = mode;
 };
 
 Output.prototype = {
-  /**
-   * Gets the spoken output with separator '|'.
-   * @return {!Spannable}
-   */
-  get speechOutputForTest() {
-    return this.speechBuffer_.reduce(function(prev, cur) {
-      if (prev === null)
-        return cur;
-      prev.append('|');
-      prev.append(cur);
-      return prev;
-    }, null);
-  },
-
-  /**
-   * Gets the output buffer for braille.
-   * @return {!Spannable}
-   */
-  get brailleOutputForTest() {
-    return this.createBrailleOutput_();
-  },
-
   /**
    * @return {boolean} True if there's any speech that will be output.
    */
@@ -806,6 +822,16 @@ Output.prototype = {
     return this;
   },
 
+
+  /**
+   * Outputs formatting nodes after this will contain context first.
+   * @return {!Output}
+   */
+  withContextFirst: function() {
+    this.outputContextFirst_ = true;
+    return this;
+  },
+
   /**
    * Apply a format string directly to the output buffer. This lets you
    * output a message directly to the buffer using the format syntax.
@@ -857,6 +883,7 @@ Output.prototype = {
   /**
    * Triggers callback for a speech event.
    * @param {function()} callback
+   * @return {Output}
    */
   onSpeechEnd: function(callback) {
     this.speechEndCallback_ = function(opt_cleanupOnly) {
@@ -873,9 +900,10 @@ Output.prototype = {
     // Speech.
     var queueMode = this.queueMode_;
     this.speechBuffer_.forEach(function(buff, i, a) {
-      if (Output.flushNextSpeechUtterance_ && buff.length > 0) {
-        queueMode = cvox.QueueMode.FLUSH;
-        Output.flushNextSpeechUtterance_ = false;
+      if (Output.forceModeForNextSpeechUtterance_ !== undefined &&
+          buff.length > 0) {
+        queueMode = Output.forceModeForNextSpeechUtterance_;
+        Output.forceModeForNextSpeechUtterance_ = undefined;
       }
 
       var speechProps = {};
@@ -1065,11 +1093,10 @@ Output.prototype = {
             this.append_(buff, String(count));
           }
         } else if (token == 'state') {
-          options.annotation.push(token);
           Object.getOwnPropertyNames(node.state).forEach(function(s) {
             var stateInfo = Output.STATE_INFO_[s];
             if (stateInfo && stateInfo.on)
-              this.append_(buff, Msgs.getMsg(stateInfo.on.msgId), options);
+              this.format_(node, '@' + stateInfo.on.msgId, buff);
           }.bind(this));
         } else if (token == 'find') {
           // Find takes two arguments: JSON query string and format string.
@@ -1082,24 +1109,24 @@ Output.prototype = {
               this.format_(node, formatString, buff);
           }
         } else if (token == 'descendants') {
-          if (!node || AutomationPredicate.leaf(node))
+          if (!node || AutomationPredicate.leafOrStaticText(node))
             return;
 
           // Construct a range to the leftmost and rightmost leaves.
           var leftmost = AutomationUtil.findNodePre(
-              node, Dir.FORWARD, AutomationPredicate.leaf);
+              node, Dir.FORWARD, AutomationPredicate.leafOrStaticText);
           var rightmost = AutomationUtil.findNodePre(
-              node, Dir.BACKWARD, AutomationPredicate.leaf);
+              node, Dir.BACKWARD, AutomationPredicate.leafOrStaticText);
           if (!leftmost || !rightmost)
             return;
 
           var subrange = new cursors.Range(
-              new cursors.Cursor(leftmost, 0),
-              new cursors.Cursor(rightmost, 0));
+              new cursors.Cursor(leftmost, cursors.NODE_INDEX),
+              new cursors.Cursor(rightmost, cursors.NODE_INDEX));
           var prev = null;
           if (node)
             prev = cursors.Range.fromNode(node);
-          this.range_(subrange, prev, Output.EventType.NAVIGATE, buff);
+          this.render_(subrange, prev, Output.EventType.NAVIGATE, buff);
         } else if (token == 'joinedDescendants') {
           var unjoined = [];
           this.format_(node, '$descendants', unjoined);
@@ -1133,14 +1160,19 @@ Output.prototype = {
           if (this.formatOptions_.braille)
             msgId = msgId + '_brl';
           this.append_(buff, Msgs.getMsg(msgId), options);
-        } else if (token == 'tableRowIndex' ||
+        } else if (token == 'tableCellRowIndex' ||
             token == 'tableCellColumnIndex') {
           var value = node[token];
-          if (!value)
+          if (value == undefined)
             return;
           value = String(value + 1);
           options.annotation.push(token);
           this.append_(buff, value, options);
+        } else if (token == 'node') {
+          if (!tree.firstChild || !node[tree.firstChild.value])
+            return;
+          var related = node[tree.firstChild.value];
+          this.node_(related, related, Output.EventType.NAVIGATE, buff);
         } else if (node[token] !== undefined) {
           options.annotation.push(token);
           var value = node[token];
@@ -1218,6 +1250,9 @@ Output.prototype = {
             }
             var msgBuff = [];
             this.format_(node, curArg, msgBuff);
+            // Fill in empty string if nothing was formatted.
+            if (!msgBuff.length)
+              msgBuff = [''];
             msgArgs = msgArgs.concat(msgBuff);
             curArg = curArg.nextSibling;
           }
@@ -1300,18 +1335,21 @@ Output.prototype = {
 
     var formatNodeAndAncestors = function(node, prevNode) {
       var buff = [];
-      var outputContextFirst = localStorage['outputContextFirst'] == 'true';
-      if (outputContextFirst)
+
+      if (this.outputContextFirst_)
         this.ancestry_(node, prevNode, type, buff);
       this.node_(node, prevNode, type, buff);
-      if (!outputContextFirst)
+      if (!this.outputContextFirst_)
         this.ancestry_(node, prevNode, type, buff);
       if (node.location)
         this.locations_.push(node.location);
       return buff;
     }.bind(this);
 
-    while (cursor.node != range.end.node) {
+    while (cursor.node &&
+        range.end.node &&
+        AutomationUtil.getDirection(cursor.node, range.end.node) ==
+        Dir.FORWARD) {
       var node = cursor.node;
       rangeBuff.push.apply(rangeBuff, formatNodeAndAncestors(node, prevNode));
       prevNode = node;
@@ -1323,8 +1361,6 @@ Output.prototype = {
       if (cursor.node == prevNode)
         break;
     }
-    var lastNode = range.end.node;
-    rangeBuff.push.apply(rangeBuff, formatNodeAndAncestors(lastNode, prevNode));
   },
 
   /**
@@ -1372,6 +1408,7 @@ Output.prototype = {
          i++) {
       // This prevents very repetitive announcements.
       if (enteredRoleSet[formatPrevNode.role] ||
+          node.role == formatPrevNode.role ||
           localStorage['useVerboseMode'] == 'false')
         continue;
 
@@ -1448,15 +1485,15 @@ Output.prototype = {
             startIndex));
       }
     }
-    var outputContextFirst = localStorage['outputContextFirst'] == 'true';
-    if (outputContextFirst)
+
+    if (this.outputContextFirst_)
       this.ancestry_(node, prevNode, type, buff);
     var earcon = this.findEarcon_(node, prevNode);
     if (earcon)
       options.annotation.push(earcon);
     this.append_(buff, range.start.getText().substring(startIndex, endIndex),
         options);
-    if (!outputContextFirst)
+    if (!this.outputContextFirst_)
       this.ancestry_(node, prevNode, type, buff);
 
     var loc =
@@ -1646,6 +1683,41 @@ Output.prototype = {
       }
     }
     return null;
+  },
+
+  /**
+   * Gets a human friendly string with the contents of output.
+   * @return {string}
+   */
+  toString: function() {
+    return this.speechBuffer_.reduce(function(prev, cur) {
+      if (prev === null)
+        return cur.toString();
+      prev += ' ' + cur.toString();
+      return prev;
+    }, null);
+  },
+
+  /**
+   * Gets the spoken output with separator '|'.
+   * @return {!Spannable}
+   */
+  get speechOutputForTest() {
+    return this.speechBuffer_.reduce(function(prev, cur) {
+      if (prev === null)
+        return cur;
+      prev.append('|');
+      prev.append(cur);
+      return prev;
+    }, null);
+  },
+
+  /**
+   * Gets the output buffer for braille.
+   * @return {!Spannable}
+   */
+  get brailleOutputForTest() {
+    return this.createBrailleOutput_();
   }
 };
 

@@ -7,23 +7,17 @@ package org.chromium.android_webview;
 import android.content.Context;
 import android.content.Intent;
 import android.view.KeyEvent;
-import android.view.View;
-import android.webkit.URLUtil;
-import android.webkit.WebChromeClient;
-import android.widget.FrameLayout;
 
-import org.chromium.content.browser.ContentVideoViewEmbedder;
 import org.chromium.content.browser.ContentViewClient;
 
 /**
  * ContentViewClient implementation for WebView
  */
-public class AwContentViewClient extends ContentViewClient implements ContentVideoViewEmbedder {
+public class AwContentViewClient extends ContentViewClient {
     private final AwContentsClient mAwContentsClient;
     private final AwSettings mAwSettings;
     private final AwContents mAwContents;
     private final Context mContext;
-    private FrameLayout mCustomView;
 
     public AwContentViewClient(AwContentsClient awContentsClient, AwSettings awSettings,
             AwContents awContents, Context context) {
@@ -63,42 +57,6 @@ public class AwContentViewClient extends ContentViewClient implements ContentVid
     }
 
     @Override
-    public final ContentVideoViewEmbedder getContentVideoViewEmbedder() {
-        return this;
-    }
-
-    @Override
-    public boolean shouldBlockMediaRequest(String url) {
-        return mAwSettings != null
-                ? mAwSettings.getBlockNetworkLoads() && URLUtil.isNetworkUrl(url) : true;
-    }
-
-    @Override
-    public void enterFullscreenVideo(View videoView) {
-        if (mCustomView == null) {
-            // enterFullscreenVideo will only be called after enterFullscreen, but
-            // in this case exitFullscreen has been invoked in between them.
-            // TODO(igsolla): Fix http://crbug/425926 and replace with assert.
-            return;
-        }
-        mCustomView.addView(videoView, 0);
-    }
-
-    @Override
-    public void exitFullscreenVideo() {
-        // Intentional no-op
-    }
-
-    @Override
-    public View getVideoLoadingProgressView() {
-        return mAwContentsClient.getVideoLoadingProgressView();
-    }
-
-    @Override
-    public void setSystemUiVisibility(boolean enterFullscreen) {
-    }
-
-    @Override
     public boolean doesPerformProcessText() {
         return true;
     }
@@ -111,50 +69,5 @@ public class AwContentViewClient extends ContentViewClient implements ContentVid
     @Override
     public boolean isSelectActionModeAllowed(int actionModeItem) {
         return mAwContents.isSelectActionModeAllowed(actionModeItem);
-    }
-
-    /**
-     * Called to show the web contents in fullscreen mode.
-     *
-     * <p>If entering fullscreen on a video element the web contents will contain just
-     * the html5 video controls. {@link #enterFullscreenVideo(View)} will be called later
-     * once the ContentVideoView, which contains the hardware accelerated fullscreen video,
-     * is ready to be shown.
-     */
-    public void enterFullscreen() {
-        if (mAwContents.isFullScreen()) {
-            return;
-        }
-        View fullscreenView = mAwContents.enterFullScreen();
-        if (fullscreenView == null) {
-            return;
-        }
-        WebChromeClient.CustomViewCallback cb = new WebChromeClient.CustomViewCallback() {
-            @Override
-            public void onCustomViewHidden() {
-                if (mCustomView != null) {
-                    mAwContents.requestExitFullscreen();
-                }
-            }
-        };
-        mCustomView = new FrameLayout(mContext);
-        mCustomView.addView(fullscreenView);
-        mAwContentsClient.onShowCustomView(mCustomView, cb);
-    }
-
-    /**
-     * Called to show the web contents in embedded mode.
-     */
-    public void exitFullscreen() {
-        if (mCustomView != null) {
-            mCustomView = null;
-            mAwContents.exitFullScreen();
-            mAwContentsClient.onHideCustomView();
-        }
-    }
-
-    @Override
-    public String getProductVersion() {
-        return AwContentsStatics.getProductVersion();
     }
 }

@@ -5,23 +5,14 @@
 #ifndef CHROME_BROWSER_UI_COCOA_TAB_CONTENTS_SAD_TAB_VIEW_COCOA_H_
 #define CHROME_BROWSER_UI_COCOA_TAB_CONTENTS_SAD_TAB_VIEW_COCOA_H_
 
-#include "base/mac/scoped_nsobject.h"
-
 #import <Cocoa/Cocoa.h>
 
-namespace content {
-class WebContents;
-}
-
-@class SadTabContainerView;
+#include "chrome/browser/ui/sad_tab.h"
 
 // A view that displays the "sad tab" (aka crash page).
-@interface SadTabView : NSView {
- @private
-  base::scoped_nsobject<SadTabContainerView> container_;
-}
+@interface SadTabView : NSView
 
-@property(readonly,nonatomic) NSButton* reloadButton;
+- (instancetype)initWithFrame:(NSRect)frame sadTab:(chrome::SadTab*)sadTab;
 
 @end
 

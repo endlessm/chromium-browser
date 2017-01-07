@@ -6,10 +6,12 @@
 
 #include <vector>
 
+#include "ash/aura/wm_window_aura.h"
+#include "ash/common/shelf/shelf_delegate.h"
 #include "ash/common/shelf/shelf_model.h"
-#include "ash/shelf/shelf_delegate.h"
-#include "ash/shelf/shelf_util.h"
-#include "ash/shell.h"
+#include "ash/common/wm_shell.h"
+#include "ash/common/wm_window_property.h"
+#include "ash/resources/grit/ash_resources.h"
 #include "ash/wm/window_util.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/ash/launcher/chrome_launcher_app_menu_item.h"
@@ -33,7 +35,6 @@
 #include "components/strings/grit/components_strings.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/url_constants.h"
-#include "grit/ash_resources.h"
 #include "ui/aura/window.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/resource/resource_bundle.h"
@@ -64,6 +65,7 @@ BrowserShortcutLauncherItemController::BrowserShortcutLauncherItemController(
     ash::ShelfModel* shelf_model)
     : LauncherItemController(TYPE_SHORTCUT,
                              extension_misc::kChromeAppId,
+                             "",
                              launcher_controller),
       shelf_model_(shelf_model) {}
 
@@ -72,11 +74,6 @@ BrowserShortcutLauncherItemController::
 }
 
 void BrowserShortcutLauncherItemController::UpdateBrowserItemState() {
-  // The shell will not be available for win7_aura unittests like
-  // ChromeLauncherControllerTest.BrowserMenuGeneration.
-  if (!ash::Shell::HasInstance())
-    return;
-
   // Determine the new browser's active state and change if necessary.
   int browser_index =
       shelf_model_->GetItemIndexForType(ash::TYPE_BROWSER_SHORTCUT);
@@ -121,15 +118,16 @@ void BrowserShortcutLauncherItemController::UpdateBrowserItemState() {
 void BrowserShortcutLauncherItemController::SetShelfIDForBrowserWindowContents(
     Browser* browser,
     content::WebContents* web_contents) {
-  // We need to call SetShelfIDForWindow for V1 applications since they are
+  // We need to set the window ShelfID for V1 applications since they are
   // content which might change and as such change the application type.
   if (!browser || !IsBrowserFromActiveUser(browser) ||
       IsSettingsBrowser(browser))
     return;
 
-  ash::SetShelfIDForWindow(
-      launcher_controller()->GetShelfIDForWebContents(web_contents),
-      browser->window()->GetNativeWindow());
+  ash::WmWindowAura::Get(browser->window()->GetNativeWindow())
+      ->SetIntProperty(
+          ash::WmWindowProperty::SHELF_ID,
+          launcher_controller()->GetShelfIDForWebContents(web_contents));
 }
 
 bool BrowserShortcutLauncherItemController::IsOpen() const {
@@ -227,7 +225,7 @@ BrowserShortcutLauncherItemController::ItemSelected(const ui::Event& event) {
 
   // In case of a keyboard event, we were called by a hotkey. In that case we
   // activate the next item in line if an item of our list is already active.
-  if (event.type() & ui::ET_KEY_RELEASED) {
+  if (event.type() == ui::ET_KEY_RELEASED) {
     return ActivateOrAdvanceToNextBrowser();
   }
 
@@ -310,7 +308,7 @@ BrowserShortcutLauncherItemController::ActivateOrAdvanceToNextBrowser() {
     }
     browser = items[0];
   } else {
-    // If there is more then one suitable browser, we advance to the next if
+    // If there is more than one suitable browser, we advance to the next if
     // |browser| is already active - or - check the last used browser if it can
     // be used.
     std::vector<Browser*>::iterator i =
@@ -338,9 +336,8 @@ bool BrowserShortcutLauncherItemController::IsBrowserRepresentedInBrowserList(
     return false;
 
   // v1 App popup windows with a valid app id have their own icon.
-  if (browser->is_app() &&
-      browser->is_type_popup() &&
-      ash::Shell::GetInstance()->GetShelfDelegate()->GetShelfIDForAppID(
+  if (browser->is_app() && browser->is_type_popup() &&
+      ash::WmShell::Get()->shelf_delegate()->GetShelfIDForAppID(
           web_app::GetExtensionIdFromApplicationName(browser->app_name())) > 0)
     return false;
 

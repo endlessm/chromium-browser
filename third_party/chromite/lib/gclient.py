@@ -166,6 +166,9 @@ def _GetGclientSolutions(internal, rev, template):
     solution.setdefault('custom_deps', {})
     solution.setdefault('custom_vars', {})
 
+    # Use managed:True for now, see crbug.com/624177
+    solution.setdefault('managed', True)
+
   return solutions
 
 
@@ -182,7 +185,10 @@ def _GetGclientSpec(internal, rev, template, use_cache):
   # cache set up; but how can we tell whether this code is running on a bot
   # or a developer's machine?
   if cros_build_lib.HostIsCIBuilder() and use_cache:
-    result += "cache_dir = '/b/git-cache'\n"
+    if cros_build_lib.IsInsideChroot():
+      result += "cache_dir = '/tmp/b/git-cache'\n"
+    else:
+      result += "cache_dir = '/b/git-cache'\n"
 
   return result
 

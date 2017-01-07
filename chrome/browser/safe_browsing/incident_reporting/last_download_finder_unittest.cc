@@ -71,8 +71,8 @@ std::unique_ptr<KeyedService> BuildHistoryService(
 
   std::unique_ptr<history::HistoryService> history_service(
       new history::HistoryService(
-          base::WrapUnique(new ChromeHistoryClient(
-              BookmarkModelFactory::GetForProfile(profile))),
+          base::MakeUnique<ChromeHistoryClient>(
+              BookmarkModelFactory::GetForBrowserContext(profile)),
           std::unique_ptr<history::VisitDelegate>()));
   if (history_service->Init(
           history::HistoryDatabaseParamsForPath(profile->GetPath()))) {
@@ -389,7 +389,8 @@ TEST_F(LastDownloadFinderTest, NonBinaryOnly) {
 // enabled.
 TEST_F(LastDownloadFinderTest, SimpleEndToEndFieldTrial) {
   // Set up a field trial
-  base::FieldTrialList field_trial_list(new base::MockEntropyProvider());
+  base::FieldTrialList field_trial_list(
+      base::MakeUnique<base::MockEntropyProvider>());
   base::FieldTrialList::CreateFieldTrial("SafeBrowsingIncidentReportingService",
                                          "Enabled");
   // Create a profile with a history service that is opted-in to Safe Browsing

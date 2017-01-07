@@ -89,7 +89,6 @@ class SmoothnessToughPathRenderingCases(_Smoothness):
 
 
 @benchmark.Disabled('android')  # crbug.com/526901
-@benchmark.Disabled('win', 'mac')  # crbug.com/623105
 class SmoothnessToughCanvasCases(_Smoothness):
   """Measures frame rate and a variety of other statistics.
 
@@ -283,7 +282,7 @@ class SmoothnessSimpleMobilePages(_Smoothness):
     return 'smoothness.simple_mobile_sites'
 
 
-@benchmark.Enabled('android')
+@benchmark.Disabled('all') # http://crbug.com/631015
 class SmoothnessToughPinchZoomCases(_Smoothness):
   """Measures rendering statistics for pinch-zooming in the tough pinch zoom
   cases.
@@ -296,7 +295,11 @@ class SmoothnessToughPinchZoomCases(_Smoothness):
 
   @classmethod
   def ShouldDisable(cls, possible_browser):
-    return cls.IsSvelte(possible_browser)  # http://crbug.com/564008
+    return (
+       # http://crbug.com/564008
+       cls.IsSvelte(possible_browser) or
+       # http://crbug.com/630701
+       possible_browser.platform.GetDeviceTypeName() == 'Nexus 5X')
 
 
 @benchmark.Enabled('mac')
@@ -455,6 +458,12 @@ class SmoothnessToughAdCases(_Smoothness):
   @classmethod
   def ShouldDisable(cls, possible_browser):
     return cls.IsSvelte(possible_browser)  # http://crbug.com/555089
+
+  @classmethod
+  def ValueCanBeAddedPredicate(cls, value, is_first_result):
+    del is_first_result  # unused
+    # These pages don't scroll so it's not necessary to measure input latency.
+    return value.name != 'first_gesture_scroll_update_latency'
 
 
 # http://crbug.com/522619 (mac/win)

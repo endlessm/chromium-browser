@@ -14,7 +14,8 @@
 #include "ui/android/resources/resource_manager_impl.h"
 #include "ui/gfx/android/java_bitmap.h"
 
-namespace chrome {
+using base::android::JavaParamRef;
+
 namespace android {
 
 ToolbarSceneLayer::ToolbarSceneLayer(JNIEnv* env, jobject jobj)
@@ -125,4 +126,3 @@ bool RegisterToolbarSceneLayer(JNIEnv* env) {
 }
 
 }  // namespace android
-}  // namespace chrome

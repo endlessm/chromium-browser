@@ -4,11 +4,13 @@
 
 #include "chrome/browser/ui/webui/chromeos/login/user_image_screen_handler.h"
 
-#include "ash/audio/sounds.h"
+#include <utility>
+
 #include "base/command_line.h"
 #include "base/logging.h"
-#include "base/metrics/histogram.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/values.h"
+#include "chrome/browser/chromeos/accessibility/accessibility_manager.h"
 #include "chrome/browser/chromeos/login/existing_user_controller.h"
 #include "chrome/browser/chromeos/login/screens/user_image_model.h"
 #include "chrome/browser/chromeos/login/ui/webui_login_display.h"
@@ -16,12 +18,12 @@
 #include "chrome/browser/ui/webui/chromeos/login/oobe_screen.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/url_constants.h"
+#include "chrome/grit/browser_resources.h"
 #include "chrome/grit/generated_resources.h"
 #include "chromeos/audio/chromeos_sounds.h"
 #include "components/login/localized_values_builder.h"
+#include "components/strings/grit/components_strings.h"
 #include "components/user_manager/user.h"
-#include "grit/browser_resources.h"
-#include "grit/components_strings.h"
 #include "media/audio/sounds/sounds_manager.h"
 #include "net/base/data_url.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -144,7 +146,7 @@ void UserImageScreenHandler::HandleGetImages() {
                               default_user_image::kDefaultImageWebsiteIDs[i]));
     image_data->SetString("title",
                           default_user_image::GetDefaultImageDescription(i));
-    image_urls.Append(image_data.release());
+    image_urls.Append(std::move(image_data));
   }
   CallJS("setDefaultImages", image_urls);
 }
@@ -166,11 +168,13 @@ void UserImageScreenHandler::HandlePhotoTaken(const std::string& image_url) {
 }
 
 void UserImageScreenHandler::HandleTakePhoto() {
-  ash::PlaySystemSoundIfSpokenFeedback(SOUND_CAMERA_SNAP);
+  AccessibilityManager::Get()->PlayEarcon(
+      SOUND_CAMERA_SNAP, PlaySoundOption::SPOKEN_FEEDBACK_ENABLED);
 }
 
 void UserImageScreenHandler::HandleDiscardPhoto() {
-  ash::PlaySystemSoundIfSpokenFeedback(SOUND_OBJECT_DELETE);
+  AccessibilityManager::Get()->PlayEarcon(
+      SOUND_OBJECT_DELETE, PlaySoundOption::SPOKEN_FEEDBACK_ENABLED);
 }
 
 void UserImageScreenHandler::HandleSelectImage(const std::string& image_url,

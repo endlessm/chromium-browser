@@ -6,22 +6,29 @@
 
 #include "ash/common/accessibility_delegate.h"
 #include "ash/common/accessibility_types.h"
+#include "ash/common/material_design/material_design_controller.h"
 #include "ash/common/session/session_state_delegate.h"
 #include "ash/common/system/tray/hover_highlight_view.h"
+#include "ash/common/system/tray/system_tray.h"
+#include "ash/common/system/tray/system_tray_controller.h"
 #include "ash/common/system/tray/system_tray_delegate.h"
 #include "ash/common/system/tray/system_tray_notifier.h"
 #include "ash/common/system/tray/tray_constants.h"
 #include "ash/common/system/tray/tray_details_view.h"
 #include "ash/common/system/tray/tray_item_more.h"
+#include "ash/common/system/tray/tray_popup_item_style.h"
 #include "ash/common/system/tray/tray_popup_label_button.h"
 #include "ash/common/wm_shell.h"
-#include "ash/system/tray/system_tray.h"
+#include "ash/resources/vector_icons/vector_icons.h"
 #include "base/strings/utf_string_conversions.h"
 #include "grit/ash_resources.h"
 #include "grit/ash_strings.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/resource/resource_bundle.h"
+#include "ui/gfx/color_palette.h"
 #include "ui/gfx/image/image.h"
+#include "ui/gfx/paint_vector_icon.h"
+#include "ui/gfx/vector_icons_public.h"
 #include "ui/views/controls/image_view.h"
 #include "ui/views/controls/label.h"
 #include "ui/views/layout/box_layout.h"
@@ -42,7 +49,7 @@ enum AccessibilityState {
 };
 
 uint32_t GetAccessibilityState() {
-  AccessibilityDelegate* delegate = WmShell::Get()->GetAccessibilityDelegate();
+  AccessibilityDelegate* delegate = WmShell::Get()->accessibility_delegate();
   uint32_t state = A11Y_NONE;
   if (delegate->IsSpokenFeedbackEnabled())
     state |= A11Y_SPOKEN_FEEDBACK;
@@ -74,8 +81,11 @@ class DefaultAccessibilityView : public TrayItemMore {
   explicit DefaultAccessibilityView(SystemTrayItem* owner)
       : TrayItemMore(owner, true) {
     ui::ResourceBundle& bundle = ui::ResourceBundle::GetSharedInstance();
-    SetImage(bundle.GetImageNamed(IDR_AURA_UBER_TRAY_ACCESSIBILITY_DARK)
-                 .ToImageSkia());
+    if (!MaterialDesignController::UseMaterialDesignSystemIcons()) {
+      // The icon doesn't change in non-md.
+      SetImage(*bundle.GetImageNamed(IDR_AURA_UBER_TRAY_ACCESSIBILITY_DARK)
+                    .ToImageSkia());
+    }
     base::string16 label =
         bundle.GetLocalizedString(IDS_ASH_STATUS_TRAY_ACCESSIBILITY);
     SetLabel(label);
@@ -84,6 +94,19 @@ class DefaultAccessibilityView : public TrayItemMore {
   }
 
   ~DefaultAccessibilityView() override {}
+
+ protected:
+  // TrayItemMore:
+  void UpdateStyle() override {
+    TrayItemMore::UpdateStyle();
+
+    if (!MaterialDesignController::IsSystemTrayMenuMaterial())
+      return;
+
+    std::unique_ptr<TrayPopupItemStyle> style = CreateStyle();
+    SetImage(gfx::CreateVectorIcon(kSystemMenuAccessibilityIcon,
+                                   style->GetForegroundColor()));
+  }
 
  private:
   DISALLOW_COPY_AND_ASSIGN(DefaultAccessibilityView);
@@ -143,8 +166,11 @@ AccessibilityDetailedView::AccessibilityDetailedView(SystemTrayItem* owner,
   Reset();
 
   AppendAccessibilityList();
-  AppendHelpEntries();
-  CreateSpecialRow(IDS_ASH_STATUS_TRAY_ACCESSIBILITY_TITLE, this);
+
+  if (!MaterialDesignController::IsSystemTrayMenuMaterial())
+    AppendHelpEntries();
+
+  CreateTitleRow(IDS_ASH_STATUS_TRAY_ACCESSIBILITY_TITLE);
 
   Layout();
 }
@@ -153,12 +179,13 @@ void AccessibilityDetailedView::AppendAccessibilityList() {
   CreateScrollableList();
   ui::ResourceBundle& bundle = ui::ResourceBundle::GetSharedInstance();
 
-  AccessibilityDelegate* delegate = WmShell::Get()->GetAccessibilityDelegate();
+  AccessibilityDelegate* delegate = WmShell::Get()->accessibility_delegate();
   spoken_feedback_enabled_ = delegate->IsSpokenFeedbackEnabled();
   spoken_feedback_view_ =
       AddScrollListItem(bundle.GetLocalizedString(
                             IDS_ASH_STATUS_TRAY_ACCESSIBILITY_SPOKEN_FEEDBACK),
-                        spoken_feedback_enabled_, spoken_feedback_enabled_);
+                        spoken_feedback_enabled_, spoken_feedback_enabled_,
+                        kSystemMenuAccessibilityChromevoxIcon);
 
   // Large Cursor item is shown only in Login screen.
   if (login_ == LoginStatus::NOT_LOGGED_IN) {
@@ -166,33 +193,38 @@ void AccessibilityDetailedView::AppendAccessibilityList() {
     large_cursor_view_ =
         AddScrollListItem(bundle.GetLocalizedString(
                               IDS_ASH_STATUS_TRAY_ACCESSIBILITY_LARGE_CURSOR),
-                          large_cursor_enabled_, large_cursor_enabled_);
+                          large_cursor_enabled_, large_cursor_enabled_,
+                          kSystemMenuAccessibilityLargeCursorIcon);
   }
 
   high_contrast_enabled_ = delegate->IsHighContrastEnabled();
   high_contrast_view_ = AddScrollListItem(
       bundle.GetLocalizedString(
           IDS_ASH_STATUS_TRAY_ACCESSIBILITY_HIGH_CONTRAST_MODE),
-      high_contrast_enabled_, high_contrast_enabled_);
+      high_contrast_enabled_, high_contrast_enabled_,
+      kSystemMenuAccessibilityContrastIcon);
   screen_magnifier_enabled_ = delegate->IsMagnifierEnabled();
   screen_magnifier_view_ =
       AddScrollListItem(bundle.GetLocalizedString(
                             IDS_ASH_STATUS_TRAY_ACCESSIBILITY_SCREEN_MAGNIFIER),
-                        screen_magnifier_enabled_, screen_magnifier_enabled_);
+                        screen_magnifier_enabled_, screen_magnifier_enabled_,
+                        kSystemMenuAccessibilityScreenMagnifierIcon);
 
   // Don't show autoclick option at login screen.
   if (login_ != LoginStatus::NOT_LOGGED_IN) {
     autoclick_enabled_ = delegate->IsAutoclickEnabled();
     autoclick_view_ = AddScrollListItem(
         bundle.GetLocalizedString(IDS_ASH_STATUS_TRAY_ACCESSIBILITY_AUTOCLICK),
-        autoclick_enabled_, autoclick_enabled_);
+        autoclick_enabled_, autoclick_enabled_,
+        kSystemMenuAccessibilityAutoClickIcon);
   }
 
   virtual_keyboard_enabled_ = delegate->IsVirtualKeyboardEnabled();
   virtual_keyboard_view_ =
       AddScrollListItem(bundle.GetLocalizedString(
                             IDS_ASH_STATUS_TRAY_ACCESSIBILITY_VIRTUAL_KEYBOARD),
-                        virtual_keyboard_enabled_, virtual_keyboard_enabled_);
+                        virtual_keyboard_enabled_, virtual_keyboard_enabled_,
+                        kSystemMenuKeyboardIcon);
 }
 
 void AccessibilityDetailedView::AppendHelpEntries() {
@@ -229,62 +261,78 @@ void AccessibilityDetailedView::AppendHelpEntries() {
 HoverHighlightView* AccessibilityDetailedView::AddScrollListItem(
     const base::string16& text,
     bool highlight,
-    bool checked) {
+    bool checked,
+    const gfx::VectorIcon& icon) {
   HoverHighlightView* container = new HoverHighlightView(this);
-  container->AddCheckableLabel(text, highlight, checked);
+  if (MaterialDesignController::IsSystemTrayMenuMaterial()) {
+    gfx::ImageSkia image = CreateVectorIcon(icon, kMenuIconColor);
+    const int padding = (kMenuButtonSize - image.width()) / 2;
+    container->AddIconAndLabelCustomSize(
+        image, text, highlight,
+        image.width() + kMenuSeparatorVerticalPadding * 2, padding, padding);
+    gfx::ImageSkia check_mark =
+        CreateVectorIcon(gfx::VectorIconId::CHECK_CIRCLE, gfx::kGoogleGreen700);
+    container->AddRightIcon(check_mark, check_mark.width());
+    container->SetRightIconVisible(checked);
+  } else {
+    container->AddCheckableLabel(text, highlight, checked);
+  }
   scroll_content()->AddChildView(container);
   return container;
 }
 
-void AccessibilityDetailedView::OnViewClicked(views::View* sender) {
-  AccessibilityDelegate* delegate = WmShell::Get()->GetAccessibilityDelegate();
-  if (sender == footer()->content()) {
-    TransitionToDefaultView();
-  } else if (sender == spoken_feedback_view_) {
-    WmShell::Get()->RecordUserMetricsAction(
-        delegate->IsSpokenFeedbackEnabled()
-            ? ash::UMA_STATUS_AREA_DISABLE_SPOKEN_FEEDBACK
-            : ash::UMA_STATUS_AREA_ENABLE_SPOKEN_FEEDBACK);
+void AccessibilityDetailedView::HandleViewClicked(views::View* view) {
+  AccessibilityDelegate* delegate = WmShell::Get()->accessibility_delegate();
+  UserMetricsAction user_action;
+  if (view == spoken_feedback_view_) {
+    user_action = delegate->IsSpokenFeedbackEnabled()
+                      ? ash::UMA_STATUS_AREA_DISABLE_SPOKEN_FEEDBACK
+                      : ash::UMA_STATUS_AREA_ENABLE_SPOKEN_FEEDBACK;
     delegate->ToggleSpokenFeedback(A11Y_NOTIFICATION_NONE);
-  } else if (sender == high_contrast_view_) {
-    WmShell::Get()->RecordUserMetricsAction(
-        delegate->IsHighContrastEnabled()
-            ? ash::UMA_STATUS_AREA_DISABLE_HIGH_CONTRAST
-            : ash::UMA_STATUS_AREA_ENABLE_HIGH_CONTRAST);
+  } else if (view == high_contrast_view_) {
+    user_action = delegate->IsHighContrastEnabled()
+                      ? ash::UMA_STATUS_AREA_DISABLE_HIGH_CONTRAST
+                      : ash::UMA_STATUS_AREA_ENABLE_HIGH_CONTRAST;
     delegate->ToggleHighContrast();
-  } else if (sender == screen_magnifier_view_) {
-    WmShell::Get()->RecordUserMetricsAction(
-        delegate->IsMagnifierEnabled() ? ash::UMA_STATUS_AREA_DISABLE_MAGNIFIER
-                                       : ash::UMA_STATUS_AREA_ENABLE_MAGNIFIER);
+  } else if (view == screen_magnifier_view_) {
+    user_action = delegate->IsMagnifierEnabled()
+                      ? ash::UMA_STATUS_AREA_DISABLE_MAGNIFIER
+                      : ash::UMA_STATUS_AREA_ENABLE_MAGNIFIER;
     delegate->SetMagnifierEnabled(!delegate->IsMagnifierEnabled());
-  } else if (large_cursor_view_ && sender == large_cursor_view_) {
-    WmShell::Get()->RecordUserMetricsAction(
-        delegate->IsLargeCursorEnabled()
-            ? ash::UMA_STATUS_AREA_DISABLE_LARGE_CURSOR
-            : ash::UMA_STATUS_AREA_ENABLE_LARGE_CURSOR);
+  } else if (large_cursor_view_ && view == large_cursor_view_) {
+    user_action = delegate->IsLargeCursorEnabled()
+                      ? ash::UMA_STATUS_AREA_DISABLE_LARGE_CURSOR
+                      : ash::UMA_STATUS_AREA_ENABLE_LARGE_CURSOR;
     delegate->SetLargeCursorEnabled(!delegate->IsLargeCursorEnabled());
-  } else if (autoclick_view_ && sender == autoclick_view_) {
-    WmShell::Get()->RecordUserMetricsAction(
-        delegate->IsAutoclickEnabled()
-            ? ash::UMA_STATUS_AREA_DISABLE_AUTO_CLICK
-            : ash::UMA_STATUS_AREA_ENABLE_AUTO_CLICK);
+  } else if (autoclick_view_ && view == autoclick_view_) {
+    user_action = delegate->IsAutoclickEnabled()
+                      ? ash::UMA_STATUS_AREA_DISABLE_AUTO_CLICK
+                      : ash::UMA_STATUS_AREA_ENABLE_AUTO_CLICK;
     delegate->SetAutoclickEnabled(!delegate->IsAutoclickEnabled());
-  } else if (virtual_keyboard_view_ && sender == virtual_keyboard_view_) {
-    WmShell::Get()->RecordUserMetricsAction(
-        delegate->IsVirtualKeyboardEnabled()
-            ? ash::UMA_STATUS_AREA_DISABLE_VIRTUAL_KEYBOARD
-            : ash::UMA_STATUS_AREA_ENABLE_VIRTUAL_KEYBOARD);
+  } else if (virtual_keyboard_view_ && view == virtual_keyboard_view_) {
+    user_action = delegate->IsVirtualKeyboardEnabled()
+                      ? ash::UMA_STATUS_AREA_DISABLE_VIRTUAL_KEYBOARD
+                      : ash::UMA_STATUS_AREA_ENABLE_VIRTUAL_KEYBOARD;
     delegate->SetVirtualKeyboardEnabled(!delegate->IsVirtualKeyboardEnabled());
+  } else {
+    return;
   }
+  WmShell::Get()->RecordUserMetricsAction(user_action);
 }
 
-void AccessibilityDetailedView::ButtonPressed(views::Button* sender,
-                                              const ui::Event& event) {
-  SystemTrayDelegate* tray_delegate = WmShell::Get()->system_tray_delegate();
+void AccessibilityDetailedView::HandleButtonPressed(views::Button* sender,
+                                                    const ui::Event& event) {
+  if (MaterialDesignController::UseMaterialDesignSystemIcons())
+    return;
+
+  SystemTrayController* controller = WmShell::Get()->system_tray_controller();
   if (sender == help_view_)
-    tray_delegate->ShowAccessibilityHelp();
+    controller->ShowAccessibilityHelp();
   else if (sender == settings_view_)
-    tray_delegate->ShowAccessibilitySettings();
+    controller->ShowAccessibilitySettings();
+  else
+    return;
+  owner()->system_tray()->CloseSystemBubble();
 }
 
 }  // namespace tray
@@ -336,7 +384,7 @@ views::View* TrayAccessibility::CreateDefaultView(LoginStatus status) {
   // - "Enable accessibility menu" on chrome://settings is checked;
   // - or any of accessibility features is enabled
   // Otherwise, not shows it.
-  AccessibilityDelegate* delegate = WmShell::Get()->GetAccessibilityDelegate();
+  AccessibilityDelegate* delegate = WmShell::Get()->accessibility_delegate();
   if (login_ != LoginStatus::NOT_LOGGED_IN &&
       !delegate->ShouldShowAccessibilityMenu() &&
       // On login screen, keeps the initial visibility of the menu.

@@ -1,7 +1,7 @@
 #!/usr/bin/env python
-# Copyright 2015 The Swarming Authors. All rights reserved.
-# Use of this source code is governed under the Apache License, Version 2.0 that
-# can be found in the LICENSE file.
+# Copyright 2015 The LUCI Authors. All rights reserved.
+# Use of this source code is governed under the Apache License, Version 2.0
+# that can be found in the LICENSE file.
 
 import logging
 import os
@@ -11,7 +11,7 @@ import tempfile
 import unittest
 import re
 
-THIS_FILE = os.path.abspath(__file__)
+THIS_FILE = os.path.abspath(__file__.decode(sys.getfilesystemencoding()))
 sys.path.insert(0, os.path.dirname(os.path.dirname(THIS_FILE)))
 
 from third_party.depot_tools import fix_encoding

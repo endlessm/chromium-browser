@@ -18,7 +18,8 @@
 #include "ui/gfx/geometry/rect_f.h"
 #include "ui/gfx/geometry/size.h"
 
-namespace chrome {
+using base::android::JavaParamRef;
+
 namespace android {
 
 // static
@@ -97,6 +98,12 @@ void LayerTitleCache::ClearExcept(JNIEnv* env,
 }
 
 DecorationTitle* LayerTitleCache::GetTitleLayer(int tab_id) {
+  if (!layer_cache_.Lookup(tab_id)) {
+    JNIEnv* env = base::android::AttachCurrentThread();
+    Java_LayerTitleCache_buildUpdatedTitle(env, weak_java_title_cache_.get(env),
+        tab_id);
+  }
+
   return layer_cache_.Lookup(tab_id);
 }
 
@@ -135,4 +142,3 @@ jlong Init(JNIEnv* env,
 }
 
 }  // namespace android
-}  // namespace chrome

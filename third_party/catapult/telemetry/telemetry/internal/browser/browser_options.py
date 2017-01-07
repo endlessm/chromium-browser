@@ -10,7 +10,7 @@ import shlex
 import socket
 import sys
 
-from catapult_base import cloud_storage  # pylint: disable=import-error
+from py_utils import cloud_storage  # pylint: disable=import-error
 
 from telemetry.core import platform
 from telemetry.core import util
@@ -263,7 +263,6 @@ class BrowserOptions(object):
     self._browser_startup_timeout = 60
 
     self.disable_background_networking = True
-    self.no_proxy_server = False
     self.browser_user_agent_type = None
 
     self.clear_sytem_cache_for_browser_and_profile_on_start = False
@@ -330,7 +329,7 @@ class BrowserOptions(object):
     group.add_option('--extra-wpr-args',
         dest='extra_wpr_args_as_string',
         help=('Additional arguments to pass to Web Page Replay. '
-              'See third_party/webpagereplay/replay.py for usage.'))
+              'See third_party/web-page-replay/replay.py for usage.'))
     group.add_option('--show-stdout',
         action='store_true',
         help='When possible, will display the stdout of the process')
@@ -343,11 +342,6 @@ class BrowserOptions(object):
               "directory. Note that logging affects the browser's "
               'performance. Supported values: %s. Defaults to %s.' % (
                   ', '.join(cls._LOGGING_LEVELS), cls._DEFAULT_LOGGING_LEVEL)))
-    group.add_option('--enable-browser-logging',
-        dest='enable_logging',
-        action='store_true',
-        help=('This flag is deprecated. Please use --browser-logging-verbosity '
-              'instead.'))
     parser.add_option_group(group)
 
     group = optparse.OptionGroup(parser, 'Compatibility options')
@@ -402,42 +396,13 @@ class BrowserOptions(object):
     if not self.profile_dir:
       self.profile_dir = profile_types.GetProfileDir(self.profile_type)
 
-    if getattr(finder_options, 'enable_logging'):
-      if getattr(finder_options, 'logging_verbosity'):
-        # Both --enable-browser-logging and --browser-logging-verbosity were
-        # provided (fail).
-        logging.critical("It's illegal to provide both --enable-browser-logging"
-                         ' and --browser-logging-verbosity.')
-        sys.exit(1)
-      # Only --enable-browser-logging was provided.
-      self.logging_verbosity = self.VERBOSE_LOGGING
-      delattr(finder_options, 'enable_logging')
-    elif getattr(finder_options, 'logging_verbosity'):
-      # Only --browser-logging-verbosity was provided (verbose logging).
+    if getattr(finder_options, 'logging_verbosity'):
       self.logging_verbosity = finder_options.logging_verbosity
       delattr(finder_options, 'logging_verbosity')
 
     # This deferred import is necessary because browser_options is imported in
     # telemetry/telemetry/__init__.py.
     finder_options.browser_options = CreateChromeBrowserOptions(self)
-
-  # Deprecated: Please use |logging_verbosity| instead.
-  @property
-  def enable_logging(self):
-    logging.warning('enable_logging is deprecated. Please use '
-                    'logging_verbosity instead.')
-    return self.logging_verbosity in [self.NON_VERBOSE_LOGGING,
-                                      self.VERBOSE_LOGGING]
-
-  # Deprecated: Please use |logging_verbosity| instead.
-  @enable_logging.setter
-  def enable_logging(self, value):
-    logging.warning('enable_logging is deprecated. Please use '
-                    'logging_verbosity instead.')
-    if value:
-      self.logging_verbosity = self.NON_VERBOSE_LOGGING
-    else:
-      self.logging_verbosity = self.NO_LOGGING
 
   @property
   def finder_options(self):

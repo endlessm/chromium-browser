@@ -24,13 +24,26 @@ enum class AccessPoint;
 // managing closes.
 class SigninViewControllerDelegate : public content::WebContentsDelegate {
  public:
+  // Returns a platform-specific SigninViewControllerDelegate instance that
+  // displays the sign in flow. The returned object should delete itself when
+  // the window it's managing is closed.
   static SigninViewControllerDelegate* CreateModalSigninDelegate(
       SigninViewController* signin_view_controller,
       profiles::BubbleViewMode mode,
       Browser* browser,
       signin_metrics::AccessPoint access_point);
 
+  // Returns a platform-specific SigninViewControllerDelegate instance that
+  // displays the sync confirmation dialog. The returned object should delete
+  // itself when the window it's managing is closed.
   static SigninViewControllerDelegate* CreateSyncConfirmationDelegate(
+      SigninViewController* signin_view_controller,
+      Browser* browser);
+
+  // Returns a platform-specific SigninViewControllerDelegate instance that
+  // displays the modal sign in error dialog. The returned object should delete
+  // itself when the window it's managing is closed.
+  static SigninViewControllerDelegate* CreateSigninErrorDelegate(
       SigninViewController* signin_view_controller,
       Browser* browser);
 
@@ -47,6 +60,10 @@ class SigninViewControllerDelegate : public content::WebContentsDelegate {
 
   // content::WebContentsDelegate:
   bool HandleContextMenu(const content::ContextMenuParams& params) override;
+
+  // WebContents is used for executing javascript in the context of a modal sync
+  // confirmation dialog.
+  content::WebContents* web_contents_for_testing() { return web_contents_; }
 
  protected:
   SigninViewControllerDelegate(SigninViewController* signin_view_controller,

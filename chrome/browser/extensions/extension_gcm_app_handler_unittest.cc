@@ -28,6 +28,7 @@
 #include "chrome/browser/extensions/test_extension_service.h"
 #include "chrome/browser/extensions/test_extension_system.h"
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/services/gcm/gcm_product_util.h"
 #include "chrome/browser/services/gcm/gcm_profile_service_factory.h"
 #include "chrome/browser/signin/profile_oauth2_token_service_factory.h"
 #include "chrome/browser/signin/signin_manager_factory.h"
@@ -168,7 +169,7 @@ class FakeExtensionGCMAppHandler : public ExtensionGCMAppHandler {
 
   void RemoveAppHandler(const std::string& app_id) override {
     ExtensionGCMAppHandler::RemoveAppHandler(app_id);
-    if (!GetGCMDriver()->app_handlers().size())
+    if (GetGCMDriver()->app_handlers().empty())
       app_handler_count_drop_to_zero_ = true;
   }
 
@@ -197,10 +198,10 @@ class ExtensionGCMAppHandlerTest : public testing::Test {
       content::BrowserContext* context) {
     Profile* profile = Profile::FromBrowserContext(context);
     scoped_refptr<base::SequencedTaskRunner> ui_thread =
-        content::BrowserThread::GetMessageLoopProxyForThread(
+        content::BrowserThread::GetTaskRunnerForThread(
             content::BrowserThread::UI);
     scoped_refptr<base::SequencedTaskRunner> io_thread =
-        content::BrowserThread::GetMessageLoopProxyForThread(
+        content::BrowserThread::GetTaskRunnerForThread(
             content::BrowserThread::IO);
     base::SequencedWorkerPool* worker_pool =
         content::BrowserThread::GetBlockingPool();
@@ -208,16 +209,17 @@ class ExtensionGCMAppHandlerTest : public testing::Test {
         worker_pool->GetSequencedTaskRunnerWithShutdownBehavior(
             worker_pool->GetSequenceToken(),
             base::SequencedWorkerPool::SKIP_ON_SHUTDOWN));
-    return base::WrapUnique(new gcm::GCMProfileService(
+    return base::MakeUnique<gcm::GCMProfileService>(
         profile->GetPrefs(), profile->GetPath(), profile->GetRequestContext(),
         chrome::GetChannel(),
+        gcm::GetProductCategoryForSubtypes(profile->GetPrefs()),
         std::unique_ptr<ProfileIdentityProvider>(new ProfileIdentityProvider(
             SigninManagerFactory::GetForProfile(profile),
             ProfileOAuth2TokenServiceFactory::GetForProfile(profile),
             LoginUIServiceFactory::GetShowLoginPopupCallbackForProfile(
                 profile))),
         base::WrapUnique(new gcm::FakeGCMClientFactory(ui_thread, io_thread)),
-        ui_thread, io_thread, blocking_task_runner));
+        ui_thread, io_thread, blocking_task_runner);
   }
 
   ExtensionGCMAppHandlerTest()
@@ -257,7 +259,7 @@ class ExtensionGCMAppHandlerTest : public testing::Test {
     TestExtensionSystem* extension_system(
         static_cast<TestExtensionSystem*>(ExtensionSystem::Get(profile())));
     base::FilePath extensions_install_dir =
-        temp_dir_.path().Append(FILE_PATH_LITERAL("Extensions"));
+        temp_dir_.GetPath().Append(FILE_PATH_LITERAL("Extensions"));
     extension_system->CreateExtensionService(
         base::CommandLine::ForCurrentProcess(), extensions_install_dir, false);
     extension_service_ = extension_system->Get(profile())->extension_service();
@@ -291,12 +293,8 @@ class ExtensionGCMAppHandlerTest : public testing::Test {
 
     std::string error;
     scoped_refptr<Extension> extension = Extension::Create(
-        temp_dir_.path(),
-        Manifest::UNPACKED,
-        manifest,
-        Extension::NO_FLAGS,
-        "ldnnhddmnhbkjipkidpdiheffobcpfmf",
-        &error);
+        temp_dir_.GetPath(), Manifest::UNPACKED, manifest, Extension::NO_FLAGS,
+        "ldnnhddmnhbkjipkidpdiheffobcpfmf", &error);
     EXPECT_TRUE(extension.get()) << error;
     EXPECT_TRUE(
         extension->permissions_data()->HasAPIPermission(APIPermission::kGcm));
@@ -325,7 +323,7 @@ class ExtensionGCMAppHandlerTest : public testing::Test {
     data_dir = data_dir.AppendASCII("extensions");
     data_dir = data_dir.AppendASCII(update_crx);
 
-    base::FilePath path = temp_dir_.path();
+    base::FilePath path = temp_dir_.GetPath();
     path = path.Append(data_dir.BaseName());
     ASSERT_TRUE(base::CopyFile(data_dir, path));
 

@@ -105,7 +105,6 @@ public class CustomTabToolbar extends ToolbarLayout implements LocationBar,
         }
     }
 
-    private static final int BRAND_COLOR_TRANSITION_DURATION_MS = 250;
     private static final int TITLE_ANIM_DELAY_MS = 800;
     private static final int STATE_DOMAIN_ONLY = 0;
     private static final int STATE_TITLE_ONLY = 1;
@@ -254,8 +253,8 @@ public class CustomTabToolbar extends ToolbarLayout implements LocationBar,
     @Override
     public boolean shouldEmphasizeHttpsScheme() {
         int securityLevel = getSecurityLevel();
-        return securityLevel == ConnectionSecurityLevel.SECURITY_ERROR
-                || securityLevel == ConnectionSecurityLevel.SECURITY_POLICY_WARNING;
+        return securityLevel == ConnectionSecurityLevel.DANGEROUS
+                || securityLevel == ConnectionSecurityLevel.SECURE_WITH_POLICY_INSTALLED_CERT;
     }
 
     @Override
@@ -343,7 +342,7 @@ public class CustomTabToolbar extends ToolbarLayout implements LocationBar,
                 setUrlBarHidden(false);
             }
         }
-        showOfflineBoltIfNecessary();
+        updateSecurityIcon(getSecurityLevel());
     }
 
     @Override
@@ -498,43 +497,34 @@ public class CustomTabToolbar extends ToolbarLayout implements LocationBar,
 
         mSecurityIconType = securityLevel;
 
-        if (securityLevel == ConnectionSecurityLevel.NONE) {
-            mAnimDelegate.hideSecurityButton();
-        } else {
-            boolean isSmallDevice = !DeviceFormFactor.isTablet(getContext());
-            int id = LocationBarLayout.getSecurityIconResource(securityLevel, isSmallDevice);
-            if (id == 0) {
-                mSecurityButton.setImageDrawable(null);
-            } else {
-                // ImageView#setImageResource is no-op if given resource is the current one.
-                mSecurityButton.setImageResource(id);
-                mSecurityButton.setTint(
-                        LocationBarLayout.getColorStateList(securityLevel, getToolbarDataProvider(),
-                                getResources(), false /* omnibox is not opaque */));
-            }
-            mAnimDelegate.showSecurityButton();
-        }
-        mUrlBar.emphasizeUrl();
-        mUrlBar.invalidate();
-    }
-
-    private void showOfflineBoltIfNecessary() {
+        boolean isSmallDevice = !DeviceFormFactor.isTablet(getContext());
         boolean isOfflinePage = getCurrentTab() != null && getCurrentTab().isOfflinePage();
-        if (isOfflinePage == mShowsOfflinePage) return;
+
+        int id = LocationBarLayout.getSecurityIconResource(
+                securityLevel, isSmallDevice, isOfflinePage);
+        boolean showSecurityButton = true;
+        if (id == 0) {
+            // Hide the button if we don't have an actual icon to display.
+            showSecurityButton = false;
+            mSecurityButton.setImageDrawable(null);
+        } else {
+            // ImageView#setImageResource is no-op if given resource is the current one.
+            mSecurityButton.setImageResource(id);
+            mSecurityButton.setTint(
+                    LocationBarLayout.getColorStateList(securityLevel, getToolbarDataProvider(),
+                            getResources(), false /* omnibox is not opaque */));
+        }
 
         mShowsOfflinePage = isOfflinePage;
-        if (mShowsOfflinePage) {
-            // If we are showing an offline page, immediately update icon to offline bolt.
-            TintedDrawable bolt = TintedDrawable.constructTintedDrawable(
-                    getResources(), R.drawable.offline_bolt);
-            bolt.setTint(mUseDarkColors ? mDarkModeTint : mLightModeTint);
-            mSecurityButton.setImageDrawable(bolt);
+
+        if (showSecurityButton) {
             mAnimDelegate.showSecurityButton();
         } else {
-            // We are hiding the offline page so connection security information will change.
-            mSecurityIconType = ConnectionSecurityLevel.NONE;
             mAnimDelegate.hideSecurityButton();
         }
+
+        mUrlBar.emphasizeUrl();
+        mUrlBar.invalidate();
     }
 
     /**
@@ -552,7 +542,7 @@ public class CustomTabToolbar extends ToolbarLayout implements LocationBar,
         if (background.getColor() == finalColor) return;
 
         mBrandColorTransitionAnimation = ValueAnimator.ofFloat(0, 1)
-                .setDuration(BRAND_COLOR_TRANSITION_DURATION_MS);
+                .setDuration(ToolbarPhone.THEME_COLOR_TRANSITION_DURATION);
         mBrandColorTransitionAnimation.setInterpolator(BakedBezierInterpolator.TRANSFORM_CURVE);
         mBrandColorTransitionAnimation.addUpdateListener(new AnimatorUpdateListener() {
             @Override
@@ -685,7 +675,7 @@ public class CustomTabToolbar extends ToolbarLayout implements LocationBar,
                     .getSystemService(Context.CLIPBOARD_SERVICE);
             Tab tab = getCurrentTab();
             if (tab == null) return false;
-            String url = tab.isOfflinePage() ? tab.getOfflinePageOriginalUrl() : tab.getUrl();
+            String url = tab.getOriginalUrl();
             ClipData clip = ClipData.newPlainText("url", url);
             clipboard.setPrimaryClip(clip);
             Toast.makeText(getContext(), R.string.url_copied, Toast.LENGTH_SHORT).show();
@@ -723,6 +713,14 @@ public class CustomTabToolbar extends ToolbarLayout implements LocationBar,
 
     @Override
     public void showUrlBarCursorWithoutFocusAnimations() {}
+
+    @Override
+    public boolean isUrlBarFocused() {
+        return false;
+    }
+
+    @Override
+    public void selectAll() {}
 
     @Override
     public void revertChanges() {}

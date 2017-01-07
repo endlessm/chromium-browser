@@ -79,6 +79,9 @@ class TestRenderFrameHost : public RenderFrameHostImpl,
   void SetContentsMimeType(const std::string& mime_type) override;
   void SendBeforeUnloadACK(bool proceed) override;
   void SimulateSwapOutACK() override;
+  void NavigateAndCommitRendererInitiated(int page_id,
+                                          bool did_create_new_entry,
+                                          const GURL& url) override;
 
   void SendNavigateWithReplacement(int page_id,
                                    int nav_entry_id,
@@ -96,11 +99,6 @@ class TestRenderFrameHost : public RenderFrameHostImpl,
       const ModificationCallback& callback);
   void SendNavigateWithParams(
       FrameHostMsg_DidCommitProvisionalLoad_Params* params);
-
-  // Simulate a renderer-initiated navigation up until commit.
-  void NavigateAndCommitRendererInitiated(int page_id,
-                                          bool did_create_new_entry,
-                                          const GURL& url);
 
   // With the current navigation logic this method is a no-op.
   // PlzNavigate: this method simulates receiving a BeginNavigation IPC.
@@ -132,9 +130,19 @@ class TestRenderFrameHost : public RenderFrameHostImpl,
   // redirect step is ignored.
   void PrepareForCommitWithServerRedirect(const GURL& redirect_url);
 
+  // If we are doing a cross-site navigation, this simulates the current
+  // RenderFrameHost notifying that BeforeUnload has executed so the pending
+  // RenderFrameHost is resumed and can navigate.
+  // PlzNavigate: This simulates a BeforeUnload ACK from the renderer, and the
+  // interaction with the IO thread up until the response is ready to commit.
+  void PrepareForCommitIfNecessary();
+
   // PlzNavigate
   void set_pending_commit(bool pending) { pending_commit_ = pending; }
   bool pending_commit() const { return pending_commit_; }
+
+  // Creates a WebBluetooth Service with a dummy InterfaceRequest.
+  WebBluetoothServiceImpl* CreateWebBluetoothServiceForTesting();
 
  private:
   void SendNavigateWithParameters(int page_id,
@@ -148,6 +156,8 @@ class TestRenderFrameHost : public RenderFrameHostImpl,
 
   // Computes the page ID for a pending navigation in this RenderFrameHost;
   int32_t ComputeNextPageID();
+
+  void SimulateWillStartRequest(ui::PageTransition transition);
 
   TestRenderFrameHostCreationObserver child_creation_observer_;
 

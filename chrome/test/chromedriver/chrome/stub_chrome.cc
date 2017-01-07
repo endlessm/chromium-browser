@@ -22,6 +22,10 @@ bool StubChrome::HasCrashedWebView() {
   return false;
 }
 
+Status StubChrome::GetWebViewIdForFirstTab(std::string* web_view_id) {
+  return Status(kOk);
+}
+
 Status StubChrome::GetWebViewIds(std::list<std::string>* web_view_ids) {
   return Status(kOk);
 }
@@ -48,6 +52,10 @@ bool StubChrome::IsMobileEmulationEnabled() const {
 
 bool StubChrome::HasTouchScreen() const {
   return false;
+}
+
+std::string StubChrome::page_load_strategy() const {
+  return std::string();
 }
 
 Status StubChrome::Quit() {

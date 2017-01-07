@@ -18,8 +18,8 @@
 #include "chrome/browser/sessions/tab_restore_service_factory.h"
 #import "chrome/browser/ui/cocoa/history_menu_cocoa_controller.h"
 #include "chrome/grit/generated_resources.h"
-#include "grit/components_scaled_resources.h"
-#include "grit/theme_resources.h"
+#include "chrome/grit/theme_resources.h"
+#include "components/grit/components_scaled_resources.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/gfx/image/image.h"
@@ -137,16 +137,15 @@ void HistoryMenuBridge::TabRestoreServiceChanged(
   NSInteger index = [menu indexOfItemWithTag:kRecentlyClosedTitle] + 1;
   NSUInteger added_count = 0;
 
-  for (sessions::TabRestoreService::Entries::const_iterator it =
-           entries.begin();
-       it != entries.end() && added_count < kRecentlyClosedCount; ++it) {
-    sessions::TabRestoreService::Entry* entry = *it;
-
+  for (const auto& entry : entries) {
+    if (added_count >= kRecentlyClosedCount)
+      break;
     // If this is a window, create a submenu for all of its tabs.
     if (entry->type == sessions::TabRestoreService::WINDOW) {
-      sessions::TabRestoreService::Window* entry_win =
-          (sessions::TabRestoreService::Window*)entry;
-      std::vector<sessions::TabRestoreService::Tab>& tabs = entry_win->tabs;
+      const auto* entry_win =
+          static_cast<sessions::TabRestoreService::Window*>(entry.get());
+      const std::vector<std::unique_ptr<sessions::TabRestoreService::Tab>>&
+          tabs = entry_win->tabs;
       if (tabs.empty())
         continue;
 
@@ -178,10 +177,8 @@ void HistoryMenuBridge::TabRestoreServiceChanged(
 
       // Loop over the window's tabs and add them to the submenu.
       NSInteger subindex = [[submenu itemArray] count];
-      std::vector<sessions::TabRestoreService::Tab>::const_iterator it;
-      for (it = tabs.begin(); it != tabs.end(); ++it) {
-        sessions::TabRestoreService::Tab tab = *it;
-        HistoryItem* tab_item = HistoryItemForTab(tab);
+      for (const auto& tab : tabs) {
+        HistoryItem* tab_item = HistoryItemForTab(*tab);
         if (tab_item) {
           item->tabs.push_back(tab_item);
           AddItemToMenu(tab_item, submenu.get(), kRecentlyClosed + 1,
@@ -204,9 +201,8 @@ void HistoryMenuBridge::TabRestoreServiceChanged(
         ++added_count;
       }
     } else if (entry->type == sessions::TabRestoreService::TAB) {
-      sessions::TabRestoreService::Tab* tab =
-          static_cast<sessions::TabRestoreService::Tab*>(entry);
-      HistoryItem* item = HistoryItemForTab(*tab);
+      const auto& tab = static_cast<sessions::TabRestoreService::Tab&>(*entry);
+      HistoryItem* item = HistoryItemForTab(tab);
       if (item) {
         AddItemToMenu(item, menu, kRecentlyClosed, index++);
         ++added_count;

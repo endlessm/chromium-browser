@@ -7,6 +7,7 @@
 from __future__ import print_function
 
 import base64
+import datetime as dt
 import json
 import mock
 import os
@@ -124,6 +125,7 @@ class RunTestSuiteTest(cros_build_lib_unittest.RunCommandTempDirTestCase):
                           '/tmp/taco', archive_dir='/fake/root',
                           whitelist_chrome_crashes=False,
                           test_type=test_type)
+    self.assertCommandContains(['--no_graphics', '--verbose'])
 
   def testFull(self):
     """Test running FULL config."""
@@ -293,6 +295,12 @@ The suite job has another 2:39:39.789250 till timeout.
       swarming_hard_timeout_secs: swarming client hard timeout.
       swarming_expiration_secs: swarming task expiration.
     """
+    # Pull out the test priority for the swarming tag.
+    priority = None
+    priority_flag = '--priority'
+    if priority_flag in args:
+      priority = args[args.index(priority_flag) + 1]
+
     base_cmd = [swarming_lib._SWARMING_PROXY_CLIENT, 'run',
                 '--swarming', topology.topology.get(
                     topology.SWARMING_PROXY_HOST_KEY),
@@ -306,6 +314,11 @@ The suite job has another 2:39:39.789250 till timeout.
                 '--io-timeout', swarming_io_timeout_secs,
                 '--hard-timeout', swarming_hard_timeout_secs,
                 '--expiration', swarming_expiration_secs,
+                '--tags=priority:%s' % priority,
+                '--tags=suite:test-suite',
+                '--tags=build:test-build',
+                '--tags=task_name:test-build-test-suite',
+                '--tags=board:test-board',
                 '--', commands._RUN_SUITE_PATH,
                 '--build', 'test-build', '--board', 'test-board']
     args = list(args)
@@ -360,6 +373,7 @@ The suite job has another 2:39:39.789250 till timeout.
         self.json_dump_cmd,
         side_effect=lambda *args, **kwargs: dump_json_results.next(),
     )
+
   def PatchJson(self, task_outputs):
     """Mock out the code that loads from json.
 
@@ -706,12 +720,6 @@ f6b0b80d5f2d9a2fb41ebb6e2cee7ad8 *./updater4.sh
          '--breakpad_root', '/breakpad',
          '--product_name', 'CoolProduct'])
 
-  def testFailedUploadSymbols(self):
-    """Test when uploading fails"""
-    self.rc.SetDefaultCmdResult(returncode=1, error='i am sad')
-    # This should not throw an exception.
-    commands.UploadSymbols(self.tempdir)
-
   def testPushImages(self):
     """Test PushImages Command."""
     m = self.PatchObject(pushimage, 'PushImage')
@@ -1056,6 +1064,21 @@ class UnmockedTests(cros_test_lib.TempDirTestCase):
     html = osutils.ReadFile(index)
     for f in files:
       self.assertIn('>%s</a>' % f, html)
+
+  def testGenerateHtmlTimeline(self):
+    """Verifies GenerateHtmlTimeline gives us something sane."""
+    timeline = os.path.join(self.tempdir, 'timeline.html')
+    now = dt.datetime.now()
+    rows = [
+        ('test1', now - dt.timedelta(0, 3600), now - dt.timedelta(0, 1800)),
+        ('test2', now - dt.timedelta(0, 3600), now - dt.timedelta(0, 600)),
+        ('test3', now - dt.timedelta(0, 1800), now - dt.timedelta(0, 1200))
+    ]
+    commands.GenerateHtmlTimeline(timeline, rows, 'my-timeline')
+    html = osutils.ReadFile(timeline)
+    self.assertIn('my-timeline', html)
+    for r in rows:
+      self.assertIn('["%s", new Date' % r[0], html)
 
   def testArchiveGeneration(self):
     """Verifies BuildStandaloneImageArchive produces correct archives"""

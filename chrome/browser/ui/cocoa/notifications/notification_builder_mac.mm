@@ -6,11 +6,8 @@
 
 #import <AppKit/AppKit.h>
 
-#include "base/mac/mac_util.h"
 #include "base/mac/scoped_nsobject.h"
 #include "chrome/browser/ui/cocoa/notifications/notification_constants_mac.h"
-#include "chrome/grit/generated_resources.h"
-#include "ui/base/l10n/l10n_util_mac.h"
 
 namespace {
 
@@ -33,18 +30,16 @@ NSString* const kNotificationSettingsButtonTag = @"settingsButton";
   base::scoped_nsobject<NSMutableDictionary> notificationData_;
 }
 
-- (instancetype)init {
+- (instancetype)initWithCloseLabel:(NSString*)closeLabel
+                      optionsLabel:(NSString*)optionsLabel
+                     settingsLabel:(NSString*)settingsLabel {
   if ((self = [super init])) {
     notificationData_.reset([[NSMutableDictionary alloc] init]);
-    [notificationData_
-        setObject:l10n_util::GetNSString(IDS_NOTIFICATION_BUTTON_CLOSE)
-           forKey:kNotificationCloseButtonTag];
-    [notificationData_
-        setObject:l10n_util::GetNSString(IDS_NOTIFICATION_BUTTON_OPTIONS)
-           forKey:kNotificationOptionsButtonTag];
-    [notificationData_
-        setObject:l10n_util::GetNSString(IDS_NOTIFICATION_BUTTON_SETTINGS)
-           forKey:kNotificationSettingsButtonTag];
+    [notificationData_ setObject:closeLabel forKey:kNotificationCloseButtonTag];
+    [notificationData_ setObject:optionsLabel
+                          forKey:kNotificationOptionsButtonTag];
+    [notificationData_ setObject:settingsLabel
+                          forKey:kNotificationSettingsButtonTag];
   }
   return self;
 }
@@ -112,6 +107,11 @@ NSString* const kNotificationSettingsButtonTag = @"settingsButton";
 - (void)setIncognito:(BOOL)incognito {
   [notificationData_ setObject:[NSNumber numberWithBool:incognito]
                         forKey:notification_constants::kNotificationIncognito];
+}
+
+- (void)setNotificationType:(NSNumber*)notificationType {
+  [notificationData_ setObject:notificationType
+                        forKey:notification_constants::kNotificationType];
 }
 
 - (NSUserNotification*)buildUserNotification {
@@ -205,12 +205,15 @@ NSString* const kNotificationSettingsButtonTag = @"settingsButton";
       objectForKey:notification_constants::kNotificationIncognito]);
   NSNumber* incognito = [notificationData_
       objectForKey:notification_constants::kNotificationIncognito];
+  NSNumber* type = [notificationData_
+      objectForKey:notification_constants::kNotificationType];
 
   toast.get().userInfo = @{
     notification_constants::kNotificationOrigin : origin,
     notification_constants::kNotificationId : notificationId,
     notification_constants::kNotificationProfileId : profileId,
     notification_constants::kNotificationIncognito : incognito,
+    notification_constants::kNotificationType : type,
   };
 
   return toast.autorelease();

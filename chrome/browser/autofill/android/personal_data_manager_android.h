@@ -8,17 +8,34 @@
 #include "base/android/jni_weak_ref.h"
 #include "base/android/scoped_java_ref.h"
 #include "base/macros.h"
+#include "base/memory/weak_ptr.h"
+#include "chrome/browser/autofill/validation_rules_storage_factory.h"
 #include "components/autofill/core/browser/personal_data_manager.h"
 #include "components/autofill/core/browser/personal_data_manager_observer.h"
+#include "third_party/libaddressinput/chromium/chrome_address_validator.h"
 
 namespace autofill {
 
 // Android wrapper of the PersonalDataManager which provides access from the
 // Java layer. Note that on Android, there's only a single profile, and
 // therefore a single instance of this wrapper.
-class PersonalDataManagerAndroid : public PersonalDataManagerObserver {
+class PersonalDataManagerAndroid
+    : public PersonalDataManagerObserver,
+      public LoadRulesListener,
+      public base::SupportsWeakPtr<PersonalDataManagerAndroid> {
  public:
+  // The interface for the normalization request.
+  class Delegate {
+   public:
+    virtual void OnRulesSuccessfullyLoaded() = 0;
+  };
+
   PersonalDataManagerAndroid(JNIEnv* env, jobject obj);
+
+  // Returns true if personal data manager has loaded the initial data.
+  jboolean IsDataLoaded(
+      JNIEnv* env,
+      const base::android::JavaParamRef<jobject>& unused_obj) const;
 
   // These functions act on "web profiles" aka "LOCAL_PROFILE" profiles.
   // -------------------------
@@ -61,11 +78,13 @@ class PersonalDataManagerAndroid : public PersonalDataManagerObserver {
   // Gets the labels for the profiles to suggest to the user. These labels are
   // useful for distinguishing the profiles from one another.
   //
-  // The labels never contain the full name, email address, or phone numbers.
-  // All other fields are included in the label.
+  // The labels never contain the email address, or phone numbers. The
+  // |include_name| argument controls whether the name is included. All other
+  // fields are included in the label.
   base::android::ScopedJavaLocalRef<jobjectArray> GetProfileLabelsToSuggest(
       JNIEnv* env,
-      const base::android::JavaParamRef<jobject>& unused_obj);
+      const base::android::JavaParamRef<jobject>& unused_obj,
+      jboolean include_name);
 
   // Returns the label of the given profile for PaymentRequest. This label does
   // not contain the full name or the email address. All other fields are
@@ -243,6 +262,46 @@ class PersonalDataManagerAndroid : public PersonalDataManagerObserver {
       JNIEnv* env,
       const base::android::JavaParamRef<jobject>& unused_obj);
 
+  // These functions help address normalization.
+  // --------------------
+
+  // Starts loading the address validation rules for the specified
+  // |region_code|.
+  void LoadRulesForRegion(
+      JNIEnv* env,
+      const base::android::JavaParamRef<jobject>& unused_obj,
+      const base::android::JavaParamRef<jstring>& region_code);
+
+  // Callback of the address validator that is called when the validator has
+  // finished loading the rules for a region.
+  void OnAddressValidationRulesLoaded(const std::string& region_code,
+                                      bool success) override;
+
+  // Normalizes the address of the profile associated with the |jguid|
+  // synchronously if the |jregion_code| rules have finished loading. Otherwise
+  // sets up the task to start the address normalization when the rules have
+  // finished loading. In either case, sends the normalized profile to the
+  // |jdelegate|. Returns whether the normalization will happen asynchronously.
+  jboolean StartAddressNormalization(
+      JNIEnv* env,
+      const base::android::JavaParamRef<jobject>& unused_obj,
+      const base::android::JavaParamRef<jstring>& jguid,
+      const base::android::JavaParamRef<jstring>& jregion_code,
+      const base::android::JavaParamRef<jobject>& jdelegate);
+
+  // Normalizes the address of the profile associated with the |guid| with the
+  // rules associates with the |region_code|. Should only be called when the
+  // rules have finished loading.
+  base::android::ScopedJavaLocalRef<jobject> NormalizeAddress(
+      const std::string& guid,
+      const std::string& region_code,
+      JNIEnv* env);
+
+  // Cancels the pending address normalization task.
+  void CancelPendingAddressNormalization(
+      JNIEnv* env,
+      const base::android::JavaParamRef<jobject>& unused_obj);
+
  private:
   ~PersonalDataManagerAndroid() override;
 
@@ -256,6 +315,9 @@ class PersonalDataManagerAndroid : public PersonalDataManagerObserver {
       JNIEnv* env,
       const std::vector<CreditCard*>& credit_cards);
 
+  // Returns whether the rules are loaded for the specified |region_code|.
+  bool AreRulesLoadedForRegion(const std::string& region_code);
+
   // Gets the labels for the |profiles| passed as parameters. These labels are
   // useful for distinguishing the profiles from one another.
   //
@@ -266,6 +328,7 @@ class PersonalDataManagerAndroid : public PersonalDataManagerObserver {
   base::android::ScopedJavaLocalRef<jobjectArray> GetProfileLabels(
       JNIEnv* env,
       bool address_only,
+      bool include_name,
       std::vector<AutofillProfile*> profiles);
 
   // Pointer to the java counterpart.
@@ -273,6 +336,12 @@ class PersonalDataManagerAndroid : public PersonalDataManagerObserver {
 
   // Pointer to the PersonalDataManager for the main profile.
   PersonalDataManager* personal_data_manager_;
+
+  // The address validator used to normalize addresses.
+  AddressValidator address_validator_;
+
+  // Map associating a region code to a pending normalization.
+  std::map<std::string, Delegate*> pending_normalization_;
 
   DISALLOW_COPY_AND_ASSIGN(PersonalDataManagerAndroid);
 };

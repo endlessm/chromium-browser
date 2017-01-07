@@ -18,7 +18,9 @@
 #include "base/time/time.h"
 #include "build/build_config.h"
 #include "chrome/browser/metrics/chrome_metrics_service_client.h"
+#include "chrome/browser/metrics/chrome_metrics_services_manager_client.h"
 #include "chrome/browser/tracing/background_tracing_field_trial.h"
+#include "chrome/common/channel_info.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/chrome_switches.h"
 #include "components/metrics/metrics_pref_names.h"
@@ -41,16 +43,10 @@ void InstantiatePersistentHistograms() {
   if (!base::PathService::Get(chrome::DIR_USER_DATA, &metrics_dir))
     return;
 
-  base::FilePath metrics_file =
-      metrics_dir
-          .AppendASCII(ChromeMetricsServiceClient::kBrowserMetricsName)
-          .AddExtension(base::PersistentMemoryAllocator::kFileExtension);
-  base::FilePath active_file =
-      metrics_dir
-          .AppendASCII(
-              std::string(ChromeMetricsServiceClient::kBrowserMetricsName) +
-              "-active")
-          .AddExtension(base::PersistentMemoryAllocator::kFileExtension);
+  base::FilePath metrics_file, active_file;
+  base::GlobalHistogramAllocator::ConstructFilePaths(
+      metrics_dir, ChromeMetricsServiceClient::kBrowserMetricsName,
+      &metrics_file, &active_file);
 
   // Move any existing "active" file to the final name from which it will be
   // read when reporting initial stability metrics. If there is no file to
@@ -108,7 +104,24 @@ void InstantiatePersistentHistograms() {
   // Create tracking histograms for the allocator and record storage file.
   allocator->CreateTrackingHistograms(
       ChromeMetricsServiceClient::kBrowserMetricsName);
-  allocator->SetPersistentLocation(active_file);
+}
+
+// Create a field trial to control metrics/crash sampling for Stable on
+// Windows/Android if no variations seed was applied.
+void CreateFallbackSamplingTrialIfNeeded(bool has_seed,
+                                         base::FeatureList* feature_list) {
+#if defined(OS_WIN) || defined(OS_ANDROID)
+  // Only create the fallback trial if there isn't already a variations seed
+  // being applied. This should occur during first run when first-run variations
+  // isn't supported. It's assumed that, if there is a seed, then it either
+  // contains the relavent study, or is intentionally omitted, so no fallback is
+  // needed.
+  if (has_seed)
+    return;
+
+  ChromeMetricsServicesManagerClient::CreateFallbackSamplingTrial(
+      chrome::GetChannel(), feature_list);
+#endif  // defined(OS_WIN) || defined(OS_ANDROID)
 }
 
 }  // namespace
@@ -130,6 +143,12 @@ void ChromeBrowserFieldTrials::SetupFieldTrials() {
 #else
   chrome::SetupDesktopFieldTrials(parsed_command_line_);
 #endif
+}
+
+void ChromeBrowserFieldTrials::SetupFeatureControllingFieldTrials(
+    bool has_seed,
+    base::FeatureList* feature_list) {
+  CreateFallbackSamplingTrialIfNeeded(has_seed, feature_list);
 }
 
 void ChromeBrowserFieldTrials::InstantiateDynamicTrials() {

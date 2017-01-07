@@ -37,7 +37,8 @@
 #include "ui/android/window_android.h"
 #include "ui/gfx/android/java_bitmap.h"
 
-namespace chrome {
+using base::android::JavaParamRef;
+
 namespace android {
 
 jlong Init(JNIEnv* env,
@@ -120,13 +121,12 @@ base::android::ScopedJavaLocalRef<jobject> CompositorView::GetResourceManager(
 void CompositorView::UpdateLayerTreeHost() {
   JNIEnv* env = base::android::AttachCurrentThread();
   // TODO(wkorman): Rename JNI interface to onCompositorUpdateLayerTreeHost.
-  Java_CompositorView_onCompositorLayout(env, obj_.obj());
+  Java_CompositorView_onCompositorLayout(env, obj_);
 }
 
 void CompositorView::OnSwapBuffersCompleted(int pending_swap_buffers) {
   JNIEnv* env = base::android::AttachCurrentThread();
-  Java_CompositorView_onSwapBuffersCompleted(env, obj_.obj(),
-                                             pending_swap_buffers);
+  Java_CompositorView_onSwapBuffersCompleted(env, obj_, pending_swap_buffers);
 }
 
 ui::UIResourceProvider* CompositorView::GetUIResourceProvider() {
@@ -253,7 +253,7 @@ void CompositorView::BrowserChildProcessHostDisconnected(
     JNIEnv* env = base::android::AttachCurrentThread();
     compositor_->SetSurface(nullptr);
     Java_CompositorView_onJellyBeanSurfaceDisconnectWorkaround(
-        env, obj_.obj(), overlay_video_mode_);
+        env, obj_, overlay_video_mode_);
   }
 }
 
@@ -270,4 +270,3 @@ bool RegisterCompositorView(JNIEnv* env) {
 }
 
 }  // namespace android
-}  // namespace chrome

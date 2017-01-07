@@ -80,7 +80,7 @@ class StreamReaderDelegate :
 
   std::unique_ptr<InputStream> OpenInputStream(JNIEnv* env,
                                                const GURL& url) override {
-    return base::WrapUnique(new NotImplInputStream());
+    return base::MakeUnique<NotImplInputStream>();
   }
 
   void OnInputStreamOpenFailed(net::URLRequest* request,
@@ -211,7 +211,7 @@ class AndroidStreamReaderURLRequestJobTest : public Test {
 
   void SetUpTestJob(std::unique_ptr<InputStreamReader> stream_reader) {
     SetUpTestJob(std::move(stream_reader),
-                 base::WrapUnique(new StreamReaderDelegate()));
+                 base::MakeUnique<StreamReaderDelegate>());
   }
 
   void SetUpTestJob(std::unique_ptr<InputStreamReader> stream_reader,
@@ -254,7 +254,7 @@ TEST_F(AndroidStreamReaderURLRequestJobTest, ReadEmptyStream) {
   req_->Start();
 
   // The TestDelegate will quit the message loop on request completion.
-  base::MessageLoop::current()->Run();
+  base::RunLoop().Run();
 
   EXPECT_FALSE(url_request_delegate_.request_failed());
   EXPECT_EQ(1, network_delegate_.completed_requests());
@@ -263,11 +263,11 @@ TEST_F(AndroidStreamReaderURLRequestJobTest, ReadEmptyStream) {
 }
 
 TEST_F(AndroidStreamReaderURLRequestJobTest, ReadWithNullStream) {
-  SetUpTestJob(nullptr, base::WrapUnique(new NullStreamReaderDelegate()));
+  SetUpTestJob(nullptr, base::MakeUnique<NullStreamReaderDelegate>());
   req_->Start();
 
   // The TestDelegate will quit the message loop on request completion.
-  base::MessageLoop::current()->Run();
+  base::RunLoop().Run();
 
   // The request_failed() method is named confusingly but all it checks is
   // whether the request got as far as calling NotifyHeadersComplete.
@@ -279,12 +279,11 @@ TEST_F(AndroidStreamReaderURLRequestJobTest, ReadWithNullStream) {
 }
 
 TEST_F(AndroidStreamReaderURLRequestJobTest, ModifyHeadersAndStatus) {
-  SetUpTestJob(nullptr,
-               base::WrapUnique(new HeaderAlteringStreamReaderDelegate()));
+  SetUpTestJob(nullptr, base::MakeUnique<HeaderAlteringStreamReaderDelegate>());
   req_->Start();
 
   // The TestDelegate will quit the message loop on request completion.
-  base::MessageLoop::current()->Run();
+  base::RunLoop().Run();
 
   // The request_failed() method is named confusingly but all it checks is
   // whether the request got as far as calling NotifyHeadersComplete.
@@ -329,7 +328,7 @@ TEST_F(AndroidStreamReaderURLRequestJobTest, ReadPartOfStream) {
   SetRange(req_.get(), offset, bytes_available);
   req_->Start();
 
-  base::MessageLoop::current()->Run();
+  base::RunLoop().Run();
 
   EXPECT_FALSE(url_request_delegate_.request_failed());
   EXPECT_EQ(bytes_to_read, url_request_delegate_.bytes_received());
@@ -360,7 +359,7 @@ TEST_F(AndroidStreamReaderURLRequestJobTest,
   SetRange(req_.get(), offset, bytes_available_reported);
   req_->Start();
 
-  base::MessageLoop::current()->Run();
+  base::RunLoop().Run();
 
   EXPECT_FALSE(url_request_delegate_.request_failed());
   EXPECT_EQ(bytes_to_read, url_request_delegate_.bytes_received());

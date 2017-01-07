@@ -13,8 +13,8 @@
 #include "components/policy/core/common/cloud/mock_cloud_policy_store.h"
 #include "components/policy/core/common/cloud/policy_builder.h"
 #include "components/policy/core/common/policy_switches.h"
+#include "components/policy/policy_constants.h"
 #include "net/url_request/url_request_context_getter.h"
-#include "policy/policy_constants.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -88,11 +88,11 @@ class UserCloudPolicyStoreTest : public testing::Test {
   }
 
   base::FilePath policy_file() {
-    return tmp_dir_.path().AppendASCII("policy");
+    return tmp_dir_.GetPath().AppendASCII("policy");
   }
 
   base::FilePath key_file() {
-    return tmp_dir_.path().AppendASCII("policy_key");
+    return tmp_dir_.GetPath().AppendASCII("policy_key");
   }
 
   // Verifies that store_->policy_map() has the appropriate entries.

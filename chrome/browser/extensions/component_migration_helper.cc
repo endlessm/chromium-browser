@@ -79,15 +79,10 @@ void ComponentMigrationHelper::OnFeatureEnabled(
   // true if we unloaded an extension.
   const base::DictionaryValue* migration_pref = pref_service_->GetDictionary(
       ::prefs::kToolbarMigratedComponentActionStatus);
-  bool has_component_action_pref = migration_pref->HasKey(component_action_id);
   bool component_action_pref = false;
-  if (has_component_action_pref) {
-    bool success =
-        migration_pref->GetBoolean(component_action_id, &component_action_pref);
-    DCHECK(success);  // Shouldn't fail, but can in case of pref corruption.
-  }
-
-  if (!has_component_action_pref && extension_was_installed) {
+  if (migration_pref->HasKey(component_action_id)) {
+    component_action_pref = GetComponentActionPref(component_action_id);
+  } else if (extension_was_installed) {
     SetComponentActionPref(component_action_id, true);
     component_action_pref = true;
   }
@@ -130,13 +125,25 @@ void ComponentMigrationHelper::OnExtensionReady(
       GetActionIdForExtensionId(extension_id);
   if (component_action_id.empty())
     return;
-  if (ContainsKey(enabled_actions_, component_action_id)) {
+  if (base::ContainsKey(enabled_actions_, component_action_id)) {
     UnloadExtension(extension_id);
     SetComponentActionPref(component_action_id, true);
 
     if (!delegate_->HasComponentAction(component_action_id))
       delegate_->AddComponentAction(component_action_id);
   }
+}
+
+bool ComponentMigrationHelper::GetComponentActionPref(
+    const std::string& component_action_id) const {
+  const base::DictionaryValue* migration_pref = pref_service_->GetDictionary(
+      ::prefs::kToolbarMigratedComponentActionStatus);
+  bool component_action_pref = false;
+
+  // If the entry for |component_action_id| doesn't exist, GetBoolean() does not
+  // modify |component_action_pref|.
+  migration_pref->GetBoolean(component_action_id, &component_action_pref);
+  return component_action_pref;
 }
 
 void ComponentMigrationHelper::SetComponentActionPref(

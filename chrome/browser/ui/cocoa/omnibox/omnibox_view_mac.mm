@@ -8,7 +8,7 @@
 
 #include "base/mac/foundation_util.h"
 #include "base/memory/ptr_util.h"
-#include "base/metrics/histogram.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/strings/string_util.h"
 #include "base/strings/sys_string_conversions.h"
 #include "base/strings/utf_string_conversions.h"
@@ -23,6 +23,8 @@
 #include "chrome/browser/ui/omnibox/chrome_omnibox_client.h"
 #include "chrome/browser/ui/omnibox/clipboard_utils.h"
 #include "chrome/grit/generated_resources.h"
+#include "chrome/grit/theme_resources.h"
+#include "components/grit/components_scaled_resources.h"
 #include "components/omnibox/browser/autocomplete_input.h"
 #include "components/omnibox/browser/autocomplete_match.h"
 #include "components/omnibox/browser/omnibox_edit_controller.h"
@@ -32,8 +34,6 @@
 #include "components/toolbar/toolbar_model.h"
 #include "content/public/browser/web_contents.h"
 #include "extensions/common/constants.h"
-#include "grit/components_scaled_resources.h"
-#include "grit/theme_resources.h"
 #import "skia/ext/skia_utils_mac.h"
 #import "third_party/mozilla/NSPasteboard+Utils.h"
 #include "ui/base/clipboard/clipboard.h"
@@ -80,7 +80,6 @@ using content::WebContents;
 namespace {
 const int kOmniboxLargeFontSizeDelta = 9;
 const int kOmniboxNormalFontSizeDelta = 1;
-const int kOmniboxSmallFontSizeDelta = 0;
 const int kOmniboxSmallMaterialFontSizeDelta = -1;
 
 // TODO(shess): This is ugly, find a better way.  Using it right now
@@ -97,15 +96,9 @@ NSColor* ColorWithRGBBytes(int rr, int gg, int bb) {
 }
 
 NSColor* HostTextColor(bool in_dark_mode) {
-  if (!ui::MaterialDesignController::IsModeMaterial()) {
-    return [NSColor blackColor];
-  }
   return in_dark_mode ? [NSColor whiteColor] : [NSColor blackColor];
 }
 NSColor* SecureSchemeColor(bool in_dark_mode) {
-  if (!ui::MaterialDesignController::IsModeMaterial()) {
-    return ColorWithRGBBytes(0x07, 0x95, 0x00);
-  }
   return in_dark_mode ? skia::SkColorToSRGBNSColor(SK_ColorWHITE)
                       : skia::SkColorToSRGBNSColor(gfx::kGoogleGreen700);
 }
@@ -115,9 +108,6 @@ NSColor* SecurityWarningSchemeColor(bool in_dark_mode) {
       : skia::SkColorToSRGBNSColor(gfx::kGoogleYellow700);
 }
 NSColor* SecurityErrorSchemeColor(bool in_dark_mode) {
-  if (!ui::MaterialDesignController::IsModeMaterial()) {
-    return ColorWithRGBBytes(0xa2, 0x00, 0x00);
-  }
   return in_dark_mode
       ? skia::SkColorToSRGBNSColor(SkColorSetA(SK_ColorWHITE, 0x7F))
       : skia::SkColorToSRGBNSColor(gfx::kGoogleRed700);
@@ -180,9 +170,6 @@ SkColor OmniboxViewMac::BaseTextColorSkia(bool in_dark_mode) {
 
 // static
 NSColor* OmniboxViewMac::BaseTextColor(bool in_dark_mode) {
-  if (!ui::MaterialDesignController::IsModeMaterial()) {
-    return [NSColor darkGrayColor];
-  }
   return skia::SkColorToSRGBNSColor(BaseTextColorSkia(in_dark_mode));
 }
 
@@ -195,7 +182,7 @@ NSColor* OmniboxViewMac::GetSecureTextColor(
     return SecureSchemeColor(in_dark_mode);
   }
 
-  if (security_level == security_state::SecurityStateModel::SECURITY_ERROR)
+  if (security_level == security_state::SecurityStateModel::DANGEROUS)
     return SecurityErrorSchemeColor(in_dark_mode);
 
   DCHECK_EQ(security_state::SecurityStateModel::SECURITY_WARNING,
@@ -283,10 +270,6 @@ void OmniboxViewMac::ResetTabState(WebContents* web_contents) {
 
 void OmniboxViewMac::Update() {
   if (model()->UpdatePermanentText()) {
-    // Something visibly changed.  Re-enable URL replacement.
-    controller()->GetToolbarModel()->set_url_replacement_enabled(true);
-    model()->UpdatePermanentText();
-
     const bool was_select_all = IsSelectAll();
     NSTextView* text_view =
         base::mac::ObjCCastStrict<NSTextView>([field_ currentEditor]);
@@ -589,11 +572,9 @@ void OmniboxViewMac::ApplyTextAttributes(
                            value:@"en_US_POSIX"
                            range:as_entire_string];
 
-  if (ui::MaterialDesignController::IsModeMaterial()) {
-    [attributedString addAttribute:NSForegroundColorAttributeName
-                             value:HostTextColor(in_dark_mode)
-                             range:as_entire_string];
-  }
+  [attributedString addAttribute:NSForegroundColorAttributeName
+                           value:HostTextColor(in_dark_mode)
+                           range:as_entire_string];
 
   url::Component scheme, host;
   AutocompleteInput::ParseForEmphasizeComponents(
@@ -624,7 +605,7 @@ void OmniboxViewMac::ApplyTextAttributes(
   if (!model()->user_input_in_progress() && model()->CurrentTextIsURL() &&
       scheme.is_nonempty() &&
       (security_level != security_state::SecurityStateModel::NONE)) {
-    if (security_level == security_state::SecurityStateModel::SECURITY_ERROR) {
+    if (security_level == security_state::SecurityStateModel::DANGEROUS) {
       // Add a strikethrough through the scheme.
       [attributedString addAttribute:NSStrikethroughStyleAttributeName
                  value:[NSNumber numberWithInt:NSUnderlineStyleSingle]
@@ -879,7 +860,7 @@ bool OmniboxViewMac::OnDoCommandBySelector(SEL cmd) {
 
   // Option-Return
   if (cmd == @selector(insertNewlineIgnoringFieldEditor:)) {
-    model()->AcceptInput(NEW_FOREGROUND_TAB, false);
+    model()->AcceptInput(WindowOpenDisposition::NEW_FOREGROUND_TAB, false);
     return true;
   }
 
@@ -934,11 +915,6 @@ void OmniboxViewMac::OnMouseDown(NSInteger button_number) {
     model()->SetCaretVisibility(true);
 }
 
-bool OmniboxViewMac::ShouldSelectAllOnMouseDown() {
-  return !controller()->GetToolbarModel()->WouldPerformSearchTermReplacement(
-      false);
-}
-
 bool OmniboxViewMac::CanCopy() {
   const NSRange selection = GetSelectedRange();
   return selection.length > 0;
@@ -951,15 +927,11 @@ base::scoped_nsobject<NSPasteboardItem> OmniboxViewMac::CreatePasteboardItem() {
   base::string16 text = base::SysNSStringToUTF16(
       [[field_ stringValue] substringWithRange:selection]);
 
-  // Copy the URL unless this is the search URL and it's being replaced by the
-  // Extended Instant API.
+  // Copy the URL.
   GURL url;
   bool write_url = false;
-  if (!controller()->GetToolbarModel()->WouldPerformSearchTermReplacement(
-      false)) {
-    model()->AdjustTextForCopy(selection.location, IsSelectAll(), &text, &url,
-                               &write_url);
-  }
+  model()->AdjustTextForCopy(selection.location, IsSelectAll(), &text, &url,
+                             &write_url);
 
   if (IsSelectAll())
     UMA_HISTOGRAM_COUNTS(OmniboxEditModel::kCutOrCopyAllTextHistogram, 1);
@@ -977,11 +949,6 @@ void OmniboxViewMac::CopyToPasteboard(NSPasteboard* pboard) {
   [pboard clearContents];
   base::scoped_nsobject<NSPasteboardItem> item(CreatePasteboardItem());
   [pboard writeObjects:@[ item.get() ]];
-}
-
-void OmniboxViewMac::ShowURL() {
-  DCHECK(ShouldEnableShowURL());
-  OmniboxView::ShowURL();
 }
 
 void OmniboxViewMac::OnPaste() {
@@ -1014,14 +981,6 @@ void OmniboxViewMac::OnPaste() {
     [editor replaceCharactersInRange:selectedRange withString:s];
     [editor didChangeText];
   }
-}
-
-// TODO(dominich): Move to OmniboxView base class? Currently this is defined on
-// the AutocompleteTextFieldObserver but the logic is shared between all
-// platforms. Some refactor might be necessary to simplify this. Or at least
-// this method could call the OmniboxView version.
-bool OmniboxViewMac::ShouldEnableShowURL() {
-  return controller()->GetToolbarModel()->WouldReplaceURL();
 }
 
 bool OmniboxViewMac::CanPasteAndGo() {
@@ -1126,15 +1085,7 @@ NSFont* OmniboxViewMac::GetLargeFont() {
 }
 
 NSFont* OmniboxViewMac::GetSmallFont() {
-  ui::ResourceBundle& rb = ui::ResourceBundle::GetSharedInstance();
-  if (!ui::MaterialDesignController::IsModeMaterial()) {
-    return rb
-        .GetFontWithDelta(kOmniboxSmallFontSizeDelta, gfx::Font::NORMAL,
-                          gfx::Font::Weight::NORMAL)
-        .GetNativeFont();
-  }
-
-  return rb
+  return ui::ResourceBundle::GetSharedInstance()
       .GetFontWithDelta(kOmniboxSmallMaterialFontSizeDelta, gfx::Font::NORMAL,
                         gfx::Font::Weight::NORMAL)
       .GetNativeFont();

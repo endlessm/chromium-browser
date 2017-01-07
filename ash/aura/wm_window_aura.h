@@ -10,11 +10,14 @@
 #include "base/macros.h"
 #include "base/observer_list.h"
 #include "ui/aura/window_observer.h"
+#include "ui/wm/core/transient_window_observer.h"
 
 namespace ash {
 
 // WmWindowAura is tied to the life of the underlying aura::Window.
-class ASH_EXPORT WmWindowAura : public WmWindow, public aura::WindowObserver {
+class ASH_EXPORT WmWindowAura : public WmWindow,
+                                public aura::WindowObserver,
+                                public ::wm::TransientWindowObserver {
  public:
   explicit WmWindowAura(aura::Window* window);
   // NOTE: this class is owned by the corresponding window. You shouldn't delete
@@ -43,16 +46,24 @@ class ASH_EXPORT WmWindowAura : public WmWindow, public aura::WindowObserver {
   const aura::Window* aura_window() const { return window_; }
 
   // WmWindow:
+  void Destroy() override;
   const WmWindow* GetRootWindow() const override;
   WmRootWindowController* GetRootWindowController() override;
   WmShell* GetShell() const override;
   void SetName(const char* name) override;
+  std::string GetName() const override;
+  void SetTitle(const base::string16& title) override;
   base::string16 GetTitle() const override;
   void SetShellWindowId(int id) override;
   int GetShellWindowId() const override;
   WmWindow* GetChildByShellWindowId(int id) override;
   ui::wm::WindowType GetType() const override;
+  int GetAppType() const override;
+  void SetAppType(int app_type) const override;
+  bool IsBubble() override;
   ui::Layer* GetLayer() override;
+  bool GetLayerTargetVisibility() override;
+  bool GetLayerVisible() override;
   display::Display GetDisplayNearestWindow() override;
   bool HasNonClientArea() override;
   int GetNonClientComponent(const gfx::Point& location) override;
@@ -68,22 +79,29 @@ class ASH_EXPORT WmWindowAura : public WmWindow, public aura::WindowObserver {
   bool IsVisible() const override;
   void SetOpacity(float opacity) override;
   float GetTargetOpacity() const override;
+  gfx::Rect GetMinimizeAnimationTargetBoundsInScreen() const override;
   void SetTransform(const gfx::Transform& transform) override;
   gfx::Transform GetTargetTransform() const override;
   bool IsSystemModal() const override;
   bool GetBoolProperty(WmWindowProperty key) override;
+  SkColor GetColorProperty(WmWindowProperty key) override;
+  void SetColorProperty(WmWindowProperty key, SkColor value) override;
   int GetIntProperty(WmWindowProperty key) override;
+  void SetIntProperty(WmWindowProperty key, int value) override;
   const wm::WindowState* GetWindowState() const override;
   WmWindow* GetToplevelWindow() override;
+  WmWindow* GetToplevelWindowForFocus() override;
   void SetParentUsingContext(WmWindow* context,
                              const gfx::Rect& screen_bounds) override;
   void AddChild(WmWindow* window) override;
-  WmWindow* GetParent() override;
+  void RemoveChild(WmWindow* child) override;
+  const WmWindow* GetParent() const override;
   const WmWindow* GetTransientParent() const override;
   std::vector<WmWindow*> GetTransientChildren() override;
   void SetLayoutManager(
       std::unique_ptr<WmLayoutManager> layout_manager) override;
   WmLayoutManager* GetLayoutManager() override;
+  void SetVisibilityChangesAnimated() override;
   void SetVisibilityAnimationType(int type) override;
   void SetVisibilityAnimationDuration(base::TimeDelta delta) override;
   void SetVisibilityAnimationTransition(
@@ -114,6 +132,7 @@ class ASH_EXPORT WmWindowAura : public WmWindow, public aura::WindowObserver {
   void SetRestoreOverrides(const gfx::Rect& bounds_override,
                            ui::WindowShowState window_state_override) override;
   void SetLockedToRoot(bool value) override;
+  bool IsLockedToRoot() const override;
   void SetCapture() override;
   bool HasCapture() override;
   void ReleaseCapture() override;
@@ -126,12 +145,14 @@ class ASH_EXPORT WmWindowAura : public WmWindow, public aura::WindowObserver {
   void StackChildAtBottom(WmWindow* child) override;
   void StackChildAbove(WmWindow* child, WmWindow* target) override;
   void StackChildBelow(WmWindow* child, WmWindow* target) override;
+  void SetPinned(bool trusted) override;
   void SetAlwaysOnTop(bool value) override;
   bool IsAlwaysOnTop() const override;
   void Hide() override;
   void Show() override;
   views::Widget* GetInternalWidget() override;
   void CloseWidget() override;
+  void SetFocused() override;
   bool IsFocused() const override;
   bool IsActive() const override;
   void Activate() override;
@@ -144,15 +165,22 @@ class ASH_EXPORT WmWindowAura : public WmWindow, public aura::WindowObserver {
   std::vector<WmWindow*> GetChildren() override;
   void ShowResizeShadow(int component) override;
   void HideResizeShadow() override;
+  void InstallResizeHandleWindowTargeter(
+      ImmersiveFullscreenController* immersive_fullscreen_controller) override;
   void SetBoundsInScreenBehaviorForChildren(
       BoundsInScreenBehavior behavior) override;
   void SetSnapsChildrenToPhysicalPixelBoundary() override;
   void SnapToPixelBoundaryIfNecessary() override;
   void SetChildrenUseExtendedHitRegion() override;
-  void SetDescendantsStayInSameRootWindow(bool value) override;
+  std::unique_ptr<views::View> CreateViewWithRecreatedLayers() override;
   void AddObserver(WmWindowObserver* observer) override;
   void RemoveObserver(WmWindowObserver* observer) override;
   bool HasObserver(const WmWindowObserver* observer) const override;
+  void AddTransientWindowObserver(WmTransientWindowObserver* observer) override;
+  void RemoveTransientWindowObserver(
+      WmTransientWindowObserver* observer) override;
+  void AddLimitedPreTargetHandler(ui::EventHandler* handler) override;
+  void RemoveLimitedPreTargetHandler(ui::EventHandler* handler) override;
 
  private:
   // aura::WindowObserver:
@@ -168,11 +196,21 @@ class ASH_EXPORT WmWindowAura : public WmWindow, public aura::WindowObserver {
   void OnWindowDestroying(aura::Window* window) override;
   void OnWindowDestroyed(aura::Window* window) override;
   void OnWindowVisibilityChanging(aura::Window* window, bool visible) override;
+  void OnWindowVisibilityChanged(aura::Window* window, bool visible) override;
   void OnWindowTitleChanged(aura::Window* window) override;
+
+  // ::wm::TransientWindowObserver overrides:
+  void OnTransientChildAdded(aura::Window* window,
+                             aura::Window* transient) override;
+  void OnTransientChildRemoved(aura::Window* window,
+                               aura::Window* transient) override;
 
   aura::Window* window_;
 
   base::ObserverList<WmWindowObserver> observers_;
+
+  bool added_transient_observer_ = false;
+  base::ObserverList<WmTransientWindowObserver> transient_observers_;
 
   DISALLOW_COPY_AND_ASSIGN(WmWindowAura);
 };

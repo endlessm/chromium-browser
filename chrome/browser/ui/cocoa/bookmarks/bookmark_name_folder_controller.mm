@@ -10,7 +10,7 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/cocoa/bookmarks/bookmark_model_observer_for_cocoa.h"
 #include "chrome/grit/generated_resources.h"
-#include "grit/components_strings.h"
+#include "components/strings/grit/components_strings.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/l10n/l10n_util_mac.h"
 
@@ -82,7 +82,7 @@ using bookmarks::BookmarkNode;
 - (void)runAsModalSheet {
   // Ping me when things change out from under us.
   observer_.reset(new BookmarkModelObserverForCocoa(
-      BookmarkModelFactory::GetForProfile(profile_), ^() {
+      BookmarkModelFactory::GetForBrowserContext(profile_), ^() {
         [self cancel:nil];
       }));
   observer_->StartObservingNode(node_);
@@ -101,7 +101,7 @@ using bookmarks::BookmarkNode;
   NSString* name = [nameField_ stringValue];
   if ([name length] == 0)
     name = l10n_util::GetNSStringWithFixup(IDS_BOOKMARK_EDITOR_NEW_FOLDER_NAME);
-  BookmarkModel* model = BookmarkModelFactory::GetForProfile(profile_);
+  BookmarkModel* model = BookmarkModelFactory::GetForBrowserContext(profile_);
   if (node_) {
     model->SetTitle(node_, base::SysNSStringToUTF16(name));
   } else {

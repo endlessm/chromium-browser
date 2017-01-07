@@ -7,6 +7,7 @@
 #include "ash/common/material_design/material_design_controller.h"
 #include "base/logging.h"
 #include "third_party/skia/include/core/SkColor.h"
+#include "ui/gfx/color_palette.h"
 
 namespace ash {
 
@@ -25,9 +26,7 @@ const int kBubblePaddingVerticalSide = 15;
 // Top inset of system tray bubble for bottom anchor alignment.
 const int kTrayBubbleAnchorTopInsetBottomAnchor = 3;
 
-const int kTrayImageItemHorizontalPaddingBottomAlignment = 1;
 const int kTrayImageItemHorizontalPaddingVerticalAlignment = 1;
-const int kTrayImageItemVerticalPaddingVerticalAlignment = 1;
 
 // Size of tray items on the primary axis.
 const int kTrayItemSize = 32;
@@ -46,8 +45,8 @@ const int kTrayPopupPaddingHorizontal = 18;
 const int kTrayPopupPaddingBetweenItems = 10;
 const int kTrayPopupTextSpacingVertical = 4;
 const int kTrayPopupUserCardVerticalPadding = 10;
+const int kTrayPopupSliderPaddingMD = 16;
 
-const int kTrayPopupItemHeight = 46;
 const int kTrayPopupDetailsIconWidth = 25;
 const int kTrayPopupDetailsLabelExtraLeftMargin = 8;
 const SkColor kTrayPopupHoverBackgroundColor = SkColorSetRGB(0xe4, 0xe4, 0xe4);
@@ -77,13 +76,29 @@ const int kTrayNotificationContentsWidth =
     kTrayPopupMinWidth - (kNotificationIconWidth + kNotificationButtonWidth +
                           (kTrayPopupPaddingHorizontal / 2) * 3);
 
-const int kMessageCenterBubblePadding = 4;
+const int kTrayIconSize = 16;
+const SkColor kTrayIconColor = SK_ColorWHITE;
+const int kMenuIconSize = 20;
+const SkColor kMenuIconColor = gfx::kChromeIconGrey;
+const int kMenuButtonSize = 48;
+const int kMenuSeparatorVerticalPadding = 4;
+const int kMenuExtraMarginFromLeftEdge = 4;
+
+const int kHitRegionPadding = 4;
+const SkColor kSeparatorColor = SkColorSetA(SK_ColorWHITE, 0x4D);
+const int kSeparatorWidth = 1;
+
+const SkColor kHorizontalSeparatorColor = SkColorSetA(SK_ColorBLACK, 0x1F);
+const int kHorizontalSeparatorHeight = 24;
 
 int GetTrayConstant(TrayConstant constant) {
   const int kTrayItemHeightLegacy[] = {38, 38, kTrayItemSize};
-  const int kTraySpacing[] = {4, 4, 8};
-  const int kTrayPaddingFromEdgeOfShelf[] = {3, 3, 8};
+  const int kTraySpacing[] = {4, 4, 0};
+  const int kTrayPaddingFromEdgeOfShelf[] = {3, 3, 4};
+  const int kTrayPopupItemHeight[] = {46, 46, 48};
   const int kVirtualKeyboardButtonSize[] = {39, 39, kTrayItemSize};
+  const int kTrayImeMenuIcon[] = {40, 40, kTrayItemSize};
+  const int kTrayImageItemPadding[] = {1, 1, 3};
 
   const int mode = MaterialDesignController::GetMode();
   DCHECK(mode >= MaterialDesignController::NON_MATERIAL &&
@@ -96,8 +111,14 @@ int GetTrayConstant(TrayConstant constant) {
       return kTraySpacing[mode];
     case TRAY_PADDING_FROM_EDGE_OF_SHELF:
       return kTrayPaddingFromEdgeOfShelf[mode];
+    case TRAY_POPUP_ITEM_HEIGHT:
+      return kTrayPopupItemHeight[mode];
     case VIRTUAL_KEYBOARD_BUTTON_SIZE:
       return kVirtualKeyboardButtonSize[mode];
+    case TRAY_IME_MENU_ICON:
+      return kTrayImeMenuIcon[mode];
+    case TRAY_IMAGE_ITEM_PADDING:
+      return kTrayImageItemPadding[mode];
   }
   NOTREACHED();
   return 0;

@@ -8,6 +8,17 @@ option optimize_for = LITE_RUNTIME;
 
 package enterprise_management;
 
+// Data along with a cryptographic signature verifying their authenticity.
+message SignedData {
+  // The data to be signed.
+  optional bytes data = 1;
+  // The signature of the data field.
+  optional bytes signature = 2;
+  // How many bytes were added to the end of original data before signature
+  // (e.g. a nonce to avoid proxy attacks of the signing service).
+  optional int32 extra_data_bytes = 3;
+}
+
 // Request from device to server to register device.
 message DeviceRegisterRequest {
   // Reregister device without erasing server state.  It can be used
@@ -22,8 +33,8 @@ message DeviceRegisterRequest {
   enum Type {
     TT   = 0;             // Register for TT release.
     USER = 1;             // Register for Chrome OS user polices.
-    DEVICE = 2;           // Register for device policies.
-    BROWSER = 3;          // Register for Chrome user policies.
+    DEVICE = 2;           // Register for Chrome OS device policies.
+    BROWSER = 3;          // Register for desktop Chrome browser user policies.
     ANDROID_BROWSER = 4;  // Register for Android Chrome browser user policies.
     IOS_BROWSER = 5;      // Register for iOS Chrome browser user policies.
   }
@@ -79,6 +90,11 @@ message DeviceRegisterRequest {
     FLAVOR_ENROLLMENT_RECOVERY = 6;
     // User policy registration for a logged-in user.
     FLAVOR_USER_REGISTRATION = 7;
+    // Attestation-based with the option to use a different authentication
+    // mechanism.
+    FLAVOR_ENROLLMENT_ATTESTATION = 8;
+    // Forced attestation-based enrollment (cannot fallback to another flavor).
+    FLAVOR_ENROLLMENT_ATTESTATION_FORCED = 9;
   };
 
   // Indicates the registration flavor. This is passed to the server FYI when
@@ -143,6 +159,7 @@ message DeviceServiceApiAccessRequest {
   optional string oauth2_client_id = 2;
 }
 
+// Response from server to API access request.
 message DeviceServiceApiAccessResponse {
   // The OAuth2 authorization code for the requested scope(s).
   // This can be exchanged for a refresh token.
@@ -300,7 +317,8 @@ message PolicyData {
     ACTIVE = 0;
     // Association is alive, but the corresponding domain is not managed.
     UNMANAGED = 1;
-    // Client got dropped on the server side.
+    // The device has been deprovisioned by the administrator and is no longer
+    // managed.
     DEPROVISIONED = 2;
   }
   optional AssociationState state = 9 [default = ACTIVE];
@@ -377,16 +395,16 @@ message PolicyData {
   // The unique directory api ID of the device which was generated on the
   // server-side.
   optional string directory_api_id = 22;
-  
-  // List of device affiliation IDs. If exists overlap between user
+
+  // List of device affiliation IDs. If there exists an overlap between user
   // affiliation IDs and device affiliation IDs, we consider that the user is
   // affiliated on the device. Otherwise the user is not affiliated on the
-  // device. Should be fetched with device policy. Ignored if fetched with 
+  // device. Should be fetched with device policy. Ignored if fetched with
   // other polices.
   repeated string device_affiliation_ids = 23;
-  
+
   // List of user affiliation IDs. The list is used to define if current user
-  // is affiliated on the device. See device_affiliation_ids for details. 
+  // is affiliated on the device. See device_affiliation_ids for details.
   // Should be fetched with user policy. Ignored if fetched with other polices.
   repeated string user_affiliation_ids = 24;
 }
@@ -442,74 +460,6 @@ message PolicyPublicKeyAndDomain {
   // The domain associated with this key (should match the domain portion of
   // the username field of the policy).
   optional string domain = 2;
-}
-
-// This protobuf defines a single remote command from server to client for
-// execution.
-message RemoteCommand {
-  enum Type {
-    // Simple echo command for testing, will be ignored in production code.
-    COMMAND_ECHO_TEST = -1;
-
-    // Reboot the device.
-    DEVICE_REBOOT = 0;
-
-    // Take a screenshot.
-    DEVICE_SCREENSHOT = 1;
-  }
-
-  // The command type.
-  optional Type type = 1;
-
-  // An opaque unique identifier for the command.
-  optional int64 unique_id = 2;
-
-  // The age of the command (in milliseconds) when it is sent from server to
-  // client, defined as current_server_time - command_generated_time.
-  optional int64 age_of_command = 3;
-
-  // Extra parameters for this command, expected to be a JSON string.
-  optional string payload = 4;
-}
-
-// This protobuf defines the execution result of a single remote command
-// which will be sent back to the server.
-message RemoteCommandResult {
-  enum ResultType {
-    RESULT_IGNORED = 0;  // The command was ignored as obsolete.
-    RESULT_FAILURE = 1;  // The command could not be executed.
-    RESULT_SUCCESS = 2;  // The command was successfully executed.
-  }
-
-  // The result of the command.
-  optional ResultType result = 1;
-
-  // The opaque unique identifier of the command. This value is copied from the
-  // RemoteCommand protobuf that contained the command.
-  optional int64 unique_id = 2;
-
-  // The time at which the command was executed, if the the result is
-  // RESULT_SUCCESS.
-  optional int64 timestamp = 3;
-
-  // Extra information sent to server as result of execution, expected to be a
-  // JSON string.
-  optional string payload = 4;
-}
-
-message DeviceRemoteCommandRequest {
-  // The command ID of the last command received from the server until
-  // now.  Omitted if no commands have been received yet.
-  optional int64 last_command_unique_id = 1;
-
-  // The execution results of previously fetched commands.
-  // The client should send back a command result whenever possible.
-  repeated RemoteCommandResult command_results = 2;
-}
-
-message DeviceRemoteCommandResponse {
-  // The queue of pending commands.
-  repeated RemoteCommand commands = 1;
 }
 
 // Request from device to server for reading policies.
@@ -624,7 +574,6 @@ message NetworkInterface {
   optional string device_path = 5;
 }
 
-
 // Information about configured/visible networks - this is separate from
 // NetworkInterface because a configured network may not be associated with
 // any specific interface, or may be visible across multiple interfaces.
@@ -682,6 +631,8 @@ message DeviceUser {
 // Information about a single disk volume.
 message VolumeInfo {
   optional string volume_id = 1;
+
+  // The unit is bytes.
   optional int64 storage_total = 2;
   optional int64 storage_free = 3;
 }
@@ -717,7 +668,7 @@ message DeviceStatusReportRequest {
   repeated ActiveTimePeriod active_period = 6;
 
   // The device location.
-  optional DeviceLocation device_location = 7;
+  optional DeviceLocation deprecated_device_location = 7 [deprecated = true];
 
   // List of network interfaces.
   repeated NetworkInterface network_interface = 8;
@@ -743,8 +694,39 @@ message DeviceStatusReportRequest {
   // Samples of free RAM [in bytes] (unreliable due to GC).
   repeated int64 system_ram_free = 15;
 
-  // CPU temp information.
+  // Samples of CPU temperatures in Celsius, plus associated labels
+  // identifying which CPU produced the temperature measurement.
   repeated CPUTempInfo cpu_temp_info = 16;
+
+  // This field is set only when an OS update is needed because of the required
+  // platform version of an updated kiosk app is different from the current
+  // OS version.
+  optional OsUpdateStatus os_update_status = 17;
+
+  // Set only when there is an auto launched with zero delay kiosk app
+  // and it is currently running. Otherwise, this field is empty.
+  optional AppStatus running_kiosk_app = 18;
+}
+
+message OsUpdateStatus {
+  enum UpdateStatus {
+    OS_UP_TO_DATE = 0;
+    OS_IMAGE_DOWNLOAD_NOT_STARTED = 1;
+    OS_IMAGE_DOWNLOAD_IN_PROGRESS = 2;
+    OS_UPDATE_NEED_REBOOT = 3;
+  }
+
+  optional UpdateStatus update_status = 1;
+
+  // New platform version of the os image being downloaded and applied. It
+  // is only set when update status is OS_IMAGE_DOWNLOAD_IN_PROGRESS or
+  // OS_UPDATE_NEED_REBOOT. Note this could be a dummy "0.0.0.0" for
+  // OS_UPDATE_NEED_REBOOT status for some edge cases, e.g. update engine is
+  // restarted without a reboot.
+  optional string new_platform_version = 2;
+
+  // New required platform version from the pending updated kiosk app.
+  optional string new_required_platform_version = 3;
 }
 
 // Provides status information for an installed app/extension.
@@ -760,9 +742,19 @@ message AppStatus {
 
   // If true, the application is currently in a self-reported error state.
   optional bool error = 4;
+
+  // App required Chrome version, specified in app’s manifest file.
+  optional string required_platform_version = 5;
 }
 
-// Report session (a user on one device) level status.
+message AndroidStatus {
+  // JSON string of ARC status report.
+  optional string status_payload = 1;
+  // DroidGuard response obtained from DroidGuard server.
+  optional string droid_guard_info = 2;
+}
+
+// Report current active session (a user on one device) level status.
 message SessionStatusReportRequest {
   // Installed apps for this user on this device.
   // No longer used -- use installed_apps instead.
@@ -783,6 +775,9 @@ message SessionStatusReportRequest {
 
   // Information about installed extensions for this user on this device.
   repeated AppStatus installed_extensions = 6;
+
+  // Information about ARC status.
+  optional AndroidStatus android_status = 7;
 }
 
 // Response from DMServer to update devices' status.
@@ -984,6 +979,74 @@ message CheckDevicePairingResponse {
   optional StatusCode status_code = 1 [default = NOT_PAIRED];
 }
 
+// This protobuf defines a single remote command from server to client for
+// execution.
+message RemoteCommand {
+  enum Type {
+    // Simple echo command for testing, will be ignored in production code.
+    COMMAND_ECHO_TEST = -1;
+
+    // Reboot the device.
+    DEVICE_REBOOT = 0;
+
+    // Take a screenshot.
+    DEVICE_SCREENSHOT = 1;
+  }
+
+  // The command type.
+  optional Type type = 1;
+
+  // An opaque unique identifier for the command.
+  optional int64 unique_id = 2;
+
+  // The age of the command (in milliseconds) when it is sent from server to
+  // client, defined as current_server_time - command_generated_time.
+  optional int64 age_of_command = 3;
+
+  // Extra parameters for this command, expected to be a JSON string.
+  optional string payload = 4;
+}
+
+// This protobuf defines the execution result of a single remote command
+// which will be sent back to the server.
+message RemoteCommandResult {
+  enum ResultType {
+    RESULT_IGNORED = 0;  // The command was ignored as obsolete.
+    RESULT_FAILURE = 1;  // The command could not be executed.
+    RESULT_SUCCESS = 2;  // The command was successfully executed.
+  }
+
+  // The result of the command.
+  optional ResultType result = 1;
+
+  // The opaque unique identifier of the command. This value is copied from the
+  // RemoteCommand protobuf that contained the command.
+  optional int64 unique_id = 2;
+
+  // The time at which the command was executed, if the the result is
+  // RESULT_SUCCESS.
+  optional int64 timestamp = 3;
+
+  // Extra information sent to server as result of execution, expected to be a
+  // JSON string.
+  optional string payload = 4;
+}
+
+message DeviceRemoteCommandRequest {
+  // The command ID of the last command received from the server until
+  // now.  Omitted if no commands have been received yet.
+  optional int64 last_command_unique_id = 1;
+
+  // The execution results of previously fetched commands.
+  // The client should send back a command result whenever possible.
+  repeated RemoteCommandResult command_results = 2;
+}
+
+message DeviceRemoteCommandResponse {
+  // The queue of pending commands.
+  repeated RemoteCommand commands = 1;
+}
+
 // Sent by the client to the server to check if the current user is allowed
 // to update attributes (asset id and location).  The HTTP request contains an
 // end-user OAuth token.
@@ -1041,12 +1104,44 @@ message CheckAndroidManagementRequest {}
 // SC_CONFLICT HTTP code is returned if DPC enforcement is required.
 message CheckAndroidManagementResponse {}
 
+// Request to register a new device (authenticated by enterprise enrollment
+// certificate).
+// The response message will be the DeviceRegisterReponse.
+message CertificateBasedDeviceRegisterRequest {
+  // Signed request to register with a certificate. The signed_request.data
+  // field contains a CertificateBasedDeviceRegistrationData with a nonce
+  // (as added by the Chrome OS cryptohome client) appended. The
+  // signed_request.signature field is a signature of the data field signed
+  // with the enrollment certificate's private key.
+  optional SignedData signed_request = 1;
+}
+
+message CertificateBasedDeviceRegistrationData {
+  enum CertificateType {
+    UNKNOWN = 0;
+    ENTERPRISE_ENROLLMENT_CERTIFICATE = 1;
+  }
+
+  optional CertificateType certificate_type = 1;
+  // Device certificate in X.509 format.
+  // We use CertificateFactory.generateCertificate() call and
+  // the certificate provided must be DER-encoded and may be supplied in binary
+  // or printable (Base64) encoding. If the certificate is provided in Base64
+  // encoding, it must be bounded at the beginning by
+  // -----BEGIN CERTIFICATE-----, and must be bounded at the end by
+  // -----END CERTIFICATE-----.
+  optional bytes device_certificate = 2;
+  // regular device registration request
+  optional DeviceRegisterRequest device_register_request = 3;
+}
+
 // Request from the DMAgent on the device to the DMServer.  This is
 // container for all requests from device to server.  The overall HTTP
 // request MUST be in the following format:
 //
 // * HTTP method is POST
 // * Data mime type is application/x-protobuffer
+//   * See GoogleContentTypeEnum.java
 // * HTTP parameters are (all required, all case sensitive):
 //   * request: MUST BE one of
 //     * api_authorization
@@ -1065,6 +1160,7 @@ message CheckAndroidManagementResponse {}
 //     * attribute_update
 //     * gcm_id_update
 //     * check_android_management
+//     * certificate_based_register
 //
 //   * devicetype: MUST BE "1" for Android or "2" for Chrome OS.
 //   * apptype: MUST BE Android or Chrome.
@@ -1078,9 +1174,10 @@ message CheckAndroidManagementResponse {}
 //     and gcm id update requests
 //      Authorization: GoogleDMToken token=<dm token from register>
 //
-//   * The Authorization header isn't used for enterprise_check
-//     request, nor for register requests using OAuth. In the latter case,
-//     the OAuth token is passed in the "oauth" parameter.
+//   * The Authorization header isn't used for enterprise_check or for
+//     certificate_based_register requests, nor for register requests
+//     using OAuth. In the latter case, the OAuth token is passed in the
+//     "oauth" parameter.
 //
 // DeviceManagementRequest should only contain one request which matches the
 // HTTP query parameter - request, as listed below. Other requests within the
@@ -1100,6 +1197,7 @@ message CheckAndroidManagementResponse {}
 //   attribute_update: device_attribute_update_request
 //   gcm_id_update: gcm_id_update_request
 //   check_android_management: check_android_management_request
+//   certificate_based_register: cert_based_register_request
 //
 message DeviceManagementRequest {
   // Register request.
@@ -1152,6 +1250,11 @@ message DeviceManagementRequest {
 
   // Check if user is a managed Android-for-Work user with DPC enforcement.
   optional CheckAndroidManagementRequest check_android_management_request = 17;
+
+  // Request to register with a registration certificate.
+  optional CertificateBasedDeviceRegisterRequest
+      cert_based_register_request = 18;
+
 }
 
 // Response from server to device.

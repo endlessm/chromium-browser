@@ -13,14 +13,13 @@
 #include "base/callback.h"
 #include "base/logging.h"
 #include "base/macros.h"
-#include "base/metrics/histogram.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/threading/thread_restrictions.h"
 #include "base/values.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chromeos/ownership/owner_settings_service_chromeos.h"
 #include "chrome/browser/chromeos/policy/browser_policy_connector_chromeos.h"
 #include "chrome/browser/chromeos/policy/device_local_account.h"
-#include "chrome/browser/chromeos/policy/enterprise_install_attributes.h"
 #include "chrome/browser/chromeos/settings/cros_settings.h"
 #include "chrome/browser/chromeos/settings/device_settings_cache.h"
 #include "chrome/browser/metrics/metrics_reporting_state.h"
@@ -30,8 +29,8 @@
 #include "chromeos/dbus/dbus_thread_manager.h"
 #include "chromeos/settings/cros_settings_names.h"
 #include "components/policy/core/common/cloud/cloud_policy_constants.h"
+#include "components/policy/proto/device_management_backend.pb.h"
 #include "components/prefs/pref_service.h"
-#include "policy/proto/device_management_backend.pb.h"
 
 using google::protobuf::RepeatedField;
 using google::protobuf::RepeatedPtrField;
@@ -70,6 +69,7 @@ const char* const kKnownSettings[] = {
     kExtensionCacheSize,
     kHeartbeatEnabled,
     kHeartbeatFrequency,
+    kLoginApps,
     kLoginAuthenticationBehavior,
     kLoginVideoCaptureAllowedUrls,
     kPolicyMissingMitigationMode,
@@ -84,6 +84,8 @@ const char* const kKnownSettings[] = {
     kReportDeviceSessionStatus,
     kReportDeviceUsers,
     kReportDeviceVersionInfo,
+    kReportOsUpdateStatus,
+    kReportRunningKioskApp,
     kReportUploadFrequency,
     kServiceAccountIdentity,
     kSignedDataRoamingEnabled,
@@ -170,7 +172,7 @@ void DecodeLoginPolicies(
       whitelist_proto.user_whitelist();
   for (RepeatedPtrField<std::string>::const_iterator it = whitelist.begin();
        it != whitelist.end(); ++it) {
-    list->Append(new base::StringValue(*it));
+    list->AppendString(*it);
   }
   new_values_cache->SetValue(kAccountsPrefUsers, std::move(list));
 
@@ -240,7 +242,7 @@ void DecodeLoginPolicies(
     const RepeatedPtrField<std::string>& flags = flags_proto.flags();
     for (RepeatedPtrField<std::string>::const_iterator it = flags.begin();
          it != flags.end(); ++it) {
-      list->Append(new base::StringValue(*it));
+      list->AppendString(*it);
     }
     new_values_cache->SetValue(kStartUpFlags, std::move(list));
   }
@@ -279,9 +281,17 @@ void DecodeLoginPolicies(
         login_video_capture_allowed_urls_proto =
             policy.login_video_capture_allowed_urls();
     for (const auto& value : login_video_capture_allowed_urls_proto.urls()) {
-      list->Append(new base::StringValue(value));
+      list->AppendString(value);
     }
     new_values_cache->SetValue(kLoginVideoCaptureAllowedUrls, std::move(list));
+  }
+
+  if (policy.has_login_apps()) {
+    std::unique_ptr<base::ListValue> login_apps(new base::ListValue);
+    const em::LoginAppsProto& login_apps_proto(policy.login_apps());
+    for (const auto& login_app : login_apps_proto.login_apps())
+      login_apps->AppendString(login_app);
+    new_values_cache->SetValue(kLoginApps, std::move(login_apps));
   }
 }
 
@@ -311,7 +321,7 @@ void DecodeAutoUpdatePolicies(
     std::unique_ptr<base::ListValue> list(new base::ListValue());
     for (RepeatedField<int>::const_iterator i(allowed_connection_types.begin());
          i != allowed_connection_types.end(); ++i) {
-      list->Append(new base::FundamentalValue(*i));
+      list->AppendInteger(*i);
     }
     new_values_cache->SetValue(kAllowedConnectionTypesForUpdate,
                                std::move(list));
@@ -358,6 +368,14 @@ void DecodeReportingPolicies(
       new_values_cache->SetBoolean(
           kReportDeviceSessionStatus,
           reporting_policy.report_session_status());
+    }
+    if (reporting_policy.has_report_os_update_status()) {
+      new_values_cache->SetBoolean(kReportOsUpdateStatus,
+                                   reporting_policy.report_os_update_status());
+    }
+    if (reporting_policy.has_report_running_kiosk_app()) {
+      new_values_cache->SetBoolean(kReportRunningKioskApp,
+                                   reporting_policy.report_running_kiosk_app());
     }
     if (reporting_policy.has_device_status_frequency()) {
       new_values_cache->SetInteger(
@@ -664,15 +682,9 @@ void DeviceSettingsProvider::UpdateValuesCache(
     TrustedStatus trusted_status) {
   PrefValueMap new_values_cache;
 
-  // If the device is not managed, or is consumer-managed, we set the device
-  // owner value.
-  if (policy_data.has_username() &&
-      (policy::GetManagementMode(policy_data) ==
-           policy::MANAGEMENT_MODE_LOCAL_OWNER ||
-       policy::GetManagementMode(policy_data) ==
-           policy::MANAGEMENT_MODE_CONSUMER_MANAGED)) {
+  // If the device is not managed, we set the device owner value.
+  if (policy_data.has_username() && !policy_data.has_request_token())
     new_values_cache.SetString(kDeviceOwner, policy_data.username());
-  }
 
   if (policy_data.has_service_account_identity()) {
     new_values_cache.SetString(kServiceAccountIdentity,

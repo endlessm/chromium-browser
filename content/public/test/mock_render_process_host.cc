@@ -29,10 +29,6 @@
 #include "content/public/browser/render_widget_host_iterator.h"
 #include "content/public/browser/storage_partition.h"
 
-#if defined(ENABLE_BROWSER_CDMS)
-#include "media/base/media_keys.h"
-#endif
-
 namespace content {
 
 MockRenderProcessHost::MockRenderProcessHost(BrowserContext* browser_context)
@@ -104,6 +100,7 @@ void MockRenderProcessHost::EnableSendQueue() {
 
 bool MockRenderProcessHost::Init() {
   has_connection_ = true;
+  remote_interfaces_.reset(new shell::InterfaceProvider);
   return true;
 }
 
@@ -131,7 +128,8 @@ void MockRenderProcessHost::RemoveObserver(
   observers_.RemoveObserver(observer);
 }
 
-void MockRenderProcessHost::ShutdownForBadMessage() {
+void MockRenderProcessHost::ShutdownForBadMessage(
+    CrashReportMode crash_report_mode) {
   ++bad_msg_count_;
 }
 
@@ -258,19 +256,8 @@ base::TimeDelta MockRenderProcessHost::GetChildProcessIdleTime() const {
   return base::TimeDelta::FromMilliseconds(0);
 }
 
-void MockRenderProcessHost::NotifyTimezoneChange(const std::string& zone_id) {
-}
-
-shell::InterfaceRegistry* MockRenderProcessHost::GetInterfaceRegistry() {
-  return interface_registry_.get();
-}
-
 shell::InterfaceProvider* MockRenderProcessHost::GetRemoteInterfaces() {
   return remote_interfaces_.get();
-}
-
-shell::Connection* MockRenderProcessHost::GetChildConnection() {
-  return nullptr;
 }
 
 std::unique_ptr<base::SharedPersistentMemoryAllocator>
@@ -284,24 +271,32 @@ const base::TimeTicks& MockRenderProcessHost::GetInitTimeForNavigationMetrics()
   return dummy_time;
 }
 
-#if defined(ENABLE_BROWSER_CDMS)
-scoped_refptr<media::MediaKeys> MockRenderProcessHost::GetCdm(
-    int render_frame_id,
-    int cdm_id) const {
-  return nullptr;
-}
-#endif
-
 bool MockRenderProcessHost::IsProcessBackgrounded() const {
   return is_process_backgrounded_;
 }
 
-void MockRenderProcessHost::IncrementWorkerRefCount() {
+void MockRenderProcessHost::IncrementServiceWorkerRefCount() {
   ++worker_ref_count_;
 }
 
-void MockRenderProcessHost::DecrementWorkerRefCount() {
+void MockRenderProcessHost::DecrementServiceWorkerRefCount() {
   --worker_ref_count_;
+}
+
+void MockRenderProcessHost::IncrementSharedWorkerRefCount() {
+  ++worker_ref_count_;
+}
+
+void MockRenderProcessHost::DecrementSharedWorkerRefCount() {
+  --worker_ref_count_;
+}
+
+void MockRenderProcessHost::ForceReleaseWorkerRefCounts() {
+  worker_ref_count_ = 0;
+}
+
+bool MockRenderProcessHost::IsWorkerRefCountDisabled() {
+  return false;
 }
 
 void MockRenderProcessHost::PurgeAndSuspend() {}
@@ -317,10 +312,14 @@ void MockRenderProcessHost::EnableAudioDebugRecordings(
 
 void MockRenderProcessHost::DisableAudioDebugRecordings() {}
 
-void MockRenderProcessHost::EnableEventLogRecordings(
-    const base::FilePath& file) {}
+bool MockRenderProcessHost::StartWebRTCEventLog(
+    const base::FilePath& file_path) {
+  return false;
+}
 
-void MockRenderProcessHost::DisableEventLogRecordings() {}
+bool MockRenderProcessHost::StopWebRTCEventLog() {
+  return false;
+}
 
 void MockRenderProcessHost::SetWebRtcLogMessageCallback(
     base::Callback<void(const std::string&)> callback) {

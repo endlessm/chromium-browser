@@ -74,7 +74,8 @@ class AndroidProviderBackendDelegate : public HistoryBackend::Delegate {
  public:
   AndroidProviderBackendDelegate() {}
 
-  void NotifyProfileError(sql::InitStatus init_status) override {}
+  void NotifyProfileError(sql::InitStatus init_status,
+                          const std::string& diagnostics) override {}
   void SetInMemoryBackend(
       std::unique_ptr<InMemoryHistoryBackend> backend) override {}
   void NotifyFaviconsChanged(const std::set<GURL>& page_urls,
@@ -185,7 +186,8 @@ class AndroidProviderBackendTest : public testing::Test {
     TestingProfile* testing_profile = profile_manager_.CreateTestingProfile(
         chrome::kInitialProfile);
     testing_profile->CreateBookmarkModel(true);
-    bookmark_model_ = BookmarkModelFactory::GetForProfile(testing_profile);
+    bookmark_model_ =
+        BookmarkModelFactory::GetForBrowserContext(testing_profile);
     history_client_.reset(new ChromeHistoryClient(bookmark_model_));
     history_backend_client_ = history_client_->CreateBackendClient();
     bookmarks::test::WaitForBookmarkModelToLoad(bookmark_model_);
@@ -199,10 +201,10 @@ class AndroidProviderBackendTest : public testing::Test {
     // Setup the database directory and files.
     ASSERT_TRUE(temp_dir_.CreateUniqueTempDir());
 
-    history_db_name_ = temp_dir_.path().AppendASCII(kHistoryFilename);
-    thumbnail_db_name_ = temp_dir_.path().AppendASCII(kFaviconsFilename);
-    android_cache_db_name_ = temp_dir_.path().AppendASCII(
-        "TestAndroidCache.db");
+    history_db_name_ = temp_dir_.GetPath().AppendASCII(kHistoryFilename);
+    thumbnail_db_name_ = temp_dir_.GetPath().AppendASCII(kFaviconsFilename);
+    android_cache_db_name_ =
+        temp_dir_.GetPath().AppendASCII("TestAndroidCache.db");
   }
 
   void AddBookmark(const GURL& url) {
@@ -303,7 +305,7 @@ TEST_F(AndroidProviderBackendTest, UpdateTables) {
                                        history_client_->CreateBackendClient(),
                                        message_loop_.task_runner());
   history_backend->Init(false,
-                        TestHistoryDatabaseParamsForPath(temp_dir_.path()));
+                        TestHistoryDatabaseParamsForPath(temp_dir_.GetPath()));
   history_backend->AddVisits(url1, visits1, history::SOURCE_SYNCED);
   history_backend->AddVisits(url2, visits2, history::SOURCE_SYNCED);
   URLRow url_row;
@@ -439,7 +441,7 @@ TEST_F(AndroidProviderBackendTest, QueryHistoryAndBookmarks) {
                                        history_client_->CreateBackendClient(),
                                        message_loop_.task_runner());
   history_backend->Init(false,
-                        TestHistoryDatabaseParamsForPath(temp_dir_.path()));
+                        TestHistoryDatabaseParamsForPath(temp_dir_.GetPath()));
   history_backend->AddVisits(url1, visits1, history::SOURCE_SYNCED);
   history_backend->AddVisits(url2, visits2, history::SOURCE_SYNCED);
 
@@ -1827,7 +1829,7 @@ TEST_F(AndroidProviderBackendTest, QueryWithoutThumbnailDB) {
                                        history_client_->CreateBackendClient(),
                                        message_loop_.task_runner());
   history_backend->Init(false,
-                        TestHistoryDatabaseParamsForPath(temp_dir_.path()));
+                        TestHistoryDatabaseParamsForPath(temp_dir_.GetPath()));
   history_backend->AddVisits(url1, visits1, history::SOURCE_SYNCED);
   history_backend->AddVisits(url2, visits2, history::SOURCE_SYNCED);
   URLRow url_row;

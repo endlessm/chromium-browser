@@ -5,6 +5,7 @@
 #include "chrome/browser/supervised_user/legacy/supervised_user_registration_utility.h"
 
 #include <stdint.h>
+
 #include <utility>
 
 #include "base/bind.h"
@@ -20,15 +21,16 @@
 #include "chrome/common/pref_names.h"
 #include "chrome/test/base/testing_profile.h"
 #include "components/prefs/scoped_user_pref_update.h"
+#include "components/sync/api/attachments/attachment_id.h"
+#include "components/sync/api/sync_change.h"
+#include "components/sync/api/sync_error_factory_mock.h"
+#include "components/sync/core/attachments/attachment_service_proxy_for_test.h"
+#include "components/sync/protocol/sync.pb.h"
 #include "components/syncable_prefs/testing_pref_service_syncable.h"
 #include "content/public/browser/browser_thread.h"
+#include "content/public/test/test_browser_thread_bundle.h"
 #include "content/public/test/test_utils.h"
 #include "google_apis/gaia/google_service_auth_error.h"
-#include "sync/api/attachments/attachment_id.h"
-#include "sync/api/sync_change.h"
-#include "sync/api/sync_error_factory_mock.h"
-#include "sync/internal_api/public/attachments/attachment_service_proxy_for_test.h"
-#include "sync/protocol/sync.pb.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 using sync_pb::ManagedUserSpecifics;
@@ -125,7 +127,7 @@ class SupervisedUserRegistrationUtilityTest : public ::testing::Test {
   void OnSupervisedUserRegistered(const GoogleServiceAuthError& error,
                                   const std::string& token);
 
-  base::MessageLoop message_loop_;
+  content::TestBrowserThreadBundle thread_bundle_;
   base::RunLoop run_loop_;
   TestingProfile profile_;
   SupervisedUserSyncService* service_;

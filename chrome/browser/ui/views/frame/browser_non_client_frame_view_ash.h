@@ -17,7 +17,6 @@ class TabIconView;
 class WebAppLeftHeaderView;
 
 namespace ash {
-class FrameBorderHitTestController;
 class FrameCaptionButton;
 class FrameCaptionButtonContainerView;
 class HeaderPainter;
@@ -92,10 +91,6 @@ class BrowserNonClientFrameViewAsh : public BrowserNonClientFrameView,
   FRIEND_TEST_ALL_PREFIXES(WebAppLeftHeaderViewTest, LocationIcon);
   friend class BrowserHeaderPainterAsh;
 
-  // views::NonClientFrameView:
-  bool DoesIntersectRect(const views::View* target,
-                         const gfx::Rect& rect) const override;
-
   // Distance between the left edge of the NonClientFrameView and the tab strip.
   int GetTabStripLeftInset() const;
 
@@ -138,10 +133,6 @@ class BrowserNonClientFrameViewAsh : public BrowserNonClientFrameView,
 
   // Helper class for painting the header.
   std::unique_ptr<ash::HeaderPainter> header_painter_;
-
-  // Updates the hittest bounds overrides based on the window show type.
-  std::unique_ptr<ash::FrameBorderHitTestController>
-      frame_border_hit_test_controller_;
 
   DISALLOW_COPY_AND_ASSIGN(BrowserNonClientFrameViewAsh);
 };

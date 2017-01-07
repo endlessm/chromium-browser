@@ -8,14 +8,13 @@ import android.os.Environment;
 import android.test.suitebuilder.annotation.MediumTest;
 import android.text.TextUtils;
 
-import org.chromium.base.ContextUtils;
 import org.chromium.base.ThreadUtils;
 import org.chromium.base.test.util.Feature;
+import org.chromium.base.test.util.RetryOnFailure;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.infobar.InfoBar;
 import org.chromium.chrome.browser.infobar.InfoBarContainer;
 import org.chromium.chrome.browser.tabmodel.TabModelSelector;
-import org.chromium.chrome.browser.util.FeatureUtilities;
 import org.chromium.chrome.test.ChromeActivityTestCaseBase;
 import org.chromium.content.browser.test.util.Criteria;
 import org.chromium.content.browser.test.util.CriteriaHelper;
@@ -27,8 +26,8 @@ import java.util.concurrent.Callable;
 
 /**
  * Tests whether popup windows appear.
- * In document mode, this will end up spawning multiple Activities.
  */
+@RetryOnFailure
 public class PopupTest extends ChromeActivityTestCaseBase<ChromeActivity> {
     private static final String POPUP_HTML_PATH = "/chrome/test/data/android/popup_test.html";
 
@@ -85,11 +84,7 @@ public class PopupTest extends ChromeActivityTestCaseBase<ChromeActivity> {
     @MediumTest
     @Feature({"Popup"})
     public void testPopupWindowsAppearWhenAllowed() throws Exception {
-        boolean isDocumentMode =
-                FeatureUtilities.isDocumentMode(ContextUtils.getApplicationContext());
-        final TabModelSelector selector = isDocumentMode
-                ? ChromeApplication.getDocumentTabModelSelector()
-                : getActivity().getTabModelSelector();
+        final TabModelSelector selector = getActivity().getTabModelSelector();
 
         loadUrl(mPopupHtmlUrl);
         CriteriaHelper.pollUiThread(Criteria.equals(1, new Callable<Integer>() {

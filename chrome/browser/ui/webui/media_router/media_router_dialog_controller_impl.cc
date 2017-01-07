@@ -4,6 +4,7 @@
 
 #include "chrome/browser/ui/webui/media_router/media_router_dialog_controller_impl.h"
 
+#include <memory>
 #include <string>
 #include <utility>
 #include <vector>
@@ -40,24 +41,21 @@ using content::WebContents;
 using content::WebUIMessageHandler;
 using ui::WebDialogDelegate;
 
-namespace {
-const int kMaxHeight = 2000;
-const int kMinHeight = 80;
-const int kWidth = 340;
-}
-
 namespace media_router {
 
 namespace {
+
+constexpr const int kMaxHeight = 2000;
+constexpr const int kMinHeight = 80;
+constexpr const int kWidth = 340;
 
 // WebDialogDelegate that specifies what the Media Router dialog
 // will look like.
 class MediaRouterDialogDelegate : public WebDialogDelegate {
  public:
-  MediaRouterDialogDelegate(base::WeakPtr<MediaRouterAction> action,
+  explicit MediaRouterDialogDelegate(
       const base::WeakPtr<MediaRouterDialogControllerImpl>& controller)
-      : action_(action),
-        controller_(controller) {}
+      : controller_(controller) {}
   ~MediaRouterDialogDelegate() override {}
 
   // WebDialogDelegate implementation.
@@ -88,8 +86,6 @@ class MediaRouterDialogDelegate : public WebDialogDelegate {
   void OnDialogClosed(const std::string& json_retval) override {
     // We don't delete |this| here because this class is owned
     // by ConstrainedWebDialogDelegate.
-    if (action_)
-      action_->OnPopupHidden();
   }
 
   void OnCloseContents(WebContents* source, bool* out_close_dialog) override {
@@ -169,14 +165,13 @@ MediaRouterDialogControllerImpl::~MediaRouterDialogControllerImpl() {
 }
 
 WebContents* MediaRouterDialogControllerImpl::GetMediaRouterDialog() const {
-  DCHECK(thread_checker_.CalledOnValidThread());
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   return dialog_observer_.get() ? dialog_observer_->web_contents() : nullptr;
 }
 
 void MediaRouterDialogControllerImpl::SetMediaRouterAction(
     const base::WeakPtr<MediaRouterAction>& action) {
-  if (!action_)
-    action_ = action;
+  action_ = action;
 }
 
 bool MediaRouterDialogControllerImpl::IsShowingMediaRouterDialog() const {
@@ -237,7 +232,7 @@ void MediaRouterDialogControllerImpl::CreateMediaRouterDialog() {
   // |web_dialog_delegate|'s owner is |constrained_delegate|.
   // |constrained_delegate| is owned by the parent |views::View|.
   WebDialogDelegate* web_dialog_delegate =
-      new MediaRouterDialogDelegate(action_, weak_ptr_factory_.GetWeakPtr());
+      new MediaRouterDialogDelegate(weak_ptr_factory_.GetWeakPtr());
 
   // |ShowConstrainedWebDialogWithAutoResize()| will end up creating
   // ConstrainedWebDialogDelegateViewViews containing a WebContents containing
@@ -270,17 +265,19 @@ void MediaRouterDialogControllerImpl::CreateMediaRouterDialog() {
       media_router_dialog, this));
 
   if (action_)
-    action_->OnPopupShown();
+    action_->OnDialogShown();
 }
 
 void MediaRouterDialogControllerImpl::Reset() {
   MediaRouterDialogController::Reset();
   dialog_observer_.reset();
+  if (action_)
+    action_->OnDialogHidden();
 }
 
 void MediaRouterDialogControllerImpl::OnDialogNavigated(
     const content::LoadCommittedDetails& details) {
-  DCHECK(thread_checker_.CalledOnValidThread());
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   WebContents* media_router_dialog = GetMediaRouterDialog();
   CHECK(media_router_dialog);
   ui::PageTransition transition_type = details.entry->GetTransitionType();
@@ -301,7 +298,7 @@ void MediaRouterDialogControllerImpl::OnDialogNavigated(
 
 void MediaRouterDialogControllerImpl::PopulateDialog(
     content::WebContents* media_router_dialog) {
-  DCHECK(thread_checker_.CalledOnValidThread());
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   DCHECK(media_router_dialog);
   if (!initiator() || !media_router_dialog->GetWebUI()) {
     Reset();

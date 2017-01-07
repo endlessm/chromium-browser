@@ -37,7 +37,6 @@
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/ui/webui/extensions/extension_icon_source.h"
 #include "chrome/common/chrome_switches.h"
-#include "chrome/common/extensions/features/feature_channel.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/url_data_source.h"
 #include "extensions/browser/content_verifier.h"
@@ -54,6 +53,7 @@
 #include "extensions/browser/uninstall_ping_sender.h"
 #include "extensions/browser/value_store/value_store_factory_impl.h"
 #include "extensions/common/constants.h"
+#include "extensions/common/features/feature_channel.h"
 #include "extensions/common/manifest_url_handlers.h"
 
 #if defined(ENABLE_NOTIFICATIONS)
@@ -262,24 +262,6 @@ void ExtensionSystemImpl::Shared::Init(bool extensions_enabled) {
   content::URLDataSource::Add(profile_, new ExtensionIconSource(profile_));
 
   quota_service_.reset(new QuotaService);
-
-  if (extensions_enabled) {
-    // Load any extensions specified with --load-extension.
-    // TODO(yoz): Seems like this should move into ExtensionService::Init.
-    // But maybe it's no longer important.
-    if (command_line->HasSwitch(switches::kLoadExtension)) {
-      base::CommandLine::StringType path_list =
-          command_line->GetSwitchValueNative(switches::kLoadExtension);
-      base::StringTokenizerT<base::CommandLine::StringType,
-                             base::CommandLine::StringType::const_iterator>
-          t(path_list, FILE_PATH_LITERAL(","));
-      while (t.GetNext()) {
-        std::string extension_id;
-        UnpackedInstaller::Create(extension_service_.get())->
-            LoadFromCommandLine(base::FilePath(t.token()), &extension_id);
-      }
-    }
-  }
 }
 
 void ExtensionSystemImpl::Shared::Shutdown() {

@@ -9,6 +9,8 @@ import org.chromium.base.annotations.JNINamespace;
 import org.chromium.base.annotations.SuppressFBWarnings;
 import org.chromium.chromoting.CapabilityManager;
 import org.chromium.chromoting.InputStub;
+import org.chromium.chromoting.Preconditions;
+import org.chromium.chromoting.RenderStub;
 import org.chromium.chromoting.SessionAuthenticator;
 
 /**
@@ -21,10 +23,9 @@ import org.chromium.chromoting.SessionAuthenticator;
 @JNINamespace("remoting")
 public class Client implements InputStub {
     // Pointer to the C++ object, cast to a |long|.
-    private long mNativeJniClient;
+    private final long mNativeJniClient;
 
-    // Implementation-dependent display object used by the desktop view.
-    private Object mDisplay;
+    private RenderStub mRenderStub;
 
     // The global Client instance (may be null). This needs to be a global singleton so that the
     // Client can be passed between Activities.
@@ -39,24 +40,6 @@ public class Client implements InputStub {
         mNativeJniClient = nativeInit();
     }
 
-    /**
-     * Sets the display object. Called by the native code when the connection starts.
-     * @param display the implementation-dependent object used by the desktop view.
-     */
-    @CalledByNative
-    private void setDisplay(Object display) {
-        mDisplay = display;
-    }
-
-    /**
-     * Returns the display object. It will be null before calling connectToHost() or after calling
-     * disconnectFromHost().
-     * @return the display object.
-     */
-    public Object getDisplay() {
-        return mDisplay;
-    }
-
     // Suppress FindBugs warning, since |sClient| is only used on the UI thread.
     @SuppressFBWarnings("LI_LAZY_INIT_STATIC")
     public void destroy() {
@@ -65,6 +48,16 @@ public class Client implements InputStub {
             nativeDestroy(mNativeJniClient);
             sClient = null;
         }
+    }
+
+    public void setRenderStub(RenderStub stub) {
+        Preconditions.isNull(mRenderStub);
+        Preconditions.notNull(stub);
+        mRenderStub = stub;
+    }
+
+    public RenderStub getRenderStub() {
+        return mRenderStub;
     }
 
     /** Returns the current Client instance, or null. */
@@ -130,8 +123,6 @@ public class Client implements InputStub {
         mConnectionListener = null;
         mConnected = false;
         mCapabilityManager.onHostDisconnect();
-
-        mDisplay = null;
     }
 
     /** Called whenever the connection status changes. */

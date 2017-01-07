@@ -5,6 +5,7 @@
 #include "chrome/browser/sync/test/integration/passwords_helper.h"
 
 #include <sstream>
+#include <string>
 #include <utility>
 
 #include "base/compiler_specific.h"
@@ -15,11 +16,8 @@
 #include "base/time/time.h"
 #include "chrome/browser/password_manager/password_store_factory.h"
 #include "chrome/browser/sync/profile_sync_service_factory.h"
-#include "chrome/browser/sync/test/integration/multi_client_status_change_checker.h"
 #include "chrome/browser/sync/test/integration/profile_sync_service_harness.h"
-#include "chrome/browser/sync/test/integration/single_client_status_change_checker.h"
 #include "chrome/browser/sync/test/integration/sync_datatype_helper.h"
-#include "components/browser_sync/browser/profile_sync_service.h"
 #include "components/password_manager/core/browser/password_manager_test_utils.h"
 #include "components/password_manager/core/browser/password_store.h"
 #include "components/password_manager/core/browser/password_store_consumer.h"
@@ -47,24 +45,27 @@ class PasswordStoreConsumerHelper
  public:
   PasswordStoreConsumerHelper() {}
 
-  void OnGetPasswordStoreResults(ScopedVector<PasswordForm> results) override {
+  void OnGetPasswordStoreResults(
+      std::vector<std::unique_ptr<PasswordForm>> results) override {
     result_.swap(results);
     // Quit the message loop to wake up passwords_helper::GetLogins.
     base::MessageLoopForUI::current()->QuitWhenIdle();
   }
 
-  ScopedVector<PasswordForm> result() { return std::move(result_); }
+  std::vector<std::unique_ptr<PasswordForm>> result() {
+    return std::move(result_);
+  }
 
  private:
-  ScopedVector<PasswordForm> result_;
+  std::vector<std::unique_ptr<PasswordForm>> result_;
 
   DISALLOW_COPY_AND_ASSIGN(PasswordStoreConsumerHelper);
 };
 
 // PasswordForm::date_synced is a local field. Therefore it may be different
 // across clients.
-void ClearSyncDateField(std::vector<PasswordForm*>* forms) {
-  for (PasswordForm* form : *forms) {
+void ClearSyncDateField(std::vector<std::unique_ptr<PasswordForm>>* forms) {
+  for (auto& form : *forms) {
     form->date_synced = base::Time();
   }
 }
@@ -93,10 +94,10 @@ void UpdateLogin(PasswordStore* store, const PasswordForm& form) {
   wait_event.Wait();
 }
 
-ScopedVector<PasswordForm> GetLogins(PasswordStore* store) {
+std::vector<std::unique_ptr<PasswordForm>> GetLogins(PasswordStore* store) {
   EXPECT_TRUE(store);
-  PasswordForm matcher_form;
-  matcher_form.signon_realm = kFakeSignonRealm;
+  password_manager::PasswordStore::FormDigest matcher_form = {
+      PasswordForm::SCHEME_HTML, kFakeSignonRealm, GURL()};
   PasswordStoreConsumerHelper consumer;
   store->GetLogins(matcher_form, &consumer);
   content::RunMessageLoop();
@@ -114,22 +115,10 @@ void RemoveLogin(PasswordStore* store, const PasswordForm& form) {
 }
 
 void RemoveLogins(PasswordStore* store) {
-  ScopedVector<PasswordForm> forms = GetLogins(store);
-  for (const PasswordForm* form : forms) {
+  std::vector<std::unique_ptr<PasswordForm>> forms = GetLogins(store);
+  for (const auto& form : forms) {
     RemoveLogin(store, *form);
   }
-}
-
-void SetEncryptionPassphrase(int index,
-                             const std::string& passphrase,
-                             ProfileSyncService::PassphraseType type) {
-  ProfileSyncServiceFactory::GetForProfile(
-      test()->GetProfile(index))->SetEncryptionPassphrase(passphrase, type);
-}
-
-bool SetDecryptionPassphrase(int index, const std::string& passphrase) {
-  return ProfileSyncServiceFactory::GetForProfile(
-      test()->GetProfile(index))->SetDecryptionPassphrase(passphrase);
 }
 
 PasswordStore* GetPasswordStore(int index) {
@@ -144,14 +133,15 @@ PasswordStore* GetVerifierPasswordStore() {
 }
 
 bool ProfileContainsSamePasswordFormsAsVerifier(int index) {
-  ScopedVector<PasswordForm> verifier_forms =
+  std::vector<std::unique_ptr<PasswordForm>> verifier_forms =
       GetLogins(GetVerifierPasswordStore());
-  ScopedVector<PasswordForm> forms = GetLogins(GetPasswordStore(index));
-  ClearSyncDateField(&forms.get());
+  std::vector<std::unique_ptr<PasswordForm>> forms =
+      GetLogins(GetPasswordStore(index));
+  ClearSyncDateField(&forms);
 
   std::ostringstream mismatch_details_stream;
   bool is_matching = password_manager::ContainsEqualPasswordFormsUnordered(
-      verifier_forms.get(), forms.get(), &mismatch_details_stream);
+      verifier_forms, forms, &mismatch_details_stream);
   if (!is_matching) {
     VLOG(1) << "Profile " << index
             << " does not contain the same Password forms as Verifier Profile.";
@@ -161,14 +151,16 @@ bool ProfileContainsSamePasswordFormsAsVerifier(int index) {
 }
 
 bool ProfilesContainSamePasswordForms(int index_a, int index_b) {
-  ScopedVector<PasswordForm> forms_a = GetLogins(GetPasswordStore(index_a));
-  ScopedVector<PasswordForm> forms_b = GetLogins(GetPasswordStore(index_b));
-  ClearSyncDateField(&forms_a.get());
-  ClearSyncDateField(&forms_b.get());
+  std::vector<std::unique_ptr<PasswordForm>> forms_a =
+      GetLogins(GetPasswordStore(index_a));
+  std::vector<std::unique_ptr<PasswordForm>> forms_b =
+      GetLogins(GetPasswordStore(index_b));
+  ClearSyncDateField(&forms_a);
+  ClearSyncDateField(&forms_b);
 
   std::ostringstream mismatch_details_stream;
   bool is_matching = password_manager::ContainsEqualPasswordFormsUnordered(
-      forms_a.get(), forms_b.get(), &mismatch_details_stream);
+      forms_a, forms_b, &mismatch_details_stream);
   if (!is_matching) {
     VLOG(1) << "Password forms in Profile " << index_a
             << " (listed as 'expected forms' below)"
@@ -201,30 +193,33 @@ bool AllProfilesContainSamePasswordForms() {
   return true;
 }
 
-namespace {
+int GetPasswordCount(int index) {
+  return GetLogins(GetPasswordStore(index)).size();
+}
 
-// Helper class used in the implementation of
-// AwaitAllProfilesContainSamePasswordForms.
-class SamePasswordFormsChecker : public MultiClientStatusChangeChecker {
- public:
-  SamePasswordFormsChecker();
-  ~SamePasswordFormsChecker() override;
+int GetVerifierPasswordCount() {
+  return GetLogins(GetVerifierPasswordStore()).size();
+}
 
-  bool IsExitConditionSatisfied() override;
-  std::string GetDebugMessage() const override;
+PasswordForm CreateTestPasswordForm(int index) {
+  PasswordForm form;
+  form.signon_realm = kFakeSignonRealm;
+  form.origin = GURL(base::StringPrintf(kIndexedFakeOrigin, index));
+  form.username_value =
+      base::ASCIIToUTF16(base::StringPrintf("username%d", index));
+  form.password_value =
+      base::ASCIIToUTF16(base::StringPrintf("password%d", index));
+  form.date_created = base::Time::Now();
+  return form;
+}
 
- private:
-  bool in_progress_;
-  bool needs_recheck_;
-};
+}  // namespace passwords_helper
 
 SamePasswordFormsChecker::SamePasswordFormsChecker()
     : MultiClientStatusChangeChecker(
         sync_datatype_helper::test()->GetSyncServices()),
       in_progress_(false),
       needs_recheck_(false) {}
-
-SamePasswordFormsChecker::~SamePasswordFormsChecker() {}
 
 // This method needs protection against re-entrancy.
 //
@@ -252,7 +247,7 @@ bool SamePasswordFormsChecker::IsExitConditionSatisfied() {
   in_progress_ = true;
   do {
     needs_recheck_ = false;
-    result = AllProfilesContainSamePasswordForms();
+    result = passwords_helper::AllProfilesContainSamePasswordForms();
   } while (needs_recheck_);
   in_progress_ = false;
   return result;
@@ -262,43 +257,12 @@ std::string SamePasswordFormsChecker::GetDebugMessage() const {
   return "Waiting for matching passwords";
 }
 
-}  //  namespace
-
-bool AwaitAllProfilesContainSamePasswordForms() {
-  SamePasswordFormsChecker checker;
-  checker.Wait();
-  return !checker.TimedOut();
-}
-
-namespace {
-
-// Helper class used in the implementation of
-// AwaitProfileContainSamePasswordFormsAsVerifier.
-class SamePasswordFormsAsVerifierChecker
-    : public SingleClientStatusChangeChecker {
- public:
-  explicit SamePasswordFormsAsVerifierChecker(int index);
-  ~SamePasswordFormsAsVerifierChecker() override;
-
-  bool IsExitConditionSatisfied() override;
-  std::string GetDebugMessage() const override;
-
- private:
-  int index_;
-
-  bool in_progress_;
-  bool needs_recheck_;
-};
-
 SamePasswordFormsAsVerifierChecker::SamePasswordFormsAsVerifierChecker(int i)
     : SingleClientStatusChangeChecker(
           sync_datatype_helper::test()->GetSyncService(i)),
       index_(i),
       in_progress_(false),
       needs_recheck_(false) {
-}
-
-SamePasswordFormsAsVerifierChecker::~SamePasswordFormsAsVerifierChecker() {
 }
 
 // This method uses the same re-entrancy prevention trick as
@@ -315,7 +279,8 @@ bool SamePasswordFormsAsVerifierChecker::IsExitConditionSatisfied() {
   in_progress_ = true;
   do {
     needs_recheck_ = false;
-    result = ProfileContainsSamePasswordFormsAsVerifier(index_);
+    result =
+        passwords_helper::ProfileContainsSamePasswordFormsAsVerifier(index_);
   } while (needs_recheck_);
   in_progress_ = false;
   return result;
@@ -324,36 +289,3 @@ bool SamePasswordFormsAsVerifierChecker::IsExitConditionSatisfied() {
 std::string SamePasswordFormsAsVerifierChecker::GetDebugMessage() const {
   return "Waiting for passwords to match verifier";
 }
-
-}  //  namespace
-
-bool AwaitProfileContainsSamePasswordFormsAsVerifier(int index) {
-  SamePasswordFormsAsVerifierChecker checker(index);
-  checker.Wait();
-  return !checker.TimedOut();
-}
-
-int GetPasswordCount(int index) {
-  ScopedVector<PasswordForm> forms = GetLogins(GetPasswordStore(index));
-  return forms.size();
-}
-
-int GetVerifierPasswordCount() {
-  ScopedVector<PasswordForm> verifier_forms =
-      GetLogins(GetVerifierPasswordStore());
-  return verifier_forms.size();
-}
-
-PasswordForm CreateTestPasswordForm(int index) {
-  PasswordForm form;
-  form.signon_realm = kFakeSignonRealm;
-  form.origin = GURL(base::StringPrintf(kIndexedFakeOrigin, index));
-  form.username_value =
-      base::ASCIIToUTF16(base::StringPrintf("username%d", index));
-  form.password_value =
-      base::ASCIIToUTF16(base::StringPrintf("password%d", index));
-  form.date_created = base::Time::Now();
-  return form;
-}
-
-}  // namespace passwords_helper

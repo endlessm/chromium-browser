@@ -130,7 +130,7 @@ std::string LauncherControllerHelper::GetAppID(content::WebContents* tab) {
     const std::vector<Profile*> profile_list =
         profile_manager->GetLoadedProfiles();
     if (!profile_list.empty()) {
-      for (const auto& i : profile_list) {
+      for (auto* i : profile_list) {
         const extensions::Extension* extension = GetExtensionForTab(i, tab);
         if (extension)
           return extension->id();
@@ -173,7 +173,7 @@ void LauncherControllerHelper::LaunchApp(const std::string& app_id,
                                          int event_flags) {
   const ArcAppListPrefs* arc_prefs = GetArcAppListPrefs();
   if (arc_prefs && arc_prefs->IsRegistered(app_id)) {
-    arc::LaunchApp(profile_, app_id);
+    arc::LaunchApp(profile_, app_id, event_flags);
     return;
   }
 

@@ -4,6 +4,7 @@
 
 #include "chrome/browser/chromeos/base/file_flusher.h"
 
+#include <algorithm>
 #include <set>
 
 #include "base/bind.h"
@@ -68,6 +69,7 @@ class FileFlusher::Job {
 
   bool started_ = false;
   base::CancellationFlag cancel_flag_;
+  bool finish_scheduled_ = false;
 
   DISALLOW_COPY_AND_ASSIGN(Job);
 };
@@ -143,6 +145,10 @@ bool FileFlusher::Job::ShouldExclude(const base::FilePath& path) const {
 }
 
 void FileFlusher::Job::ScheduleFinish() {
+  if (finish_scheduled_)
+    return;
+
+  finish_scheduled_ = true;
   content::BrowserThread::PostTask(
       content::BrowserThread::UI, FROM_HERE,
       base::Bind(&Job::FinishOnUIThread, base::Unretained(this)));
@@ -166,14 +172,14 @@ void FileFlusher::Job::FinishOnUIThread() {
 FileFlusher::FileFlusher() : weak_factory_(this) {}
 
 FileFlusher::~FileFlusher() {
-  for (const auto& job : jobs_)
+  for (auto* job : jobs_)
     job->Cancel();
 }
 
 void FileFlusher::RequestFlush(const base::FilePath& path,
                                const std::vector<base::FilePath>& excludes,
                                const base::Closure& callback) {
-  for (const auto& job : jobs_) {
+  for (auto* job : jobs_) {
     if (path == job->path() || path.IsParent(job->path()))
       job->Cancel();
   }
@@ -183,11 +189,22 @@ void FileFlusher::RequestFlush(const base::FilePath& path,
   ScheduleJob();
 }
 
+void FileFlusher::PauseForTest() {
+  DCHECK(std::none_of(jobs_.begin(), jobs_.end(),
+                      [](const Job* job) { return job->started(); }));
+  paused_for_test_ = true;
+}
+
+void FileFlusher::ResumeForTest() {
+  paused_for_test_ = false;
+  ScheduleJob();
+}
+
 void FileFlusher::ScheduleJob() {
-  if (jobs_.empty())
+  if (jobs_.empty() || paused_for_test_)
     return;
 
-  auto job = jobs_.front();
+  auto* job = jobs_.front();
   if (!job->started())
     job->Start();
 }

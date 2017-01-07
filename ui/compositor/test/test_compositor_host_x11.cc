@@ -14,6 +14,7 @@
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/threading/thread_task_runner_handle.h"
+#include "ui/base/x/x11_window_event_manager.h"
 #include "ui/compositor/compositor.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/x/x11_types.h"
@@ -39,6 +40,8 @@ class TestCompositorHostX11 : public TestCompositorHost {
 
   XID window_;
 
+  std::unique_ptr<XScopedEventSelector> window_events_;
+
   DISALLOW_COPY_AND_ASSIGN(TestCompositorHostX11);
 };
 
@@ -49,23 +52,23 @@ TestCompositorHostX11::TestCompositorHostX11(
       context_factory_(context_factory),
       compositor_(context_factory_, base::ThreadTaskRunnerHandle::Get()) {}
 
-TestCompositorHostX11::~TestCompositorHostX11() {
-}
+TestCompositorHostX11::~TestCompositorHostX11() {}
 
 void TestCompositorHostX11::Show() {
   XDisplay* display = gfx::GetXDisplay();
   XSetWindowAttributes swa;
-  swa.event_mask = StructureNotifyMask | ExposureMask;
   swa.override_redirect = True;
   window_ = XCreateWindow(
       display,
       RootWindow(display, DefaultScreen(display)),  // parent
       bounds_.x(), bounds_.y(), bounds_.width(), bounds_.height(),
-      0,  // border width
+      0,               // border width
       CopyFromParent,  // depth
       InputOutput,
       CopyFromParent,  // visual
-      CWEventMask | CWOverrideRedirect, &swa);
+      CWOverrideRedirect, &swa);
+  window_events_.reset(
+      new XScopedEventSelector(window_, StructureNotifyMask | ExposureMask));
   XMapWindow(display, window_);
 
   while (1) {
@@ -76,6 +79,7 @@ void TestCompositorHostX11::Show() {
   }
   compositor_.SetAcceleratedWidget(window_);
   compositor_.SetScaleAndSize(1.0f, bounds_.size());
+  compositor_.SetVisible(true);
 }
 
 ui::Compositor* TestCompositorHostX11::GetCompositor() {

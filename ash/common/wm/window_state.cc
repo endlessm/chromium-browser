@@ -75,8 +75,7 @@ bool WindowState::IsFullscreen() const {
 
 bool WindowState::IsMaximizedOrFullscreenOrPinned() const {
   return GetStateType() == WINDOW_STATE_TYPE_MAXIMIZED ||
-         GetStateType() == WINDOW_STATE_TYPE_FULLSCREEN ||
-         GetStateType() == WINDOW_STATE_TYPE_PINNED;
+         GetStateType() == WINDOW_STATE_TYPE_FULLSCREEN || IsPinned();
 }
 
 bool WindowState::IsSnapped() const {
@@ -85,7 +84,8 @@ bool WindowState::IsSnapped() const {
 }
 
 bool WindowState::IsPinned() const {
-  return GetStateType() == WINDOW_STATE_TYPE_PINNED;
+  return GetStateType() == WINDOW_STATE_TYPE_PINNED ||
+         GetStateType() == WINDOW_STATE_TYPE_TRUSTED_PINNED;
 }
 
 bool WindowState::IsNormalStateType() const {
@@ -305,9 +305,9 @@ WindowState::WindowState(WmWindow* window)
       panel_attached_(true),
       ignored_by_shelf_(false),
       can_consume_system_keys_(false),
-      top_row_keys_are_function_keys_(false),
       unminimize_to_restore_bounds_(false),
       in_immersive_fullscreen_(false),
+      hide_shelf_when_fullscreen_(true),
       minimum_visibility_(false),
       can_be_dragged_(true),
       cached_always_on_top_(false),

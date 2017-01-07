@@ -22,6 +22,9 @@
 #include "jni/TemplateUrlService_jni.h"
 #include "net/base/url_util.h"
 
+using base::android::JavaParamRef;
+using base::android::ScopedJavaLocalRef;
+
 namespace {
 
 Profile* GetOriginalProfile() {
@@ -62,8 +65,6 @@ void TemplateUrlServiceAndroid::SetUserSelectedDefaultSearchProvider(
       "Wrong index for search engine";
 
   TemplateURL* template_url = template_urls[selected_index_size_t];
-  DCHECK_GT(template_url->prepopulate_id(), 0) <<
-      "Tried to select non-prepopulated search engine";
   template_url_service_->SetUserSelectedDefaultSearchProvider(template_url);
 }
 
@@ -120,20 +121,15 @@ jboolean TemplateUrlServiceAndroid::IsDefaultSearchEngineGoogle(
 }
 
 base::android::ScopedJavaLocalRef<jobject>
-TemplateUrlServiceAndroid::GetPrepopulatedTemplateUrlAt(
-    JNIEnv* env,
-    const JavaParamRef<jobject>& obj,
-    jint index) {
+TemplateUrlServiceAndroid::GetTemplateUrlAt(JNIEnv* env,
+                                            const JavaParamRef<jobject>& obj,
+                                            jint index) {
   TemplateURL* template_url = template_url_service_->GetTemplateURLs()[index];
-  if (!IsPrepopulatedTemplate(template_url) &&
-      !template_url->created_by_policy())
-   return ScopedJavaLocalRef<jobject>();
-
   return Java_TemplateUrl_create(
-      env,
-      index,
-      base::android::ConvertUTF16ToJavaString(
-          env, template_url->short_name()).obj());
+      env, index,
+      base::android::ConvertUTF16ToJavaString(env, template_url->short_name()),
+      IsPrepopulatedTemplate(template_url) ||
+          template_url->created_by_policy());
 }
 
 bool TemplateUrlServiceAndroid::IsPrepopulatedTemplate(TemplateURL* url) {
@@ -146,8 +142,8 @@ void TemplateUrlServiceAndroid::OnTemplateURLServiceLoaded() {
   if (weak_java_obj_.get(env).is_null())
     return;
 
-  Java_TemplateUrlService_templateUrlServiceLoaded(
-      env, weak_java_obj_.get(env).obj());
+  Java_TemplateUrlService_templateUrlServiceLoaded(env,
+                                                   weak_java_obj_.get(env));
 }
 
 void TemplateUrlServiceAndroid::OnTemplateURLServiceChanged() {
@@ -155,8 +151,8 @@ void TemplateUrlServiceAndroid::OnTemplateURLServiceChanged() {
   if (weak_java_obj_.get(env).is_null())
     return;
 
-  Java_TemplateUrlService_onTemplateURLServiceChanged(
-      env, weak_java_obj_.get(env).obj());
+  Java_TemplateUrlService_onTemplateURLServiceChanged(env,
+                                                      weak_java_obj_.get(env));
 }
 
 base::android::ScopedJavaLocalRef<jstring>

@@ -107,8 +107,8 @@ class BrowserProcessImpl : public BrowserProcess,
   policy::BrowserPolicyConnector* browser_policy_connector() override;
   policy::PolicyService* policy_service() override;
   IconManager* icon_manager() override;
-  GLStringManager* gl_string_manager() override;
   GpuModeManager* gpu_mode_manager() override;
+  GpuProfileCache* gpu_profile_cache() override;
   void CreateDevToolsHttpProtocolHandler(const std::string& ip,
                                          uint16_t port) override;
   void CreateDevToolsAutoOpener() override;
@@ -153,6 +153,7 @@ class BrowserProcessImpl : public BrowserProcess,
   memory::TabManager* GetTabManager() override;
   shell_integration::DefaultWebClientState CachedDefaultWebClientState()
       override;
+  PhysicalWebDataSource* GetPhysicalWebDataSource() override;
 
   static void RegisterPrefs(PrefRegistrySimple* registry);
 
@@ -178,6 +179,7 @@ class BrowserProcessImpl : public BrowserProcess,
   void CreateStatusTray();
   void CreateBackgroundModeManager();
   void CreateGCMDriver();
+  void CreatePhysicalWebDataSource();
 
   void ApplyAllowCrossOriginAuthPromptPolicy();
   void ApplyDefaultBrowserPolicy();
@@ -211,7 +213,7 @@ class BrowserProcessImpl : public BrowserProcess,
   bool created_icon_manager_;
   std::unique_ptr<IconManager> icon_manager_;
 
-  std::unique_ptr<GLStringManager> gl_string_manager_;
+  std::unique_ptr<GpuProfileCache> gpu_profile_cache_;
 
   std::unique_ptr<GpuModeManager> gpu_mode_manager_;
 
@@ -343,6 +345,8 @@ class BrowserProcessImpl : public BrowserProcess,
 #endif
 
   shell_integration::DefaultWebClientState cached_default_web_client_state_;
+
+  std::unique_ptr<PhysicalWebDataSource> physical_web_data_source_;
 
   DISALLOW_COPY_AND_ASSIGN(BrowserProcessImpl);
 };

@@ -4,15 +4,11 @@
 
 package org.chromium.policy;
 
-import static org.mockito.Matchers.any;
-import static org.mockito.Matchers.anyBoolean;
-import static org.mockito.Matchers.anyInt;
-import static org.mockito.Matchers.anyString;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
-import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -26,6 +22,7 @@ import org.junit.Assert;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.robolectric.Robolectric;
+import org.robolectric.RuntimeEnvironment;
 import org.robolectric.annotation.Config;
 import org.robolectric.shadows.ShadowApplication;
 
@@ -46,7 +43,7 @@ public class AbstractAppRestrictionsProviderTest {
     private class TestExecutor implements Executor {
         @Override
         public void execute(Runnable command) {
-            Robolectric.getBackgroundScheduler().post(command);
+            Robolectric.getBackgroundThreadScheduler().post(command);
         }
     }
 
@@ -77,9 +74,9 @@ public class AbstractAppRestrictionsProviderTest {
     @Test
     public void testRefresh() {
         // We want to control precisely when background tasks run
-        Robolectric.getBackgroundScheduler().pause();
+        Robolectric.getBackgroundThreadScheduler().pause();
 
-        Context context = Robolectric.application;
+        Context context = RuntimeEnvironment.application;
         ContextUtils.initApplicationContextForTests(context);
 
         // Clear the preferences
@@ -92,9 +89,7 @@ public class AbstractAppRestrictionsProviderTest {
 
         // Mock out the histogram functions, since they call statics.
         AbstractAppRestrictionsProvider provider = spy(new DummyAppRestrictionsProvider(context));
-        provider.setTaskExecutor(new TestExecutor());
-        doNothing().when(provider).recordCacheLoadResultHistogram(anyBoolean());
-        doNothing().when(provider).recordStartTimeHistogram(anyInt());
+        doNothing().when(provider).recordStartTimeHistogram(anyLong());
 
         // Set up the buffer to be returned by getApplicationRestrictions.
         when(provider.getApplicationRestrictions(anyString())).thenReturn(b1);
@@ -103,32 +98,10 @@ public class AbstractAppRestrictionsProviderTest {
         CombinedPolicyProvider combinedProvider = mock(CombinedPolicyProvider.class);
         provider.setManagerAndSource(combinedProvider, 0);
 
-        // Refresh with no cache should do nothing immediately.
         provider.refresh();
-        verify(combinedProvider, never()).onSettingsAvailable(anyInt(), any(Bundle.class));
-
-        // Let the Async task run and return its result.
-        Robolectric.runBackgroundTasks();
-        // The AsyncTask should now have got the restrictions.
         verify(provider).getApplicationRestrictions(anyString());
-        verify(provider).recordStartTimeHistogram(anyInt());
-
-        Robolectric.runUiThreadTasks();
-        // The policies should now have been set.
+        verify(provider).recordStartTimeHistogram(anyLong());
         verify(combinedProvider).onSettingsAvailable(0, b1);
-
-        // On next refresh onSettingsAvailable should be called twice, once with the current buffer
-        // and once with the new data.
-        Bundle b2 = new Bundle();
-        b2.putString("Key1", "value1");
-        b2.putInt("Key2", 84);
-        when(provider.getApplicationRestrictions(anyString())).thenReturn(b2);
-
-        provider.refresh();
-        verify(combinedProvider, times(2)).onSettingsAvailable(0, b1);
-        Robolectric.runBackgroundTasks();
-        Robolectric.runUiThreadTasks();
-        verify(combinedProvider).onSettingsAvailable(0, b2);
     }
 
     /**
@@ -136,10 +109,10 @@ public class AbstractAppRestrictionsProviderTest {
      */
     @Test
     public void testStartListeningForPolicyChanges() {
-        Context context = Robolectric.application;
+        Context context = RuntimeEnvironment.application;
         AbstractAppRestrictionsProvider provider = spy(new DummyAppRestrictionsProvider(context));
         Intent intent = new Intent("org.chromium.test.policy.Hello");
-        ShadowApplication shadowApplication = Robolectric.getShadowApplication();
+        ShadowApplication shadowApplication = ShadowApplication.getInstance();
 
         // If getRestrictionsChangeIntentAction returns null then we should not start a broadcast
         // receiver.
@@ -158,10 +131,10 @@ public class AbstractAppRestrictionsProviderTest {
      */
     @Test
     public void testStopListening() {
-        Context context = Robolectric.application;
+        Context context = RuntimeEnvironment.application;
         AbstractAppRestrictionsProvider provider = spy(new DummyAppRestrictionsProvider(context));
         Intent intent = new Intent("org.chromium.test.policy.Hello");
-        ShadowApplication shadowApplication = Robolectric.getShadowApplication();
+        ShadowApplication shadowApplication = ShadowApplication.getInstance();
 
         // First try with null result from getRestrictionsChangeIntentAction, only test here is no
         // crash.

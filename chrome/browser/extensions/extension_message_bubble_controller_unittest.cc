@@ -28,7 +28,6 @@
 #include "chrome/browser/extensions/test_extension_system.h"
 #include "chrome/browser/ui/toolbar/toolbar_actions_model.h"
 #include "chrome/browser/ui/toolbar/toolbar_actions_model_factory.h"
-#include "chrome/common/extensions/features/feature_channel.h"
 #include "chrome/test/base/browser_with_test_window_test.h"
 #include "chrome/test/base/testing_profile.h"
 #include "components/proxy_config/proxy_config_pref_names.h"
@@ -44,6 +43,7 @@
 #include "extensions/common/extension.h"
 #include "extensions/common/extension_builder.h"
 #include "extensions/common/feature_switch.h"
+#include "extensions/common/features/feature_channel.h"
 #include "extensions/common/value_builder.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -55,16 +55,15 @@ const char kId3[] = "ioibbbfddncmmabjmpokikkeiofalaek";
 
 std::unique_ptr<KeyedService> BuildOverrideRegistrar(
     content::BrowserContext* context) {
-  return base::WrapUnique(
-      new extensions::ExtensionWebUIOverrideRegistrar(context));
+  return base::MakeUnique<extensions::ExtensionWebUIOverrideRegistrar>(context);
 }
 
 // Creates a new ToolbarActionsModel for the given |context|.
 std::unique_ptr<KeyedService> BuildToolbarModel(
     content::BrowserContext* context) {
-  return base::WrapUnique(
-      new ToolbarActionsModel(Profile::FromBrowserContext(context),
-                              extensions::ExtensionPrefs::Get(context)));
+  return base::MakeUnique<ToolbarActionsModel>(
+      Profile::FromBrowserContext(context),
+      extensions::ExtensionPrefs::Get(context));
 }
 
 }  // namespace

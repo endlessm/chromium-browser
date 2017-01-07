@@ -65,7 +65,6 @@ Du hittar mer information om sekretess i Googles sekretesspolicy (http://goo.gl/
 <translation id="2359808026110333948">Fortsätt</translation>
 <translation id="2366718077645204424">Det går inte att nå värden. Detta beror troligen på konfigurationen av nätverket som du använder.</translation>
 <translation id="2370754117186920852"><ph name="OPTIONAL_OFFLINE_REASON" />  Var senast uppe på webben <ph name="RELATIVE_TIMESTAMP" />.</translation>
-<translation id="2498359688066513246">Hjälp och feedback</translation>
 <translation id="2499160551253595098">Hjälp oss att förbättra Chrome Remote Desktop genom att låta oss samla in användningsstatistik och felrapporter.</translation>
 <translation id="2512228156274966424">Obs! Om du vill vara säker på att alla kortkommandon är tillgängliga kan du ställa in Chrome Remote Desktop på Öppna som fönster.</translation>
 <translation id="2540992418118313681">Vill du dela den här datorn så att en annan användare kan visa och styra den?</translation>
@@ -74,7 +73,6 @@ Du hittar mer information om sekretess i Googles sekretesspolicy (http://goo.gl/
 <translation id="2676780859508944670">Arbetar ...</translation>
 <translation id="2699970397166997657">Chromoting</translation>
 <translation id="2747641796667576127">Programuppdateringar sker oftast automatiskt, men kan ibland misslyckas. Uppdateringen av programvaran bör inte ta mer än några minuter och du kan göra den när du är fjärransluten till datorn.</translation>
-<translation id="2813770873348017932">Anslutningar till fjärrdatorn är tillfälligt blockerade eftersom någon försökt ansluta till fjärrdatorn med en ogiltig PIN-kod. Försök igen senare.</translation>
 <translation id="2841013758207633010">Tid</translation>
 <translation id="2851674870054673688">När koden anges startar delningssessionen.</translation>
 <translation id="2851754573186462851">Chromium App Streaming</translation>
@@ -149,7 +147,6 @@ Host</translation>
 <translation id="4573676252416618192">Chrome Remote
 Desktop Host</translation>
 <translation id="4619978527973181021">Godkänn och installera</translation>
-<translation id="4647791084836149355">Visa Cardboard-vy</translation>
 <translation id="4703302905453407178">En obligatorisk komponent har slutat fungera. Rapportera problemet till utvecklarna.</translation>
 <translation id="4703799847237267011">Chromoting-sessionen har avslutats.</translation>
 <translation id="4736223761657662401">Anslutningshistorik</translation>
@@ -210,7 +207,6 @@ Desktop Host</translation>
 <translation id="6284412385303060032">Värden som kördes på konsolens inloggningsskärm har avslutats för att stödja Curtain Mode genom att byta till en värd som körs i en användarspecifik session.</translation>
 <translation id="629730747756840877">Konto</translation>
 <translation id="6304318647555713317">Klient</translation>
-<translation id="6324708100353784493">Du har aktiverat läget för Google Cardboard-integrering. Anslut enheten till ett Google Cardboard-kompatibelt visningsprogram om du vill använda det här läget.</translation>
 <translation id="6381670701864002291">Något annat.</translation>
 <translation id="6398765197997659313">Avsluta helskärmsläge</translation>
 <translation id="6408143143164565232">• Lyssna på ljudet från Windows- eller Linux-datorer.
@@ -236,6 +232,7 @@ Desktop Host</translation>
 <translation id="6930242544192836755">Varaktighet</translation>
 <translation id="6939719207673461467">Visa/dölj tangentbordet.</translation>
 <translation id="6944854424004126054">Återställ fönstret</translation>
+<translation id="6963936880795878952">Anslutningar till fjärrdatorn är tillfälligt blockerade eftersom någon har försökt ansluta till fjärrdatorn med en ogiltig pinkod. Försök igen senare.</translation>
 <translation id="6965382102122355670">OK</translation>
 <translation id="6985691951107243942">Är du säker på att du vill inaktivera fjärranslutningar till <ph name="HOSTNAME" />? Om du ångrar dig måste du besöka datorn för att kunna aktivera anslutningar igen.</translation>
 <translation id="6998989275928107238">Till</translation>
@@ -266,6 +263,7 @@ Desktop Host</translation>
 <translation id="7948001860594368197">Skärmalternativ</translation>
 <translation id="7970576581263377361">Autentiseringen misslyckades. Logga in i Chromium igen.</translation>
 <translation id="7981525049612125370">Fjärrsessionen har avslutats.</translation>
+<translation id="8041089156583427627">Skicka feedback</translation>
 <translation id="8041721485428375115">När du laddar ned installationsprogrammet för fjärranslutningsvärden Chrome Remote Desktop godkänner du Googles <ph name="LINK_BEGIN" />användarvillkor<ph name="LINK_END" />.</translation>
 <translation id="8073845705237259513">Om du vill använda Chrome Remote Desktop måste du lägga till ett Google-konto på enheten.</translation>
 <translation id="80739703311984697">Fjärrvärden kräver att du autentiserar via en tredje parts webbplats. Om du vill fortsätta måste du ge Chromoting ytterligare behörigheter att komma åt den här adressen:</translation>
@@ -289,6 +287,7 @@ Desktop Host</translation>
 <translation id="8548209692293300397">Du har tidigare loggat in som <ph name="USER_NAME" /> (<ph name="USER_EMAIL" />). Om du vill kunna ansluta till de datorer som sparats i det kontot <ph name="LINK_BEGIN" />loggar du in i Google Chrome<ph name="LINK_END" /> med det kontot och installerar om Chrome Remote Desktop.</translation>
 <translation id="8642984861538780905">OK</translation>
 <translation id="8712909229180978490">Jag ser inte mina sparade filer online på Google Drive.</translation>
+<translation id="8743328882720071828">Vill du tillåta att <ph name="CLIENT_USERNAME" /> ser och styr din dator?</translation>
 <translation id="8759753423332885148">Läs mer.</translation>
 <translation id="8791202241915690908">Ladda ned installationsprogrammet för fjärranslutningsvärden Chromoting</translation>
 <translation id="894763922177556086">Bra</translation>

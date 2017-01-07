@@ -58,12 +58,17 @@ MaterialDesignController::Mode MaterialDesignController::GetMode() {
 }
 
 // static
-bool MaterialDesignController::IsOverviewMaterial() {
-  return MaterialDesignController::IsMaterial();
+bool MaterialDesignController::IsShelfMaterial() {
+  return MaterialDesignController::IsMaterialExperimental();
 }
 
 // static
-bool MaterialDesignController::IsShelfMaterial() {
+bool MaterialDesignController::IsImmersiveModeMaterial() {
+  return IsMaterial();
+}
+
+// static
+bool MaterialDesignController::IsSystemTrayMenuMaterial() {
   return MaterialDesignController::IsMaterialExperimental();
 }
 

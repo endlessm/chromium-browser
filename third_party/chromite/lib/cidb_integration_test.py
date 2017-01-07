@@ -209,7 +209,7 @@ class CIDBAPITest(CIDBIntegrationTest):
       self.assertIn(k, build_status)
 
   def testBuildMessages(self):
-    db = self._PrepareFreshDatabase(45)
+    db = self._PrepareFreshDatabase(47)
     self.assertEqual([], db.GetBuildMessages(1))
     master_build_id = db.InsertBuild('builder name',
                                      constants.WATERFALL_TRYBOT,
@@ -293,9 +293,9 @@ def GetTestDataSeries(test_data_path):
 class DataSeries0Test(CIDBIntegrationTest):
   """Simulate a set of 630 master/slave CQ builds."""
 
-  def testCQWithSchema44(self):
-    """Run the CQ test with schema version 44."""
-    self._PrepareFreshDatabase(44)
+  def testCQWithSchema48(self):
+    """Run the CQ test with schema version 48."""
+    self._PrepareFreshDatabase(48)
     self._runCQTest()
 
   def _runCQTest(self):
@@ -423,6 +423,9 @@ class DataSeries0Test(CIDBIntegrationTest):
     actions_for_change = db.GetActionsForChanges(
         [metadata_lib.GerritChangeTuple(205535, False)])
 
+    actions_for_build = db.GetActionsForBuild(511)
+    self.assertEqual(len(actions_for_build), 22)
+
     self.assertEqual(len(actions_for_change), 60)
     last_action_dict = dict(actions_for_change[-1]._asdict())
     last_action_dict.pop('timestamp')
@@ -433,7 +436,8 @@ class DataSeries0Test(CIDBIntegrationTest):
                                         'change_number': 205535L,
                                         'change_source': 'external',
                                         'patch_number': 1L,
-                                        'reason': ''})
+                                        'reason': '',
+                                        'buildbucket_id': None})
 
   def _start_and_finish_time_checks(self, db):
     """Sanity checks that correct data was recorded, and can be retrieved."""
@@ -644,6 +648,20 @@ class BuildTableTest(CIDBIntegrationTest):
     self.assertEqual(1, bot_db.ExtendDeadline(build_id, 60 * 60))
     self.assertLess(40 * 60, bot_db.GetTimeToDeadline(build_id))
 
+  def testBuildbucketId(self):
+    """Test InsertBuild with buildbucket_id."""
+    self._PrepareDatabase()
+    bot_db = self.LocalCIDBConnection(self.CIDB_USER_BOT)
+
+    tmp_buildbucket_id = 'tmp_buildbucket_id'
+    build_id = bot_db.InsertBuild('build_name',
+                                  constants.WATERFALL_INTERNAL,
+                                  _random(),
+                                  'build_config',
+                                  'bot_hostname',
+                                  buildbucket_id=tmp_buildbucket_id)
+    self.assertEqual(tmp_buildbucket_id,
+                     bot_db.GetBuildStatus(build_id)['buildbucket_id'])
 
 class DataSeries1Test(CIDBIntegrationTest):
   """Simulate a single set of canary builds."""
@@ -657,7 +675,7 @@ class DataSeries1Test(CIDBIntegrationTest):
     # Migrate db to specified version. As new schema versions are added,
     # migrations to later version can be applied after the test builds are
     # simulated, to test that db contents are correctly migrated.
-    self._PrepareFreshDatabase(44)
+    self._PrepareFreshDatabase(47)
 
     bot_db = self.LocalCIDBConnection(self.CIDB_USER_BOT)
 

@@ -39,6 +39,7 @@
 #include "components/policy/core/common/external_data_fetcher.h"
 #include "components/policy/core/common/policy_bundle.h"
 #include "components/policy/core/common/policy_map.h"
+#include "components/policy/core/common/policy_test_utils.h"
 #include "components/policy/core/common/policy_types.h"
 #include "components/policy/core/common/preg_parser_win.h"
 #include "components/policy/core/common/schema_map.h"
@@ -472,13 +473,14 @@ PRegTestHarness::~PRegTestHarness() {}
 void PRegTestHarness::SetUp() {
   base::win::SetDomainStateForTesting(false);
   ASSERT_TRUE(temp_dir_.CreateUniqueTempDir());
-  preg_file_path_ = temp_dir_.path().Append(PolicyLoaderWin::kPRegFileName);
+  preg_file_path_ = temp_dir_.GetPath().Append(PolicyLoaderWin::kPRegFileName);
   ASSERT_TRUE(base::WriteFile(preg_file_path_,
                                    preg_parser::kPRegFileHeader,
                                    arraysize(preg_parser::kPRegFileHeader)));
 
   memset(&gpo_, 0, sizeof(GROUP_POLICY_OBJECT));
-  gpo_.lpFileSysPath = const_cast<wchar_t*>(temp_dir_.path().value().c_str());
+  gpo_.lpFileSysPath =
+      const_cast<wchar_t*>(temp_dir_.GetPath().value().c_str());
 }
 
 ConfigurationPolicyProvider* PRegTestHarness::CreateProvider(
@@ -751,7 +753,12 @@ class PolicyLoaderWinTest : public PolicyTestBase,
                            gpo_list_provider_);
     std::unique_ptr<PolicyBundle> loaded(
         loader.InitialLoad(schema_registry_.schema_map()));
-    return loaded->Equals(expected);
+    bool match = loaded->Equals(expected);
+    if (!match) {
+      LOG(ERROR) << "EXPECTED: " << expected;
+      LOG(ERROR) << "ACTUAL: " << *loaded.get();
+    }
+    return match;
   }
 
   void InstallRegistrySentinel() {
@@ -811,8 +818,8 @@ TEST_F(PolicyLoaderWinTest, HKLMOverHKCU) {
   PolicyBundle expected;
   expected.Get(PolicyNamespace(POLICY_DOMAIN_CHROME, std::string()))
       .Set(test_keys::kKeyString, POLICY_LEVEL_MANDATORY, POLICY_SCOPE_MACHINE,
-           POLICY_SOURCE_PLATFORM,
-           base::WrapUnique(new base::StringValue("hklm")), nullptr);
+           POLICY_SOURCE_PLATFORM, base::MakeUnique<base::StringValue>("hklm"),
+           nullptr);
   EXPECT_TRUE(Matches(expected));
 }
 
@@ -864,17 +871,17 @@ TEST_F(PolicyLoaderWinTest, Merge3rdPartyPolicies) {
   PolicyMap& expected_policy = expected.Get(ns);
   expected_policy.Set(
       "a", POLICY_LEVEL_MANDATORY, POLICY_SCOPE_MACHINE, POLICY_SOURCE_PLATFORM,
-      base::WrapUnique(new base::StringValue(kMachineMandatory)), nullptr);
+      base::MakeUnique<base::StringValue>(kMachineMandatory), nullptr);
   expected_policy.Set(
       "b", POLICY_LEVEL_MANDATORY, POLICY_SCOPE_USER, POLICY_SOURCE_PLATFORM,
-      base::WrapUnique(new base::StringValue(kUserMandatory)), nullptr);
-  expected_policy.Set(
-      "c", POLICY_LEVEL_RECOMMENDED, POLICY_SCOPE_MACHINE,
-      POLICY_SOURCE_PLATFORM,
-      base::WrapUnique(new base::StringValue(kMachineRecommended)), nullptr);
+      base::MakeUnique<base::StringValue>(kUserMandatory), nullptr);
+  expected_policy.Set("c", POLICY_LEVEL_RECOMMENDED, POLICY_SCOPE_MACHINE,
+                      POLICY_SOURCE_PLATFORM,
+                      base::MakeUnique<base::StringValue>(kMachineRecommended),
+                      nullptr);
   expected_policy.Set(
       "d", POLICY_LEVEL_RECOMMENDED, POLICY_SCOPE_USER, POLICY_SOURCE_PLATFORM,
-      base::WrapUnique(new base::StringValue(kUserRecommended)), nullptr);
+      base::MakeUnique<base::StringValue>(kUserRecommended), nullptr);
   EXPECT_TRUE(Matches(expected));
 }
 

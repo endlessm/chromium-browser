@@ -13,6 +13,8 @@
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
 #include "base/location.h"
+#include "base/memory/ptr_util.h"
+#include "base/run_loop.h"
 #include "base/single_thread_task_runner.h"
 #include "base/strings/string_util.h"
 #include "chrome/browser/chrome_notification_types.h"
@@ -99,9 +101,7 @@ TEST_F(ExtensionUserScriptLoaderTest, NoScripts) {
       HostID(),
       true /* listen_for_extension_system_loaded */);
   loader.StartLoad();
-  message_loop_.task_runner()->PostTask(
-      FROM_HERE, base::MessageLoop::QuitWhenIdleClosure());
-  message_loop_.Run();
+  base::RunLoop().RunUntilIdle();
 
   ASSERT_TRUE(shared_memory_ != NULL);
 }
@@ -231,17 +231,17 @@ TEST_F(ExtensionUserScriptLoaderTest, Parse8) {
 }
 
 TEST_F(ExtensionUserScriptLoaderTest, SkipBOMAtTheBeginning) {
-  base::FilePath path = temp_dir_.path().AppendASCII("script.user.js");
+  base::FilePath path = temp_dir_.GetPath().AppendASCII("script.user.js");
   const std::string content("\xEF\xBB\xBF alert('hello');");
   size_t written = base::WriteFile(path, content.c_str(), content.size());
   ASSERT_EQ(written, content.size());
 
-  UserScript user_script;
-  user_script.js_scripts().push_back(
-      UserScript::File(temp_dir_.path(), path.BaseName(), GURL()));
+  std::unique_ptr<UserScript> user_script(new UserScript());
+  user_script->js_scripts().push_back(base::MakeUnique<UserScript::File>(
+      temp_dir_.GetPath(), path.BaseName(), GURL()));
 
   UserScriptList user_scripts;
-  user_scripts.push_back(user_script);
+  user_scripts.push_back(std::move(user_script));
 
   TestingProfile profile;
   ExtensionUserScriptLoader loader(
@@ -251,21 +251,21 @@ TEST_F(ExtensionUserScriptLoaderTest, SkipBOMAtTheBeginning) {
   loader.LoadScriptsForTest(&user_scripts);
 
   EXPECT_EQ(content.substr(3),
-            user_scripts[0].js_scripts()[0].GetContent().as_string());
+            user_scripts[0]->js_scripts()[0]->GetContent().as_string());
 }
 
 TEST_F(ExtensionUserScriptLoaderTest, LeaveBOMNotAtTheBeginning) {
-  base::FilePath path = temp_dir_.path().AppendASCII("script.user.js");
+  base::FilePath path = temp_dir_.GetPath().AppendASCII("script.user.js");
   const std::string content("alert('here's a BOOM: \xEF\xBB\xBF');");
   size_t written = base::WriteFile(path, content.c_str(), content.size());
   ASSERT_EQ(written, content.size());
 
-  UserScript user_script;
-  user_script.js_scripts().push_back(UserScript::File(
-      temp_dir_.path(), path.BaseName(), GURL()));
+  std::unique_ptr<UserScript> user_script(new UserScript());
+  user_script->js_scripts().push_back(base::MakeUnique<UserScript::File>(
+      temp_dir_.GetPath(), path.BaseName(), GURL()));
 
   UserScriptList user_scripts;
-  user_scripts.push_back(user_script);
+  user_scripts.push_back(std::move(user_script));
 
   TestingProfile profile;
   ExtensionUserScriptLoader loader(
@@ -274,7 +274,8 @@ TEST_F(ExtensionUserScriptLoaderTest, LeaveBOMNotAtTheBeginning) {
       true /* listen_for_extension_system_loaded */);
   loader.LoadScriptsForTest(&user_scripts);
 
-  EXPECT_EQ(content, user_scripts[0].js_scripts()[0].GetContent().as_string());
+  EXPECT_EQ(content,
+            user_scripts[0]->js_scripts()[0]->GetContent().as_string());
 }
 
 }  // namespace extensions

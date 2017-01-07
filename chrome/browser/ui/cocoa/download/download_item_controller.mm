@@ -5,7 +5,7 @@
 #import "chrome/browser/ui/cocoa/download/download_item_controller.h"
 
 #include "base/mac/bundle_locations.h"
-#include "base/metrics/histogram.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/strings/string16.h"
 #include "base/strings/string_util.h"
 #include "base/strings/sys_string_conversions.h"
@@ -23,9 +23,9 @@
 #import "chrome/browser/ui/cocoa/download/download_shelf_controller.h"
 #import "chrome/browser/ui/cocoa/themed_window.h"
 #import "chrome/browser/ui/cocoa/ui_localizer.h"
+#include "chrome/grit/theme_resources.h"
 #include "content/public/browser/download_item.h"
 #include "content/public/browser/page_navigator.h"
-#include "grit/theme_resources.h"
 #include "third_party/google_toolbox_for_mac/src/AppKit/GTMUILocalizerAndLayoutTweaker.h"
 #include "ui/base/l10n/l10n_util_mac.h"
 #include "ui/base/resource/resource_bundle.h"
@@ -284,10 +284,6 @@ class DownloadShelfContextMenuMac : public DownloadShelfContextMenu {
   [progressView_ setToolTip:base::SysUTF16ToNSString(tooltip_text)];
 }
 
-- (void)updateDownloadItemView {
-  [progressView_ setNeedsDisplay:YES];
-}
-
 - (void)clearDangerousMode {
   [self setState:kNormal];
   // The state change hide the dangerouse download view and is now showing the
@@ -364,13 +360,6 @@ class DownloadShelfContextMenuMac : public DownloadShelfContextMenu {
   DownloadItem* download = bridge_->download_model()->download();
   download->Remove();
   // WARNING: we are deleted at this point.  Don't access 'this'.
-}
-
-- (IBAction)dismissMaliciousDownload:(id)sender {
-  // ExperienceSampling: User dismissed the dangerous download.
-  [self updateExperienceSamplingEvent:ExperienceSamplingEvent::kDeny];
-  [self remove];
-  // WARNING: we are deleted at this point.
 }
 
 - (IBAction)showContextMenu:(id)sender {

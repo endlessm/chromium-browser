@@ -8,6 +8,7 @@
 
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "base/base_paths.h"
@@ -27,6 +28,7 @@
 #include "build/build_config.h"
 #include "chrome/browser/plugins/plugin_prefs.h"
 #include "chrome/common/chrome_constants.h"
+#include "chrome/common/chrome_content_client.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/pepper_flash.h"
@@ -38,7 +40,6 @@
 #include "content/public/browser/plugin_service.h"
 #include "content/public/common/content_constants.h"
 #include "content/public/common/pepper_plugin_info.h"
-#include "flapper_version.h"  // In SHARED_INTERMEDIATE_DIR.  NOLINT
 #include "ppapi/shared_impl/ppapi_permissions.h"
 
 #if defined(OS_LINUX)
@@ -62,7 +63,7 @@ const uint8_t kSha2Hash[] = {0xc8, 0xce, 0x99, 0xba, 0xce, 0x89, 0xf8, 0x20,
 
 #if !defined(OS_LINUX) && defined(GOOGLE_CHROME_BUILD)
 bool MakePepperFlashPluginInfo(const base::FilePath& flash_path,
-                               const Version& flash_version,
+                               const base::Version& flash_version,
                                bool out_of_process,
                                content::PepperPluginInfo* plugin_info) {
   if (!flash_version.IsValid())
@@ -97,59 +98,40 @@ bool MakePepperFlashPluginInfo(const base::FilePath& flash_path,
   return true;
 }
 
-bool IsPepperFlash(const content::WebPluginInfo& plugin) {
-  // We try to recognize Pepper Flash by the following criteria:
-  // * It is a Pepper plugin.
-  // * It has the special Flash permissions.
-  return plugin.is_pepper_plugin() &&
-         (plugin.pepper_permissions & ppapi::PERMISSION_FLASH);
-}
-
+// |path| is the path to the latest Chrome-managed Flash installation (bundled
+// or component updated).
+// |version| is the version of that Flash implementation.
 void RegisterPepperFlashWithChrome(const base::FilePath& path,
-                                   const Version& version) {
+                                   const base::Version& version) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   content::PepperPluginInfo plugin_info;
   if (!MakePepperFlashPluginInfo(path, version, true, &plugin_info))
     return;
+  content::WebPluginInfo web_plugin = plugin_info.ToWebPluginInfo();
 
-  base::FilePath bundled_flash_dir;
-  PathService::Get(chrome::DIR_PEPPER_FLASH_PLUGIN, &bundled_flash_dir);
   base::FilePath system_flash_path;
   PathService::Get(chrome::FILE_PEPPER_FLASH_SYSTEM_PLUGIN, &system_flash_path);
 
   std::vector<content::WebPluginInfo> plugins;
   PluginService::GetInstance()->GetInternalPlugins(&plugins);
+  base::FilePath placeholder_path =
+      base::FilePath::FromUTF8Unsafe(ChromeContentClient::kNotPresent);
   for (const auto& plugin : plugins) {
-    if (!IsPepperFlash(plugin))
+    if (!plugin.is_pepper_plugin() || plugin.name != web_plugin.name)
       continue;
 
-    Version registered_version(base::UTF16ToUTF8(plugin.version));
-
-    // If lower version, never register.
-    if (registered_version.IsValid() &&
-        version.CompareTo(registered_version) < 0) {
-      return;
+    if (plugin.path == placeholder_path) {
+      // This is the Flash placeholder; replace it regardless of version or
+      // other considerations.
+      PluginService::GetInstance()->UnregisterInternalPlugin(plugin.path);
+      break;
     }
 
-    bool registered_is_bundled =
-        !bundled_flash_dir.empty() && bundled_flash_dir.IsParent(plugin.path);
-    bool registered_is_debug_system =
-        !system_flash_path.empty() &&
-        base::FilePath::CompareEqualIgnoreCase(plugin.path.value(),
-                                               system_flash_path.value()) &&
-        chrome::IsSystemFlashScriptDebuggerPresent();
-    bool is_on_network = false;
-#if defined(OS_WIN)
-    // On Windows, component updated DLLs can't load off network drives.
-    // See crbug.com/572131 for details.
-    is_on_network = base::IsOnNetworkDrive(path);
-#endif
-    // If equal version, register iff component is not on a network drive,
-    // and the version of flash is not bundled, and not debug system.
+    base::Version registered_version(base::UTF16ToUTF8(plugin.version));
+
+    // If lower or equal version, never register.
     if (registered_version.IsValid() &&
-        version.CompareTo(registered_version) == 0 &&
-        (is_on_network || registered_is_bundled ||
-         registered_is_debug_system)) {
+        version.CompareTo(registered_version) <= 0) {
       return;
     }
 
@@ -158,19 +140,12 @@ void RegisterPepperFlashWithChrome(const base::FilePath& path,
     break;
   }
 
-  PluginService::GetInstance()->RegisterInternalPlugin(
-      plugin_info.ToWebPluginInfo(), true);
+  PluginService::GetInstance()->RegisterInternalPlugin(web_plugin, true);
   PluginService::GetInstance()->RefreshPlugins();
 }
 
-void NotifyPathServiceAndChrome(const base::FilePath& path,
-                                const Version& version) {
+void UpdatePathService(const base::FilePath& path) {
   PathService::Override(chrome::DIR_PEPPER_FLASH_PLUGIN, path);
-  BrowserThread::PostTask(
-      BrowserThread::UI, FROM_HERE,
-      base::Bind(&RegisterPepperFlashWithChrome,
-                 path.Append(chrome::kPepperFlashPluginFilename),
-                 version));
 }
 #endif  // !defined(OS_LINUX) && defined(GOOGLE_CHROME_BUILD)
 
@@ -182,7 +157,7 @@ class FlashComponentInstallerTraits : public ComponentInstallerTraits {
 
  private:
   // The following methods override ComponentInstallerTraits.
-  bool CanAutoUpdate() const override;
+  bool SupportsGroupPolicyEnabledComponentUpdates() const override;
   bool RequiresNetworkEncryption() const override;
   bool OnCustomInstall(const base::DictionaryValue& manifest,
                        const base::FilePath& install_dir) override;
@@ -195,13 +170,15 @@ class FlashComponentInstallerTraits : public ComponentInstallerTraits {
   void GetHash(std::vector<uint8_t>* hash) const override;
   std::string GetName() const override;
   update_client::InstallerAttributes GetInstallerAttributes() const override;
+  std::vector<std::string> GetMimeTypes() const override;
 
   DISALLOW_COPY_AND_ASSIGN(FlashComponentInstallerTraits);
 };
 
 FlashComponentInstallerTraits::FlashComponentInstallerTraits() {}
 
-bool FlashComponentInstallerTraits::CanAutoUpdate() const {
+bool FlashComponentInstallerTraits::SupportsGroupPolicyEnabledComponentUpdates()
+    const {
   return true;
 }
 
@@ -236,15 +213,17 @@ void FlashComponentInstallerTraits::ComponentReady(
   // Installation is done. Now tell the rest of chrome. Both the path service
   // and to the plugin service. On Linux, a restart is required to use the new
   // Flash version, so we do not do this.
+  RegisterPepperFlashWithChrome(path.Append(chrome::kPepperFlashPluginFilename),
+                                version);
   BrowserThread::GetBlockingPool()->PostTask(
-      FROM_HERE, base::Bind(&NotifyPathServiceAndChrome, path, version));
+      FROM_HERE, base::Bind(&UpdatePathService, path));
 #endif  // !defined(OS_LINUX)
 }
 
 bool FlashComponentInstallerTraits::VerifyInstallation(
     const base::DictionaryValue& manifest,
     const base::FilePath& install_dir) const {
-  Version unused;
+  base::Version unused;
   return chrome::CheckPepperFlashManifest(manifest, &unused);
 }
 
@@ -259,12 +238,19 @@ void FlashComponentInstallerTraits::GetHash(std::vector<uint8_t>* hash) const {
 }
 
 std::string FlashComponentInstallerTraits::GetName() const {
-  return "pepper_flash";
+  return "Adobe Flash Player";
 }
 
 update_client::InstallerAttributes
 FlashComponentInstallerTraits::GetInstallerAttributes() const {
   return update_client::InstallerAttributes();
+}
+
+std::vector<std::string> FlashComponentInstallerTraits::GetMimeTypes() const {
+  std::vector<std::string> mime_types;
+  mime_types.push_back("application/x-shockwave-flash");
+  mime_types.push_back("application/futuresplash");
+  return mime_types;
 }
 #endif  // defined(GOOGLE_CHROME_BUILD)
 

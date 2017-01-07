@@ -149,14 +149,27 @@ class Platform(object):
     Examples: On Mac, 13 for Mavericks, 14 for Yosemite."""
     return self._platform_backend.GetOSVersionNumber()
 
+  def GetSystemTotalPhysicalMemory(self):
+    """Returns an integer with the total physical memory in bytes."""
+    return self._platform_backend.GetSystemTotalPhysicalMemory()
+
   def CanFlushIndividualFilesFromSystemCache(self):
     """Returns true if the disk cache can be flushed for specific files."""
     return self._platform_backend.CanFlushIndividualFilesFromSystemCache()
 
+  def SupportFlushEntireSystemCache(self):
+    """Returns true if entire system cache can be flushed.
+
+    Also checks that platform has required privilegues to flush system caches.
+    """
+    return self._platform_backend.SupportFlushEntireSystemCache()
+
   def FlushEntireSystemCache(self):
     """Flushes the OS's file cache completely.
 
-    This function may require root or administrator access."""
+    This function may require root or administrator access. Clients should
+    call SupportFlushEntireSystemCache to check first.
+    """
     return self._platform_backend.FlushEntireSystemCache()
 
   def FlushSystemCacheForDirectory(self, directory):

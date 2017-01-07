@@ -7,10 +7,12 @@
 #include <stdint.h>
 
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
+#include "base/memory/ptr_util.h"
 #include "base/path_service.h"
 #include "base/run_loop.h"
 #include "mojo/common/common_type_converters.h"
@@ -38,7 +40,7 @@ struct TypeConverter<arc::mojom::ArcPackageInfoPtr,
 namespace arc {
 
 FakeAppInstance::FakeAppInstance(mojom::AppHost* app_host)
-    : binding_(this), app_host_(app_host) {}
+    : app_host_(app_host) {}
 FakeAppInstance::~FakeAppInstance() {}
 
 void FakeAppInstance::RefreshAppList() {
@@ -47,15 +49,15 @@ void FakeAppInstance::RefreshAppList() {
 
 void FakeAppInstance::LaunchApp(const mojo::String& package_name,
                                 const mojo::String& activity,
-                                const gfx::Rect& dimension) {
-  launch_requests_.push_back(new Request(package_name, activity));
+                                const base::Optional<gfx::Rect>& dimension) {
+  launch_requests_.push_back(base::MakeUnique<Request>(package_name, activity));
 }
 
 void FakeAppInstance::RequestAppIcon(const mojo::String& package_name,
                                      const mojo::String& activity,
                                      mojom::ScaleFactor scale_factor) {
   icon_requests_.push_back(
-      new IconRequest(package_name, activity, scale_factor));
+      base::MakeUnique<IconRequest>(package_name, activity, scale_factor));
 }
 
 void FakeAppInstance::SendRefreshAppList(
@@ -178,25 +180,6 @@ void FakeAppInstance::SendPackageUninstalled(const mojo::String& package_name) {
   app_host_->OnPackageRemoved(package_name);
 }
 
-void FakeAppInstance::WaitForIncomingMethodCall() {
-  binding_.WaitForIncomingMethodCall();
-}
-
-void FakeAppInstance::WaitForOnAppInstanceReady() {
-  // Several messages are sent back and forth when OnAppInstanceReady() is
-  // called. Normally, it would be preferred to use a single
-  // WaitForIncomingMethodCall() to wait for each method individually, but
-  // QueryVersion() does require processing on the I/O thread, so
-  // RunUntilIdle() is required to correctly dispatch it. On slower machines
-  // (and when running under Valgrind), the two thread hops needed to send and
-  // dispatch each Mojo message might not be picked up by a single
-  // RunUntilIdle(), so keep pumping the message loop until all expected
-  // messages are.
-  while (refresh_app_list_count_ != 1) {
-    base::RunLoop().RunUntilIdle();
-  }
-}
-
 void FakeAppInstance::CanHandleResolution(
     const mojo::String& package_name,
     const mojo::String& activity,
@@ -241,16 +224,17 @@ void FakeAppInstance::InstallPackage(mojom::ArcPackageInfoPtr arcPackageInfo) {
   app_host_->OnPackageAdded(std::move(arcPackageInfo));
 }
 
-void FakeAppInstance::LaunchIntent(const mojo::String& intent_uri,
-                                   const gfx::Rect& dimension_on_screen) {
-  launch_intents_.push_back(new mojo::String(intent_uri));
+void FakeAppInstance::LaunchIntent(
+    const mojo::String& intent_uri,
+    const base::Optional<gfx::Rect>& dimension_on_screen) {
+  launch_intents_.push_back(base::MakeUnique<mojo::String>(intent_uri));
 }
 
 void FakeAppInstance::RequestIcon(const mojo::String& icon_resource_id,
                                   arc::mojom::ScaleFactor scale_factor,
                                   const RequestIconCallback& callback) {
   shortcut_icon_requests_.push_back(
-      new ShortcutIconRequest(icon_resource_id, scale_factor));
+      base::MakeUnique<ShortcutIconRequest>(icon_resource_id, scale_factor));
 
   std::string png_data_as_string;
   if (GetFakeIcon(scale_factor, &png_data_as_string)) {

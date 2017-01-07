@@ -8,7 +8,6 @@
 #include <stdint.h>
 
 #include <memory>
-#include <set>
 #include <string>
 #include <vector>
 
@@ -21,6 +20,7 @@
 #include "build/build_config.h"
 #include "chrome/installer/util/browser_distribution.h"
 #include "chrome/installer/util/product.h"
+#include "chrome/installer/util/progress_calculator.h"
 #include "chrome/installer/util/util_constants.h"
 
 #if defined(OS_WIN)
@@ -119,6 +119,11 @@ class InstallerState {
   // The full path to the place where the operand resides.
   const base::FilePath& target_path() const { return target_path_; }
 
+  // Sets the value returned by target_path().
+  void set_target_path_for_testing(const base::FilePath& target_path) {
+    target_path_ = target_path;
+  }
+
   // True if the "msi" preference is set or if a product with the "msi" state
   // flag is set is to be operated on.
   bool is_msi() const { return msi_; }
@@ -184,19 +189,13 @@ class InstallerState {
   // (for example <target_path>\Google\Chrome\Application\<Version>\Installer)
   base::FilePath GetInstallerDirectory(const base::Version& version) const;
 
-  // Try to delete all directories under |temp_path| whose versions are less
-  // than |new_version| and not equal to |existing_version|. |existing_version|
-  // may be NULL.
-  void RemoveOldVersionDirectories(const base::Version& new_version,
-                                   base::Version* existing_version,
-                                   const base::FilePath& temp_path) const;
-
   // Adds to |com_dll_list| the list of COM DLLs that are to be registered
   // and/or unregistered. The list may be empty.
   void AddComDllList(std::vector<base::FilePath>* com_dll_list) const;
 
-  // See InstallUtil::UpdateInstallerStage.
-  void UpdateStage(installer::InstallerStage stage) const;
+  // Sets the current stage of processing. This reports a progress value to
+  // Google Update for presentation to a user.
+  void SetStage(InstallerStage stage) const;
 
   // For a MULTI_INSTALL or MULTI_UPDATE operation, updates the Google Update
   // "ap" values for all products being operated on.
@@ -249,11 +248,6 @@ class InstallerState {
   bool IsMultiInstallUpdate(const MasterPreferences& prefs,
                             const InstallationState& machine_state);
 
-  // Enumerates all files named one of
-  // [chrome.exe, old_chrome.exe, new_chrome.exe] in target_path_ and
-  // returns their version numbers in a set.
-  void GetExistingExeVersions(std::set<std::string>* existing_versions) const;
-
   // Sets this object's level and updates the root_key_ accordingly.
   void set_level(Level level);
 
@@ -268,6 +262,7 @@ class InstallerState {
   ScopedVector<Product> products_;
   BrowserDistribution* multi_package_distribution_;
   base::Version critical_update_version_;
+  ProgressCalculator progress_calculator_;
   Level level_;
   PackageType package_type_;
 #if defined(OS_WIN)

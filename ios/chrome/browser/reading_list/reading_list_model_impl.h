@@ -39,6 +39,10 @@ class ReadingListModelImpl : public ReadingListModel, public KeyedService {
   const ReadingListEntry& GetUnreadEntryAtIndex(size_t index) const override;
   const ReadingListEntry& GetReadEntryAtIndex(size_t index) const override;
 
+  bool CallbackEntryURL(
+      const GURL& url,
+      base::Callback<void(const ReadingListEntry&)> callback) const override;
+
   void RemoveEntryByUrl(const GURL& url) override;
 
   const ReadingListEntry& AddEntry(const GURL& url,
@@ -46,15 +50,26 @@ class ReadingListModelImpl : public ReadingListModel, public KeyedService {
 
   void MarkReadByURL(const GURL& url) override;
 
+  void SetEntryTitle(const GURL& url, const std::string& title) override;
+  void SetEntryDistilledURL(const GURL& url,
+                            const GURL& distilled_url) override;
+  void SetEntryDistilledState(
+      const GURL& url,
+      ReadingListEntry::DistillationState state) override;
+
  protected:
   void EndBatchUpdates() override;
 
  private:
-  std::vector<ReadingListEntry> unread_;
-  std::vector<ReadingListEntry> read_;
+  typedef std::vector<ReadingListEntry> ReadingListEntries;
+
+  ReadingListEntries unread_;
+  ReadingListEntries read_;
   std::unique_ptr<ReadingListModelStorage> storageLayer_;
   bool hasUnseen_;
   bool loaded_;
+
+  DISALLOW_COPY_AND_ASSIGN(ReadingListModelImpl);
 };
 
 #endif  // IOS_CHROME_BROWSER_READING_LIST_READING_LIST_MODEL_MEMORY_H_

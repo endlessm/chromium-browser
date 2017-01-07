@@ -32,7 +32,7 @@ class InputStreamImpl : public InputStream {
   ~InputStreamImpl() override;
 
   // Gets the underlying Java object. Guaranteed non-NULL.
-  jobject jobj() const { return jobject_.obj(); }
+  const base::android::JavaRef<jobject>& jobj() const { return jobject_; }
 
   // InputStream implementation.
   bool BytesAvailable(int* bytes_available) const override;
@@ -49,8 +49,6 @@ class InputStreamImpl : public InputStream {
 
   DISALLOW_COPY_AND_ASSIGN(InputStreamImpl);
 };
-
-bool RegisterInputStream(JNIEnv* env);
 
 } // namespace android_webview
 

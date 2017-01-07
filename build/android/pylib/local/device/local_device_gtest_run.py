@@ -7,6 +7,7 @@ import itertools
 import logging
 import os
 import posixpath
+import tempfile
 
 from devil.android import device_errors
 from devil.android import device_temp_file
@@ -18,8 +19,6 @@ from pylib.gtest import gtest_test_instance
 from pylib.local import local_test_server_spawner
 from pylib.local.device import local_device_environment
 from pylib.local.device import local_device_test_run
-
-_COMMAND_LINE_FLAGS_SUPPORTED = True
 
 _MAX_INLINE_FLAGS_LENGTH = 50  # Arbitrarily chosen.
 _EXTRA_COMMAND_LINE_FILE = (
@@ -116,6 +115,9 @@ class _ApkDelegate(object):
       device.Install(self._apk_helper, reinstall=True,
                      permissions=self._permissions)
 
+  def ResultsDirectory(self, device):
+    return device.GetApplicationDataDirectory(self._package)
+
   def Run(self, test, device, flags=None, **kwargs):
     extras = dict(self._extras)
 
@@ -175,6 +177,11 @@ class _ExeDelegate(object):
     device.PushChangedFiles([(self._host_dist_dir, self._device_dist_dir)],
                             delete_device_stale=True)
 
+  def ResultsDirectory(self, device):
+    # pylint: disable=no-self-use
+    # pylint: disable=unused-argument
+    return constants.TEST_EXECUTABLE_DIR
+
   def Run(self, test, device, flags=None, **kwargs):
     tool = self._test_run.GetTool(device).GetTestWrapper()
     if tool:
@@ -232,7 +239,7 @@ class LocalDeviceGtestRun(local_device_test_run.LocalDeviceTestRun):
 
   #override
   def SetUp(self):
-    @local_device_test_run.handle_shard_failures_with(
+    @local_device_environment.handle_shard_failures_with(
         on_failure=self._env.BlacklistDevice)
     def individual_device_set_up(dev):
       def install_apk():
@@ -313,7 +320,7 @@ class LocalDeviceGtestRun(local_device_test_run.LocalDeviceTestRun):
     # Even when there's only one device, it still makes sense to retrieve the
     # test list so that tests can be split up and run in batches rather than all
     # at once (since test output is not streamed).
-    @local_device_test_run.handle_shard_failures_with(
+    @local_device_environment.handle_shard_failures_with(
         on_failure=self._env.BlacklistDevice)
     def list_tests(dev):
       raw_test_list = self._delegate.Run(
@@ -341,20 +348,40 @@ class LocalDeviceGtestRun(local_device_test_run.LocalDeviceTestRun):
     # Run the test.
     timeout = (self._test_instance.shard_timeout
                * self.GetTool(device).GetTimeoutScale())
-    output = self._delegate.Run(
-        test, device, flags=self._test_instance.test_arguments,
-        timeout=timeout, retries=0)
-    for s in self._servers[str(device)]:
-      s.Reset()
-    if self._test_instance.app_files:
-      self._delegate.PullAppFiles(device, self._test_instance.app_files,
-                                  self._test_instance.app_file_dir)
-    if not self._env.skip_clear_data:
-      self._delegate.Clear(device)
+    with tempfile.NamedTemporaryFile(suffix='.xml') as host_tmp_results_file:
+      with device_temp_file.DeviceTempFile(
+          adb=device.adb,
+          dir=self._delegate.ResultsDirectory(device),
+          suffix='.xml') as device_tmp_results_file:
 
-    # Parse the output.
-    # TODO(jbudorick): Transition test scripts away from parsing stdout.
-    results = gtest_test_instance.ParseGTestOutput(output)
+        flags = self._test_instance.test_arguments or ''
+        if self._test_instance.enable_xml_result_parsing:
+          flags += ' --gtest_output=xml:%s' % device_tmp_results_file.name
+
+        output = self._delegate.Run(
+            test, device, flags=flags,
+            timeout=timeout, retries=0)
+
+        if self._test_instance.enable_xml_result_parsing:
+          device.PullFile(
+              device_tmp_results_file.name,
+              host_tmp_results_file.name)
+
+      for s in self._servers[str(device)]:
+        s.Reset()
+      if self._test_instance.app_files:
+        self._delegate.PullAppFiles(device, self._test_instance.app_files,
+                                    self._test_instance.app_file_dir)
+      if not self._env.skip_clear_data:
+        self._delegate.Clear(device)
+
+      # Parse the output.
+      # TODO(jbudorick): Transition test scripts away from parsing stdout.
+      if self._test_instance.enable_xml_result_parsing:
+        with open(host_tmp_results_file.name) as xml_results_file:
+          results = gtest_test_instance.ParseGTestXML(xml_results_file.read())
+      else:
+        results = gtest_test_instance.ParseGTestOutput(output)
 
     # Check whether there are any crashed testcases.
     self._crashes.update(r.GetName() for r in results
@@ -363,7 +390,7 @@ class LocalDeviceGtestRun(local_device_test_run.LocalDeviceTestRun):
 
   #override
   def TearDown(self):
-    @local_device_test_run.handle_shard_failures
+    @local_device_environment.handle_shard_failures
     def individual_device_tear_down(dev):
       for s in self._servers.get(str(dev), []):
         s.TearDown()

@@ -57,6 +57,7 @@ class ClientManager {
         public boolean mIgnoreFragments;
         private boolean mShouldHideDomain;
         private boolean mShouldPrerenderOnCellular;
+        private boolean mShouldSendNavigationInfo;
         private ServiceConnection mKeepAliveConnection;
         private String mPredictedUrl;
         private long mLastMayLaunchUrlTimestamp;
@@ -93,6 +94,13 @@ class ClientManager {
 
         public long getLastMayLaunchUrlTimestamp() {
             return mLastMayLaunchUrlTimestamp;
+        }
+
+        /**
+         * @return Whether the default parameters are used for this session.
+         */
+        public boolean isDefault() {
+            return !mIgnoreFragments && !mShouldPrerenderOnCellular;
         }
     }
 
@@ -244,6 +252,23 @@ class ClientManager {
     }
 
     /**
+     * @return Whether navigation info should be recorded and shared for the session.
+     */
+    public synchronized boolean shouldSendNavigationInfoForSession(CustomTabsSessionToken session) {
+        SessionParams params = mSessionParams.get(session);
+        return params != null ? params.mShouldSendNavigationInfo : false;
+    }
+
+    /**
+     * Sets whether navigation info should be recorded and shared for the session.
+     */
+    public synchronized void setSendNavigationInfoForSession(
+            CustomTabsSessionToken session, boolean save) {
+        SessionParams params = mSessionParams.get(session);
+        if (params != null) params.mShouldSendNavigationInfo = save;
+    }
+
+    /**
      * @return Whether the fragment should be ignored for prerender matching.
      */
     public synchronized boolean getIgnoreFragmentsForSession(CustomTabsSessionToken session) {
@@ -265,6 +290,15 @@ class ClientManager {
             CustomTabsSessionToken session) {
         SessionParams params = mSessionParams.get(session);
         return params != null ? params.mShouldPrerenderOnCellular : false;
+    }
+
+    /**
+     * @return Whether the session is using the default parameters (that is,
+     *         don't ignore fragments and don't prerender on cellular connections).
+     */
+    public synchronized boolean usesDefaultSessionParameters(CustomTabsSessionToken session) {
+        SessionParams params = mSessionParams.get(session);
+        return params != null ? params.isDefault() : true;
     }
 
     /**

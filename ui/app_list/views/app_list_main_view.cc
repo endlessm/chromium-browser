@@ -151,9 +151,7 @@ void AppListMainView::ShowAppListWhenReady() {
 }
 
 void AppListMainView::ResetForShow() {
-  if (switches::IsExperimentalAppListEnabled())
-    contents_view_->SetActiveState(AppListModel::STATE_START);
-
+  contents_view_->SetActiveState(AppListModel::STATE_START);
   contents_view_->apps_container_view()->ResetForShowApps();
   // We clear the search when hiding so when app list appears it is not showing
   // search results.
@@ -163,10 +161,6 @@ void AppListMainView::ResetForShow() {
 void AppListMainView::Close() {
   icon_loading_wait_timer_.Stop();
   contents_view_->CancelDrag();
-}
-
-void AppListMainView::Prerender() {
-  contents_view_->Prerender();
 }
 
 void AppListMainView::ModelChanged() {
@@ -184,10 +178,6 @@ void AppListMainView::ModelChanged() {
 void AppListMainView::SetDragAndDropHostOfCurrentAppList(
     ApplicationDragAndDropHost* drag_and_drop_host) {
   contents_view_->SetDragAndDropHostOfCurrentAppList(drag_and_drop_host);
-}
-
-bool AppListMainView::ShouldCenterWindow() const {
-  return delegate_->ShouldCenterWindow();
 }
 
 PaginationModel* AppListMainView::GetAppsPaginationModel() {
@@ -295,12 +285,6 @@ void AppListMainView::ActivateApp(AppListItem* item, int event_flags) {
     contents_view_->ShowFolderContent(static_cast<AppListFolderItem*>(item));
   else
     item->Activate(event_flags);
-}
-
-void AppListMainView::GetShortcutPathForApp(
-    const std::string& app_id,
-    const base::Callback<void(const base::FilePath&)>& callback) {
-  delegate_->GetShortcutPathForApp(app_id, callback);
 }
 
 void AppListMainView::CancelDragInActiveFolder() {

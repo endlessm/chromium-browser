@@ -5,8 +5,6 @@
 #include "chrome/browser/signin/signin_error_notifier_ash.h"
 
 #include "ash/common/system/system_notifier.h"
-#include "ash/shell.h"
-#include "ash/shell_delegate.h"
 #include "base/logging.h"
 #include "base/macros.h"
 #include "base/strings/string16.h"
@@ -28,8 +26,8 @@
 #include "chrome/common/url_constants.h"
 #include "chrome/grit/chromium_strings.h"
 #include "chrome/grit/generated_resources.h"
+#include "chrome/grit/theme_resources.h"
 #include "components/signin/core/account_id/account_id.h"
-#include "grit/theme_resources.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/message_center/notification.h"

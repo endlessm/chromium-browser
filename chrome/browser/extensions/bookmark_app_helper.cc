@@ -29,6 +29,7 @@
 #include "chrome/common/extensions/extension_constants.h"
 #include "chrome/common/extensions/manifest_handlers/app_launch_info.h"
 #include "chrome/common/url_constants.h"
+#include "chrome/grit/platform_locale_settings.h"
 #include "components/prefs/pref_service.h"
 #include "content/public/browser/navigation_controller.h"
 #include "content/public/browser/notification_service.h"
@@ -43,7 +44,6 @@
 #include "extensions/common/extension.h"
 #include "extensions/common/manifest_handlers/icons_handler.h"
 #include "extensions/common/url_pattern.h"
-#include "grit/platform_locale_settings.h"
 #include "net/base/load_flags.h"
 #include "net/base/registry_controlled_domains/registry_controlled_domain.h"
 #include "net/url_request/url_request.h"
@@ -72,8 +72,8 @@
 #endif  // defined(OS_WIN)
 
 #if defined(USE_ASH)
-#include "ash/shelf/shelf_delegate.h"
-#include "ash/shell.h"
+#include "ash/common/shelf/shelf_delegate.h"  // nogncheck
+#include "ash/common/wm_shell.h"  // nogncheck
 #endif
 
 namespace {
@@ -571,10 +571,11 @@ void BookmarkAppHelper::CreateFromAppBanner(
   DCHECK(manifest.start_url.is_valid());
 
   callback_ = callback;
-  OnDidGetManifest(manifest);
+  OnDidGetManifest(GURL(), manifest);
 }
 
-void BookmarkAppHelper::OnDidGetManifest(const content::Manifest& manifest) {
+void BookmarkAppHelper::OnDidGetManifest(const GURL& manifest_url,
+                                         const content::Manifest& manifest) {
   if (contents_->IsBeingDestroyed())
     return;
 
@@ -717,7 +718,9 @@ void BookmarkAppHelper::FinishInstallation(const Extension* extension) {
   web_app::CreateShortcuts(web_app::SHORTCUT_CREATION_BY_USER,
                            creation_locations, current_profile, extension);
 #else
-  ash::Shell::GetInstance()->GetShelfDelegate()->PinAppWithID(extension->id());
+  ash::ShelfDelegate* shelf_delegate = ash::WmShell::Get()->shelf_delegate();
+  DCHECK(shelf_delegate);
+  shelf_delegate->PinAppWithID(extension->id());
 #endif  // !defined(USE_ASH)
 #endif  // !defined(OS_MACOSX)
 

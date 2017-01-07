@@ -1,7 +1,7 @@
 #!/usr/bin/env python
-# Copyright 2014 The Swarming Authors. All rights reserved.
-# Use of this source code is governed under the Apache License, Version 2.0 that
-# can be found in the LICENSE file.
+# Copyright 2014 The LUCI Authors. All rights reserved.
+# Use of this source code is governed under the Apache License, Version 2.0
+# that can be found in the LICENSE file.
 
 """Automated maintenance tool to run a script on bots.
 
@@ -19,7 +19,8 @@ import shutil
 import subprocess
 import sys
 
-ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(
+    __file__.decode(sys.getfilesystemencoding()))))
 
 # Must be first import.
 import parallel_execution

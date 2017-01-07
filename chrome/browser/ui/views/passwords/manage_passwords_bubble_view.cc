@@ -11,13 +11,16 @@
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_finder.h"
 #include "chrome/browser/ui/exclusive_access/fullscreen_controller.h"
+#include "chrome/browser/ui/passwords/password_dialog_prompts.h"
+#include "chrome/browser/ui/passwords/passwords_model_delegate.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
 #include "chrome/browser/ui/views/passwords/credentials_item_view.h"
 #include "chrome/browser/ui/views/passwords/credentials_selection_view.h"
 #include "chrome/browser/ui/views/passwords/manage_password_items_view.h"
 #include "chrome/browser/ui/views/passwords/manage_passwords_icon_views.h"
 #include "chrome/grit/generated_resources.h"
-#include "grit/components_strings.h"
+#include "components/strings/grit/components_strings.h"
+#include "content/public/browser/user_metrics.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/material_design/material_design_controller.h"
 #include "ui/base/resource/resource_bundle.h"
@@ -216,13 +219,10 @@ ManagePasswordsBubbleView::AutoSigninView::AutoSigninView(
   SetLayoutManager(new views::FillLayout);
   const autofill::PasswordForm& form = parent_->model()->pending_password();
   CredentialsItemView* credential = new CredentialsItemView(
-      this,
-      base::string16(),
+      this, base::string16(),
       l10n_util::GetStringFUTF16(IDS_MANAGE_PASSWORDS_AUTO_SIGNIN_TITLE,
                                  form.username_value),
-      GetNativeTheme()->GetSystemColor(
-          ui::NativeTheme::kColorId_ButtonBackgroundColor),
-      &form,
+      kButtonHoverColor, &form,
       parent_->model()->GetProfile()->GetRequestContext());
   credential->SetEnabled(false);
   AddChildView(credential);
@@ -299,9 +299,8 @@ ManagePasswordsBubbleView::PendingView::PendingView(
   // Create the pending credential item, save button and refusal combobox.
   ManagePasswordItemsView* item = nullptr;
   if (!parent->model()->pending_password().username_value.empty()) {
-    std::vector<const autofill::PasswordForm*> credentials(
-        1, &parent->model()->pending_password());
-    item = new ManagePasswordItemsView(parent_->model(), credentials);
+    item = new ManagePasswordItemsView(parent_->model(),
+                                       &parent->model()->pending_password());
   }
   save_button_ = views::MdTextButton::CreateSecondaryUiBlueButton(
       this, l10n_util::GetStringUTF16(IDS_PASSWORD_MANAGER_SAVE_BUTTON));
@@ -410,18 +409,10 @@ ManagePasswordsBubbleView::ManageView::ManageView(
   // If we have a list of passwords to store for the current site, display
   // them to the user for management. Otherwise, render a "No passwords for
   // this site" message.
-
-  bool only_PSL_matches =
-      find_if(parent_->model()->local_credentials().begin(),
-              parent_->model()->local_credentials().end(),
-              [](const autofill::PasswordForm* form) {
-                return !form->is_public_suffix_match;
-              }) == parent_->model()->local_credentials().end();
-
   BuildColumnSet(layout, SINGLE_VIEW_COLUMN_SET);
-  if (!only_PSL_matches) {
+  if (!parent_->model()->local_credentials().empty()) {
     ManagePasswordItemsView* item = new ManagePasswordItemsView(
-        parent_->model(), parent_->model()->local_credentials().get());
+        parent_->model(), &parent_->model()->local_credentials());
     layout->StartRowWithPadding(0, SINGLE_VIEW_COLUMN_SET, 0,
                                 views::kUnrelatedControlVerticalSpacing);
     layout->AddView(item);
@@ -593,6 +584,8 @@ ManagePasswordsBubbleView::SignInPromoView::SignInPromoView(
   layout->AddView(no_button_);
 
   parent_->set_initially_focused_view(signin_button_);
+  content::RecordAction(
+      base::UserMetricsAction("Signin_Impression_FromPasswordBubble"));
 }
 
 void ManagePasswordsBubbleView::SignInPromoView::ButtonPressed(
@@ -651,19 +644,16 @@ ManagePasswordsBubbleView::UpdatePendingView::UpdatePendingView(
   // Create the pending credential item, update button.
   View* item = nullptr;
   if (parent->model()->ShouldShowMultipleAccountUpdateUI()) {
-    selection_view_ = new CredentialsSelectionView(
-        parent->model(), parent->model()->local_credentials().get(),
-        parent->model()->pending_password().username_value);
+    selection_view_ = new CredentialsSelectionView(parent->model());
     item = selection_view_;
   } else {
-    std::vector<const autofill::PasswordForm*> forms;
-    forms.push_back(&parent->model()->pending_password());
-    item = new ManagePasswordItemsView(parent_->model(), forms);
+    item = new ManagePasswordItemsView(parent_->model(),
+                                       &parent->model()->pending_password());
   }
   nope_button_ = views::MdTextButton::CreateSecondaryUiButton(
       this, l10n_util::GetStringUTF16(IDS_PASSWORD_MANAGER_CANCEL_BUTTON));
 
-  update_button_ = new views::BlueButton(
+  update_button_ = views::MdTextButton::CreateSecondaryUiBlueButton(
       this, l10n_util::GetStringUTF16(IDS_PASSWORD_MANAGER_UPDATE_BUTTON));
 
   // Title row.
@@ -768,7 +758,7 @@ void ManagePasswordsBubbleView::ActivateBubble() {
 }
 
 content::WebContents* ManagePasswordsBubbleView::web_contents() const {
-  return model_.web_contents();
+  return model_.GetWebContents();
 }
 
 ManagePasswordsBubbleView::ManagePasswordsBubbleView(
@@ -776,7 +766,7 @@ ManagePasswordsBubbleView::ManagePasswordsBubbleView(
     views::View* anchor_view,
     DisplayReason reason)
     : LocationBarBubbleDelegateView(anchor_view, web_contents),
-      model_(web_contents,
+      model_(PasswordsModelDelegateFromWebContents(web_contents),
              reason == AUTOMATIC ? ManagePasswordsBubbleModel::AUTOMATIC
                                  : ManagePasswordsBubbleModel::USER_ACTION),
       initially_focused_view_(nullptr) {

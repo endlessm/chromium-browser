@@ -18,6 +18,7 @@ import android.view.KeyEvent;
 import android.view.View;
 import android.view.inputmethod.BaseInputConnection;
 import android.view.inputmethod.EditorInfo;
+import android.view.inputmethod.InputConnection;
 
 import org.chromium.base.Log;
 import org.chromium.base.VisibleForTesting;
@@ -55,7 +56,7 @@ public class ImeAdapter {
     private static final String TAG = "cr_Ime";
     private static final boolean DEBUG_LOGS = false;
 
-    private static final int COMPOSITION_KEY_CODE = 229;
+    public static final int COMPOSITION_KEY_CODE = 229;
 
     /**
      * Interface for the delegate that needs to be notified of IME changes.
@@ -192,8 +193,15 @@ public class ImeAdapter {
                 mViewEmbedder.getAttachedView(), this, mTextInputType, mTextInputFlags,
                 mLastSelectionStart, mLastSelectionEnd, outAttrs));
         if (DEBUG_LOGS) Log.w(TAG, "onCreateInputConnection: " + mInputConnection);
+
         if (mCursorAnchorInfoController != null) {
-            mCursorAnchorInfoController.resetMonitoringState();
+            mCursorAnchorInfoController.onRequestCursorUpdates(
+                    false /* not an immediate request */, false /* disable monitoring */,
+                    mViewEmbedder.getAttachedView());
+        }
+        if (mNativeImeAdapterAndroid != 0) {
+            nativeRequestCursorUpdate(mNativeImeAdapterAndroid,
+                    false /* not an immediate request */, false /* disable monitoring */);
         }
         return mInputConnection;
     }
@@ -338,6 +346,7 @@ public class ImeAdapter {
         if (nativeImeAdapter != 0) {
             createInputConnectionFactory();
         }
+        resetAndHideKeyboard();
     }
 
     /**
@@ -366,7 +375,14 @@ public class ImeAdapter {
         }
         // Detach input connection by returning null from onCreateInputConnection().
         if (mTextInputType == TextInputType.NONE && mInputConnection != null) {
-            restartInput();
+            ChromiumBaseInputConnection inputConnection = mInputConnection;
+            restartInput();  // resets mInputConnection
+            // crbug.com/666982: Restart input may not happen if view is detached from window, but
+            // we need to unblock in any case. We want to call this after restartInput() to
+            // ensure that there is no additional IME operation in the queue, except for
+            // moveCursorToSelectionEnd(), which block the IME thread unnecessarily and need
+            // refactoring anyways. (crbug.com/662908)
+            inputConnection.unblockOnUiThread();
         }
     }
 
@@ -418,6 +434,7 @@ public class ImeAdapter {
      * Call this when view is detached from window
      */
     public void onViewDetachedFromWindow() {
+        resetAndHideKeyboard();
         if (mInputConnectionFactory != null) {
             mInputConnectionFactory.onViewDetachedFromWindow();
         }
@@ -429,7 +446,6 @@ public class ImeAdapter {
      */
     public void onViewFocusChanged(boolean gainFocus) {
         if (DEBUG_LOGS) Log.w(TAG, "onViewFocusChanged: gainFocus [%b]", gainFocus);
-        if (!gainFocus) resetAndHideKeyboard();
         if (mInputConnectionFactory != null) {
             mInputConnectionFactory.onViewFocusChanged(gainFocus);
         }
@@ -535,7 +551,7 @@ public class ImeAdapter {
                 KeyEvent.ACTION_DOWN, keyCode, 0, 0,
                 KeyCharacterMap.VIRTUAL_KEYBOARD, 0,
                 flags));
-        sendKeyEvent(new KeyEvent(SystemClock.uptimeMillis(), eventTime,
+        sendKeyEvent(new KeyEvent(eventTime, eventTime,
                 KeyEvent.ACTION_UP, keyCode, 0, 0,
                 KeyCharacterMap.VIRTUAL_KEYBOARD, 0,
                 flags));
@@ -554,18 +570,18 @@ public class ImeAdapter {
 
         mViewEmbedder.onImeEvent();
         long timestampMs = SystemClock.uptimeMillis();
-        nativeSendSyntheticKeyEvent(mNativeImeAdapterAndroid, WebInputEventType.RawKeyDown,
-                timestampMs, COMPOSITION_KEY_CODE, 0, unicodeFromKeyEvent);
+        nativeSendKeyEvent(mNativeImeAdapterAndroid, null, WebInputEventType.RawKeyDown, 0,
+                timestampMs, COMPOSITION_KEY_CODE, 0, false, unicodeFromKeyEvent);
 
         if (isCommit) {
-            nativeCommitText(mNativeImeAdapterAndroid, text.toString());
+            nativeCommitText(mNativeImeAdapterAndroid, text.toString(), newCursorPosition);
         } else {
             nativeSetComposingText(
                     mNativeImeAdapterAndroid, text, text.toString(), newCursorPosition);
         }
 
-        nativeSendSyntheticKeyEvent(mNativeImeAdapterAndroid, WebInputEventType.KeyUp, timestampMs,
-                COMPOSITION_KEY_CODE, 0, unicodeFromKeyEvent);
+        nativeSendKeyEvent(mNativeImeAdapterAndroid, null, WebInputEventType.KeyUp, 0, timestampMs,
+                COMPOSITION_KEY_CODE, 0, false, unicodeFromKeyEvent);
         return true;
     }
 
@@ -580,21 +596,21 @@ public class ImeAdapter {
         if (mNativeImeAdapterAndroid == 0) return false;
 
         int action = event.getAction();
-        if (action != KeyEvent.ACTION_DOWN && action != KeyEvent.ACTION_UP) {
-            // action == KeyEvent.ACTION_MULTIPLE
-            // TODO(bulach): confirm the actual behavior. Apparently:
-            // If event.getKeyCode() == KEYCODE_UNKNOWN, we can send a
-            // composition key down (229) followed by a commit text with the
-            // string from event.getUnicodeChars().
-            // Otherwise, we'd need to send an event with a
-            // WebInputEvent::IsAutoRepeat modifier. We also need to verify when
-            // we receive ACTION_MULTIPLE: we may receive it after an ACTION_DOWN,
-            // and if that's the case, we'll need to review when to send the Char
-            // event.
+        int type;
+        if (action == KeyEvent.ACTION_DOWN) {
+            type = WebInputEventType.KeyDown;
+        } else if (action == KeyEvent.ACTION_UP) {
+            type = WebInputEventType.KeyUp;
+        } else {
+            // In theory, KeyEvent.ACTION_MULTIPLE is a valid value, but in practice
+            // this seems to have been quietly deprecated and we've never observed
+            // a case where it's sent (holding down physical keyboard key also
+            // sends ACTION_DOWN), so it's fine to silently drop it.
             return false;
         }
         mViewEmbedder.onImeEvent();
-        return nativeSendKeyEvent(mNativeImeAdapterAndroid, event, event.getAction(),
+
+        return nativeSendKeyEvent(mNativeImeAdapterAndroid, event, type,
                 getModifiers(event.getMetaState()), event.getEventTime(), event.getKeyCode(),
                              event.getScanCode(), /*isSystemKey=*/false, event.getUnicodeChar());
     }
@@ -610,11 +626,11 @@ public class ImeAdapter {
     boolean deleteSurroundingText(int beforeLength, int afterLength) {
         mViewEmbedder.onImeEvent();
         if (mNativeImeAdapterAndroid == 0) return false;
-        nativeSendSyntheticKeyEvent(mNativeImeAdapterAndroid, WebInputEventType.RawKeyDown,
-                SystemClock.uptimeMillis(), COMPOSITION_KEY_CODE, 0, 0);
+        nativeSendKeyEvent(mNativeImeAdapterAndroid, null, WebInputEventType.RawKeyDown, 0,
+                SystemClock.uptimeMillis(), COMPOSITION_KEY_CODE, 0, false, 0);
         nativeDeleteSurroundingText(mNativeImeAdapterAndroid, beforeLength, afterLength);
-        nativeSendSyntheticKeyEvent(mNativeImeAdapterAndroid,
-                WebInputEventType.KeyUp, SystemClock.uptimeMillis(), COMPOSITION_KEY_CODE, 0, 0);
+        nativeSendKeyEvent(mNativeImeAdapterAndroid, null, WebInputEventType.KeyUp, 0,
+                SystemClock.uptimeMillis(), COMPOSITION_KEY_CODE, 0, false, 0);
         return true;
     }
 
@@ -638,7 +654,11 @@ public class ImeAdapter {
      */
     boolean setComposingRegion(int start, int end) {
         if (mNativeImeAdapterAndroid == 0) return false;
-        nativeSetComposingRegion(mNativeImeAdapterAndroid, start, end);
+        if (start <= end) {
+            nativeSetComposingRegion(mNativeImeAdapterAndroid, start, end);
+        } else {
+            nativeSetComposingRegion(mNativeImeAdapterAndroid, end, start);
+        }
         return true;
     }
 
@@ -670,8 +690,16 @@ public class ImeAdapter {
      * Notified when IME requested Chrome to change the cursor update mode.
      */
     public boolean onRequestCursorUpdates(int cursorUpdateMode) {
+        final boolean immediateRequest =
+                (cursorUpdateMode & InputConnection.CURSOR_UPDATE_IMMEDIATE) != 0;
+        final boolean monitorRequest =
+                (cursorUpdateMode & InputConnection.CURSOR_UPDATE_MONITOR) != 0;
+
+        if (mNativeImeAdapterAndroid != 0) {
+            nativeRequestCursorUpdate(mNativeImeAdapterAndroid, immediateRequest, monitorRequest);
+        }
         if (mCursorAnchorInfoController == null) return false;
-        return mCursorAnchorInfoController.onRequestCursorUpdates(cursorUpdateMode,
+        return mCursorAnchorInfoController.onRequestCursorUpdates(immediateRequest, monitorRequest,
                 mViewEmbedder.getAttachedView());
     }
 
@@ -727,7 +755,8 @@ public class ImeAdapter {
     @CalledByNative
     private void setCharacterBounds(float[] characterBounds) {
         if (mCursorAnchorInfoController == null) return;
-        mCursorAnchorInfoController.setCompositionCharacterBounds(characterBounds);
+        mCursorAnchorInfoController.setCompositionCharacterBounds(characterBounds,
+                mViewEmbedder.getAttachedView());
     }
 
     @CalledByNative
@@ -739,17 +768,16 @@ public class ImeAdapter {
         }
     }
 
-    private native boolean nativeSendSyntheticKeyEvent(long nativeImeAdapterAndroid,
-            int eventType, long timestampMs, int keyCode, int modifiers, int unicodeChar);
     private native boolean nativeSendKeyEvent(long nativeImeAdapterAndroid, KeyEvent event,
-            int action, int modifiers, long timestampMs, int keyCode, int scanCode,
+            int type, int modifiers, long timestampMs, int keyCode, int scanCode,
             boolean isSystemKey, int unicodeChar);
     private static native void nativeAppendUnderlineSpan(long underlinePtr, int start, int end);
     private static native void nativeAppendBackgroundColorSpan(long underlinePtr, int start,
             int end, int backgroundColor);
     private native void nativeSetComposingText(long nativeImeAdapterAndroid, CharSequence text,
             String textStr, int newCursorPosition);
-    private native void nativeCommitText(long nativeImeAdapterAndroid, String textStr);
+    private native void nativeCommitText(
+            long nativeImeAdapterAndroid, String textStr, int newCursorPosition);
     private native void nativeFinishComposingText(long nativeImeAdapterAndroid);
     private native void nativeAttachImeAdapter(long nativeImeAdapterAndroid);
     private native void nativeSetEditableSelectionOffsets(long nativeImeAdapterAndroid,
@@ -759,5 +787,7 @@ public class ImeAdapter {
             int before, int after);
     private native void nativeResetImeAdapter(long nativeImeAdapterAndroid);
     private native boolean nativeRequestTextInputStateUpdate(long nativeImeAdapterAndroid);
+    private native void nativeRequestCursorUpdate(long nativeImeAdapterAndroid,
+            boolean immediateRequest, boolean monitorRequest);
     private native boolean nativeIsImeThreadEnabled(long nativeImeAdapterAndroid);
 }

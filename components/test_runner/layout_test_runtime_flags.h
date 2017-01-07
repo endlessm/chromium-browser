@@ -109,7 +109,6 @@ class TEST_RUNNER_EXPORT LayoutTestRuntimeFlags {
   DEFINE_BOOL_LAYOUT_TEST_RUNTIME_FLAG(scripts_allowed)
   DEFINE_BOOL_LAYOUT_TEST_RUNTIME_FLAG(storage_allowed)
   DEFINE_BOOL_LAYOUT_TEST_RUNTIME_FLAG(plugins_allowed)
-  DEFINE_BOOL_LAYOUT_TEST_RUNTIME_FLAG(displaying_insecure_content_allowed)
   DEFINE_BOOL_LAYOUT_TEST_RUNTIME_FLAG(running_insecure_content_allowed)
   DEFINE_BOOL_LAYOUT_TEST_RUNTIME_FLAG(
       dump_web_content_settings_client_callbacks)
@@ -135,7 +134,6 @@ class TEST_RUNNER_EXPORT LayoutTestRuntimeFlags {
   // If true, the test_shell will output a descriptive line for each resource
   // load callback.
   DEFINE_BOOL_LAYOUT_TEST_RUNTIME_FLAG(dump_resource_load_callbacks)
-  DEFINE_BOOL_LAYOUT_TEST_RUNTIME_FLAG(dump_resource_priorities)
 
   // If true, the test_shell will output the MIME type for each resource that
   // was loaded.

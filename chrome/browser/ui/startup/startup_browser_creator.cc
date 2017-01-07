@@ -29,6 +29,7 @@
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_tokenizer.h"
+#include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/threading/thread_restrictions.h"
 #include "base/trace_event/trace_event.h"
@@ -55,6 +56,7 @@
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/startup/startup_browser_creator_impl.h"
 #include "chrome/browser/ui/user_manager.h"
+#include "chrome/browser/ui/webui/options/reset_profile_settings_handler.h"
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/chrome_result_codes.h"
@@ -76,7 +78,7 @@
 #include "net/base/port_util.h"
 
 #if defined(USE_ASH)
-#include "ash/shell.h"
+#include "ash/shell.h"  // nogncheck
 #endif
 
 #if defined(OS_CHROMEOS)
@@ -90,7 +92,7 @@
 #endif
 
 #if defined(TOOLKIT_VIEWS) && defined(OS_LINUX)
-#include "ui/events/devices/x11/touch_factory_x11.h"
+#include "ui/events/devices/x11/touch_factory_x11.h"  // nogncheck
 #endif
 
 #if defined(OS_MACOSX)
@@ -99,10 +101,6 @@
 
 #if defined(OS_WIN)
 #include "chrome/browser/metrics/jumplist_metrics_win.h"
-#endif
-
-#if defined(OS_LINUX) && !defined(OS_CHROMEOS)
-#include "ui/views/widget/desktop_aura/x11_desktop_handler.h"
 #endif
 
 #if defined(ENABLE_PRINT_PREVIEW)
@@ -289,7 +287,7 @@ bool ShowUserManagerOnStartupIfNeeded(
   }
 
   // Show the User Manager.
-  profiles::UserManagerProfileSelected action =
+  profiles::UserManagerAction action =
       command_line.HasSwitch(switches::kShowAppList) ?
           profiles::USER_MANAGER_SELECT_PROFILE_APP_LAUNCHER :
           profiles::USER_MANAGER_SELECT_PROFILE_NO_ACTION;
@@ -521,25 +519,39 @@ std::vector<GURL> StartupBrowserCreator::GetURLsFromCommandLine(
       url = url_formatter::FixupRelativeFile(cur_dir, param);
     }
     // Exclude dangerous schemes.
-    if (url.is_valid()) {
-      ChildProcessSecurityPolicy* policy =
-          ChildProcessSecurityPolicy::GetInstance();
-      if (policy->IsWebSafeScheme(url.scheme()) ||
-          url.SchemeIs(url::kFileScheme) ||
+    if (!url.is_valid())
+      continue;
+
+    const GURL settings_url = GURL(chrome::kChromeUISettingsURL);
+    bool url_points_to_an_approved_settings_page = false;
 #if defined(OS_CHROMEOS)
-          // In ChromeOS, allow any settings page to be specified on the command
-          // line. See ExistingUserController::OnLoginSuccess.
-          (url.spec().find(chrome::kChromeUISettingsURL) == 0) ||
+    // In ChromeOS, allow any settings page to be specified on the command line.
+    url_points_to_an_approved_settings_page =
+        url.GetOrigin() == settings_url.GetOrigin();
 #else
-          // Exposed for external cleaners to offer a settings reset to the
-          // user. So the URL must match exactly, without any param or prefix.
-          (url.spec() ==
-           std::string(chrome::kChromeUISettingsURL) +
-               chrome::kResetProfileSettingsSubPage) ||
-#endif
-          (url.spec().compare(url::kAboutBlankURL) == 0)) {
-        urls.push_back(url);
-      }
+    // Exposed for external cleaners to offer a settings reset to the
+    // user. The allowed URLs must match exactly.
+    const GURL reset_settings_url =
+        settings_url.Resolve(chrome::kResetProfileSettingsSubPage);
+    url_points_to_an_approved_settings_page = url == reset_settings_url;
+#if defined(OS_WIN)
+    // On Windows, also allow a hash for the Chrome Cleanup Tool.
+    const GURL reset_settings_url_with_cct_hash = reset_settings_url.Resolve(
+        std::string("#") +
+        options::ResetProfileSettingsHandler::kCctResetSettingsHash);
+    url_points_to_an_approved_settings_page =
+        url_points_to_an_approved_settings_page ||
+        url == reset_settings_url_with_cct_hash;
+#endif  // defined(OS_WIN)
+#endif  // defined(OS_CHROMEOS)
+
+    ChildProcessSecurityPolicy* policy =
+        ChildProcessSecurityPolicy::GetInstance();
+    if (policy->IsWebSafeScheme(url.scheme()) ||
+        url.SchemeIs(url::kFileScheme) ||
+        url_points_to_an_approved_settings_page ||
+        (url.spec().compare(url::kAboutBlankURL) == 0)) {
+      urls.push_back(url);
     }
   }
   return urls;
@@ -699,21 +711,6 @@ bool StartupBrowserCreator::ProcessCmdLineImpl(
         command_line.GetSwitchValueASCII(switches::kWinJumplistAction));
   }
 #endif  // defined(OS_WIN)
-
-#if defined(OS_LINUX) && !defined(OS_CHROMEOS)
-  // Our request to Activate may be discarded on some linux window
-  // managers unless given a recent timestamp, so update the timestamp if
-  // we were given one.
-  if (command_line.HasSwitch(switches::kWmUserTimeMs)) {
-    uint64_t time;
-    std::string switch_value =
-        command_line.GetSwitchValueASCII(switches::kWmUserTimeMs);
-    if (base::StringToUint64(switch_value, &time)) {
-      views::X11DesktopHandler::get()->set_wm_user_time_ms(
-          static_cast<Time>(time));
-    }
-  }
-#endif
 
   chrome::startup::IsProcessStartup is_process_startup = process_startup ?
       chrome::startup::IS_PROCESS_STARTUP :
@@ -884,3 +881,76 @@ base::FilePath GetStartupProfilePath(const base::FilePath& user_data_dir,
   return g_browser_process->profile_manager()->GetLastUsedProfileDir(
       user_data_dir);
 }
+
+#if !defined(OS_CHROMEOS) && !defined(OS_ANDROID)
+Profile* GetStartupProfile(const base::FilePath& user_data_dir,
+                           const base::CommandLine& command_line) {
+  ProfileManager* profile_manager = g_browser_process->profile_manager();
+
+  base::FilePath profile_path =
+      GetStartupProfilePath(user_data_dir, command_line);
+  Profile* profile = profile_manager->GetProfile(profile_path);
+
+  // If there is no entry in profile attributes storage, the profile is deleted,
+  // and we should show the user manager. Also, when using
+  // --new-profile-management, if the profile is locked we should show the user
+  // manager as well. When neither of these is true, we can safely start up with
+  // |profile|.
+  auto* storage = &profile_manager->GetProfileAttributesStorage();
+  ProfileAttributesEntry* entry;
+  bool has_entry = storage->GetProfileAttributesWithPath(profile_path, &entry);
+  if (has_entry && (!switches::IsNewProfileManagement() ||
+                    !entry->IsSigninRequired() || !profile)) {
+    return profile;
+  }
+
+  // We want to show the user manager. To indicate this, return the guest
+  // profile. However, we can only do this if the system profile (where the user
+  // manager lives) also exists (or is creatable).
+  return profile_manager->GetProfile(ProfileManager::GetSystemProfilePath()) ?
+         profile_manager->GetProfile(ProfileManager::GetGuestProfilePath()) :
+         nullptr;
+}
+
+Profile* GetFallbackStartupProfile() {
+  ProfileManager* profile_manager = g_browser_process->profile_manager();
+  // The only known reason for profiles to fail initialization is being unable
+  // to create the profile directory, and this has already happened in
+  // GetStartupProfilePath() before calling this function. In this case,
+  // creation of new profiles is expected to fail. So only existing profiles are
+  // attempted for fallback.
+
+  // If the last used profile could not be initialized, see if any of other last
+  // opened profiles can be initialized successfully.
+  auto* storage = &profile_manager->GetProfileAttributesStorage();
+  for (Profile* profile : ProfileManager::GetLastOpenedProfiles()) {
+    // Return any profile that is not locked.
+    ProfileAttributesEntry* entry;
+    bool has_entry = storage->GetProfileAttributesWithPath(profile->GetPath(),
+                                                           &entry);
+    if (!has_entry || !entry->IsSigninRequired())
+      return profile;
+  }
+
+  // Couldn't initialize any last opened profiles. Try to show the user manager,
+  // which requires successful initialization of the guest and system profiles.
+  Profile* guest_profile =
+      profile_manager->GetProfile(ProfileManager::GetGuestProfilePath());
+  Profile* system_profile =
+      profile_manager->GetProfile(ProfileManager::GetSystemProfilePath());
+  if (guest_profile && system_profile)
+    return guest_profile;
+
+  // Couldn't show the user manager either. Try to open any profile that is not
+  // locked.
+  for (ProfileAttributesEntry* entry : storage->GetAllProfilesAttributes()) {
+    if (!entry->IsSigninRequired()) {
+      Profile* profile = profile_manager->GetProfile(entry->GetPath());
+      if (profile)
+        return profile;
+    }
+  }
+
+  return nullptr;
+}
+#endif  // !defined(OS_CHROMEOS) && !defined(OS_ANDROID)

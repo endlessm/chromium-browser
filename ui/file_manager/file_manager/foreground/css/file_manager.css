@@ -490,6 +490,11 @@ body.check-select .dialog-header
   width: 28px;
 }
 
+html[dir='rtl'] .dialog-header button.icon-button > files-toggle-ripple {
+  left: auto;
+  right: 2px;
+}
+
 .dialog-header button.icon-button > .icon {
   background-position: center;
   background-repeat: no-repeat;
@@ -798,7 +803,6 @@ body.check-select #search-box {
 }
 
 #search-box input {
-  cursor: default;
   display: inline-block;
   transition: width 0.2s ease;
   width: 0;
@@ -812,24 +816,8 @@ body.check-select #search-box {
   margin-top: -4px;
 }
 
-#search-box paper-input-container /deep/ ::-webkit-input-placeholder {
+#search-box paper-input-container input::-webkit-input-placeholder {
   color: rgba(255, 255, 255, 0.5);
-}
-
-#search-box paper-input-container /deep/ .unfocused-line {
-  background-color: rgba(255, 255, 255, 0.3);
-}
-
-#search-box paper-input-container /deep/ .focused-line {
-  background-color: white;
-  height: 1px;
-}
-
-#search-box paper-input-container /deep/ .input-content ::content input {
-  color: inherit;
-  font: inherit;
-  margin: 0.5em 0 0.25em;
-  padding: 0;
 }
 
 #search-box.has-cursor,
@@ -933,6 +921,11 @@ html[dir='rtl'] #search-box .clear {
   z-index: 0;
 }
 
+.dialog-footer button[disabled] {
+  cursor: auto;
+  pointer-events: none;
+}
+
 .dialog-footer button {
   font-weight: 500;
 }
@@ -988,18 +981,6 @@ html[dir='rtl'] #search-box .clear {
   color: rgb(51, 51, 51);
   padding: 4px 0;
   width: 100%;
-}
-
-.dialog-footer paper-input-container /deep/ .unfocused-line {
-  background-color: rgb(207, 207, 207);
-}
-
-.dialog-footer paper-input-container /deep/ .focused-line {
-  background-color: rgb(33, 150, 243);
-}
-
-.dialog-footer paper-input-container /deep/ .input-content ::content input {
-  font: inherit;
 }
 
 .dialog-footer select {
@@ -1082,20 +1063,27 @@ body.check-select .breadcrumbs {
 
 /* A single directory name in the list of path breadcrumbs. */
 .breadcrumbs .breadcrumb-path {
-  -webkit-margin-end: 0;  /* An arrow is used as a spacer instead. */
   box-sizing: border-box;
   cursor: pointer;
   flex: none;
   font-size: 14px;
   font-weight: 500;
+  margin: 0;
   min-width: 0;
   padding: 0 9px;
   text-transform: none;
   white-space: nowrap;
 }
 
-.breadcrumbs .breadcrumb-path:not(:first-child) {
-  -webkit-margin-start: 0;  /* An arrow is used as a spacer instead. */
+.breadcrumbs .breadcrumb-path:first-child {
+  /* -webkit-margin-start isn't proper
+     because folder names should be ltr even in RTL languages. */
+  margin-left: 8px;
+}
+
+html[dir='rtl'] .breadcrumbs .breadcrumb-path:first-child {
+  margin-left: 0;
+  margin-right: 8px;
 }
 
 .breadcrumbs .breadcrumb-path:active {
@@ -1200,10 +1188,6 @@ html[dir='rtl'] .breadcrumbs .separator {
   top: 0;
 }
 
-.loading-indicator::shadow #activeProgress {
-  background-color: rgb(26, 194, 34);
-}
-
 .downloads-warning {
   align-items: center;
   background-color: rgb(49, 102, 212);
@@ -1232,6 +1216,10 @@ html[dir='rtl'] .breadcrumbs .separator {
   height: 16px;
   margin: 0 14px;
   width: 16px;
+}
+
+.downloads-warning .warning-message {
+  -webkit-margin-end: 40px;
 }
 
 .downloads-warning[hidden] {
@@ -1804,7 +1792,6 @@ body.check-select #list-container li[selected] .detail-checkmark {
 #list-container list li .detail-thumbnail {
   height: 28px;
   overflow: hidden;
-  position: absolute;
   width: 28px;
 }
 
@@ -1816,7 +1803,6 @@ body.check-select #list-container li[selected] .detail-checkmark {
   border-radius: 14px;
   height: 100%;
   opacity: 1;
-  position: absolute;
   width: 100%;
 }
 
@@ -2419,6 +2405,10 @@ files-toggle-ripple {
   position: absolute;
   right: 0;
   top: 0;
+}
+
+#quick-view {
+  z-index: 505; /* Must be above the scroll bar (500). */
 }
 
 /* Preventing FOUC */

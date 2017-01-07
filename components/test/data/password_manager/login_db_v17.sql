@@ -2,7 +2,7 @@ PRAGMA foreign_keys=OFF;
 BEGIN TRANSACTION;
 CREATE TABLE meta(key LONGVARCHAR NOT NULL UNIQUE PRIMARY KEY, value LONGVARCHAR);
 INSERT INTO "meta" VALUES('last_compatible_version','14');
-INSERT INTO "meta" VALUES('version','15');
+INSERT INTO "meta" VALUES('version','17');
 CREATE TABLE logins (
 origin_url VARCHAR NOT NULL,
 action_url VARCHAR,
@@ -67,6 +67,31 @@ X'', /* password_value */
 13047423600000000, /* date_created */
 0, /* blacklisted_by_user */
 0, /* scheme */
+0, /* password_type */
+X'00000000', /* possible_usernames */
+1, /* times_used */
+X'18000000020000000000000000000000000000000000000000000000', /* form_data */
+0, /* date_synced */
+'', /* display_name */
+'https://www.google.com/icon', /* icon_url */
+'', /* federation_url */
+1,  /* skip_zero_click */
+0  /* generation_upload_status */
+);
+INSERT INTO "logins" VALUES(
+'http://example.com', /* origin_url */
+'http://example.com/landing', /* action_url */
+'', /* username_element */
+'user', /* username_value */
+'', /* password_element */
+X'', /* password_value */
+'non-empty', /* submit_element */
+'http://example.com', /* signon_realm */
+1, /* ssl_valid */
+1, /* preferred */
+13047423600000000, /* date_created */
+0, /* blacklisted_by_user */
+1, /* scheme */
 0, /* password_type */
 X'00000000', /* possible_usernames */
 1, /* times_used */

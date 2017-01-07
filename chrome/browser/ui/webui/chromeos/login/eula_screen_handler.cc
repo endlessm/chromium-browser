@@ -21,8 +21,8 @@
 #include "chrome/grit/generated_resources.h"
 #include "chrome/grit/locale_settings.h"
 #include "components/login/localized_values_builder.h"
+#include "components/strings/grit/components_strings.h"
 #include "content/public/browser/web_contents.h"
-#include "grit/components_strings.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/views/widget/widget.h"
 #include "url/gurl.h"
@@ -146,6 +146,11 @@ void EulaScreenHandler::DeclareLocalizedValues(
 
   builder->Add("chromeCreditsLink", IDS_ABOUT_VERSION_LICENSE_EULA);
   builder->Add("chromeosCreditsLink", IDS_ABOUT_CROS_VERSION_LICENSE_EULA);
+
+  /* MD-OOBE */
+  builder->Add("oobeEulaSectionTitle", IDS_OOBE_EULA_SECTION_TITLE);
+  builder->Add("oobeEulaAcceptAndContinueButtonText",
+               IDS_OOBE_EULA_ACCEPT_AND_CONTINUE_BUTTON_TEXT);
 }
 
 void EulaScreenHandler::DeclareJSCallbacks() {

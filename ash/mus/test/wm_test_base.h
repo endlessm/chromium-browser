@@ -20,13 +20,14 @@ namespace gfx {
 class Rect;
 }
 
-namespace mus {
+namespace ui {
 class Window;
 }
 
 namespace ash {
 namespace mus {
 
+class AshTestImplMus;
 class RootWindowController;
 class WmTestHelper;
 
@@ -44,8 +45,8 @@ class WmTestBase : public testing::Test {
   // See test::DisplayManagerTestApi::UpdateDisplay for more details.
   void UpdateDisplay(const std::string& display_spec);
 
-  ::mus::Window* GetPrimaryRootWindow();
-  ::mus::Window* GetSecondaryRootWindow();
+  ui::Window* GetPrimaryRootWindow();
+  ui::Window* GetSecondaryRootWindow();
 
   display::Display GetPrimaryDisplay();
   display::Display GetSecondaryDisplay();
@@ -54,13 +55,14 @@ class WmTestBase : public testing::Test {
   // NOTE: you can explicitly destroy the returned value if necessary, but it
   // will also be automatically destroyed when the WindowTreeClient is
   // destroyed.
-  ::mus::Window* CreateTestWindow(const gfx::Rect& bounds);
-  ::mus::Window* CreateTestWindow(const gfx::Rect& bounds,
-                                  ui::wm::WindowType window_type);
+  ui::Window* CreateTestWindow(const gfx::Rect& bounds);
+  ui::Window* CreateTestWindow(const gfx::Rect& bounds,
+                               ui::wm::WindowType window_type);
+  ui::Window* CreateFullscreenTestWindow();
 
   // Creates a window parented to |parent|. The returned window is visible.
-  ::mus::Window* CreateChildTestWindow(::mus::Window* parent,
-                                       const gfx::Rect& bounds);
+  ui::Window* CreateChildTestWindow(ui::Window* parent,
+                                    const gfx::Rect& bounds);
 
  protected:
   // testing::Test:
@@ -68,9 +70,7 @@ class WmTestBase : public testing::Test {
   void TearDown() override;
 
  private:
-  // Returns the RootWindowControllers ordered by display id (which we assume
-  // correlates with creation order).
-  std::vector<RootWindowController*> GetRootsOrderedByDisplayId();
+  friend class AshTestImplMus;
 
   bool setup_called_ = false;
   bool teardown_called_ = false;

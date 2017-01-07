@@ -88,7 +88,7 @@ ISearch.prototype = {
       var cur = cursors.Cursor.fromNode(curNode);
       var prev = cur;
       cur =
-          cur.move(cursors.Unit.DOM_NODE, cursors.Movement.DIRECTIONAL, dir);
+          cur.move(cursors.Unit.NODE, cursors.Movement.DIRECTIONAL, dir);
       if (prev.equals(cur)) {
         this.handler_.onSearchReachedBoundary(this.node_);
         return;
@@ -112,7 +112,7 @@ ISearch.prototype = {
  * @implements {ISearchHandler}
  */
 ISearchUI = function(input) {
-  /** @type {ChromeVoxState} */
+  /** @type {ChromeVoxState} @private */
   this.background_ =
       chrome.extension.getBackgroundPage()['ChromeVoxState']['instance'];
   this.iSearch_ = new ISearch(this.background_.currentRange.start.node);
@@ -204,7 +204,7 @@ ISearchUI.prototype = {
    * @private
    */
   output_: function(node) {
-    Output.flushNextSpeechUtterance();
+    Output.forceModeForNextSpeechUtterance(cvox.QueueMode.FLUSH);
     var o = new Output().withRichSpeechAndBraille(
         cursors.Range.fromNode(node), null, Output.EventType.NAVIGATE).go();
 

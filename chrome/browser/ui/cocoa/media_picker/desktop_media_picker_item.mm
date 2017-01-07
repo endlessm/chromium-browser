@@ -6,9 +6,11 @@
 
 #import <Quartz/Quartz.h>
 
-#include "chrome/browser/media/desktop_media_list.h"
+#include "chrome/browser/media/webrtc/desktop_media_list.h"
 
 @implementation DesktopMediaPickerItem
+
+@synthesize titleHidden = titleHidden_;
 
 - (id)initWithSourceId:(content::DesktopMediaID)sourceID
               imageUID:(int)imageUID
@@ -45,7 +47,7 @@
 }
 
 - (NSString*)imageTitle {
-  return imageTitle_.get();
+  return titleHidden_ ? nil : imageTitle_;
 }
 
 - (NSUInteger)imageVersion {

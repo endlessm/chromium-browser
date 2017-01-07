@@ -6,6 +6,7 @@
 
 from __future__ import print_function
 
+import datetime as dt
 import mock
 import os
 
@@ -205,10 +206,14 @@ class AbstractReportStageTestCase(
       self.StartPatcher(mock.patch.object(*cmd, autospec=True))
     retry_stats.SetupStats()
 
+    self.PatchObject(report_stages.ReportStage, '_GetBuildDuration',
+                     return_value=1000)
+
     # Set up a general purpose cidb mock. Tests with more specific
     # mock requirements can replace this with a separate call to
     # SetupMockCidb
-    cidb.CIDBConnectionFactory.SetupMockCidb(mock.MagicMock())
+    self.mock_cidb = mock.MagicMock()
+    cidb.CIDBConnectionFactory.SetupMockCidb(self.mock_cidb)
 
     self._Prepare()
 
@@ -227,9 +232,55 @@ class ReportStageTest(AbstractReportStageTestCase):
 
   def testCheckResults(self):
     """Basic sanity check for results stage functionality"""
+    stages = [
+        {
+            'name': 'stage1',
+            'start_time': dt.datetime.now() - dt.timedelta(0, 500),
+            'finish_time': dt.datetime.now() - dt.timedelta(0, 300),
+            'status': constants.BUILDER_STATUS_PASSED,
+        },
+        {
+            'name': 'stage2',
+            'start_time': dt.datetime.now() - dt.timedelta(0, 500),
+            'finish_time': dt.datetime.now() - dt.timedelta(0, 200),
+            'status': constants.BUILDER_STATUS_PASSED,
+        },
+        {
+            'name': 'stage3',
+            'start_time': dt.datetime.now() - dt.timedelta(0, 200),
+            'finish_time': dt.datetime.now() - dt.timedelta(0, 100),
+            'status': constants.BUILDER_STATUS_PASSED,
+        },
+    ]
+    statuses = [
+        {
+            'build_config': 'build1',
+            'build_number': '64',
+            'start_time': dt.datetime.now() - dt.timedelta(0, 600),
+            'finish_time': dt.datetime.now() - dt.timedelta(0, 330),
+            'status': constants.BUILDER_STATUS_PASSED,
+        },
+        {
+            'build_config': 'build2',
+            'build_number': '27',
+            'start_time': dt.datetime.now() - dt.timedelta(0, 300),
+            'finish_time': dt.datetime.now() - dt.timedelta(0, 100),
+            'status': constants.BUILDER_STATUS_PASSED,
+        },
+        {
+            'build_config': 'build3',
+            'build_number': '288282',
+            'start_time': dt.datetime.now() - dt.timedelta(0, 400),
+            'finish_time': dt.datetime.now() - dt.timedelta(0, 200),
+            'status': constants.BUILDER_STATUS_PASSED,
+        },
+    ]
+    self.mock_cidb.GetBuildStages = mock.Mock(
+        return_value=stages)
+    self.mock_cidb.GetSlaveStatuses = mock.Mock(
+        return_value=statuses)
     self._SetupUpdateStreakCounter()
-    self.PatchObject(report_stages.ReportStage, '_UploadArchiveIndex',
-                     return_value={'any': 'dict'})
+    self.PatchObject(report_stages.ReportStage, '_LinkArtifacts')
     self.RunStage()
     filenames = (
         'LATEST-%s' % self.TARGET_MANIFEST_BRANCH,
@@ -237,21 +288,38 @@ class ReportStageTest(AbstractReportStageTestCase):
     )
     calls = [mock.call(mock.ANY, mock.ANY, 'metadata.json', False,
                        update_list=True, acl=mock.ANY)]
+    calls += [mock.call(mock.ANY, mock.ANY, 'timeline-stages.html',
+                        debug=False, acl=mock.ANY)]
+    calls += [mock.call(mock.ANY, mock.ANY, 'timeline-slaves.html',
+                        debug=False, acl=mock.ANY)]
     calls += [mock.call(mock.ANY, mock.ANY, filename, False,
                         acl=mock.ANY) for filename in filenames]
+
+    # Verify build stages timeline contains the stages that were mocked.
     self.assertEquals(calls, commands.UploadArchivedFile.call_args_list)
+    timeline_content = osutils.WriteFile.call_args_list[1][0][1]
+    for s in stages:
+      self.assertIn('["%s", new Date' % s['name'], timeline_content)
+
+    # Verify slaves timeline contains the slaves that were mocked.
+    self.assertEquals(calls, commands.UploadArchivedFile.call_args_list)
+    timeline_content = osutils.WriteFile.call_args_list[2][0][1]
+    for s in statuses:
+      self.assertIn('["%s - %s", new Date' %
+                    (s['build_config'], s['build_number']), timeline_content)
 
   def testDoNotUpdateLATESTMarkersWhenBuildFailed(self):
     """Check that we do not update the latest markers on failed build."""
     self._SetupUpdateStreakCounter()
-    self.PatchObject(report_stages.ReportStage, '_UploadArchiveIndex',
-                     return_value={'any': 'dict'})
+    self.PatchObject(report_stages.ReportStage, '_LinkArtifacts')
     self.PatchObject(results_lib.Results, 'BuildSucceededSoFar',
                      return_value=False)
     stage = self.ConstructStage()
     stage.Run()
     calls = [mock.call(mock.ANY, mock.ANY, 'metadata.json', False,
                        update_list=True, acl=mock.ANY)]
+    calls += [mock.call(mock.ANY, mock.ANY, 'timeline-stages.html',
+                        debug=False, acl=mock.ANY)]
     self.assertEquals(calls, commands.UploadArchivedFile.call_args_list)
 
   def testAlertEmail(self):

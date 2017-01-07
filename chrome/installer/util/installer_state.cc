@@ -12,16 +12,14 @@
 #include <utility>
 
 #include "base/command_line.h"
-#include "base/file_version_info.h"
-#include "base/files/file_enumerator.h"
 #include "base/files/file_util.h"
 #include "base/logging.h"
 #include "base/macros.h"
-#include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/win/registry.h"
 #include "base/win/scoped_handle.h"
 #include "chrome/installer/util/delete_tree_work_item.h"
+#include "chrome/installer/util/google_update_settings.h"
 #include "chrome/installer/util/helper.h"
 #include "chrome/installer/util/install_util.h"
 #include "chrome/installer/util/installation_state.h"
@@ -163,7 +161,7 @@ void InstallerState::Initialize(const base::CommandLine& command_line,
   // Parse --critical-update-version=W.X.Y.Z
   std::string critical_version_value(
       command_line.GetSwitchValueASCII(switches::kCriticalUpdateVersion));
-  critical_update_version_ = Version(critical_version_value);
+  critical_update_version_ = base::Version(critical_version_value);
 }
 
 void InstallerState::set_level(Level level) {
@@ -279,17 +277,15 @@ Product* InstallerState::AddProductInDirectory(
   }
 
   if (target_path_.empty()) {
-    if (product_dir == NULL)
-      target_path_ = GetDefaultProductInstallPath(the_product.distribution());
-    else
-      target_path_ = *product_dir;
+    target_path_ = product_dir ? *product_dir : GetDefaultProductInstallPath(
+                                                    the_product.distribution());
   }
 
   if (state_key_.empty())
     state_key_ = the_product.distribution()->GetStateKey();
 
   products_.push_back(product->release());
-  return products_[products_.size() - 1];
+  return products_.back();
 }
 
 Product* InstallerState::AddProduct(std::unique_ptr<Product>* product) {
@@ -370,10 +366,10 @@ const Product* InstallerState::FindProduct(
   return NULL;
 }
 
-Version* InstallerState::GetCurrentVersion(
+base::Version* InstallerState::GetCurrentVersion(
     const InstallationState& machine_state) const {
   DCHECK(!products_.empty());
-  std::unique_ptr<Version> current_version;
+  std::unique_ptr<base::Version> current_version;
   // If we're doing a multi-install, the current version may be either an
   // existing multi or an existing single product that is being migrated
   // in place (i.e., Chrome).  In the latter case, there is no existing
@@ -405,7 +401,7 @@ Version* InstallerState::GetCurrentVersion(
       machine_state.GetProductState(level_ == SYSTEM_LEVEL, prod_type);
 
   if (product_state != NULL) {
-    const Version* version = NULL;
+    const base::Version* version = NULL;
 
     // Be aware that there might be a pending "new_chrome.exe" already in the
     // installation path.  If so, we use old_version, which holds the version of
@@ -416,15 +412,15 @@ Version* InstallerState::GetCurrentVersion(
     if (version == NULL)
       version = &product_state->version();
 
-    current_version.reset(new Version(*version));
+    current_version.reset(new base::Version(*version));
   }
 
   return current_version.release();
 }
 
-Version InstallerState::DetermineCriticalVersion(
-    const Version* current_version,
-    const Version& new_version) const {
+base::Version InstallerState::DetermineCriticalVersion(
+    const base::Version* current_version,
+    const base::Version& new_version) const {
   DCHECK(current_version == NULL || current_version->IsValid());
   DCHECK(new_version.IsValid());
   if (critical_update_version_.IsValid() &&
@@ -433,7 +429,7 @@ Version InstallerState::DetermineCriticalVersion(
       new_version.CompareTo(critical_update_version_) >= 0) {
     return critical_update_version_;
   }
-  return Version();
+  return base::Version();
 }
 
 bool InstallerState::IsChromeFrameRunning(
@@ -450,7 +446,7 @@ bool InstallerState::AreBinariesInUse(
 }
 
 base::FilePath InstallerState::GetInstallerDirectory(
-    const Version& version) const {
+    const base::Version& version) const {
   return target_path().AppendASCII(version.GetString()).Append(kInstallerDir);
 }
 
@@ -499,7 +495,8 @@ bool InstallerState::AnyExistsAndIsInUse(const InstallationState& machine_state,
   // Check only for the current version (i.e., the version we are upgrading
   // _from_). Later versions from pending in-use updates need not be checked
   // since the current version is guaranteed to be in use if any such are.
-  std::unique_ptr<Version> current_version(GetCurrentVersion(machine_state));
+  std::unique_ptr<base::Version> current_version(
+      GetCurrentVersion(machine_state));
   if (!current_version)
     return false;
   base::FilePath directory(
@@ -514,77 +511,15 @@ bool InstallerState::AnyExistsAndIsInUse(const InstallationState& machine_state,
   return false;
 }
 
-void InstallerState::GetExistingExeVersions(
-    std::set<std::string>* existing_versions) const {
-
-  static const wchar_t* const kChromeFilenames[] = {
-    installer::kChromeExe,
-    installer::kChromeNewExe,
-    installer::kChromeOldExe,
-  };
-
-  for (size_t i = 0; i < arraysize(kChromeFilenames); ++i) {
-    base::FilePath chrome_exe(target_path().Append(kChromeFilenames[i]));
-    std::unique_ptr<FileVersionInfo> file_version_info(
-        FileVersionInfo::CreateFileVersionInfo(chrome_exe));
-    if (file_version_info) {
-      base::string16 version_string = file_version_info->file_version();
-      if (!version_string.empty() && base::IsStringASCII(version_string))
-        existing_versions->insert(base::UTF16ToASCII(version_string));
-    }
-  }
-}
-
-void InstallerState::RemoveOldVersionDirectories(
-    const Version& new_version,
-    Version* existing_version,
-    const base::FilePath& temp_path) const {
-  Version version;
-  std::unique_ptr<WorkItem> item;
-
-  std::set<std::string> existing_version_strings;
-  existing_version_strings.insert(new_version.GetString());
-  if (existing_version)
-    existing_version_strings.insert(existing_version->GetString());
-
-  // Make sure not to delete any version dir that is "referenced" by an existing
-  // Chrome executable.
-  GetExistingExeVersions(&existing_version_strings);
-
-  // Try to delete all directories that are not in the set we care to keep.
-  base::FileEnumerator version_enum(target_path(), false,
-                                    base::FileEnumerator::DIRECTORIES);
-  for (base::FilePath next_version = version_enum.Next(); !next_version.empty();
-       next_version = version_enum.Next()) {
-    base::FilePath dir_name(next_version.BaseName());
-    version = Version(base::UTF16ToASCII(dir_name.value()));
-    // Delete the version folder if it is less than the new version and not
-    // equal to the old version (if we have an old version).
-    if (version.IsValid() &&
-        existing_version_strings.count(version.GetString()) == 0) {
-      // Note: temporarily log old version deletion at ERROR level to make it
-      // more likely we see this in the installer log.
-      LOG(ERROR) << "Deleting old version directory: " << next_version.value();
-
-      // Attempt to recursively delete the old version dir.
-      bool delete_succeeded = base::DeleteFile(next_version, true);
-
-      // Note: temporarily log old version deletion at ERROR level to make it
-      // more likely we see this in the installer log.
-      LOG_IF(ERROR, !delete_succeeded)
-          << "Failed to delete old version directory: " << next_version.value();
-    }
-  }
-}
-
 void InstallerState::AddComDllList(
     std::vector<base::FilePath>* com_dll_list) const {
   for (auto* product : products_)
     product->AddComDllList(com_dll_list);
 }
 
-void InstallerState::UpdateStage(installer::InstallerStage stage) const {
-  InstallUtil::UpdateInstallerStage(system_install(), state_key_, stage);
+void InstallerState::SetStage(InstallerStage stage) const {
+  GoogleUpdateSettings::SetProgress(system_install(), state_key_,
+                                    progress_calculator_.Calculate(stage));
 }
 
 void InstallerState::UpdateChannels() const {
@@ -625,7 +560,7 @@ void InstallerState::UpdateChannels() const {
     if (is_multi_install()) {
       // Remove the -stage: modifier since we don't want to propagate that to
       // the other app_guids.
-      channel_info.SetStage(NULL);
+      channel_info.ClearStage();
 
       // Synchronize the other products and the package with this one.
       ChannelInfo other_info;

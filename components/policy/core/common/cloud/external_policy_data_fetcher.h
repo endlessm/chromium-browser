@@ -163,7 +163,8 @@ class POLICY_EXPORT ExternalPolicyDataFetcherBackend
   void OnURLFetchComplete(const net::URLFetcher* source) override;
   void OnURLFetchDownloadProgress(const net::URLFetcher* source,
                                   int64_t current,
-                                  int64_t total) override;
+                                  int64_t total,
+                                  int64_t current_network_bytes) override;
 
  private:
   scoped_refptr<base::SequencedTaskRunner> io_task_runner_;
@@ -174,8 +175,8 @@ class POLICY_EXPORT ExternalPolicyDataFetcherBackend
 
   // Map that owns the net::URLFetchers for all currently running jobs and maps
   // from these to the corresponding Job.
-  typedef std::map<net::URLFetcher*, ExternalPolicyDataFetcher::Job*> JobMap;
-  JobMap job_map_;
+  struct FetcherAndJob;
+  std::map<const net::URLFetcher*, FetcherAndJob> job_map_;
 
   base::WeakPtrFactory<ExternalPolicyDataFetcherBackend> weak_factory_;
 

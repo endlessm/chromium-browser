@@ -5,10 +5,8 @@
 import collections
 import logging
 import re
-import sys
 import urllib
 
-from telemetry import decorators
 from telemetry import story as story_module
 # TODO(perezju): Remove references to telementry.internal when
 # https://github.com/catapult-project/catapult/issues/2102 is resolved.
@@ -19,7 +17,7 @@ from telemetry.util import wpr_modes
 from page_sets.top_10_mobile import URL_LIST
 
 
-GOOGLE_SEARCH = 'https://www.google.com/search?'
+GOOGLE_SEARCH = 'https://www.google.co.uk/search?'
 
 SEARCH_QUERIES = [
   'science',
@@ -78,18 +76,17 @@ class MultiBrowserSharedState(story_module.SharedState):
       raise browser_finder_exceptions.BrowserFinderException(
           'No browser found.\n\nAvailable browsers:\n%s\n' %
           '\n'.join(browser_finder.GetAllAvailableBrowserTypes(finder_options)))
-    if not finder_options.run_disabled_tests:
-      self._CheckTestEnabled(test, possible_browser)
 
     extra_browser_types = set(story.browser_type for story in story_set)
     extra_browser_types.remove('default')  # Must include 'default' browser.
     for browser_type in extra_browser_types:
       options = _OptionsForBrowser(browser_type, finder_options)
       if not self._PrepareBrowser(browser_type, options):
-        logging.warning('Skipping %s (%s) because %s browser is not available',
-                        test.__name__, str(test), browser_type)
+        logging.warning(
+          'Cannot run %s (%s) because %s browser is not available',
+          test.__name__, str(test), browser_type)
         logging.warning('Install %s to be able to run the test.', browser_type)
-        sys.exit(0)
+        raise Exception("Browser not available, unable to run benchmark.")
 
     # TODO(crbug/404771): Move network controller options out of
     # browser_options and into finder_options.
@@ -112,15 +109,6 @@ class MultiBrowserSharedState(story_module.SharedState):
   def platform(self):
     return self._platform
 
-  def _CheckTestEnabled(self, test, possible_browser):
-    should_skip, msg = decorators.ShouldSkip(test, possible_browser)
-    if should_skip:
-      logging.warning(msg)
-      logging.warning('You are trying to run a disabled test.')
-      logging.warning(
-          'Pass --also-run-disabled-tests to squelch this message.')
-      sys.exit(0)
-
   def _PrepareBrowser(self, browser_type, options):
     """Add a browser to the dict of possible browsers.
 
@@ -136,6 +124,10 @@ class MultiBrowserSharedState(story_module.SharedState):
 
     if self._platform is None:
       self._platform = possible_browser.platform
+      # TODO(nedn): Remove the if condition once
+      # https://codereview.chromium.org/2265593003/ is rolled to Chromium tree.
+      if hasattr(self._platform.network_controller, 'InitializeIfNeeded'):
+        self._platform.network_controller.InitializeIfNeeded()
     else:
       assert self._platform is possible_browser.platform
     self._possible_browsers[browser_type] = (possible_browser, options)
@@ -254,14 +246,14 @@ class DualBrowserStorySet(story_module.StorySet):
     for query, url in zip(SEARCH_QUERIES, URL_LIST):
       # Stories that run on the android-webview browser.
       self.AddStory(SinglePage(
-          name='google_%s' % re.sub('\W+', '_', query.lower()),
+          name='google_%s' % re.sub(r'\W+', '_', query.lower()),
           url=GOOGLE_SEARCH + urllib.urlencode({'q': query}),
           browser_type='android-webview',
           phase='on_webview'))
 
       # Stories that run on the browser selected by command line options.
       self.AddStory(SinglePage(
-          name=re.sub('\W+', '_', url),
+          name=re.sub(r'\W+', '_', url),
           url=url,
           browser_type='default',
           phase='on_chrome'))

@@ -21,19 +21,37 @@ public class CurrencyStringFormatter {
     private static final int DIGITS_BETWEEN_NEGATIVE_AND_PERIOD_GROUP = 2;
     private static final int DIGITS_AFTER_PERIOD_GROUP = 4;
 
-    // Amount currency code pattern.
-    private static final String AMOUNT_CURRENCY_CODE_PATTERN = "^[A-Z]{3}$";
+    // Max currency code length. Maximum length of currency code can be at most 2048.
+    private static final int MAX_CURRENCY_CODE_LEN = 2048;
+
+    // Currency code exceeding 6 chars will be ellipsized during formatting for display.
+    private static final int MAX_CURRENCY_CHARS = 6;
+
+    // Unicode character for ellipsis.
+    private static final String ELLIPSIS = "\u2026";
 
     // Formatting constants.
     private static final int DIGIT_GROUPING_SIZE = 3;
 
     private final Pattern mAmountValuePattern;
-    private final Pattern mAmountCurrencyCodePattern;
+
+    /**
+     * The currency formatted for display. Currency can be any string of at most
+     * 2048 characters.Currency code more than 6 character is formatted to first
+     * 5 characters and ellipsis.
+     */
+    public final String mFormattedCurrencyCode;
 
     /**
      * The symbol for the currency specified on the bill. For example, the symbol for "USD" is "$".
      */
     private final String mCurrencySymbol;
+
+    /**
+     * The number of digits after the decimal separator for the currency specified on the bill. For
+     * example, 2 for "USD" and 0 for "JPY".
+     */
+    private final int mDefaultFractionDigits;
 
     /**
      * The number grouping separator for the current locale. For example, "," in US. 3-digit groups
@@ -42,7 +60,8 @@ public class CurrencyStringFormatter {
     private final char mGroupingSeparator;
 
     /**
-     * The decimal separator for the current locale. For example, "." in US and "," in France.
+     * The monetary decimal separator for the current locale. For example, "." in US and "," in
+     * France.
      */
     private final char mMonetaryDecimalSeparator;
 
@@ -59,22 +78,38 @@ public class CurrencyStringFormatter {
         assert userLocale != null : "userLocale should not be null";
 
         mAmountValuePattern = Pattern.compile(AMOUNT_VALUE_PATTERN);
-        mAmountCurrencyCodePattern = Pattern.compile(AMOUNT_CURRENCY_CODE_PATTERN);
+
+        mFormattedCurrencyCode = currencyCode.length() <= MAX_CURRENCY_CHARS
+                ? currencyCode
+                : currencyCode.substring(0, MAX_CURRENCY_CHARS - 1) + ELLIPSIS;
 
         String currencySymbol;
+        int defaultFractionDigits;
         try {
-            currencySymbol = Currency.getInstance(currencyCode).getSymbol();
+            Currency currency = Currency.getInstance(currencyCode);
+            currencySymbol = currency.getSymbol();
+            defaultFractionDigits = currency.getDefaultFractionDigits();
         } catch (IllegalArgumentException e) {
             // The spec does not limit the currencies to official ISO 4217 currency code list, which
             // is used by java.util.Currency. For example, "BTX" (bitcoin) is not an official ISO
             // 4217 currency code, but is allowed by the spec.
-            currencySymbol = currencyCode;
+            currencySymbol = "";
+            defaultFractionDigits = 0;
         }
 
-        // If the currency symobl is the same as the currency code, do not display it as part of the
-        // amount. The UI already shows the currency code, so there's no need to show duplicate
-        // information.
-        mCurrencySymbol = currencySymbol.equals(currencyCode) ? "" : currencySymbol;
+        // If the prefix of the currency symbol matches the prefix of the currency code, remove the
+        // matching prefix from the symbol. The UI already shows the currency code, so there's no
+        // need to show duplicate information.
+        String symbol = "";
+        for (int i = 0; i < currencySymbol.length(); i++) {
+            if (i >= currencyCode.length() || currencySymbol.charAt(i) != currencyCode.charAt(i)) {
+                symbol = currencySymbol.substring(i);
+                break;
+            }
+        }
+        mCurrencySymbol = symbol;
+
+        mDefaultFractionDigits = defaultFractionDigits;
 
         // Use the symbols from user's current locale. For example, use "," for decimal separator in
         // France, even if paying in "USD".
@@ -100,8 +135,12 @@ public class CurrencyStringFormatter {
      * @return Whether the currency code is in valid format.
      */
     public boolean isValidAmountCurrencyCode(String amountCurrencyCode) {
-        return amountCurrencyCode != null
-                && mAmountCurrencyCodePattern.matcher(amountCurrencyCode).matches();
+        return amountCurrencyCode != null && amountCurrencyCode.length() <= MAX_CURRENCY_CODE_LEN;
+    }
+
+    /** @return The currency code formatted for display. */
+    public String getFormattedCurrencyCode() {
+        return mFormattedCurrencyCode;
     }
 
     /**
@@ -132,17 +171,16 @@ public class CurrencyStringFormatter {
             result.insert(i, mGroupingSeparator);
         }
 
-        result.append(mMonetaryDecimalSeparator);
-
         String decimals = m.group(DIGITS_AFTER_PERIOD_GROUP);
-        int numberOfDecimals = 0;
-        if (decimals != null) {
-            numberOfDecimals = decimals.length();
-            result.append(decimals);
-        }
+        int numberOfDecimals = decimals == null ? 0 : decimals.length();
 
-        for (int i = numberOfDecimals; i < 2; i++) {
-            result.append("0");
+        if (numberOfDecimals > 0 || mDefaultFractionDigits > 0) {
+            result.append(mMonetaryDecimalSeparator);
+            if (null != decimals) result.append(decimals);
+
+            for (int i = numberOfDecimals; i < mDefaultFractionDigits; i++) {
+                result.append("0");
+            }
         }
 
         return result.toString();

@@ -9,7 +9,7 @@
 
 #include "base/bind.h"
 #include "base/memory/singleton.h"
-#include "base/metrics/histogram.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/sequenced_task_runner.h"
 #include "base/stl_util.h"
 #include "base/threading/sequenced_worker_pool.h"
@@ -89,7 +89,7 @@ void ExtensionCacheImpl::PutExtension(const std::string& id,
 }
 
 bool ExtensionCacheImpl::CachingAllowed(const std::string& id) {
-  return ContainsKey(allowed_extensions_, id);
+  return base::ContainsKey(allowed_extensions_, id);
 }
 
 void ExtensionCacheImpl::OnCacheInitialized() {

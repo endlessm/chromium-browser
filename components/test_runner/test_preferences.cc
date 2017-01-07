@@ -17,7 +17,6 @@ void TestPreferences::Reset() {
   default_font_size = 16;
   minimum_font_size = 0;
   xss_auditor_enabled = false;
-  allow_display_of_insecure_content = true;
   allow_file_access_from_file_urls = true;
   allow_running_of_insecure_content = true;
   default_text_encoding_name = WebString::fromUTF8("ISO-8859-1");
@@ -49,6 +48,7 @@ void TestPreferences::Reset() {
   disable_reading_from_canvas = false;
   strict_mixed_content_checking = false;
   strict_powerful_feature_restrictions = false;
+  spatial_navigation_enabled = false;
 }
 
 }  // namespace test_runner

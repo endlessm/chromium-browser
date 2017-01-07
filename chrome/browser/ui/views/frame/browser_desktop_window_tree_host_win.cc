@@ -83,12 +83,15 @@ int BrowserDesktopWindowTreeHostWin::GetInitialShowState() const {
 
 bool BrowserDesktopWindowTreeHostWin::GetClientAreaInsets(
     gfx::Insets* insets) const {
-  // Use the default client insets for an opaque frame or a glass popup/app
-  // frame.
-  if (!GetWidget()->ShouldUseNativeFrame() ||
-      !browser_view_->IsBrowserTypeNormal()) {
+  // Always use default insets for opaque frame.
+  if (!ShouldUseNativeFrame())
     return false;
-  }
+
+  // Use default insets for popups and apps, unless we are custom drawing the
+  // titlebar.
+  if (!browser_frame_->CustomDrawSystemTitlebar() &&
+      !browser_view_->IsBrowserTypeNormal())
+    return false;
 
   if (GetWidget()->IsFullscreen()) {
     // In fullscreen mode there is no frame.
@@ -160,19 +163,15 @@ void BrowserDesktopWindowTreeHostWin::PostHandleMSG(UINT message,
       UpdateDWMFrame();
 
       // Windows lies to us about the position of the minimize button before a
-      // window is visible.  We use this position to place the OTR avatar in RTL
-      // mode, so when the window is shown, we need to re-layout and schedule a
-      // paint for the non-client frame view so that the icon top has the
-      // correct
-      // position when the window becomes visible.  This fixes bugs where the
-      // icon
-      // appears to overlay the minimize button.
-      // Note that we will call Layout every time SetWindowPos is called with
-      // SWP_SHOWWINDOW, however callers typically are careful about not
-      // specifying this flag unless necessary to avoid flicker.
-      // This may be invoked during creation on XP and before the
-      // non_client_view
-      // has been created.
+      // window is visible. We use this position to place the incognito avatar
+      // in RTL mode, so when the window is shown, we need to re-layout and
+      // schedule a paint for the non-client frame view so that the icon top has
+      // the correct position when the window becomes visible. This fixes bugs
+      // where the icon appears to overlay the minimize button. Note that we
+      // will call Layout every time SetWindowPos is called with SWP_SHOWWINDOW,
+      // however callers typically are careful about not specifying this flag
+      // unless necessary to avoid flicker. This may be invoked during creation
+      // on XP and before the non_client_view has been created.
       WINDOWPOS* window_pos = reinterpret_cast<WINDOWPOS*>(l_param);
       if (window_pos->flags & SWP_SHOWWINDOW &&
           GetWidget()->non_client_view()) {
@@ -204,19 +203,24 @@ void BrowserDesktopWindowTreeHostWin::PostHandleMSG(UINT message,
 }
 
 views::FrameMode BrowserDesktopWindowTreeHostWin::GetFrameMode() const {
+  const views::FrameMode system_frame_mode =
+      browser_frame_->CustomDrawSystemTitlebar()
+          ? views::FrameMode::SYSTEM_DRAWN_NO_CONTROLS
+          : views::FrameMode::SYSTEM_DRAWN;
+
   // We don't theme popup or app windows, so regardless of whether or not a
   // theme is active for normal browser windows, we don't want to use the custom
   // frame for popups/apps.
   if (!browser_view_->IsBrowserTypeNormal() &&
       DesktopWindowTreeHostWin::GetFrameMode() ==
           views::FrameMode::SYSTEM_DRAWN) {
-    return views::FrameMode::SYSTEM_DRAWN;
+    return system_frame_mode;
   }
 
   // Otherwise, we use the native frame when we're told we should by the theme
   // provider (e.g. no custom theme is active).
   return GetWidget()->GetThemeProvider()->ShouldUseNativeFrame()
-             ? views::FrameMode::SYSTEM_DRAWN
+             ? system_frame_mode
              : views::FrameMode::CUSTOM_DRAWN;
 }
 
@@ -246,6 +250,20 @@ void BrowserDesktopWindowTreeHostWin::FrameTypeChanged() {
 // BrowserDesktopWindowTreeHostWin, private:
 
 void BrowserDesktopWindowTreeHostWin::UpdateDWMFrame() {
+  // With a custom titlebar we want the margins to always be 2 pixels, because
+  // that gives us the 1 pixel accent color border around the window (a 1 pixel
+  // margin is not sufficient, it will draw a messed-up-looking border instead).
+  // The other pixel ends up being 1-pixel-thick native titlebar (including
+  // caption buttons) but since we draw over that pixel in
+  // GlassBrowserFrameView::PaintTitlebar() it will be invisible and won't get
+  // mouse events.
+  if (browser_frame_->CustomDrawSystemTitlebar() && ShouldUseNativeFrame() &&
+      !GetWidget()->IsFullscreen()) {
+    MARGINS margins = {2, 2, 2, 2};
+    DwmExtendFrameIntoClientArea(GetHWND(), &margins);
+    return;
+  }
+
   // For "normal" windows on Aero, we always need to reset the glass area
   // correctly, even if we're not currently showing the native frame (e.g.
   // because a theme is showing), so we explicitly check for that case rather
@@ -283,7 +301,7 @@ BrowserDesktopWindowTreeHostWin::GetClientEdgeThicknesses() const {
 MARGINS BrowserDesktopWindowTreeHostWin::GetDWMFrameMargins() const {
   // If we're using the opaque frame or we're fullscreen we don't extend the
   // glass in at all because it won't be visible.
-  if (!GetWidget()->ShouldUseNativeFrame() || GetWidget()->IsFullscreen())
+  if (!ShouldUseNativeFrame() || GetWidget()->IsFullscreen())
     return MARGINS{0};
 
   // The glass should extend to the bottom of the tabstrip.

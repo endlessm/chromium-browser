@@ -14,7 +14,7 @@ component or class per file, but can lead to multiple if they’re small and
 closely related. If you can, group utility functions into a static class to
 clarify their relationship, e.g. `base/statistics.html`.
 
-```
+```html
 <!-- tracing/model/point.html -->
 <script>
 ‘use strict’;
@@ -32,7 +32,7 @@ tr.exportTo(‘tr.model’, function() {
 The exception to this rule is when there are multiple small, related classes or
 methods. In this case, a file may export multiple symbols:
 
-```
+```html
 <!-- tracing/base/dom_helpers.html -->
 <script>
 ‘use strict’;
@@ -54,10 +54,11 @@ tr.exportTo(‘tr.ui.b’, function() {
 Any tests for a file should be in a file with the same name as the
 implementation file, but with a trailing `_test`.
 
-```
+```sh
 touch tracing/model/access_point.html
 touch tracing/model/access_point_test.html
 ```
+
 ## Namespacing and element names
 
 All symbols that exist in the global namespace should be exported using the
@@ -68,7 +69,7 @@ directory. These package names are abbreviated, usually with a 1 or 2 letter
 abbreviation - just enough to resolve naming conflicts. All files in the same
 directory should share the same package.
 
-```
+```html
 <!-- tracing/base/units/generic_table.html →
 tr.exportTo(‘tr.b.u’, function() {
    // ...
@@ -78,11 +79,11 @@ tr.exportTo(‘tr.b.u’, function() {
 Polymer element names should use the convention
 `hyphenated-package-name-element-name`.
 
-```
+```html
 <!-- tracing/ui/analysis/counter_sample_sub_view.html -->
-<polymer-element name='tr-ui-a-counter-sample-sub-view'>
+<dom-module id='tr-ui-a-counter-sample-sub-view'>
   ...
-</polymer-element>
+</dom-module>
 ```
 
 ## Classes and objects
@@ -95,7 +96,7 @@ default value should be initialized to undefined.
 
 Do not set defaults via the prototype chain.
 
-```
+```javascript
 function Line() {
   // Good
   this.yIntercept_ = undefined;
@@ -118,19 +119,69 @@ Line.prototype = {
 };
 ```
 
+## Blocks
+
+From the [Blocks section of the airbnb style
+guide](https://github.com/airbnb/javascript#blocks):
+Use braces with all multi-line blocks.
+
+```javascript
+// bad
+if (test)
+  return false;
+
+// good
+if (test) return false;
+
+// good
+if (test) {
+  return false;
+}
+
+// bad
+function foo() { return false; }
+
+// good
+function bar() {
+  return false;
+}
+```
+
+If you're using multi-line blocks with `if` and `else`, put `else` on the same
+line as your `if` block's closing brace.
+
+```javascript
+// bad
+if (test) {
+  thing1();
+  thing2();
+}
+else {
+  thing3();
+}
+
+// good
+if (test) {
+  thing1();
+  thing2();
+} else {
+  thing3();
+}
+```
+
 ## Polymer elements
 The `<script>` block for the Polymer element can go either inside or outside of
 the element’s definition. Generally, the block outside is placed outside when
 the script is sufficiently complex that having 2 fewer spaces of indentation
 would make it more readable.
 
-```
-<polymer-element name="tr-bar">
+```html
+<dom-module id="tr-bar">
   <template><div></div></template>
    <script>
      // Can go here...
    </script>
-</polymer-element>
+</dom-module>
 
 <script>
 'use strict';
@@ -144,21 +195,21 @@ Polymer('tr-bar’, {
 
 Style sheets should be inline rather than in external .css files.
 
-```
-<polymer-element name="tr-bar">
+```html
+<dom-module id="tr-bar">
   <style>
   #content {
     display: flex;
   }
   </style>
   <template><div id=”content”></div></template>
-</polymer-element>
+</dom-module>
 ```
 
 ## `undefined` and `null`
 Prefer use of `undefined` over `null`.
 
-```
+```javascript
 function Line() {
   // Good
   this.yIntercept_ = undefined;
@@ -178,11 +229,11 @@ should not make assertions.
 
 | Feature                                                                                                                                     | Status                                                                          |
 |---------------------------------------------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------|
-| [Arrows](https://github.com/lukehoban/es6features#arrows)                                                                                   | [Approved](https://github.com/catapult-project/catapult/issues/2165) |
-| [Classes](https://github.com/lukehoban/es6features#classes)                                                                                 | To be discussed                                                                 |
+| [Arrows](https://github.com/lukehoban/es6features#arrows)                                                                                   | [Approved](https://github.com/catapult-project/catapult/issues/2165)            |
+| [Classes](https://github.com/lukehoban/es6features#classes)                                                                                 | [Approved](https://github.com/catapult-project/catapult/issues/2176)            |
 | [Enhanced object literals](https://github.com/lukehoban/es6features#enhanced-object-literals)                                               | To be discussed                                                                 |
 | [Template strings](https://github.com/lukehoban/es6features#template-strings)                                                               | To be discussed                                                                 |
-| [Destructuring](https://github.com/lukehoban/es6features#destructuring)                                                                     | To be discussed                                                                 |
+| [Destructuring](https://github.com/lukehoban/es6features#destructuring)                                                                     | Approved                                                                        |
 | [Default, rest, and spread](https://github.com/lukehoban/es6features#default--rest--spread)                                                 | To be discussed                                                                 |
 | [`let` and `const`](https://github.com/lukehoban/es6features#let--const)                                                                    | To be discussed                                                                 |
 | [Iterators and `for...of`](https://github.com/lukehoban/es6features#iterators--forof)                                                       | Approved                                                                        |
@@ -193,7 +244,7 @@ should not make assertions.
 | [`Map`, `Set`, `WeakMap`, and `WeakSet`](https://github.com/lukehoban/es6features#map--set--weakmap--weakset)                               | Approved                                                                        |
 | [Proxies](https://github.com/lukehoban/es6features#proxies)                                                                                 | To be discussed                                                                 |
 | [Symbols](https://github.com/lukehoban/es6features#symbols)                                                                                 | To be discussed                                                                 |
-| [Subclassable Built-ins](https://github.com/lukehoban/es6features#subclassable-built-ins)                                                   | To be discussed                                                                 |
+| [Subclassable Built-ins](https://github.com/lukehoban/es6features#subclassable-built-ins)                                                   | Approved                                                                        |
 | [Promises](https://github.com/lukehoban/es6features#promises)                                                                               | Approved                                                                        |
 | [`Math`, `Number`, `String`, `Array`, and `Object` APIs](https://github.com/lukehoban/es6features#math--number--string--array--object-apis) | To be discussed                                                                 |
 | [Binary and octal literals](https://github.com/lukehoban/es6features#binary-and-octal-literals)                                             | To be discussed                                                                 |

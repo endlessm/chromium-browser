@@ -3,76 +3,56 @@
 # found in the LICENSE file.
 
 import os
-import tempfile
 import unittest
 import zipfile
 
 from profile_chrome import profiler
 from profile_chrome import ui
-
-
-class FakeController(object):
-  def __init__(self, contents='fake-contents'):
-    self.contents = contents
-    self.interval = None
-    self.stopped = False
-    self.filename = None
-
-  def StartTracing(self, interval):
-    self.interval = interval
-
-  def StopTracing(self):
-    self.stopped = True
-
-  def PullTrace(self):
-    with tempfile.NamedTemporaryFile(delete=False) as f:
-      self.filename = f.name
-      f.write(self.contents)
-      return f.name
-
-  def __repr__(self):
-    return 'faketrace'
+from profile_chrome import fake_agent_1
+from profile_chrome import fake_agent_2
+from systrace import decorators
+from systrace import tracing_controller
 
 
 class ProfilerTest(unittest.TestCase):
   def setUp(self):
     ui.EnableTestMode()
+    self._tracing_options = tracing_controller.TracingControllerConfig(None,
+        None, None, None, None, None, None, None, None)
 
+  @decorators.ClientOnlyTest
   def testCaptureBasicProfile(self):
-    controller = FakeController()
-    interval = 1.5
-    result = profiler.CaptureProfile([controller], interval)
+    result = profiler.CaptureProfile(self._tracing_options, 1, [fake_agent_1])
 
     try:
-      self.assertEquals(controller.interval, interval)
-      self.assertTrue(controller.stopped)
       self.assertTrue(os.path.exists(result))
-      self.assertFalse(os.path.exists(controller.filename))
       self.assertTrue(result.endswith('.html'))
     finally:
-      os.remove(result)
+      if os.path.exists(result):
+        os.remove(result)
 
+  @decorators.ClientOnlyTest
   def testCaptureJsonProfile(self):
-    controller = FakeController()
-    result = profiler.CaptureProfile([controller], 1, write_json=True)
+    result = profiler.CaptureProfile(self._tracing_options, 1,
+                                     [fake_agent_2], write_json=True)
 
     try:
       self.assertFalse(result.endswith('.html'))
       with open(result) as f:
-        self.assertEquals(f.read(), controller.contents)
+        self.assertEquals(f.read(), 'fake-contents')
     finally:
-      os.remove(result)
+      if os.path.exists(result):
+        os.remove(result)
 
+  @decorators.ClientOnlyTest
   def testCaptureMultipleProfiles(self):
-    controllers = [FakeController('c1'), FakeController('c2')]
-    result = profiler.CaptureProfile(controllers, 1, write_json=True)
+    result = profiler.CaptureProfile(self._tracing_options, 1,
+                                     [fake_agent_1, fake_agent_2],
+                                     write_json=True)
 
     try:
       self.assertTrue(result.endswith('.zip'))
       self.assertTrue(zipfile.is_zipfile(result))
-      with zipfile.ZipFile(result) as f:
-        self.assertEquals(
-            f.namelist(),
-            [controllers[0].filename[1:], controllers[1].filename[1:]])
     finally:
-      os.remove(result)
+      if os.path.exists(result):
+        os.remove(result)

@@ -106,7 +106,7 @@ class ChromeRenderProcessHostTest : public InProcessBrowserTest {
   // renderer.
   base::Process OpenBackgroundTab(const GURL& page) {
     ui_test_utils::NavigateToURLWithDisposition(
-        browser(), page, NEW_BACKGROUND_TAB,
+        browser(), page, WindowOpenDisposition::NEW_BACKGROUND_TAB,
         ui_test_utils::BROWSER_TEST_WAIT_FOR_NAVIGATION);
 
     TabStripModel* tab_strip = browser()->tab_strip_model();
@@ -280,7 +280,7 @@ IN_PROC_BROWSER_TEST_F(ChromeRenderProcessHostTest, MAYBE_ProcessPerTab) {
   // Create another omnibox tab.  It should share the process with the other
   // WebUI.
   ui_test_utils::NavigateToURLWithDisposition(
-      browser(), omnibox, NEW_FOREGROUND_TAB,
+      browser(), omnibox, WindowOpenDisposition::NEW_FOREGROUND_TAB,
       ui_test_utils::BROWSER_TEST_WAIT_FOR_NAVIGATION);
   tab_count++;
   EXPECT_EQ(tab_count, browser()->tab_strip_model()->count());
@@ -289,7 +289,7 @@ IN_PROC_BROWSER_TEST_F(ChromeRenderProcessHostTest, MAYBE_ProcessPerTab) {
   // Create another omnibox tab.  It should share the process with the other
   // WebUI.
   ui_test_utils::NavigateToURLWithDisposition(
-      browser(), omnibox, NEW_FOREGROUND_TAB,
+      browser(), omnibox, WindowOpenDisposition::NEW_FOREGROUND_TAB,
       ui_test_utils::BROWSER_TEST_WAIT_FOR_NAVIGATION);
   tab_count++;
   EXPECT_EQ(tab_count, browser()->tab_strip_model()->count());
@@ -514,7 +514,7 @@ IN_PROC_BROWSER_TEST_F(ChromeRenderProcessHostTest,
 
   ui_test_utils::NavigateToURL(browser(), url);
   ui_test_utils::NavigateToURLWithDisposition(
-      browser(), url, NEW_BACKGROUND_TAB,
+      browser(), url, WindowOpenDisposition::NEW_BACKGROUND_TAB,
       ui_test_utils::BROWSER_TEST_WAIT_FOR_NAVIGATION);
 
   EXPECT_EQ(2, browser()->tab_strip_model()->count());
@@ -593,15 +593,8 @@ class ChromeRenderProcessHostBackgroundingTest
 
 // Test to make sure that a process is backgrounded when the audio stops playing
 // from the active tab and there is an immediate tab switch.
-// Disable on Windows due to ongoing flakiness. (crbug.com/616421)
-#if defined(OS_WIN)
-#define MAYBE_ProcessPriorityAfterStoppedAudio \
-  DISABLED_ProcessPriorityAfterStoppedAudio
-#else
-#define MAYBE_ProcessPriorityAfterStoppedAudio ProcessPriorityAfterStoppedAudio
-#endif
 IN_PROC_BROWSER_TEST_F(ChromeRenderProcessHostBackgroundingTest,
-                       MAYBE_ProcessPriorityAfterStoppedAudio) {
+                       ProcessPriorityAfterStoppedAudio) {
   // This test is invalid on platforms that can't background.
   if (!base::Process::CanBackgroundProcesses())
     return;

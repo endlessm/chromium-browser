@@ -6,7 +6,6 @@ package org.chromium.chrome.browser.compositor.bottombar;
 
 import android.app.Activity;
 import android.content.Context;
-import android.view.View;
 import android.view.View.MeasureSpec;
 
 import org.chromium.base.ActivityState;
@@ -28,7 +27,6 @@ import org.chromium.chrome.browser.compositor.overlays.SceneOverlay;
 import org.chromium.chrome.browser.compositor.scene_layer.SceneOverlayLayer;
 import org.chromium.chrome.browser.multiwindow.MultiWindowUtils;
 import org.chromium.chrome.browser.tab.Tab;
-import org.chromium.content.browser.ContentVideoViewEmbedder;
 import org.chromium.content.browser.ContentViewClient;
 import org.chromium.content.browser.ContentViewCore;
 import org.chromium.content_public.common.TopControlsState;
@@ -123,6 +121,13 @@ public class OverlayPanel extends OverlayPanelAnimation implements ActivityState
 
     /** This is used to make sure there is one show request to one close request. */
     private boolean mPanelShown;
+
+    /**
+     * Cache the viewport width and height of the screen to filter SceneOverlay#onSizeChanged
+     * events.
+     */
+    private float mViewportWidth;
+    private float mViewportHeight;
 
     // ============================================================================================
     // Constructor
@@ -290,7 +295,9 @@ public class OverlayPanel extends OverlayPanelAnimation implements ActivityState
         return false;
     }
 
-    @Override
+    /**
+     * @return The absolute amount in DP that the top controls have shifted off screen.
+     */
     protected float getTopControlsOffsetDp() {
         if (mActivity == null || mActivity.getFullscreenManager() == null) return 0.0f;
         return -mActivity.getFullscreenManager().getControlOffset() * mPxToDp;
@@ -403,29 +410,7 @@ public class OverlayPanel extends OverlayPanelAnimation implements ActivityState
                             MeasureSpec.EXACTLY);
                 }
             }
-
-            @Override
-            public ContentVideoViewEmbedder getContentVideoViewEmbedder() {
-                // TODO(mdjones): Possibly enable fullscreen video in overlay panels rather than
-                // passing an empty implementation.
-                return new ContentVideoViewEmbedder() {
-                    @Override
-                    public void enterFullscreenVideo(View view) {}
-
-                    @Override
-                    public void exitFullscreenVideo() {}
-
-                    @Override
-                    public View getVideoLoadingProgressView() {
-                        return null;
-                    }
-
-                    @Override
-                    public void setSystemUiVisibility(boolean enterFullscreen) {}
-                };
-            }
         });
-
         return content;
     }
 
@@ -813,8 +798,15 @@ public class OverlayPanel extends OverlayPanelAnimation implements ActivityState
     @Override
     public void onSizeChanged(float width, float height, float visibleViewportOffsetY,
             int orientation) {
-        resizePanelContentViewCore(width, height);
-        onSizeChanged(width, height);
+        // Filter events that don't change the viewport width or height.
+        if (height != mViewportHeight || width != mViewportWidth) {
+          // We only care if the orientation is changing or we're shifting in/out of multi-window.
+          // In either case the screen's viewport width or height will certainly change.
+            mViewportWidth = width;
+            mViewportHeight = height;
+            resizePanelContentViewCore(width, height);
+            onLayoutChanged(width, height, visibleViewportOffsetY);
+        }
     }
 
     /**
@@ -824,15 +816,12 @@ public class OverlayPanel extends OverlayPanelAnimation implements ActivityState
      * @param width The new width in dp.
      * @param height The new height in dp.
      */
-    private void resizePanelContentViewCore(float width, float height) {
+    protected void resizePanelContentViewCore(float width, float height) {
         if (!isShowing()) return;
         ContentViewCore panelContent = getContentViewCore();
         if (panelContent != null) {
-            // Take the height of the toolbar into consideration.
-            int toolbarHeightPx = getTopControlsOffsetDp() > 0
-                    ? 0 : (int) (getToolbarHeight() / mPxToDp);
             panelContent.onSizeChanged((int) (width / mPxToDp),
-                    (int) (height / mPxToDp) + toolbarHeightPx, panelContent.getViewportWidthPix(),
+                    (int) (height / mPxToDp), panelContent.getViewportWidthPix(),
                     panelContent.getViewportHeightPix());
             panelContent.onPhysicalBackingSizeChanged(
                     (int) (width / mPxToDp), (int) (height / mPxToDp));

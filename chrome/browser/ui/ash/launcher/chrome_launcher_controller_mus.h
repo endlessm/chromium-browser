@@ -80,8 +80,8 @@ class ChromeLauncherControllerMus : public ChromeLauncherController {
   LauncherItemController* GetLauncherItemController(
       const ash::ShelfID id) override;
   bool ShelfBoundsChangesProbablyWithUser(
-      ash::Shelf* shelf,
-      const std::string& user_id) const override;
+      ash::WmShelf* shelf,
+      const AccountId& account_id) const override;
   void OnUserProfileReadyToSwitch(Profile* profile) override;
   ArcAppDeferredLauncherController* GetArcDeferredLauncher() override;
 

@@ -22,6 +22,8 @@ check_dep "which npm" "npm" "visiting https://nodejs.org/en/"
 check_dep "which bower" "bower" "npm install -g bower"
 check_dep "which crisper" "crisper" "npm install -g crisper"
 check_dep "which uglifyjs" "uglifyjs" "npm install -g uglifyjs"
+check_dep "which polymer-css-build" "polymer-css-build" \
+    "npm install -g polymer-css-build"
 check_dep "which rsync" "rsync" "apt-get install rsync"
 check_dep "python -c 'import bs4'" "bs4" "apt-get install python-bs4"
 
@@ -104,8 +106,8 @@ python create_components_summary.py > components_summary.txt
 echo 'Creating GYP files for interfaces and externs...'
 ./generate_gyp.sh
 
-echo 'Vulcanizing dependent UIs (i.e. downloads)...'
-python ../../../chrome/browser/resources/md_downloads/vulcanize.py
+echo 'Vulcanizing dependent UIs...'
+python ../../../chrome/browser/resources/vulcanize.py
 
 popd > /dev/null
 

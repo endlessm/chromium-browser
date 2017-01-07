@@ -11,8 +11,8 @@
 #import "chrome/browser/ui/cocoa/passwords/passwords_bubble_utils.h"
 #import "chrome/browser/ui/cocoa/passwords/passwords_list_view_controller.h"
 #include "chrome/browser/ui/passwords/manage_passwords_bubble_model.h"
-#include "grit/components_strings.h"
-#include "grit/generated_resources.h"
+#include "chrome/grit/generated_resources.h"
+#include "components/strings/grit/components_strings.h"
 #include "skia/ext/skia_utils_mac.h"
 #import "third_party/google_toolbox_for_mac/src/AppKit/GTMUILocalizerAndLayoutTweaker.h"
 #import "ui/base/cocoa/controls/hyperlink_button_cell.h"
@@ -77,8 +77,8 @@
     contentView = noPasswordsView_.get();
   } else {
     passwordsListController_.reset([[PasswordsListViewController alloc]
-        initWithModel:self.model
-                forms:self.model->local_credentials().get()]);
+        initWithModelAndForms:self.model
+                        forms:&self.model->local_credentials()]);
     contentView = [passwordsListController_ view];
   }
   [view addSubview:contentView];

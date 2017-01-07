@@ -10,11 +10,11 @@ import time
 from google.appengine.api import mail
 
 from dashboard import auto_bisect
-from dashboard import datastore_hooks
-from dashboard import request_handler
 from dashboard import start_try_job
-from dashboard import stored_object
-from dashboard import utils
+from dashboard.common import datastore_hooks
+from dashboard.common import request_handler
+from dashboard.common import stored_object
+from dashboard.common import utils
 from dashboard.models import try_job
 
 _BISECT_FYI_CONFIGS_KEY = 'bisect_fyi_config_map'
@@ -99,15 +99,12 @@ def _MakeBisectFYITryJob(test_name, bisect_config):
     raise auto_bisect.NotBisectableError('Could not select a bisect bot.')
 
   config_python_string = utils.BisectConfigPythonString(bisect_config)
-  use_recipe = bool(start_try_job.GetBisectDirectorForTester(
-      bisect_config.get('master_name', 'ChromiumPerf'), bisect_bot))
   bisect_job = try_job.TryJob(
       bot=bisect_bot,
       config=config_python_string,
       bug_id=bisect_config.get('bug_id', -1),
       master_name=bisect_config.get('master_name', 'ChromiumPerf'),
       job_type='bisect-fyi',
-      use_buildbucket=use_recipe,
       job_name=test_name)
 
   return bisect_job

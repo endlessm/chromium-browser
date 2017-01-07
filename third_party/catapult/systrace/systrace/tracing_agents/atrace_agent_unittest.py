@@ -9,8 +9,14 @@ import logging
 import os
 import unittest
 
+from systrace import decorators
 from systrace import run_systrace
+from systrace import util
 from systrace.tracing_agents import atrace_agent
+
+from devil.android import device_utils
+from devil.android.sdk import intent
+
 
 DEVICE_SERIAL = 'AG8404EC0444AGC'
 ATRACE_ARGS = ['atrace', '-z', '-t', '10', '-b', '4096']
@@ -20,9 +26,6 @@ ADB_SHELL = ['adb', '-s', DEVICE_SERIAL, 'shell']
 SYSTRACE_CMD = ['./run_systrace.py', '--time', '10', '-o', 'out.html', '-e',
                 DEVICE_SERIAL] + CATEGORIES
 TRACE_ARGS = (ATRACE_ARGS + CATEGORIES)
-
-STOP_FIX_UPS = ['atrace', '--no-fix-threads', '--no-fix-tgids']
-
 
 SYSTRACE_BOOT_CMD = (['./run_systrace.py', '--boot', '-e', DEVICE_SERIAL] +
                      CATEGORIES)
@@ -49,23 +52,71 @@ ATRACE_FIXED_TGIDS = os.path.join(TEST_DIR, 'atrace_fixed_tgids')
 
 class AtraceAgentTest(unittest.TestCase):
 
+  # TODO(washingtonp): These end-to-end tests do not work on the Trybot server
+  # because adb cannot be found on the Trybot servers. Figure out what the
+  # issue is and update this test.
+  @decorators.Disabled
+  def test_tracing(self):
+    TRACE_BUFFER_SIZE = '16384'
+    TRACE_TIME = '5'
+
+    devices = device_utils.DeviceUtils.HealthyDevices()
+    package_info = util.get_supported_browsers()['stable']
+    device = devices[0]
+    output_file_name = util.generate_random_filename_for_test()
+
+    try:
+      # Launch the browser before tracing.
+      device.StartActivity(
+          intent.Intent(activity=package_info.activity,
+                        package=package_info.package,
+                        data='about:blank',
+                        extras={'create_new_tab': True}),
+          blocking=True, force_stop=True)
+
+      # Run atrace agent.
+      run_systrace.main_impl(['./run_systrace.py',
+                              '-b',
+                              TRACE_BUFFER_SIZE,
+                              '-t',
+                              TRACE_TIME,
+                              '-o',
+                              output_file_name,
+                              '-e',
+                              str(device),
+                              '--atrace-categories=gfx,input,view'])
+
+      # Verify results.
+      with open(output_file_name, 'r') as f:
+        full_trace = f.read()
+        self.assertTrue('CPU#'in full_trace)
+    except:
+      raise
+    finally:
+      if os.path.exists(output_file_name):
+        os.remove(output_file_name)
+
+  @decorators.HostOnlyTest
   def test_construct_atrace_args(self):
     options, categories = run_systrace.parse_options(SYSTRACE_CMD)
+    options.atrace_categories = categories
     tracer_args = atrace_agent._construct_atrace_args(options, categories)
     self.assertEqual(' '.join(TRACE_ARGS), ' '.join(tracer_args))
 
+  @decorators.HostOnlyTest
   def test_preprocess_trace_data(self):
     with contextlib.nested(open(ATRACE_DATA_STRIPPED, 'r'),
                            open(ATRACE_DATA_RAW, 'r')) as (f1, f2):
       atrace_data = f1.read()
       atrace_data_raw = f2.read()
-      options, categories = run_systrace.parse_options(STOP_FIX_UPS)
+      options, categories = run_systrace.parse_options(SYSTRACE_CMD)
       agent = atrace_agent.AtraceAgent()
-      agent._options = options
-      agent._categories = categories
+      agent._config = options
+      agent._config.atrace_categories = categories
       trace_data = agent._preprocess_trace_data(atrace_data_raw)
       self.assertEqual(atrace_data, trace_data)
 
+  @decorators.HostOnlyTest
   def test_extract_thread_list(self):
     with contextlib.nested(open(ATRACE_EXTRACTED_THREADS, 'r'),
                            open(ATRACE_THREAD_LIST)) as (f1, f2):
@@ -76,6 +127,7 @@ class AtraceAgentTest(unittest.TestCase):
       thread_names = atrace_agent.extract_thread_list(ps_dump)
       self.assertEqual(atrace_result, str(thread_names))
 
+  @decorators.HostOnlyTest
   def test_strip_and_decompress_trace(self):
     with contextlib.nested(open(ATRACE_DATA_RAW, 'r'),
                            open(ATRACE_DATA_STRIPPED, 'r')) as (f1, f2):
@@ -85,6 +137,7 @@ class AtraceAgentTest(unittest.TestCase):
       trace_data = atrace_agent.strip_and_decompress_trace(atrace_data_raw)
       self.assertEqual(atrace_data_stripped, trace_data)
 
+  @decorators.HostOnlyTest
   def test_fix_thread_names(self):
     with contextlib.nested(
         open(ATRACE_DATA_STRIPPED, 'r'),
@@ -99,6 +152,7 @@ class AtraceAgentTest(unittest.TestCase):
           atrace_data_stripped, thread_names)
       self.assertEqual(atrace_data_thread_fixed, trace_data)
 
+  @decorators.HostOnlyTest
   def test_extract_tgids(self):
     with contextlib.nested(open(ATRACE_PROCFS_DUMP, 'r'),
                            open(ATRACE_EXTRACTED_TGIDS, 'r')) as (f1, f2):
@@ -111,6 +165,7 @@ class AtraceAgentTest(unittest.TestCase):
 
       self.assertEqual(result, tgids)
 
+  @decorators.HostOnlyTest
   def test_fix_missing_tgids(self):
     with contextlib.nested(open(ATRACE_EXTRACTED_TGIDS, 'r'),
                            open(ATRACE_MISSING_TGIDS, 'r'),
@@ -125,10 +180,13 @@ class AtraceAgentTest(unittest.TestCase):
 
 
 class BootAgentTest(unittest.TestCase):
+
+  @decorators.HostOnlyTest
   def test_boot(self):
     options, _ = run_systrace.parse_options(SYSTRACE_BOOT_CMD)
     tracer_args = atrace_agent._construct_boot_trace_command(options)
     self.assertEqual(' '.join(TRACE_BOOT_CMD), ' '.join(tracer_args))
+
 
 if __name__ == "__main__":
   logging.getLogger().setLevel(logging.DEBUG)

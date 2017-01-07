@@ -4,6 +4,7 @@
 
 #include "chrome/test/base/browser_with_test_window_test.h"
 
+#include "ash/common/material_design/material_design_controller.h"
 #include "base/location.h"
 #include "base/run_loop.h"
 #include "base/single_thread_task_runner.h"
@@ -18,11 +19,14 @@
 #include "content/public/browser/navigation_controller.h"
 #include "content/public/browser/navigation_entry.h"
 #include "content/public/browser/web_contents.h"
+#include "content/public/common/browser_side_navigation_policy.h"
+#include "content/public/test/browser_side_navigation_test_utils.h"
 #include "content/public/test/test_renderer_host.h"
 #include "ui/base/page_transition_types.h"
 
 #if defined(OS_CHROMEOS)
 #include "ash/test/ash_test_helper.h"
+#include "chrome/test/base/ash_test_environment_chrome.h"
 #elif defined(TOOLKIT_VIEWS)
 #include "ui/views/test/scoped_views_test_helper.h"
 #endif
@@ -53,15 +57,20 @@ void BrowserWithTestWindowTest::SetUp() {
   // TODO(jamescook): Windows Ash support. This will require refactoring
   // AshTestHelper and AuraTestHelper so they can be used at the same time,
   // perhaps by AshTestHelper owning an AuraTestHelper.
-  ash_test_helper_.reset(new ash::test::AshTestHelper(
-      base::MessageLoopForUI::current()));
-  ash_test_helper_->SetUp(true);
+  ash_test_environment_ = base::MakeUnique<AshTestEnvironmentChrome>();
+  ash_test_helper_.reset(
+      new ash::test::AshTestHelper(ash_test_environment_.get()));
+  ash_test_helper_->SetUp(true,
+                          ash::MaterialDesignController::Mode::UNINITIALIZED);
 #elif defined(TOOLKIT_VIEWS)
   views_test_helper_.reset(new views::ScopedViewsTestHelper());
 #endif
 #if defined(TOOLKIT_VIEWS)
   SetConstrainedWindowViewsClient(CreateChromeConstrainedWindowViewsClient());
 #endif
+
+  if (content::IsBrowserSideNavigationEnabled())
+    content::BrowserSideNavigationSetUp();
 
   // Subclasses can provide their own Profile.
   profile_ = CreateProfile();
@@ -82,6 +91,9 @@ void BrowserWithTestWindowTest::TearDown() {
   // Reset the profile here because some profile keyed services (like the
   // audio service) depend on test stubs that the helpers below will remove.
   DestroyBrowserAndProfile();
+
+  if (content::IsBrowserSideNavigationEnabled())
+    content::BrowserSideNavigationTearDown();
 
 #if defined(TOOLKIT_VIEWS)
   constrained_window::SetConstrainedWindowViewsClient(nullptr);
@@ -115,7 +127,7 @@ gfx::NativeWindow BrowserWithTestWindowTest::GetContext() {
 void BrowserWithTestWindowTest::AddTab(Browser* browser, const GURL& url) {
   chrome::NavigateParams params(browser, url, ui::PAGE_TRANSITION_TYPED);
   params.tabstrip_index = 0;
-  params.disposition = NEW_FOREGROUND_TAB;
+  params.disposition = WindowOpenDisposition::NEW_FOREGROUND_TAB;
   chrome::Navigate(&params);
   CommitPendingLoad(&params.target_contents->GetController());
 }
@@ -125,44 +137,7 @@ void BrowserWithTestWindowTest::CommitPendingLoad(
   if (!controller->GetPendingEntry())
     return;  // Nothing to commit.
 
-  RenderFrameHost* old_rfh = controller->GetWebContents()->GetMainFrame();
-
-  RenderFrameHost* pending_rfh = RenderFrameHostTester::GetPendingForController(
-      controller);
-  if (pending_rfh) {
-    // Simulate the BeforeUnload_ACK that is received from the current renderer
-    // for a cross-site navigation.
-    DCHECK_NE(old_rfh, pending_rfh);
-    RenderFrameHostTester::For(old_rfh)->SendBeforeUnloadACK(true);
-  }
-  // Commit on the pending_rfh, if one exists.
-  RenderFrameHost* test_rfh = pending_rfh ? pending_rfh : old_rfh;
-  RenderFrameHostTester* test_rfh_tester = RenderFrameHostTester::For(test_rfh);
-
-  // Simulate a SwapOut_ACK before the navigation commits.
-  if (pending_rfh)
-    RenderFrameHostTester::For(old_rfh)->SimulateSwapOutACK();
-
-  // For new navigations, we need to send a larger page ID. For renavigations,
-  // we need to send the preexisting page ID. We can tell these apart because
-  // renavigations will have a pending_entry_index while new ones won't (they'll
-  // just have a standalong pending_entry that isn't in the list already).
-  if (controller->GetPendingEntryIndex() >= 0) {
-    test_rfh_tester->SendNavigateWithTransition(
-        controller->GetPendingEntry()->GetPageID(),
-        controller->GetPendingEntry()->GetUniqueID(),
-        false,
-        controller->GetPendingEntry()->GetURL(),
-        controller->GetPendingEntry()->GetTransitionType());
-  } else {
-    test_rfh_tester->SendNavigateWithTransition(
-        controller->GetWebContents()->GetMaxPageIDForSiteInstance(
-            test_rfh->GetSiteInstance()) + 1,
-        controller->GetPendingEntry()->GetUniqueID(),
-        true,
-        controller->GetPendingEntry()->GetURL(),
-        controller->GetPendingEntry()->GetTransitionType());
-  }
+  RenderFrameHostTester::CommitPendingLoad(controller);
 }
 
 void BrowserWithTestWindowTest::NavigateAndCommit(
@@ -183,10 +158,11 @@ void BrowserWithTestWindowTest::NavigateAndCommitActiveTabWithTitle(
     Browser* navigating_browser,
     const GURL& url,
     const base::string16& title) {
-  NavigationController* controller = &navigating_browser->tab_strip_model()->
-      GetActiveWebContents()->GetController();
+  WebContents* contents =
+      navigating_browser->tab_strip_model()->GetActiveWebContents();
+  NavigationController* controller = &contents->GetController();
   NavigateAndCommit(controller, url);
-  controller->GetActiveEntry()->SetTitle(title);
+  contents->UpdateTitleForEntry(controller->GetActiveEntry(), title);
 }
 
 void BrowserWithTestWindowTest::DestroyBrowserAndProfile() {

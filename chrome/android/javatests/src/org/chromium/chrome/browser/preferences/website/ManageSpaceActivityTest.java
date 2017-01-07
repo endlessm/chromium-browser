@@ -14,6 +14,8 @@ import android.test.suitebuilder.annotation.SmallTest;
 
 import org.chromium.base.ThreadUtils;
 import org.chromium.base.test.util.CommandLineFlags;
+import org.chromium.base.test.util.MinAndroidSdkLevel;
+import org.chromium.base.test.util.RetryOnFailure;
 import org.chromium.chrome.browser.ChromeActivity;
 import org.chromium.chrome.browser.preferences.PrefServiceBridge;
 import org.chromium.chrome.test.ChromeActivityTestCaseBase;
@@ -26,6 +28,7 @@ import org.chromium.net.test.EmbeddedTestServer;
  */
 @TargetApi(Build.VERSION_CODES.KITKAT)
 @CommandLineFlags.Add({"enable-site-engagement"})
+@MinAndroidSdkLevel(Build.VERSION_CODES.KITKAT)
 public class ManageSpaceActivityTest extends ChromeActivityTestCaseBase<ChromeActivity> {
     private EmbeddedTestServer mTestServer;
 
@@ -99,11 +102,13 @@ public class ManageSpaceActivityTest extends ChromeActivityTestCaseBase<ChromeAc
     }
 
     @SmallTest
+    @RetryOnFailure
     public void testLaunchActivity() {
         startManageSpaceActivity();
     }
 
     @MediumTest
+    @RetryOnFailure
     public void testClearUnimportantOnly() throws Exception {
         final String cookiesUrl =
                 mTestServer.getURL("/chrome/test/data/android/storage_persistance.html");

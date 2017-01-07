@@ -10,11 +10,14 @@ def CustomizeBrowserOptionsForSoftwareRasterization(options):
 
 def CustomizeBrowserOptionsForGpuRasterization(options):
   """Enables flags needed for forced GPU rasterization using Ganesh."""
-  options.AppendExtraBrowserArgs('--enable-threaded-compositing')
-  options.AppendExtraBrowserArgs('--enable-impl-side-painting')
   options.AppendExtraBrowserArgs('--force-gpu-rasterization')
 
 
 def CustomizeBrowserOptionsForSyncScrolling(options):
   """Enables flags needed for synchronous (main thread) scrolling."""
   options.AppendExtraBrowserArgs('--disable-threaded-scrolling')
+
+def CustomizeBrowserOptionsForThreadTimes(options):
+  """Disables options known to cause noise in thread times"""
+  # Remove once crbug.com/621128 is fixed.
+  options.AppendExtraBrowserArgs('--disable-top-sites')

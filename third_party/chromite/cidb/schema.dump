@@ -118,11 +118,13 @@ CREATE TABLE `buildTable` (
   `summary` varchar(1024) DEFAULT NULL,
   `deadline` timestamp NOT NULL DEFAULT '0000-00-00 00:00:00',
   `important` tinyint(1) DEFAULT NULL,
+  `buildbucket_id` varchar(80) DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `buildbot_generation` (`buildbot_generation`,`builder_name`,`waterfall`,`build_number`),
   KEY `master_build_id` (`master_build_id`),
   KEY `build_config_index` (`build_config`),
   KEY `last_updated_index` (`last_updated`),
+  KEY `start_time` (`start_time`),
   CONSTRAINT `buildTable_ibfk_1` FOREIGN KEY (`master_build_id`) REFERENCES `buildTable` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8;
 /*!40101 SET character_set_client = @saved_cs_client */;
@@ -154,9 +156,10 @@ CREATE TABLE `clActionTable` (
   `change_number` int(11) NOT NULL,
   `patch_number` int(11) NOT NULL,
   `change_source` enum('internal','external') NOT NULL,
-  `action` enum('picked_up','submitted','kicked_out','submit_failed','verified','pre_cq_inflight','pre_cq_passed','pre_cq_failed','pre_cq_launching','pre_cq_waiting','pre_cq_ready_to_submit','requeued','screened_for_pre_cq','validation_pending_pre_cq','irrelevant_to_slave','trybot_launching','speculative','forgiven','pre_cq_fully_verified','pre_cq_reset') NOT NULL,
+  `action` enum('picked_up','submitted','kicked_out','submit_failed','verified','pre_cq_inflight','pre_cq_passed','pre_cq_failed','pre_cq_launching','pre_cq_waiting','pre_cq_ready_to_submit','requeued','screened_for_pre_cq','validation_pending_pre_cq','irrelevant_to_slave','trybot_launching','speculative','forgiven','pre_cq_fully_verified','pre_cq_reset','trybot_cancelled') NOT NULL,
   `reason` varchar(80) DEFAULT NULL,
   `timestamp` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `buildbucket_id` varchar(80) DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `build_id` (`build_id`),
   KEY `change_number` (`change_number`,`change_source`),

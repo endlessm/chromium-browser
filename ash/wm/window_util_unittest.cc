@@ -4,12 +4,14 @@
 
 #include "ash/wm/window_util.h"
 
+#include "ash/aura/wm_window_aura.h"
 #include "ash/common/wm/window_positioning_utils.h"
 #include "ash/common/wm/window_state.h"
-#include "ash/screen_util.h"
+#include "ash/display/display_manager.h"
 #include "ash/test/ash_test_base.h"
 #include "ash/wm/window_state_aura.h"
 #include "ui/aura/window.h"
+#include "ui/display/screen.h"
 
 namespace ash {
 
@@ -35,14 +37,14 @@ TEST_F(WindowUtilTest, CenterWindow) {
   wm::WindowState* window_state = wm::GetWindowState(window.get());
   EXPECT_FALSE(window_state->bounds_changed_by_user());
 
-  wm::CenterWindow(window.get());
+  wm::CenterWindow(WmWindowAura::Get(window.get()));
   // Centring window is considered as a user's action.
   EXPECT_TRUE(window_state->bounds_changed_by_user());
   EXPECT_EQ("200,126 100x100", window->bounds().ToString());
   EXPECT_EQ("200,126 100x100", window->GetBoundsInScreen().ToString());
   window->SetBoundsInScreen(gfx::Rect(600, 0, 100, 100),
-                            ScreenUtil::GetSecondaryDisplay());
-  wm::CenterWindow(window.get());
+                            display_manager()->GetSecondaryDisplay());
+  wm::CenterWindow(WmWindowAura::Get(window.get()));
   EXPECT_EQ("250,126 100x100", window->bounds().ToString());
   EXPECT_EQ("750,126 100x100", window->GetBoundsInScreen().ToString());
 }
@@ -60,6 +62,25 @@ TEST_F(WindowUtilTest, AdjustBoundsToEnsureMinimumVisibility) {
             GetAdjustedBounds(visible_bounds, gfx::Rect(-100, 10, 150, 150)));
   EXPECT_EQ("75,75 100x100",
             GetAdjustedBounds(visible_bounds, gfx::Rect(100, 100, 150, 150)));
+
+  // For windows that have smaller dimensions than wm::kMinimumOnScreenArea,
+  // we should adjust bounds accordingly, leaving no white space.
+  EXPECT_EQ("50,80 20x20",
+            GetAdjustedBounds(visible_bounds, gfx::Rect(50, 80, 20, 20)));
+  EXPECT_EQ("80,50 20x20",
+            GetAdjustedBounds(visible_bounds, gfx::Rect(80, 50, 20, 20)));
+  EXPECT_EQ("0,50 20x20",
+            GetAdjustedBounds(visible_bounds, gfx::Rect(0, 50, 20, 20)));
+  EXPECT_EQ("50,0 20x20",
+            GetAdjustedBounds(visible_bounds, gfx::Rect(50, 0, 20, 20)));
+  EXPECT_EQ("50,80 20x20",
+            GetAdjustedBounds(visible_bounds, gfx::Rect(50, 100, 20, 20)));
+  EXPECT_EQ("80,50 20x20",
+            GetAdjustedBounds(visible_bounds, gfx::Rect(100, 50, 20, 20)));
+  EXPECT_EQ("0,50 20x20",
+            GetAdjustedBounds(visible_bounds, gfx::Rect(-10, 50, 20, 20)));
+  EXPECT_EQ("50,0 20x20",
+            GetAdjustedBounds(visible_bounds, gfx::Rect(50, -10, 20, 20)));
 
   const gfx::Rect visible_bounds_right(200, 50, 100, 100);
 

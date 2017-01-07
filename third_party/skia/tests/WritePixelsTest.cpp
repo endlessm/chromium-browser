@@ -8,7 +8,6 @@
 #include "SkCanvas.h"
 #include "SkColorPriv.h"
 #include "SkMathPriv.h"
-#include "SkRegion.h"
 #include "SkSurface.h"
 #include "Test.h"
 #include "sk_tool_utils.h"
@@ -121,9 +120,9 @@ static void fill_canvas(SkCanvas* canvas) {
     }
     canvas->save();
     canvas->setMatrix(SkMatrix::I());
-    canvas->clipRect(DEV_RECT_S, SkRegion::kReplace_Op);
+    canvas->clipRect(DEV_RECT_S, SkCanvas::kReplace_Op);
     SkPaint paint;
-    paint.setXfermodeMode(SkXfermode::kSrc_Mode);
+    paint.setBlendMode(SkBlendMode::kSrc);
     canvas->drawBitmap(bmp, 0, 0, &paint);
     canvas->restore();
 }
@@ -407,16 +406,11 @@ DEF_TEST(WritePixels, reporter) {
 }
 #if SK_SUPPORT_GPU
 DEF_GPUTEST_FOR_RENDERING_CONTEXTS(WritePixels_Gpu, reporter, ctxInfo) {
+    const SkImageInfo ii = SkImageInfo::MakeN32Premul(DEV_W, DEV_H);
+
     for (auto& origin : { kTopLeft_GrSurfaceOrigin, kBottomLeft_GrSurfaceOrigin }) {
-        GrSurfaceDesc desc;
-        desc.fFlags = kRenderTarget_GrSurfaceFlag;
-        desc.fWidth = DEV_W;
-        desc.fHeight = DEV_H;
-        desc.fConfig = kSkia8888_GrPixelConfig;
-        desc.fOrigin = origin;
-        SkAutoTUnref<GrTexture> texture(
-            ctxInfo.grContext()->textureProvider()->createTexture(desc, SkBudgeted::kNo));
-        auto surface(SkSurface::MakeRenderTargetDirect(texture->asRenderTarget()));
+        sk_sp<SkSurface> surface(SkSurface::MakeRenderTarget(ctxInfo.grContext(), SkBudgeted::kNo,
+                                                             ii, 0, origin, nullptr));
         test_write_pixels(reporter, surface.get());
     }
 }

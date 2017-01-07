@@ -307,7 +307,16 @@ es3fTextureFormatTests.TextureCubeFormatCase.prototype.testFace = function(face)
         this.m_texture.getRefTexture(), texCoord, renderParams);
 
     // Compare and log.
-    var isOk = glsTextureTestUtil.compareImages(referenceFrame, renderedFrame, threshold);
+    var skipPixels = null;
+    if (renderParams.samplerType == glsTextureTestUtil.samplerType.SAMPLERTYPE_INT ||
+        renderParams.samplerType == glsTextureTestUtil.samplerType.SAMPLERTYPE_UINT) {
+        // Skip top right pixel due to Mac Intel driver bug.
+        // https://github.com/KhronosGroup/WebGL/issues/1819
+        skipPixels = [
+            [this.m_width - 1, this.m_height - 1]
+        ];
+    }
+    var isOk = glsTextureTestUtil.compareImages(referenceFrame, renderedFrame, threshold, skipPixels);
 
     assertMsgOptions(isOk, 'Face: ' + this.m_curFace + ' ' + es3fTextureFormatTests.testDescription(), true, true);
     return isOk;
@@ -708,7 +717,8 @@ es3fTextureFormatTests.CompressedCubeFormatCase.prototype.testFace = function(fa
     /* TODO: Implement
     // tcu::RGBA threshold = m_renderCtx.getRenderTarget().getPixelFormat().getColorThreshold() + tcu::RGBA(1,1,1,1);
     */
-    var threshold = [3, 3, 3, 3];
+    // Threshold high enough to cover numerical errors in software decoders on Windows and Mac.  Threshold is 17 in native dEQP.
+    var threshold = [6, 6, 6, 6];
     var renderParams = new glsTextureTestUtil.ReferenceParams(glsTextureTestUtil.textureType.TEXTURETYPE_CUBE);
 
     /** @const */ var wrapS = gl.CLAMP_TO_EDGE;
@@ -1115,6 +1125,10 @@ es3fTextureFormatTests.genTestCases = function() {
         ['gl.COMPRESSED_RGBA8_ETC2_EAC', 'etc2_eac_rgba8', tcuCompressedTexture.Format.ETC2_EAC_RGBA8],
         ['gl.COMPRESSED_SRGB8_ALPHA8_ETC2_EAC', 'etc2_eac_srgb8_alpha8', tcuCompressedTexture.Format.ETC2_EAC_SRGB8_ALPHA8]
     ];
+    if (!gluTextureUtil.enableCompressedTextureES30()) {
+        debug('Skipping ETC2 texture format tests: no support for WEBGL_compressed_texture_es3_0');
+        etc2Formats = [];
+    }
     etc2Formats.forEach(function(elem) {
         var nameBase = elem[1];
         var descriptionBase = elem[0];

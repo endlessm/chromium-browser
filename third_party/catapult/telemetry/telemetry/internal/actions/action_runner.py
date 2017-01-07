@@ -8,6 +8,7 @@ import urlparse
 
 from telemetry.internal.actions.drag import DragAction
 from telemetry.internal.actions.javascript_click import ClickElementAction
+from telemetry.internal.actions.key_event import KeyPressAction
 from telemetry.internal.actions.load_media import LoadMediaAction
 from telemetry.internal.actions.loop import LoopAction
 from telemetry.internal.actions.mouse_click import MouseClickAction
@@ -26,6 +27,9 @@ from telemetry.internal.actions.swipe import SwipeAction
 from telemetry.internal.actions.tap import TapAction
 from telemetry.internal.actions.wait import WaitForElementAction
 from telemetry.web_perf import timeline_interaction_record
+
+
+_DUMP_WAIT_TIME = 3
 
 
 class ActionRunner(object):
@@ -103,6 +107,36 @@ class ActionRunner(object):
       An instance of action_runner.Interaction
     """
     return self.CreateInteraction('Gesture_' + label, repeatable)
+
+  def MeasureMemory(self, deterministic_mode=False):
+    """Add a memory measurement to the trace being recorded.
+
+    Behaves as a no-op if tracing is not enabled.
+
+    TODO(perezju): Also behave as a no-op if tracing is enabled but
+    memory-infra is not.
+
+    Args:
+      deterministic_mode: A boolean indicating whether to attempt or not to
+          control the environment (force GCs, clear caches) before making the
+          measurement in an attempt to obtain more deterministic results.
+
+    Returns:
+      GUID of the generated dump if one was triggered, None otherwise.
+    """
+    platform = self.tab.browser.platform
+    if not platform.tracing_controller.is_tracing_running:
+      logging.warning('Tracing is off. No memory dumps are being recorded.')
+      return None
+    if deterministic_mode:
+      self.Wait(_DUMP_WAIT_TIME)
+      self.ForceGarbageCollection()
+      if platform.SupportFlushEntireSystemCache():
+        platform.FlushEntireSystemCache()
+      self.Wait(_DUMP_WAIT_TIME)
+    dump_id = self.tab.browser.DumpMemory()
+    assert dump_id, 'Unable to obtain memory dump'
+    return dump_id
 
   def Navigate(self, url, script_to_evaluate_on_commit=None,
                timeout_in_seconds=60):
@@ -566,6 +600,31 @@ class ActionRunner(object):
         left_start_ratio=left_start_ratio, top_start_ratio=top_start_ratio,
         direction=direction, distance=distance,
         speed_in_pixels_per_second=speed_in_pixels_per_second))
+
+  def PressKey(self, key, repeat_count=1, repeat_delay_ms=100, timeout=60):
+    """Perform a key press.
+
+    Args:
+      key: DOM value of the pressed key (e.g. 'PageDown', see
+          https://developer.mozilla.org/en-US/docs/Web/API/KeyboardEvent/key).
+      repeat_count: How many times the key should be pressed.
+      repeat_delay_ms: Delay after each keypress (including the last one) in
+          milliseconds.
+    """
+    for _ in xrange(repeat_count):
+      self._RunAction(KeyPressAction(key, timeout=timeout))
+      self.Wait(repeat_delay_ms / 1000.0)
+
+  def EnterText(self, text, character_delay_ms=100, timeout=60):
+    """Enter text by performing key presses.
+
+    Args:
+      text: The text to enter.
+      character_delay_ms: Delay after each keypress (including the last one) in
+          milliseconds.
+    """
+    for c in text:
+      self.PressKey(c, repeat_delay_ms=character_delay_ms, timeout=timeout)
 
   def LoadMedia(self, selector=None, event_timeout_in_seconds=0,
                 event_to_await='canplaythrough'):

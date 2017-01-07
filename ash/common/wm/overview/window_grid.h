@@ -15,9 +15,14 @@
 #include "ash/common/wm_window_observer.h"
 #include "base/macros.h"
 #include "base/memory/scoped_vector.h"
+#include "base/scoped_observer.h"
 
 namespace views {
 class Widget;
+}
+
+namespace wm {
+class Shadow;
 }
 
 namespace ash {
@@ -69,10 +74,6 @@ class ASH_EXPORT WindowGrid : public WmWindowObserver {
   // Overall this achieves the goals of maximum size for previews (or maximum
   // row height which is equivalent assuming fixed height), balanced rows and
   // minimal wasted space.
-  // Optionally animates the windows to their targets when |animate| is true.
-  void PositionWindowsMD(bool animate);
-
-  // Positions all the windows in the grid.
   // Optionally animates the windows to their targets when |animate| is true.
   void PositionWindows(bool animate);
 
@@ -156,9 +157,6 @@ class ASH_EXPORT WindowGrid : public WmWindowObserver {
                               int* min_right,
                               int* max_right);
 
-  // Returns the target bounds of the currently selected item.
-  const gfx::Rect GetSelectionBounds() const;
-
   // Root window the grid is in.
   WmWindow* root_window_;
 
@@ -168,8 +166,7 @@ class ASH_EXPORT WindowGrid : public WmWindowObserver {
   // Vector containing all the windows in this grid.
   ScopedVector<WindowSelectorItem> window_list_;
 
-  // Vector containing the observed windows.
-  std::set<WmWindow*> observed_windows_;
+  ScopedObserver<WmWindow, WindowGrid> window_observer_;
 
   // Widget that darkens the screen background.
   std::unique_ptr<views::Widget> shield_widget_;
@@ -177,11 +174,17 @@ class ASH_EXPORT WindowGrid : public WmWindowObserver {
   // Widget that indicates to the user which is the selected window.
   std::unique_ptr<views::Widget> selection_widget_;
 
+  // Shadow around the selector.
+  std::unique_ptr<::wm::Shadow> selector_shadow_;
+
   // Current selected window position.
   size_t selected_index_;
 
   // Number of columns in the grid.
   size_t num_columns_;
+
+  // True only after all windows have been prepared for overview.
+  bool prepared_for_overview_;
 
   DISALLOW_COPY_AND_ASSIGN(WindowGrid);
 };

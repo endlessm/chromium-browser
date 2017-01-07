@@ -46,8 +46,6 @@
 #include "src/core/lib/surface/channel_init.h"
 #include "test/core/end2end/cq_verifier.h"
 
-enum { TIMEOUT = 200000 };
-
 static bool g_enable_filter = false;
 
 static void *tag(intptr_t t) { return (void *)t; }
@@ -172,11 +170,11 @@ static void test_request(grpc_end2end_test_config config) {
                                &request_metadata_recv, f.cq, f.cq, tag(101));
   GPR_ASSERT(GRPC_CALL_OK == error);
 
-  cq_expect_completion(cqv, tag(1), 1);
+  CQ_EXPECT_COMPLETION(cqv, tag(1), 1);
   cq_verify(cqv);
 
   GPR_ASSERT(status == GRPC_STATUS_PERMISSION_DENIED);
-  GPR_ASSERT(0 == strcmp(details, "Random failure that's not preventable."));
+  GPR_ASSERT(0 == strcmp(details, "Failure that's not preventable."));
 
   gpr_free(details);
   grpc_metadata_array_destroy(&initial_metadata_recv);
@@ -203,20 +201,23 @@ typedef struct { grpc_closure *recv_im_ready; } call_data;
 
 typedef struct { uint8_t unused; } channel_data;
 
-static void recv_im_ready(grpc_exec_ctx *exec_ctx, void *arg, bool success) {
+static void recv_im_ready(grpc_exec_ctx *exec_ctx, void *arg,
+                          grpc_error *error) {
   grpc_call_element *elem = arg;
   call_data *calld = elem->call_data;
-  if (success) {
+  if (error == GRPC_ERROR_NONE) {
     // close the stream with an error.
     gpr_slice message =
-        gpr_slice_from_copied_string("Random failure that's not preventable.");
+        gpr_slice_from_copied_string("Failure that's not preventable.");
     grpc_transport_stream_op op;
     memset(&op, 0, sizeof(op));
     grpc_transport_stream_op_add_close(&op, GRPC_STATUS_PERMISSION_DENIED,
                                        &message);
     grpc_call_next_op(exec_ctx, elem, &op);
   }
-  calld->recv_im_ready->cb(exec_ctx, calld->recv_im_ready->cb_arg, false);
+  grpc_exec_ctx_sched(
+      exec_ctx, calld->recv_im_ready,
+      GRPC_ERROR_CREATE_REFERENCING("Forced call to close", &error, 1), NULL);
 }
 
 static void start_transport_stream_op(grpc_exec_ctx *exec_ctx,
@@ -230,11 +231,14 @@ static void start_transport_stream_op(grpc_exec_ctx *exec_ctx,
   grpc_call_next_op(exec_ctx, elem, op);
 }
 
-static void init_call_elem(grpc_exec_ctx *exec_ctx, grpc_call_element *elem,
-                           grpc_call_element_args *args) {}
+static grpc_error *init_call_elem(grpc_exec_ctx *exec_ctx,
+                                  grpc_call_element *elem,
+                                  grpc_call_element_args *args) {
+  return GRPC_ERROR_NONE;
+}
 
 static void destroy_call_elem(grpc_exec_ctx *exec_ctx, grpc_call_element *elem,
-                              const grpc_call_stats *stats,
+                              const grpc_call_final_info *final_info,
                               void *and_free_memory) {}
 
 static void init_channel_elem(grpc_exec_ctx *exec_ctx,

@@ -19,8 +19,9 @@
 namespace {
 
 // Layout constants.
-const size_t kNumSearchResultTiles = 5;
-const int kTileSpacing = 7;
+const size_t kNumSearchResultTiles = 8;
+const int kHorizontalBorderSpacing = 1;
+const int kBetweenTileSpacing = 2;
 const int kTopBottomPadding = 8;
 
 }  // namespace
@@ -31,8 +32,10 @@ SearchResultTileItemListView::SearchResultTileItemListView(
     views::Textfield* search_box,
     AppListViewDelegate* view_delegate)
     : search_box_(search_box) {
-  SetLayoutManager(
-      new views::BoxLayout(views::BoxLayout::kHorizontal, 0, 0, kTileSpacing));
+  SetLayoutManager(new views::BoxLayout(views::BoxLayout::kHorizontal,
+                                        kHorizontalBorderSpacing, 0,
+                                        kBetweenTileSpacing));
+
   for (size_t i = 0; i < kNumSearchResultTiles; ++i) {
     SearchResultTileItemView* tile_item =
         new SearchResultTileItemView(this, view_delegate);

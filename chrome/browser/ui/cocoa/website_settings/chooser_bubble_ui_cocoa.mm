@@ -11,7 +11,8 @@
 
 #include "base/mac/scoped_nsobject.h"
 #include "base/memory/ptr_util.h"
-#include "base/strings/utf_string_conversions.h"
+#include "base/strings/sys_string_conversions.h"
+#include "chrome/browser/chooser_controller/chooser_controller.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_window.h"
 #import "chrome/browser/ui/cocoa/base_bubble_controller.h"
@@ -22,20 +23,14 @@
 #import "chrome/browser/ui/cocoa/info_bubble_window.h"
 #import "chrome/browser/ui/cocoa/location_bar/location_bar_view_mac.h"
 #include "chrome/browser/ui/website_settings/chooser_bubble_delegate.h"
-#include "chrome/grit/generated_resources.h"
 #include "components/bubble/bubble_controller.h"
-#include "components/chooser_controller/chooser_controller.h"
-#include "components/url_formatter/elide_url.h"
 #include "content/public/browser/native_web_keyboard_event.h"
 #include "ui/base/cocoa/cocoa_base_utils.h"
 #include "ui/base/cocoa/window_size_constants.h"
-#include "ui/base/l10n/l10n_util_mac.h"
-#include "url/gurl.h"
-#include "url/origin.h"
 
 std::unique_ptr<BubbleUi> ChooserBubbleDelegate::BuildBubbleUi() {
-  return base::WrapUnique(
-      new ChooserBubbleUiCocoa(browser_, std::move(chooser_controller_)));
+  return base::MakeUnique<ChooserBubbleUiCocoa>(browser_,
+                                                std::move(chooser_controller_));
 }
 
 @interface ChooserBubbleUiController
@@ -110,7 +105,7 @@ std::unique_ptr<BubbleUi> ChooserBubbleDelegate::BuildBubbleUi() {
   if ((self = [super initWithWindow:window
                        parentWindow:[self getExpectedParentWindow]
                          anchoredAt:NSZeroPoint])) {
-    [self setShouldCloseOnResignKey:NO];
+    [self setShouldCloseOnResignKey:YES];
     [self setShouldOpenAsKeyWindow:YES];
     [[self bubble] setArrowLocation:[self getExpectedArrowLocation]];
     bridge_ = bridge;
@@ -120,13 +115,9 @@ std::unique_ptr<BubbleUi> ChooserBubbleDelegate::BuildBubbleUi() {
                    name:NSWindowDidMoveNotification
                  object:[self getExpectedParentWindow]];
 
-    url::Origin origin = chooserController->GetOrigin();
+    base::string16 chooserTitle = chooserController->GetTitle();
     chooserContentView_.reset([[ChooserContentViewCocoa alloc]
-        initWithChooserTitle:
-            l10n_util::GetNSStringF(
-                IDS_DEVICE_CHOOSER_PROMPT,
-                url_formatter::FormatOriginForSecurityDisplay(
-                    origin, url_formatter::SchemeDisplay::OMIT_CRYPTOGRAPHIC))
+        initWithChooserTitle:base::SysUTF16ToNSString(chooserTitle)
            chooserController:std::move(chooserController)]);
 
     tableView_ = [chooserContentView_ tableView];
@@ -197,10 +188,10 @@ std::unique_ptr<BubbleUi> ChooserBubbleDelegate::BuildBubbleUi() {
   return [chooserContentView_ numberOfOptions];
 }
 
-- (id)tableView:(NSTableView*)tableView
-    objectValueForTableColumn:(NSTableColumn*)tableColumn
-                          row:(NSInteger)rowIndex {
-  return [chooserContentView_ optionAtIndex:rowIndex];
+- (NSView*)tableView:(NSTableView*)tableView
+    viewForTableColumn:(NSTableColumn*)tableColumn
+                   row:(NSInteger)row {
+  return [chooserContentView_ createTableRowView:row].autorelease();
 }
 
 - (BOOL)tableView:(NSTableView*)aTableView
@@ -209,11 +200,22 @@ std::unique_ptr<BubbleUi> ChooserBubbleDelegate::BuildBubbleUi() {
   return NO;
 }
 
+- (CGFloat)tableView:(NSTableView*)tableView heightOfRow:(NSInteger)row {
+  return [chooserContentView_ tableRowViewHeight:row];
+}
+
 - (void)updateTableView {
   [chooserContentView_ updateTableView];
 }
 
 - (void)tableViewSelectionDidChange:(NSNotification*)aNotification {
+  [chooserContentView_ updateContentRowColor];
+  [connectButton_ setEnabled:[tableView_ numberOfSelectedRows] > 0];
+}
+
+// Selection changes (while the mouse button is still down).
+- (void)tableViewSelectionIsChanging:(NSNotification*)aNotification {
+  [chooserContentView_ updateContentRowColor];
   [connectButton_ setEnabled:[tableView_ numberOfSelectedRows] > 0];
 }
 
@@ -271,14 +273,16 @@ std::unique_ptr<BubbleUi> ChooserBubbleDelegate::BuildBubbleUi() {
 - (void)onConnect:(id)sender {
   buttonPressed_ = true;
   [chooserContentView_ accept];
-  self.bubbleReference->CloseBubble(BUBBLE_CLOSE_ACCEPTED);
+  if (self.bubbleReference)
+    self.bubbleReference->CloseBubble(BUBBLE_CLOSE_ACCEPTED);
   [self close];
 }
 
 - (void)onCancel:(id)sender {
   buttonPressed_ = true;
   [chooserContentView_ cancel];
-  self.bubbleReference->CloseBubble(BUBBLE_CLOSE_CANCELED);
+  if (self.bubbleReference)
+    self.bubbleReference->CloseBubble(BUBBLE_CLOSE_CANCELED);
   [self close];
 }
 

@@ -17,11 +17,12 @@
 #include "base/time/time.h"
 #include "chrome/browser/chromeos/app_mode/kiosk_app_data_delegate.h"
 #include "chrome/browser/chromeos/extensions/external_cache.h"
-#include "chrome/browser/chromeos/policy/enterprise_install_attributes.h"
 #include "chrome/browser/chromeos/settings/cros_settings.h"
+#include "chrome/browser/chromeos/settings/install_attributes.h"
 #include "components/signin/core/account_id/account_id.h"
 #include "ui/gfx/image/image_skia.h"
 
+class GURL;
 class PrefRegistrySimple;
 class Profile;
 
@@ -234,6 +235,13 @@ class KioskAppManager : public KioskAppDataDelegate,
   // Initialize |app_session_|.
   void InitSession(Profile* profile, const std::string& app_id);
 
+  // Adds an app with the given meta data directly and skips meta data fetching
+  // for test.
+  void AddAppForTest(const std::string& app_id,
+                     const AccountId& account_id,
+                     const GURL& update_url,
+                     const std::string& required_platform_version);
+
   AppSession* app_session() { return app_session_.get(); }
   bool external_loader_created() const { return external_loader_created_; }
   bool secondary_app_external_loader_created() const {
@@ -286,13 +294,12 @@ class KioskAppManager : public KioskAppDataDelegate,
       const std::string& id,
       extensions::ExtensionDownloaderDelegate::Error error) override;
 
-  // Callback for EnterpriseInstallAttributes::LockDevice() during
+  // Callback for InstallAttributes::LockDevice() during
   // EnableConsumerModeKiosk() call.
-  void OnLockDevice(
-      const EnableKioskAutoLaunchCallback& callback,
-      policy::EnterpriseInstallAttributes::LockResult result);
+  void OnLockDevice(const EnableKioskAutoLaunchCallback& callback,
+                    InstallAttributes::LockResult result);
 
-  // Callback for EnterpriseInstallAttributes::ReadImmutableAttributes() during
+  // Callback for InstallAttributes::ReadImmutableAttributes() during
   // GetConsumerKioskModeStatus() call.
   void OnReadImmutableAttributes(
       const GetConsumerKioskAutoLaunchStatusCallback& callback);

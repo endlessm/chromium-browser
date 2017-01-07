@@ -28,7 +28,7 @@
 typedef XID RROutput;
 typedef XID RRCrtc;
 typedef XID RRMode;
-typedef XID Window;
+typedef XID _Window;
 
 struct _XRROutputInfo;
 typedef _XRROutputInfo XRROutputInfo;
@@ -103,6 +103,7 @@ class DISPLAY_EXPORT NativeDisplayDelegateX11 : public NativeDisplayDelegate {
                           const std::vector<float>& correction_matrix) override;
   void AddObserver(NativeDisplayObserver* observer) override;
   void RemoveObserver(NativeDisplayObserver* observer) override;
+  display::FakeDisplayController* GetFakeDisplayController() override;
 
  private:
   class HelperDelegateX11;
@@ -144,7 +145,7 @@ class DISPLAY_EXPORT NativeDisplayDelegateX11 : public NativeDisplayDelegate {
   void DrawBackground();
 
   XDisplay* display_;
-  Window window_;
+  _Window window_;
 
   // Initialized when the server is grabbed and freed when it's ungrabbed.
   gfx::XScopedPtr<
@@ -152,7 +153,7 @@ class DISPLAY_EXPORT NativeDisplayDelegateX11 : public NativeDisplayDelegate {
       gfx::XObjectDeleter<XRRScreenResources, void, XRRFreeScreenResources>>
       screen_;
 
-  std::map<RRMode, DisplayModeX11*> modes_;
+  std::map<RRMode, std::unique_ptr<DisplayModeX11>> modes_;
 
   // Every time GetOutputs() is called we cache the updated list of outputs in
   // |cached_outputs_| so that we can check for duplicate events rather than

@@ -40,8 +40,7 @@ class TestOptions(object):
     self.ptr_type = 'long'
     self.cpp = 'cpp'
     self.javap = 'javap'
-    self.native_exports = False
-    self.native_exports_optional = False
+    self.native_exports_optional = True
 
 class TestGenerator(unittest.TestCase):
   def assertObjEquals(self, first, second):
@@ -403,6 +402,10 @@ class TestGenerator(unittest.TestCase):
           return
       }
     }
+    @CalledByNative
+    public static @Status int updateStatus(@Status int status) {
+        return getAndUpdateStatus(status);
+    }
     @CalledByNativeUnchecked
     private void uncheckedCall(int iParam);
 
@@ -523,6 +526,17 @@ class TestGenerator(unittest.TestCase):
                    ],
             env_call=('Void', ''),
             unchecked=False,
+        ),
+        CalledByNative(
+          return_type='int',
+          system_class=False,
+          static=True,
+          name='updateStatus',
+          method_id_var_name='updateStatus',
+          java_class_name='',
+          params=[Param(datatype='int', name='status')],
+          env_call=('Integer', ''),
+          unchecked=False,
         ),
         CalledByNative(
             return_type='void',
@@ -935,7 +949,7 @@ class Foo {
                                              natives, [], [], test_options)
     self.assertGoldenTextEquals(h.GetContent())
 
-  def runNativeExportsOption(self, optional):
+  def testNativeExportsOnlyOption(self):
     test_data = """
     package org.chromium.example.jni_generator;
 
@@ -967,19 +981,10 @@ class Foo {
     }
     """
     options = TestOptions()
-    options.native_exports = True
-    options.native_exports_optional = optional
+    options.native_exports_optional = False
     jni_from_java = jni_generator.JNIFromJavaSource(
         test_data, 'org/chromium/example/jni_generator/SampleForTests', options)
-    return jni_from_java.GetContent()
-
-  def testNativeExportsOption(self):
-    content = self.runNativeExportsOption(False)
-    self.assertGoldenTextEquals(content)
-
-  def testNativeExportsOptionalOption(self):
-    content = self.runNativeExportsOption(True)
-    self.assertGoldenTextEquals(content)
+    self.assertGoldenTextEquals(jni_from_java.GetContent())
 
   def testOuterInnerRaises(self):
     test_data = """
@@ -1041,7 +1046,7 @@ class Foo {
 def TouchStamp(stamp_path):
   dir_name = os.path.dirname(stamp_path)
   if not os.path.isdir(dir_name):
-    os.makedirs()
+    os.makedirs(dir_name)
 
   with open(stamp_path, 'a'):
     os.utime(stamp_path, None)

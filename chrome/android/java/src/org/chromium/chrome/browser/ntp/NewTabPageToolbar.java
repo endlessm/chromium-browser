@@ -21,7 +21,7 @@ import org.chromium.chrome.browser.widget.TintedDrawable;
  */
 public class NewTabPageToolbar extends LinearLayout {
 
-    private ViewGroup mBookmarksButton, mRecentTabsButton, mInterestsButton;
+    private ViewGroup mBookmarksButton, mRecentTabsButton;
 
     /**
      * Constructor for inflating from xml.
@@ -38,10 +38,6 @@ public class NewTabPageToolbar extends LinearLayout {
         return mRecentTabsButton;
     }
 
-    public View getInterestsButton() {
-        return mInterestsButton;
-    }
-
     @Override
     protected void onFinishInflate() {
         super.onFinishInflate();
@@ -50,9 +46,8 @@ public class NewTabPageToolbar extends LinearLayout {
         ((TextView) mBookmarksButton.getChildAt(0)).setText(R.string.ntp_bookmarks);
         ((TextView) mBookmarksButton.getChildAt(0)).setContentDescription(getResources().getString(
                 R.string.accessibility_ntp_toolbar_btn_bookmarks));
-        mInterestsButton =  initButton(R.id.interests_button, R.drawable.btn_star_filled);
 
-        setBackgroundColor(NtpColorUtils.getToolbarBackgroundColorResource(getResources()));
+        setBackgroundColor(NtpStyleUtils.getToolbarBackgroundColorResource(getResources()));
     }
 
     private ViewGroup initButton(int buttonId, int drawableId) {

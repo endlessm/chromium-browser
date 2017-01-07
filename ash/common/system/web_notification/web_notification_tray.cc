@@ -4,13 +4,13 @@
 
 #include "ash/common/system/web_notification/web_notification_tray.h"
 
-#include "ash/common/ash_switches.h"
 #include "ash/common/material_design/material_design_controller.h"
 #include "ash/common/session/session_state_delegate.h"
 #include "ash/common/shelf/shelf_constants.h"
 #include "ash/common/shelf/wm_shelf.h"
 #include "ash/common/shelf/wm_shelf_util.h"
 #include "ash/common/shell_window_ids.h"
+#include "ash/common/system/tray/system_tray.h"
 #include "ash/common/system/tray/system_tray_delegate.h"
 #include "ash/common/system/tray/tray_bubble_wrapper.h"
 #include "ash/common/system/tray/tray_constants.h"
@@ -20,7 +20,7 @@
 #include "ash/common/wm_root_window_controller.h"
 #include "ash/common/wm_shell.h"
 #include "ash/common/wm_window.h"
-#include "ash/system/tray/system_tray.h"
+#include "ash/resources/vector_icons/vector_icons.h"
 #include "base/auto_reset.h"
 #include "base/i18n/number_formatting.h"
 #include "base/i18n/rtl.h"
@@ -39,7 +39,6 @@
 #include "ui/message_center/views/message_popup_collection.h"
 #include "ui/strings/grit/ui_strings.h"
 #include "ui/views/bubble/tray_bubble_view.h"
-#include "ui/views/controls/button/custom_button.h"
 #include "ui/views/controls/image_view.h"
 #include "ui/views/controls/label.h"
 #include "ui/views/controls/menu/menu_runner.h"
@@ -52,7 +51,7 @@ namespace message_center {
 MessageCenterTrayDelegate* CreateMessageCenterTray() {
   // On Windows+Ash the Tray will not be hosted in ash::Shell.
   NOTREACHED();
-  return NULL;
+  return nullptr;
 }
 
 }  // namespace message_center
@@ -69,9 +68,10 @@ constexpr int kEnableQuietModeDay = 2;
 constexpr int kMaximumSmallIconCount = 3;
 
 constexpr gfx::Size kTrayItemInnerIconSize(16, 16);
-constexpr gfx::Size kTrayItemInnerBellIconSize(18, 18);
+constexpr gfx::Size kTrayItemInnerBellIconSizeNonMd(18, 18);
 constexpr gfx::Size kTrayItemOuterSize(26, 26);
-constexpr gfx::Insets kTrayItemInsets(3, 3);
+constexpr int kTrayMainAxisInset = 3;
+constexpr int kTrayCrossAxisInset = 0;
 
 constexpr int kTrayItemAnimationDurationMS = 200;
 
@@ -176,7 +176,7 @@ class WebNotificationItem : public views::View, public gfx::AnimationDelegate {
   }
 
  protected:
-  // Overridden from views::ImageButton:
+  // Overridden from views::View:
   gfx::Size GetPreferredSize() const override {
     if (!animation_.get() || !animation_->is_animating())
       return kTrayItemOuterSize;
@@ -243,7 +243,7 @@ class WebNotificationItem : public views::View, public gfx::AnimationDelegate {
 class WebNotificationImage : public WebNotificationItem {
  public:
   WebNotificationImage(const gfx::ImageSkia& image,
-                       gfx::Size size,
+                       const gfx::Size& size,
                        gfx::AnimationContainer* container,
                        WebNotificationTray* tray)
       : WebNotificationItem(container, tray) {
@@ -307,17 +307,15 @@ WebNotificationTray::WebNotificationTray(WmShelf* shelf,
   DCHECK(status_area_window_);
   DCHECK(system_tray_);
 
-  gfx::ImageSkia bell_image;
-  if (MaterialDesignController::IsShelfMaterial()) {
-    bell_image = CreateVectorIcon(gfx::VectorIconId::SHELF_NOTIFICATIONS,
-                                  kShelfIconColor);
-  } else {
-    bell_image =
-        CreateVectorIcon(gfx::VectorIconId::NOTIFICATIONS, kNoUnreadIconSize,
-                         kWebNotificationColorNoUnread);
-  }
-  bell_icon_.reset(new WebNotificationImage(bell_image,
-                                            kTrayItemInnerBellIconSize,
+  const bool md_shelf = MaterialDesignController::IsShelfMaterial();
+  gfx::ImageSkia bell_image =
+      md_shelf
+          ? CreateVectorIcon(kShelfNotificationsIcon, kShelfIconColor)
+          : CreateVectorIcon(gfx::VectorIconId::NOTIFICATIONS,
+                             kNoUnreadIconSize, kWebNotificationColorNoUnread);
+  const gfx::Size bell_icon_size =
+      md_shelf ? kTrayItemInnerIconSize : kTrayItemInnerBellIconSizeNonMd;
+  bell_icon_.reset(new WebNotificationImage(bell_image, bell_icon_size,
                                             animation_container_.get(), this));
   tray_container()->AddChildView(bell_icon_.get());
 
@@ -337,7 +335,7 @@ WebNotificationTray::WebNotificationTray(WmShelf* shelf,
                                             display);
   OnMessageCenterTrayChanged();
 
-  tray_container()->SetMargin(kTrayItemInsets);
+  tray_container()->SetMargin(kTrayMainAxisInset, kTrayCrossAxisInset);
 }
 
 WebNotificationTray::~WebNotificationTray() {
@@ -554,12 +552,6 @@ bool WebNotificationTray::IsCommandIdEnabled(int command_id) const {
   return true;
 }
 
-bool WebNotificationTray::GetAcceleratorForCommandId(
-    int command_id,
-    ui::Accelerator* accelerator) {
-  return false;
-}
-
 void WebNotificationTray::ExecuteCommand(int command_id, int event_flags) {
   if (command_id == kToggleQuietMode) {
     bool in_quiet_mode = message_center()->IsQuietMode();
@@ -662,7 +654,6 @@ message_center::MessageCenter* WebNotificationTray::message_center() const {
 
 bool WebNotificationTray::IsLoggedIn() const {
   WmShell* shell = WmShell::Get();
-  // TODO(jamescook): Should this also check LoginState::LOCKED?
   return shell->system_tray_delegate()->GetUserLoginStatus() !=
              LoginStatus::NOT_LOGGED_IN &&
          !shell->GetSessionStateDelegate()->IsInSecondaryLoginScreen();
@@ -677,7 +668,7 @@ bool WebNotificationTray::IsPopupVisible() const {
 message_center::MessageCenterBubble*
 WebNotificationTray::GetMessageCenterBubbleForTest() {
   if (!message_center_bubble())
-    return NULL;
+    return nullptr;
   return static_cast<message_center::MessageCenterBubble*>(
       message_center_bubble()->bubble());
 }

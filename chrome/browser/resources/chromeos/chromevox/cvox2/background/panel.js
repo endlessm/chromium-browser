@@ -69,7 +69,7 @@ Panel.init = function() {
    * @type {boolean}
    * @private
    */
-  this.menusEnabled_ = false;
+  this.menusEnabled_ = localStorage['useNext'] == 'true';
 
   /**
    * A callback function to be executed to perform the action from selecting
@@ -310,10 +310,9 @@ Panel.onOpenMenus = function(opt_event, opt_activateMenuTitle) {
           binding.title,
           binding.keySeq,
           function() {
-            var bkgnd =
-                chrome.extension.
-                getBackgroundPage()['ChromeVoxState']['instance'];
-            bkgnd['onGotCommand'](binding.command);
+            var CommandHandler =
+                chrome.extension.getBackgroundPage()['CommandHandler'];
+            CommandHandler['onCommand'](binding.command);
           });
     }
   }, this));
@@ -444,6 +443,20 @@ Panel.activateMenu = function(menu) {
 };
 
 /**
+ * Sets the index of the current active menu to be 0.
+ */
+Panel.scrollToTop = function() {
+  this.activeMenu_.scrollToTop();
+};
+
+/**
+ * Sets the index of the current active menu to be the last index.
+ */
+Panel.scrollToBottom = function() {
+  this.activeMenu_.scrollToBottom();
+};
+
+/**
  * Advance the index of the current active menu by |delta|.
  * @param {number} delta The number to add to the active menu index.
  */
@@ -530,6 +543,18 @@ Panel.onKeyDown = function(event) {
       break;
     case 'Escape':
       Panel.closeMenusAndRestoreFocus();
+      break;
+    case 'PageUp':
+      Panel.advanceItemBy(10);
+      break;
+    case 'PageDown':
+      Panel.advanceItemBy(-10);
+      break;
+    case 'Home':
+      Panel.scrollToTop();
+      break;
+    case 'End':
+      Panel.scrollToBottom();
       break;
     case 'Enter':
     case ' ':  // Space

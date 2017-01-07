@@ -49,16 +49,13 @@ CONFIG_TYPE_DUMP_ORDER = (
     'chrome-pfq',
     'chrome-pfq-cheets-informational',
     'chrome-pfq-informational',
+    'chrome-pfq-informational-gn',
     'android-pfq',
+    'config-updater',
     'pre-flight-branch',
     CONFIG_TYPE_FACTORY,
     CONFIG_TYPE_FIRMWARE,
-    'master-toolchain',
-    'llvm-toolchain-group',
-    'llvm-next-toolchain-group',
-    'gcc-toolchain-group',
-    'llvm',
-    'gcc',
+    'toolchain',
     'asan',
     'asan-informational',
     'refresh-packages',
@@ -67,7 +64,7 @@ CONFIG_TYPE_DUMP_ORDER = (
     constants.BRANCH_UTIL_CONFIG,
     constants.PAYLOADS_TYPE,
     'cbuildbot',
-    'smaug-kasan-kernel-3_18',
+    'unittest-stress',
 )
 
 # In the Json, this special build config holds the default values for all
@@ -77,6 +74,16 @@ DEFAULT_BUILD_CONFIG = '_default'
 # We cache the config we load from disk to avoid reparsing.
 _CACHED_CONFIG = None
 
+# Constants for config template file
+CONFIG_TEMPLATE_BOARDS = 'boards'
+CONFIG_TEMPLATE_NAME = 'name'
+CONFIG_TEMPLATE_EXPERIMENTAL = 'experimental'
+CONFIG_TEMPLATE_LEADER_BOARD = 'leader_board'
+CONFIG_TEMPLATE_BOARD_GROUP = 'board_group'
+CONFIG_TEMPLATE_BUILDER = 'builder'
+CONFIG_TEMPLATE_RELEASE = 'RELEASE'
+CONFIG_TEMPLATE_CONFIGS = 'configs'
+CONFIG_TEMPLATE_RELEASE_BRANCH = 'release_branch'
 
 def IsPFQType(b_type):
   """Returns True if this build type is a PFQ."""
@@ -96,6 +103,10 @@ def IsCanaryType(b_type):
 def IsMasterChromePFQ(config):
   """Returns True if this build is master chrome PFQ type."""
   return config.build_type == constants.CHROME_PFQ_TYPE and config.master
+
+def IsMasterAndroidPFQ(config):
+  """Returns True if this build is master Android PFQ type."""
+  return config.build_type == constants.ANDROID_PFQ_TYPE and config.master
 
 def OverrideConfigForTrybot(build_config, options):
   """Apply trybot-specific configuration settings.
@@ -142,7 +153,22 @@ def OverrideConfigForTrybot(build_config, options):
   return copy_config
 
 
-class BuildConfig(dict):
+class AttrDict(dict):
+  """Dictionary with 'attribute' access.
+
+  This is identical to a dictionary, except that string keys can be addressed as
+  read-only attributes.
+  """
+  def __getattr__(self, name):
+    """Support attribute-like access to each dict entry."""
+    if name in self:
+      return self[name]
+
+    # Super class (dict) has no __getattr__ method, so use __getattribute__.
+    return super(AttrDict, self).__getattribute__(name)
+
+
+class BuildConfig(AttrDict):
   """Dictionary of explicit configuration settings for a cbuildbot config
 
   Each dictionary entry is in turn a dictionary of config_param->value.
@@ -170,13 +196,7 @@ class BuildConfig(dict):
     """
     return {k: cls._delete_key_sentinel for k in keys}
 
-  def __getattr__(self, name):
-    """Support attribute-like access to each dict entry."""
-    if name in self:
-      return self[name]
 
-    # Super class (dict) has no __getattr__ method, so use __getattribute__.
-    return super(BuildConfig, self).__getattribute__(name)
 
   def GetBotId(self, remote_trybot=False):
     """Get the 'bot id' of a particular bot.
@@ -199,33 +219,52 @@ class BuildConfig(dict):
     function is called a lot during setup of the config objects so optimizing it
     makes a big difference. (It saves seconds off the load time of this module!)
     """
-    new_config = BuildConfig(self)
-    for k, v in self.iteritems():
-      # type(v) is faster than isinstance.
-      if type(v) is list:
-        new_config[k] = v[:]
+    result = BuildConfig(self)
 
-    if new_config.get('child_configs'):
-      new_config['child_configs'] = [
-          x.deepcopy() for x in new_config['child_configs']]
+    # Here is where we handle all values that need deepcopy instead of shallow.
+    for k, v in result.iteritems():
+      if v is not None:
+        if k == 'child_configs':
+          result[k] = [x.deepcopy() for x in v]
+        elif k in ('vm_tests', 'vm_tests_override',
+                   'hw_tests', 'hw_tests_override'):
+          result[k] = [copy.copy(x) for x in v]
+        # type(v) is faster than isinstance.
+        elif type(v) is list:
+          result[k] = v[:]
 
-    if new_config.get('vm_tests'):
-      new_config['vm_tests'] = [copy.copy(x) for x in new_config['vm_tests']]
+    return result
 
-    if new_config.get('vm_tests_override'):
-      new_config['vm_tests_override'] = [
-          copy.copy(x) for x in new_config['vm_tests_override']
-      ]
+  def apply(self, *args, **kwargs):
+    """Apply changes to this BuildConfig.
 
-    if new_config.get('hw_tests'):
-      new_config['hw_tests'] = [copy.copy(x) for x in new_config['hw_tests']]
+    Note: If an override is callable, it will be called and passed the prior
+    value for the given key (or None) to compute the new value.
 
-    if new_config.get('hw_tests_override'):
-      new_config['hw_tests_override'] = [
-          copy.copy(x) for x in new_config['hw_tests_override']
-      ]
+    Args:
+      args: Dictionaries or templates to update this config with.
+      kwargs: Settings to inject; see _settings for valid values.
 
-    return new_config
+    Returns:
+      self after changes are applied.
+    """
+    inherits = list(args)
+    inherits.append(kwargs)
+
+    for update_config in inherits:
+      for k, v in update_config.iteritems():
+        if callable(v):
+          self[k] = v(self.get(k))
+        else:
+          self[k] = v
+
+      keys_to_delete = [k for k in self if
+                        self[k] is self._delete_key_sentinel]
+
+      for k in keys_to_delete:
+        self.pop(k)
+
+    return self
 
   def derive(self, *args, **kwargs):
     """Create a new config derived from this one.
@@ -240,24 +279,7 @@ class BuildConfig(dict):
     Returns:
       A new _config instance.
     """
-    inherits = list(args)
-    inherits.append(kwargs)
-    new_config = self.deepcopy()
-
-    for update_config in inherits:
-      for k, v in update_config.iteritems():
-        if callable(v):
-          new_config[k] = v(new_config.get(k))
-        else:
-          new_config[k] = v
-
-      keys_to_delete = [k for k in new_config if
-                        new_config[k] is self._delete_key_sentinel]
-
-      for k in keys_to_delete:
-        new_config.pop(k, None)
-
-    return new_config
+    return self.deepcopy().apply(*args, **kwargs)
 
 
 class VMTestConfig(object):
@@ -317,7 +339,7 @@ class HWTestConfig(object):
   """
   _MINUTE = 60
   _HOUR = 60 * _MINUTE
-  SHARED_HW_TEST_TIMEOUT = int(1.5 * _HOUR)
+  SHARED_HW_TEST_TIMEOUT = int(3.0 * _HOUR)
   PALADIN_HW_TEST_TIMEOUT = int(1.5 * _HOUR)
   BRANCHED_HW_TEST_TIMEOUT = int(10.0 * _HOUR)
 
@@ -996,7 +1018,7 @@ class SiteConfig(dict):
     """
     super(SiteConfig, self).__init__()
     self._defaults = DefaultSettings() if defaults is None else defaults
-    self._templates = {} if templates is None else templates
+    self._templates = AttrDict() if templates is None else AttrDict(templates)
     self._site_params = (
         DefaultSiteParameters() if site_params is None else site_params)
 
@@ -1008,6 +1030,10 @@ class SiteConfig(dict):
 
   def GetTemplates(self):
     """Create the canonical default build configuration."""
+    return self._templates
+
+  @property
+  def templates(self):
     return self._templates
 
   @property
@@ -1058,12 +1084,12 @@ class SiteConfig(dict):
       raise ValueError('Invalid board specified: %s.' % board)
     return both[0]
 
-  def GetSlavesForMaster(self, master_config, options=None):
-    """Gets the important slave builds corresponding to this master.
+  def GetSlaveConfigMapForMaster(self, master_config, options=None,
+                                 important_only=True, active_only=True):
+    """Gets the slave builds corresponding to this master.
 
     A slave config is one that matches the master config in build_type,
-    chrome_rev, and branch.  It also must be marked important.  For the
-    full requirements see the logic in code below.
+    chrome_rev, branch. For the full requirements see the logic in code below.
 
     The master itself is eligible to be a slave (of itself) if it has boards.
 
@@ -1074,10 +1100,12 @@ class SiteConfig(dict):
       master_config: A build config for a master builder.
       options: The options passed on the commandline. This argument is optional,
                and only makes sense when called from cbuildbot.
+      important_only: If True, only get the important slaves.
+      active_only: If True, only get the slaves having active_waterfall.
 
     Returns:
-      A list of build configs corresponding to the slaves for the master
-        represented by master_config.
+      A slave_name to slave_config map, corresponding to the slaves for the
+      master represented by master_config.
 
     Raises:
       AssertionError if the given config is not a master config or it does
@@ -1086,27 +1114,47 @@ class SiteConfig(dict):
     assert master_config['manifest_version']
     assert master_config['master']
 
-    slave_configs = []
+    slave_name_config_map = {}
     if options is not None and options.remote_trybot:
-      return slave_configs
+      return slave_name_config_map
 
     # TODO(davidjames): In CIDB the master isn't considered a slave of itself,
     # so we probably shouldn't consider it a slave here either.
-    for build_config in self.itervalues():
-      if (build_config['important'] and
-          build_config['manifest_version'] and
+    for build_config_name, build_config in self.iteritems():
+      if important_only and not build_config['important']:
+        continue
+      if active_only and not build_config['active_waterfall']:
+        continue
+
+      if (build_config['manifest_version'] and
           (not build_config['master'] or build_config['boards']) and
           build_config['build_type'] == master_config['build_type'] and
           build_config['chrome_rev'] == master_config['chrome_rev'] and
           build_config['branch'] == master_config['branch']):
-        slave_configs.append(build_config)
+        slave_name_config_map[build_config_name] = build_config
 
-    return slave_configs
+    return slave_name_config_map
+
+  def GetSlavesForMaster(self, master_config, options=None,
+                         important_only=True, active_only=True):
+    """Get a list of qualified build slave configs given the master_config.
+
+    Args:
+      master_config: A build config for a master builder.
+      options: The options passed on the commandline. This argument is optional,
+               and only makes sense when called from cbuildbot.
+      important_only: If True, only get the important slaves.
+      active_only: If True, only get the slaves having active_waterfall.
+    """
+    slave_map = self.GetSlaveConfigMapForMaster(
+        master_config, options=options, important_only=important_only,
+        active_only=active_only)
+    return slave_map.values()
 
   #
   # Methods used when creating a Config programatically.
   #
-  def Add(self, name, *args, **kwargs):
+  def Add(self, name, template=None, *args, **kwargs):
     """Add a new BuildConfig to the SiteConfig.
 
     Example usage:
@@ -1129,9 +1177,17 @@ class SiteConfig(dict):
                       mixin_build_config,
                       boards=['foo_board'])
 
+      # Creates build without a template but with mixin.
+      # Inheritance order is default, template, mixin, arguments.
+      site_config.Add('foo',
+                      None,
+                      mixin_build_config,
+                      boards=['foo_board'])
+
     Args:
       name: The name to label this configuration; this is what cbuildbot
             would see.
+      template: BuildConfig to use as a template for this build.
       args: BuildConfigs to patch into this config. First one (if present) is
             considered the template. See AddTemplate for help on templates.
       kwargs: BuildConfig values to explicitly set on this config.
@@ -1139,36 +1195,34 @@ class SiteConfig(dict):
     Returns:
       The BuildConfig just added to the SiteConfig.
     """
+    assert name not in self, ('%s already exists.' % name)
+
     inherits, overrides = args, kwargs
+    if template:
+      inherits = (template,) + inherits
 
-    # TODO(kevcheng): Uncomment and fix unittests (or chromeos_config) since it
-    #                 seems configs are repeatedly added.
-    # assert name not in self, '%s already exists.' % (name,)
-    overrides['name'] = name
-
-    # Remember our template, if we have one.
-    if '_template' not in overrides and args and '_template' in args[0]:
-      overrides['_template'] = args[0]['_template']
-
+    # Make sure we don't ignore that argument silently.
     if '_template' in overrides:
-      assert overrides['_template'] in self.GetTemplates(), \
-          '%s inherits from non-template' % (name,)
+      raise ValueError('_template cannot be explicitly set.')
 
-    result = self.GetDefault().derive(*inherits, **overrides)
+    result = self.GetDefault()
+    result.apply(*inherits, **overrides)
 
+    # Select the template name based on template argument, or nothing.
+    resolved_template = template.get('_template') if template else None
+    assert not resolved_template or resolved_template in self.templates, \
+        '%s inherits from non-template %s' % (name, resolved_template)
+
+    # Our name is passed as an explicit argument. We use the first build
+    # config as our template, or nothing.
+    result['name'] = name
+    result['_template'] = resolved_template
     self[name] = result
     return result
 
   def AddWithoutTemplate(self, name, *args, **kwargs):
     """Add a config containing only explicitly listed values (no defaults)."""
-    # TODO(kevcheng): Eventually deprecate this method and modify Add so that
-    #                 there's a clean way of handling this use case.
-    # Let's remove the _template for all the BuildConfigs passed in.
-    inherits = []
-    for build_config in args:
-      inherits.append(build_config.derive(
-          _template=BuildConfig.delete_key()))
-    return self.Add(name, BuildConfig(), *inherits, **kwargs)
+    self.Add(name, None, *args, **kwargs)
 
   def AddGroup(self, name, *args, **kwargs):
     """Create a new group of build configurations.
@@ -1236,7 +1290,9 @@ class SiteConfig(dict):
       args: See the docstring of BuildConfig.derive.
       kwargs: See the docstring of BuildConfig.derive.
     """
-    kwargs['_template'] = name
+    assert name not in self._templates, ('Template %s already exists.' % name)
+
+    kwargs.setdefault('_template', name)
 
     if args:
       cfg = args[0].derive(*args[1:], **kwargs)
@@ -1246,6 +1302,18 @@ class SiteConfig(dict):
     self._templates[name] = cfg
 
     return cfg
+
+  def _UsedTemplates(self):
+    """Return a version of self._templates with only used templates.
+
+    Returns:
+      Dict copy of self._templates with all unreferenced templates removed.
+    """
+    # All templates used. We ignore child configs since they
+    # should exist at top level.
+    used = set(c.get('_template', None) for c in self.itervalues())
+    used.discard(None)
+    return {k: self._templates[k] for k in used}
 
   def SaveConfigToString(self):
     """Save this Config object to a Json format string."""
@@ -1257,7 +1325,7 @@ class SiteConfig(dict):
       config_dict[k] = self.HideDefaults(k, v)
 
     config_dict['_default'] = default
-    config_dict['_templates'] = self._templates
+    config_dict['_templates'] = self._UsedTemplates()
     config_dict['_site_params'] = SiteParameters.HideDefaults(site_params)
 
     return PrettyJsonDict(config_dict)
@@ -1270,7 +1338,103 @@ class SiteConfig(dict):
     """
     return PrettyJsonDict(self)
 
+#
+# Methods related to working with GE Data.
+#
 
+def LoadGEBuildConfigFromFile(
+    build_settings_file=constants.GE_BUILD_CONFIG_FILE):
+  """Load template config dict from a Json encoded file."""
+  json_string = osutils.ReadFile(build_settings_file)
+  return json.loads(json_string, object_hook=_DecodeDict)
+
+
+def GeBuildConfigAllBoards(ge_build_config):
+  """Extract a list of board names from the GE Build Config.
+
+  Args:
+    ge_build_config: Dictionary containing the decoded GE configuration file.
+
+  Returns:
+    A list of board names as strings.
+  """
+  return [b['name'] for b in ge_build_config['boards']]
+
+
+class BoardGroup(object):
+  """Class holds leader_boards and follower_boards for grouped boards"""
+
+  def __init__(self):
+    self.leader_boards = []
+    self.follower_boards = []
+
+  def AddLeaderBoard(self, board):
+    self.leader_boards.append(board)
+
+  def AddFollowerBoard(self, board):
+    self.follower_boards.append(board)
+
+  def __str__(self):
+    return ('Leader_boards: %s Follower_boards: %s' %
+            (self.leader_boards, self.follower_boards))
+
+def GroupBoardsByBuilderAndBoardGroup(board_list):
+  """Group boards by builder and board_group.
+
+  Args:
+    board_list: board list from the template file.
+
+  Returns:
+    builder_group_dict: maps builder to {group_n: board_group_n}
+    builder_ungrouped_dict: maps builder to a list of ungrouped boards
+  """
+  builder_group_dict = {}
+  builder_ungrouped_dict = {}
+
+  for b in board_list:
+    name = b[CONFIG_TEMPLATE_NAME]
+    for config in b[CONFIG_TEMPLATE_CONFIGS]:
+      board = {'name': name}
+      board.update(config)
+
+      builder = config[CONFIG_TEMPLATE_BUILDER]
+      if builder not in builder_group_dict:
+        builder_group_dict[builder] = {}
+      if builder not in builder_ungrouped_dict:
+        builder_ungrouped_dict[builder] = []
+
+      board_group = config[CONFIG_TEMPLATE_BOARD_GROUP]
+      if not board_group:
+        builder_ungrouped_dict[builder].append(board)
+        continue
+      if board_group not in builder_group_dict[builder]:
+        builder_group_dict[builder][board_group] = BoardGroup()
+      if config[CONFIG_TEMPLATE_LEADER_BOARD]:
+        builder_group_dict[builder][board_group].AddLeaderBoard(board)
+      else:
+        builder_group_dict[builder][board_group].AddFollowerBoard(board)
+
+  return (builder_group_dict, builder_ungrouped_dict)
+
+
+def GroupBoardsByBuilder(board_list):
+  """Group boards by the 'builder' flag."""
+  builder_to_boards_dict = {}
+
+  for b in board_list:
+    for config in b[CONFIG_TEMPLATE_CONFIGS]:
+      builder = config[CONFIG_TEMPLATE_BUILDER]
+      if builder not in builder_to_boards_dict:
+        builder_to_boards_dict[builder] = set()
+      builder_to_boards_dict[builder].add(b[CONFIG_TEMPLATE_NAME])
+
+  return builder_to_boards_dict
+
+
+
+#
+# Methods related to loading/saving Json.
+#
 class ObjectJSONEncoder(json.JSONEncoder):
   """Json Encoder that encodes objects as their dictionaries."""
   # pylint: disable=method-hidden
@@ -1283,10 +1447,6 @@ def PrettyJsonDict(dictionary):
   return json.dumps(dictionary, cls=ObjectJSONEncoder,
                     sort_keys=True, indent=4, separators=(',', ': '))
 
-
-#
-# Methods related to loading/saving Json.
-#
 
 def LoadConfigFromFile(config_file=constants.CHROMEOS_CONFIG_FILE):
   """Load a Config a Json encoded file."""

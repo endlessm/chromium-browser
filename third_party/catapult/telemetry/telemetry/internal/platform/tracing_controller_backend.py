@@ -152,7 +152,7 @@ class TracingControllerBackend(object):
 
     if raised_exception_messages:
       raise TracingControllerStoppedError(
-          'Exceptions raised when trying to stop tracing:\n' +
+          'Exceptions raised when trying to flush tracing:\n' +
           '\n'.join(raised_exception_messages))
 
   def StartAgentTracing(self, config, timeout):
@@ -195,8 +195,12 @@ class TracingControllerBackend(object):
       for agent in self._active_agents_instances:
         if agent.SupportsExplicitClockSync():
           sync_id = self._GenerateClockSyncId()
-          agent.RecordClockSyncMarker(sync_id,
-                                      self._RecordIssuerClockSyncMarker)
+          with trace_event.trace(
+              'RecordClockSyncMarker',
+              agent=str(agent.__class__.__name__),
+              sync_id=sync_id):
+            agent.RecordClockSyncMarker(sync_id,
+                                        self._RecordIssuerClockSyncMarker)
 
   def IsChromeTracingSupported(self):
     return chrome_tracing_agent.ChromeTracingAgent.IsSupported(

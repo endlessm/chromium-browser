@@ -8,6 +8,7 @@ from collections import namedtuple
 import unittest
 import logging
 
+from systrace import decorators
 from systrace.tracing_agents import battor_trace_agent
 from battor import battor_wrapper
 from devil.android import battery_utils
@@ -21,13 +22,13 @@ OPTIONS = mock_opts('android', 'Phn2', ['plugable_7port'],
                     None, False, __file__)
 CATEGORIES = None
 
+
 def raise_error(*args, **kwargs):
   del args
   del kwargs
   raise RuntimeError('Should not call this function in the test')
 
 battor_device_mapping.GenerateSerialMapFile = raise_error
-
 
 def setup_battor_test(StartShell_error, StartTracing_error,
                       StopTracing_error, CollectTraceData_error):
@@ -38,6 +39,7 @@ def setup_battor_test(StartShell_error, StartTracing_error,
     del kwargs
     return wrapper
   battor_wrapper.BattorWrapper = wrapper_maker
+
 
 class MockBattorWrapper(object):
   def __init__(self, StartShell_error=False, StartTracing_error=False,
@@ -81,6 +83,7 @@ class MockBattorWrapper(object):
       raise RuntimeError('Simulated error in CollectTraceData')
     return 'traceout1\ntraceout2'
 
+
 class MockBatteryUtils(object):
   def __init__(self, _):
     self._is_charging = True
@@ -91,10 +94,13 @@ class MockBatteryUtils(object):
   def SetCharging(self, value):
     self._is_charging = value
 
+
 battery_utils.BatteryUtils = MockBatteryUtils
+
 
 class BattorAgentTest(unittest.TestCase):
 
+  @decorators.HostOnlyTest
   def test_trace_double_start(self):
     setup_battor_test(StartShell_error=False, StartTracing_error=False,
                       StopTracing_error=False, CollectTraceData_error=False)
@@ -103,6 +109,7 @@ class BattorAgentTest(unittest.TestCase):
     self.assertRaises(AssertionError,
                       lambda: agent.StartAgentTracing(OPTIONS, CATEGORIES))
 
+  @decorators.HostOnlyTest
   def test_trace_error_start_shell(self):
     setup_battor_test(StartShell_error=True, StartTracing_error=False,
                       StopTracing_error=False, CollectTraceData_error=False)
@@ -110,6 +117,7 @@ class BattorAgentTest(unittest.TestCase):
     self.assertRaises(RuntimeError,
                       lambda: agent.StartAgentTracing(OPTIONS, CATEGORIES))
 
+  @decorators.HostOnlyTest
   def test_trace_error_start_tracing(self):
     setup_battor_test(StartShell_error=False, StartTracing_error=True,
                       StopTracing_error=False, CollectTraceData_error=False)
@@ -117,6 +125,7 @@ class BattorAgentTest(unittest.TestCase):
     self.assertRaises(RuntimeError,
                       lambda: agent.StartAgentTracing(OPTIONS, CATEGORIES))
 
+  @decorators.HostOnlyTest
   def test_trace_error_stop_tracing(self):
     setup_battor_test(StartShell_error=False, StartTracing_error=False,
                       StopTracing_error=True, CollectTraceData_error=False)
@@ -124,6 +133,7 @@ class BattorAgentTest(unittest.TestCase):
     agent.StartAgentTracing(OPTIONS, CATEGORIES)
     self.assertRaises(RuntimeError, agent.StopAgentTracing)
 
+  @decorators.HostOnlyTest
   def test_trace_error_get_results(self):
     setup_battor_test(StartShell_error=False, StartTracing_error=False,
                       StopTracing_error=False, CollectTraceData_error=True)
@@ -132,6 +142,7 @@ class BattorAgentTest(unittest.TestCase):
     agent.StopAgentTracing()
     self.assertRaises(RuntimeError, agent.GetResults)
 
+  @decorators.HostOnlyTest
   def test_trace_complete(self):
     setup_battor_test(StartShell_error=False, StartTracing_error=False,
                       StopTracing_error=False, CollectTraceData_error=False)
@@ -140,6 +151,7 @@ class BattorAgentTest(unittest.TestCase):
     agent.StopAgentTracing()
     x = agent.GetResults()
     self.assertEqual(x.raw_data, 'traceout1\ntraceout2')
+
 
 if __name__ == "__main__":
   logging.getLogger().setLevel(logging.DEBUG)

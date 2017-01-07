@@ -34,8 +34,8 @@ class DocStringChecker(BaseChecker):
 
   See our style guide for more info:
   http://dev.chromium.org/chromium-os/python-style-guidelines#TOC-Describing-arguments-in-docstrings
-
   """
+
   # TODO: See about merging with the pep257 project:
   # https://github.com/GreenSteam/pep257
 
@@ -57,6 +57,7 @@ class DocStringChecker(BaseChecker):
   class _MessageCP013(object): pass
   class _MessageCP014(object): pass
   class _MessageCP015(object): pass
+  class _MessageCP016(object): pass
   # pylint: enable=class-missing-docstring,multiple-statements
 
   name = 'doc_string_checker'
@@ -97,6 +98,9 @@ class DocStringChecker(BaseChecker):
                 ('docstring-second-line-blank'), _MessageCP014),
       'C9015': ('Section indentation is incorrect: %s' % MSG_ARGS,
                 ('docstring-section-indent'), _MessageCP015),
+      'C9016': ('Closing triple quotes should be indented with %(want_indent)s '
+                'spaces, not %(curr_indent)s',
+                ('docstring-trailing-quotes'), _MessageCP016),
   }
   options = ()
 
@@ -108,7 +112,6 @@ class DocStringChecker(BaseChecker):
     if node.doc:
       lines = node.doc.split('\n')
       self._check_common(node, lines)
-      self._check_last_line_function(node, lines)
       self._check_section_lines(node, lines)
       self._check_all_args_in_doc(node, lines)
       self._check_func_signature(node)
@@ -132,6 +135,14 @@ class DocStringChecker(BaseChecker):
       self._check_common(node)
     else:
       self.add_message('C9002', node=node, line=node.fromlineno)
+
+  @staticmethod
+  def _docstring_indent(node):
+    """How much a |node|'s docstring should be indented"""
+    if node.display_type() == 'Module':
+      return 0
+    else:
+      return node.col_offset + 2
 
   def _check_common(self, node, lines=None):
     """Common checks we enforce on all docstrings"""
@@ -189,16 +200,19 @@ class DocStringChecker(BaseChecker):
   def _check_last_line(self, node, lines):
     """Make sure last line is all by itself"""
     if len(lines) > 1:
+      indent = self._docstring_indent(node)
+
       if lines[-1].strip() != '':
         self.add_message('C9005', node=node, line=node.fromlineno)
-
-  def _check_last_line_function(self, node, lines):
-    """Make sure last line is indented"""
-    if len(lines) > 1:
-      # The -1 line holds the """ itself and that should be indented.
-      if lines[-1] == '':
-        margs = {'offset': len(lines) - 1, 'line': lines[-1]}
-        self.add_message('C9005', node=node, line=node.fromlineno, args=margs)
+      elif lines[-1] != ' ' * indent:
+        # The -1 line holds the """ itself and that should be indented.
+        margs = {
+            'offset': len(lines) - 1,
+            'line': lines[-1],
+            'want_indent': indent,
+            'curr_indent': len(lines[-1]),
+        }
+        self.add_message('C9016', node=node, line=node.fromlineno, args=margs)
 
       # The last line should not be blank.
       if lines[-2] == '':
@@ -211,14 +225,22 @@ class DocStringChecker(BaseChecker):
     invalid_sections = (
         # Handle common misnamings.
         'arg', 'argument', 'arguments',
-        'ret', 'rets', 'return',
+        'ret', 'rets', 'return', 'result', 'results',
         'yield', 'yeild', 'yeilds',
-        'raise', 'throw', 'throws',
+        'raise', 'riase', 'riases', 'throw', 'throws',
     )
+    indent_len = self._docstring_indent(node)
 
+    in_args_section = False
     last = lines[0].strip()
     for i, line in enumerate(lines[1:]):
-      margs = {'offset': i + 1, 'line': line}
+      line_indent_len = len(line) - len(line.lstrip(' '))
+      margs = {
+          'offset': i + 1,
+          'line': line,
+          'want_indent': indent_len,
+          'curr_indent': line_indent_len,
+      }
       l = line.strip()
 
       # Catch semi-common javadoc style.
@@ -227,7 +249,16 @@ class DocStringChecker(BaseChecker):
 
       # See if we can detect incorrect behavior.
       section = l.split(':', 1)[0]
-      if section in self.VALID_SECTIONS or section.lower() in invalid_sections:
+
+      # Remember whether we're currently in the Args: section so we don't treat
+      # named arguments as sections (e.g. a function has a "returns" arg).  Use
+      # the indentation level to detect the start of the next section.
+      if in_args_section:
+        in_args_section = (indent_len < line_indent_len)
+
+      if (not in_args_section and
+          (section in self.VALID_SECTIONS or
+           section.lower() in invalid_sections)):
         # Make sure it has some number of leading whitespace.
         if not line.startswith(' '):
           self.add_message('C9004', node=node, line=node.fromlineno, args=margs)
@@ -249,6 +280,11 @@ class DocStringChecker(BaseChecker):
 
       last = l
 
+      # Detect whether we're in the Args section once we've processed the Args
+      # section itself.
+      if not in_args_section:
+        in_args_section = (section == 'Args')
+
     # Make sure the sections are in the right order.
     valid_lineno = lambda x: x >= 0
     lineno_sections = filter(valid_lineno, lineno_sections)
@@ -256,11 +292,6 @@ class DocStringChecker(BaseChecker):
       self.add_message('C9008', node=node, line=node.fromlineno)
 
     # Check the indentation level on all the sections.
-    # The -1 line holds the trailing """ itself and that should be indented to
-    # the correct number of spaces.  All checks below are relative to this.  If
-    # it is off, then these checks might report weird errors, but that's ok as
-    # ultimately the docstring is still wrong :).
-    indent_len = len(lines[-1])
     for lineno in lineno_sections:
       # First the section header (e.g. Args:).
       lineno += 1
@@ -393,7 +424,8 @@ class SourceChecker(BaseChecker):
   priority = -1
   MSG_ARGS = 'offset:%(offset)i: {%(line)s}'
   msgs = {
-      'R9200': ('Shebang should be #!/usr/bin/python2 or #!/usr/bin/python3',
+      'R9200': ('Shebang should be #!/usr/bin/env python2 or '
+                '#!/usr/bin/env python3',
                 ('bad-shebang'), _MessageR9200),
       'R9201': ('Shebang is missing, but file is executable',
                 ('missing-shebang'), _MessageR9201),
@@ -428,8 +460,8 @@ class SourceChecker(BaseChecker):
     elif not executable:
       self.add_message('R9202')
 
-    parts = shebang.split()
-    if parts[0] not in ('#!/usr/bin/python2', '#!/usr/bin/python3'):
+    if shebang.strip() not in (
+        '#!/usr/bin/env python2', '#!/usr/bin/env python3'):
       self.add_message('R9200')
 
   def _check_module_name(self, node):

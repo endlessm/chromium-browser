@@ -6,20 +6,21 @@
 
 #include <stddef.h>
 
+#include <memory>
+
 #include "base/callback.h"
 #include "base/memory/ptr_util.h"
 #include "build/build_config.h"
 #include "chrome/browser/background_sync/background_sync_permission_context.h"
 #include "chrome/browser/content_settings/host_content_settings_map_factory.h"
-#include "chrome/browser/media/media_stream_device_permission_context.h"
 #include "chrome/browser/media/midi_permission_context.h"
+#include "chrome/browser/media/webrtc/media_stream_device_permission_context.h"
 #include "chrome/browser/notifications/notification_permission_context.h"
 #include "chrome/browser/permissions/permission_context_base.h"
 #include "chrome/browser/permissions/permission_manager_factory.h"
 #include "chrome/browser/permissions/permission_request_id.h"
 #include "chrome/browser/permissions/permission_uma_util.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/push_messaging/push_messaging_permission_context.h"
 #include "chrome/browser/storage/durable_storage_permission_context.h"
 #include "chrome/browser/tab_contents/tab_util.h"
 #include "chrome/common/features.h"
@@ -28,6 +29,10 @@
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/web_contents.h"
+
+#if defined(ENABLE_PLUGINS)
+#include "chrome/browser/plugins/flash_permission_context.h"
+#endif
 
 #if defined(OS_ANDROID) || defined(OS_CHROMEOS)
 #include "chrome/browser/media/protected_media_identifier_permission_context.h"
@@ -78,7 +83,6 @@ ContentSettingsType PermissionTypeToContentSetting(PermissionType permission) {
     case PermissionType::MIDI_SYSEX:
       return CONTENT_SETTINGS_TYPE_MIDI_SYSEX;
     case PermissionType::PUSH_MESSAGING:
-      return CONTENT_SETTINGS_TYPE_PUSH_MESSAGING;
     case PermissionType::NOTIFICATIONS:
       return CONTENT_SETTINGS_TYPE_NOTIFICATIONS;
     case PermissionType::GEOLOCATION:
@@ -101,6 +105,8 @@ ContentSettingsType PermissionTypeToContentSetting(PermissionType permission) {
       return CONTENT_SETTINGS_TYPE_MEDIASTREAM_CAMERA;
     case PermissionType::BACKGROUND_SYNC:
       return CONTENT_SETTINGS_TYPE_BACKGROUND_SYNC;
+    case PermissionType::FLASH:
+      return CONTENT_SETTINGS_TYPE_PLUGINS;
     case PermissionType::NUM:
       // This will hit the NOTREACHED below.
       break;
@@ -220,34 +226,40 @@ PermissionManager::PermissionManager(Profile* profile)
     : profile_(profile),
       weak_ptr_factory_(this) {
   permission_contexts_[PermissionType::MIDI_SYSEX] =
-      base::WrapUnique(new MidiPermissionContext(profile));
+      base::MakeUnique<MidiPermissionContext>(profile);
   permission_contexts_[PermissionType::PUSH_MESSAGING] =
-      base::WrapUnique(new PushMessagingPermissionContext(profile));
+      base::MakeUnique<NotificationPermissionContext>(
+          profile, PermissionType::PUSH_MESSAGING);
   permission_contexts_[PermissionType::NOTIFICATIONS] =
-      base::WrapUnique(new NotificationPermissionContext(profile));
+      base::MakeUnique<NotificationPermissionContext>(
+          profile, PermissionType::NOTIFICATIONS);
 #if !BUILDFLAG(ANDROID_JAVA_UI)
   permission_contexts_[PermissionType::GEOLOCATION] =
-      base::WrapUnique(new GeolocationPermissionContext(profile));
+      base::MakeUnique<GeolocationPermissionContext>(profile);
 #else
   permission_contexts_[PermissionType::GEOLOCATION] =
-      base::WrapUnique(new GeolocationPermissionContextAndroid(profile));
+      base::MakeUnique<GeolocationPermissionContextAndroid>(profile);
 #endif
 #if defined(OS_CHROMEOS) || defined(OS_ANDROID)
   permission_contexts_[PermissionType::PROTECTED_MEDIA_IDENTIFIER] =
-      base::WrapUnique(new ProtectedMediaIdentifierPermissionContext(profile));
+      base::MakeUnique<ProtectedMediaIdentifierPermissionContext>(profile);
 #endif
   permission_contexts_[PermissionType::DURABLE_STORAGE] =
-      base::WrapUnique(new DurableStoragePermissionContext(profile));
+      base::MakeUnique<DurableStoragePermissionContext>(profile);
   permission_contexts_[PermissionType::AUDIO_CAPTURE] =
-      base::WrapUnique(new MediaStreamDevicePermissionContext(
+      base::MakeUnique<MediaStreamDevicePermissionContext>(
           profile, content::PermissionType::AUDIO_CAPTURE,
-          CONTENT_SETTINGS_TYPE_MEDIASTREAM_MIC));
+          CONTENT_SETTINGS_TYPE_MEDIASTREAM_MIC);
   permission_contexts_[PermissionType::VIDEO_CAPTURE] =
-      base::WrapUnique(new MediaStreamDevicePermissionContext(
+      base::MakeUnique<MediaStreamDevicePermissionContext>(
           profile, content::PermissionType::VIDEO_CAPTURE,
-          CONTENT_SETTINGS_TYPE_MEDIASTREAM_CAMERA));
+          CONTENT_SETTINGS_TYPE_MEDIASTREAM_CAMERA);
   permission_contexts_[PermissionType::BACKGROUND_SYNC] =
-      base::WrapUnique(new BackgroundSyncPermissionContext(profile));
+      base::MakeUnique<BackgroundSyncPermissionContext>(profile);
+#if defined(ENABLE_PLUGINS)
+  permission_contexts_[PermissionType::FLASH] =
+      base::MakeUnique<FlashPermissionContext>(profile);
+#endif
 }
 
 PermissionManager::~PermissionManager() {
@@ -260,11 +272,13 @@ int PermissionManager::RequestPermission(
     PermissionType permission,
     content::RenderFrameHost* render_frame_host,
     const GURL& requesting_origin,
+    bool user_gesture,
     const base::Callback<void(PermissionStatus)>& callback) {
   return RequestPermissions(
       std::vector<PermissionType>(1, permission),
       render_frame_host,
       requesting_origin,
+      user_gesture,
       base::Bind(&PermissionRequestResponseCallbackWrapper, callback));
 }
 
@@ -272,6 +286,7 @@ int PermissionManager::RequestPermissions(
     const std::vector<PermissionType>& permissions,
     content::RenderFrameHost* render_frame_host,
     const GURL& requesting_origin,
+    bool user_gesture,
     const base::Callback<void(
         const std::vector<PermissionStatus>&)>& callback) {
   if (permissions.empty()) {
@@ -304,7 +319,7 @@ int PermissionManager::RequestPermissions(
 
     PermissionContextBase* context = GetPermissionContext(permission);
     context->RequestPermission(
-        web_contents, request, requesting_origin,
+        web_contents, request, requesting_origin, user_gesture,
         base::Bind(&ContentSettingToPermissionStatusCallbackWrapper,
             base::Bind(&PermissionManager::OnPermissionsRequestResponseStatus,
                 weak_ptr_factory_.GetWeakPtr(), request_id, i)));

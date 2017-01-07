@@ -117,9 +117,6 @@ class WebStateImpl;
 // |CRWWebDelegate webControllerDidSuppressDialog:| will be called.
 @property(nonatomic, assign) BOOL shouldSuppressDialogs;
 
-// YES if Mojo should be used for WebUI, defaults to NO.
-@property(nonatomic, assign) BOOL useMojoForWebUI;
-
 // Designated initializer. Initializes web controller with |webState|. The
 // calling code must retain the ownership of |webState|.
 - (instancetype)initWithWebState:(web::WebStateImpl*)webState;
@@ -207,8 +204,9 @@ class WebStateImpl;
 // TODO(rohitrao): Remove this from the public API.
 - (void)prepareForGoBack;
 
-// Evaluates the user-entered |script| in the web view.
-- (void)evaluateUserJavaScript:(NSString*)script;
+// Executes |script| in the web view, registering user interaction.
+- (void)executeUserJavaScript:(NSString*)script
+            completionHandler:(web::JavaScriptResultBlock)completion;
 
 // Dismisses the soft keyboard.
 - (void)dismissKeyboard;
@@ -240,11 +238,6 @@ class WebStateImpl;
 // TODO(stuartmorgan): This is public only temporarily; once refactoring is
 // complete it will be handled internally.
 - (void)restoreStateFromHistory;
-
-// Asynchronously checks whether the element at the location of
-// |gestureRecognizer| is a link.
-- (void)checkLinkPresenceUnderGesture:(UIGestureRecognizer*)gestureRecognizer
-                    completionHandler:(void (^)(BOOL))completionHandler;
 
 // Notifies the CRWWebController that it has been shown.
 - (void)wasShown;
@@ -314,15 +307,15 @@ class WebStateImpl;
 - (void)resetInjectedWebViewContentView;
 // Returns the number of observers registered for this CRWWebController.
 - (NSUInteger)observerCount;
-// Returns the current window id.
-- (NSString*)windowId;
-- (void)setWindowId:(NSString*)windowId;
 - (void)setURLOnStartLoading:(const GURL&)url;
 - (void)simulateLoadRequestWithURL:(const GURL&)URL;
 - (NSString*)externalRequestWindowName;
 
 // Returns the header height.
 - (CGFloat)headerHeight;
+
+// Loads the HTML into the page at the given URL.
+- (void)loadHTML:(NSString*)HTML forURL:(const GURL&)URL;
 
 // Caches request POST data in the given session entry.  Exposed for testing.
 - (void)cachePOSTDataForRequest:(NSURLRequest*)request

@@ -71,7 +71,7 @@ void EscapeXmlAttributeValueInSingleQuotes(base::string16* att_value);
 // |src_path|\VisualElements exists.
 // Returns true unless the manifest is supposed to be created, but fails to be.
 bool CreateVisualElementsManifest(const base::FilePath& src_path,
-                                  const Version& version);
+                                  const base::Version& version);
 
 // Overwrites shortcuts (desktop, quick launch, and start menu) if they are
 // present on the system.
@@ -127,7 +127,12 @@ InstallStatus InstallOrUpdateProduct(
     const base::FilePath& src_path,
     const base::FilePath& prefs_path,
     const installer::MasterPreferences& prefs,
-    const Version& new_version);
+    const base::Version& new_version);
+
+// Launches a process that deletes files that belong to old versions of Chrome.
+// |setup_path| is the path to the setup.exe executable to use.
+void LaunchDeleteOldVersionsProcess(const base::FilePath& setup_path,
+                                    const InstallerState& installer_state);
 
 // Performs installation-related tasks following an OS upgrade.
 // |chrome| The installed product (must be a browser).

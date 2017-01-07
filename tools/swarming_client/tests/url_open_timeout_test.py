@@ -1,7 +1,7 @@
 #!/usr/bin/env python
-# Copyright 2013 The Swarming Authors. All rights reserved.
-# Use of this source code is governed under the Apache License, Version 2.0 that
-# can be found in the LICENSE file.
+# Copyright 2013 The LUCI Authors. All rights reserved.
+# Use of this source code is governed under the Apache License, Version 2.0
+# that can be found in the LICENSE file.
 
 import BaseHTTPServer
 import logging
@@ -13,7 +13,8 @@ import threading
 import time
 import unittest
 
-ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(
+    __file__.decode(sys.getfilesystemencoding()))))
 sys.path.insert(0, ROOT_DIR)
 sys.path.insert(0, os.path.join(ROOT_DIR, 'third_party'))
 
@@ -153,13 +154,22 @@ class UrlOpenTimeoutTest(auto_stub.TestCase):
     stream = self.call('sleep_after_response', 0.25, read_timeout=0.1)
     self.assertEqual(stream.read(), SleepingHandler.full_response)
 
-  def test_urlopen_timeouts(self):
+  def test_urlopen_timeout_early_stream(self):
     # Timeouts while reading from the stream.
-    for mode in ('sleep_after_headers', 'sleep_during_response'):
-      stream = self.call(mode, 0.25, read_timeout=0.1)
-      self.assertTrue(stream)
-      with self.assertRaises(net.TimeoutError):
-        stream.read()
+    stream = self.call('sleep_after_headers', 0.25, read_timeout=0.1)
+    self.assertTrue(stream)
+    gen = stream.iter_content(len(SleepingHandler.first_line))
+    with self.assertRaises(net.TimeoutError):
+      gen.next()
+
+  def test_urlopen_timeout_mid_stream(self):
+    # Timeouts while reading from the stream.
+    stream = self.call('sleep_during_response', 0.25, read_timeout=0.1)
+    self.assertTrue(stream)
+    gen = stream.iter_content(len(SleepingHandler.first_line))
+    gen.next()
+    with self.assertRaises(net.TimeoutError):
+      gen.next()
 
 
 if __name__ == '__main__':

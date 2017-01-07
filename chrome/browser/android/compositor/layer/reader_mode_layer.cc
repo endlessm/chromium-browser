@@ -7,10 +7,8 @@
 #include "cc/layers/layer.h"
 #include "cc/resources/scoped_ui_resource.h"
 #include "content/public/browser/android/compositor.h"
-#include "content/public/browser/android/content_view_core.h"
 #include "ui/android/resources/resource_manager.h"
 
-namespace chrome {
 namespace android {
 
 // static
@@ -21,7 +19,7 @@ scoped_refptr<ReaderModeLayer> ReaderModeLayer::Create(
 
 void ReaderModeLayer::SetProperties(
     float dp_to_px,
-    content::ContentViewCore* content_view_core,
+    const scoped_refptr<cc::Layer>& content_layer,
     float panel_x,
     float panel_y,
     float panel_width,
@@ -38,7 +36,7 @@ void ReaderModeLayer::SetProperties(
 
   OverlayPanelLayer::SetProperties(
       dp_to_px,
-      content_view_core,
+      content_layer,
       bar_height,
       panel_x,
       panel_y,
@@ -64,4 +62,3 @@ ReaderModeLayer::~ReaderModeLayer() {
 }
 
 }  //  namespace android
-}  //  namespace chrome

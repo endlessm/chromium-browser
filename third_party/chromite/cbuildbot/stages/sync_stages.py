@@ -11,6 +11,7 @@ import ConfigParser
 import contextlib
 import datetime
 import itertools
+import json
 import os
 import re
 import shutil
@@ -19,6 +20,7 @@ import time
 from xml.etree import ElementTree
 from xml.dom import minidom
 
+from chromite.cbuildbot import buildbucket_lib
 from chromite.cbuildbot import chroot_lib
 from chromite.cbuildbot import config_lib
 from chromite.cbuildbot import constants
@@ -38,16 +40,12 @@ from chromite.lib import cros_build_lib
 from chromite.lib import cros_logging as logging
 from chromite.lib import git
 from chromite.lib import graphite
+from chromite.lib import metrics
 from chromite.lib import osutils
 from chromite.lib import patch as cros_patch
 from chromite.lib import timeout_util
 from chromite.scripts import cros_mark_android_as_stable
 from chromite.scripts import cros_mark_chrome_as_stable
-
-try:
-  from infra_libs.ts_mon.common import metrics
-except (ImportError, RuntimeError):
-  metrics = None
 
 
 site_config = config_lib.GetConfig()
@@ -78,6 +76,7 @@ PRECQ_EXPIRY_MSG = (
     'In order to protect the CQ from picking up stale changes, the pre-cq '
     'status for changes are cleared after a generous timeout. This change '
     'will be re-tested by the pre-cq before the CQ picks it up.')
+
 
 class PatchChangesStage(generic_stages.BuilderStage):
   """Stage that patches a set of Gerrit changes to the buildroot source tree."""
@@ -367,6 +366,12 @@ class SyncStage(generic_stages.BuilderStage):
     # at self.internal when it can always be retrieved from config?
     self.internal = self._run.config.internal
 
+    self.buildbucket_http = None
+    if buildbucket_lib.GetServiceAccount(constants.CHROMEOS_SERVICE_ACCOUNT):
+      self.buildbucket_http = buildbucket_lib.BuildBucketAuth(
+          service_account=buildbucket_lib.GetServiceAccount(
+              constants.CHROMEOS_SERVICE_ACCOUNT))
+
   def _GetManifestVersionsRepoUrl(self, internal=None, test=False):
     if internal is None:
       internal = self._run.config.internal
@@ -460,6 +465,94 @@ class SyncStage(generic_stages.BuilderStage):
                                          x[cros_patch.ATTR_PATCH_NUMBER],
                                          x[cros_patch.ATTR_REMOTE]))
     self._run.attrs.metadata.UpdateWithDict({'changes': changes_list})
+
+  def _GetBuildbucketBucket(self, build_name, build_config):
+    """Get the corresponding Buildbucket bucket.
+
+    Args:
+      build_name: name of the build to put to Buildbucket.
+      build_config: config of the build to put to Buildbucket.
+
+    Raises:
+      NoBuildbucketBucketFoundException when no Buildbucket bucket found.
+    """
+    bucket = buildbucket_lib.WATERFALL_BUCKET_MAP.get(
+        build_config.active_waterfall)
+
+    if bucket is None:
+      raise buildbucket_lib.NoBuildbucketBucketFoundException(
+          'No Buildbucket bucket found for builder %s waterfall: %s' %
+          (build_name, build_config.active_waterfall))
+
+    return bucket
+
+  def PostSlaveBuildToBuildbucket(self, build_name, build_config,
+                                  master_build_id, dryrun):
+    """Send a Put slave build request to Buildbucket.
+
+    Args:
+      build_name: Salve build name to put to Buildbucket.
+      build_config: Slave build config to put to Buildbucket.
+      master_build_id: Master build id of the slave build.
+      dryrun: Whether a dryrun.
+    """
+    body = json.dumps({
+        'bucket': self._GetBuildbucketBucket(build_name, build_config),
+        'parameters_json': json.dumps({
+            'builder_name': build_name,
+            'properties': {
+                'cbb_config': build_name,
+                'cbb_branch': self._run.manifest_branch,
+                'cbb_master_build_id': master_build_id,
+            }
+        }),
+    })
+
+    content = buildbucket_lib.PutBuildBucket(
+        body, self.buildbucket_http, self._run.options.test_tryjob,
+        dryrun)
+
+    buildbucket_id = buildbucket_lib.GetBuildId(content)
+
+    logging.info('Buildbucket_id for %s: %s' %
+                 (build_name, buildbucket_id))
+
+  def ScheduleSlaveBuildsViaBuildbucket(self, important_only, dryrun):
+    """Schedule slave builds by sending PUT requests to Buildbucket.
+
+    Args:
+      important_only: Whether only schedule important slave builds.
+      dryrun: Whether a dryrun.
+    """
+    if self.buildbucket_http is None:
+      if cros_build_lib.HostIsCIBuilder() and not dryrun:
+        # If it's a buildbot running on a CI builder and not in dryrun.
+        # mode, buildbucket_http cannot be None in order to trigger slave
+        # builds.
+        raise buildbucket_lib.NoBuildBucketHttpException(
+            'No Buildbucket http instance in this CI Builder. '
+            'Please check the service account file %s.' %
+            constants.CHROMEOS_SERVICE_ACCOUNT)
+      else:
+        logging.info('No buildbucket_http. Skip scheduling slaves.')
+        return
+
+    build_id, _ = self._run.GetCIDBHandle()
+    if build_id is None:
+      logging.info('No build id. Skip scheduling slaves.')
+      return
+
+    # Get all active slave build configs.
+    slave_config_map = self._GetSlaveConfigMap(important_only)
+    for slave_name, slave_config in slave_config_map.iteritems():
+      try:
+        self.PostSlaveBuildToBuildbucket(slave_name, slave_config,
+                                         build_id, dryrun)
+      except buildbucket_lib.BuildbucketResponseException as e:
+        # TODO: Catch and log the error. Should raise the exception
+        # when Buildbucket is enabled to trigger slave builds and
+        # scheduling important slave builds are failed.
+        logging.error('Failed to schedule %s: %s' % (slave_name, e))
 
   @failures_lib.SetFailureType(failures_lib.InfrastructureFailure)
   def PerformStage(self):
@@ -865,7 +958,8 @@ class MasterSlaveLKGMSyncStage(ManifestVersionedSyncStage):
   def GetLatestAndroidVersion(self):
     """Returns the version of Android to uprev."""
     return cros_mark_android_as_stable.GetLatestBuild(
-        constants.ANDROID_BUCKET_URL, constants.ANDROID_BUILD_BRANCH)[0]
+        constants.ANDROID_BUCKET_URL, constants.ANDROID_BUILD_BRANCH,
+        constants.ANDROID_BUILD_TARGETS)[0]
 
   def GetLatestChromeVersion(self):
     """Returns the version of Chrome to uprev."""
@@ -943,8 +1037,8 @@ class CommitQueueSyncStage(MasterSlaveLKGMSyncStage):
 
   What makes this stage different is that the CQ master finds the
   patches on Gerrit which are ready to be committed, apply them, and
-  includes the pathces in the new manifest. The slaves sync to the
-  manifest, and apply the paches written in the manifest.
+  includes the patches in the new manifest. The slaves sync to the
+  manifest, and apply the patches written in the manifest.
   """
 
   # The amount of time we wait before assuming that the Pre-CQ is down and
@@ -1078,13 +1172,6 @@ class CommitQueueSyncStage(MasterSlaveLKGMSyncStage):
     # Clear the chroot version as we are in the middle of building it.
     chroot_manager.ClearChrootVersion()
 
-    if self._run.config.build_before_patching:
-      assert not self._run.config.master
-      pre_build_passed = self.RunPrePatchBuild()
-      logging.PrintBuildbotStepName('CommitQueueSync : Apply Patches')
-      if not pre_build_passed:
-        logging.PrintBuildbotStepText('Pre-patch build failed.')
-
     # Syncing to a pinned manifest ensures that we have the specified
     # revisions, but, unfortunately, repo won't bother to update branches.
     # Sync with an unpinned manifest first to ensure that branches are updated
@@ -1096,6 +1183,13 @@ class CommitQueueSyncStage(MasterSlaveLKGMSyncStage):
     # already synced to this manifest, so self.skip_sync is set and
     # this is a no-op.
     super(CommitQueueSyncStage, self).ManifestCheckout(next_manifest)
+
+    if self._run.config.build_before_patching:
+      assert not self._run.config.master
+      pre_build_passed = self.RunPrePatchBuild()
+      logging.PrintBuildbotStepName('CommitQueueSync : Apply Patches')
+      if not pre_build_passed:
+        logging.PrintBuildbotStepText('Pre-patch build failed.')
 
     # On slaves, initialize our pool and apply patches. On the master,
     # we've already done that in GetNextManifest, so this is a no-op.
@@ -1115,6 +1209,18 @@ class CommitQueueSyncStage(MasterSlaveLKGMSyncStage):
       ManifestVersionedSyncStage.PerformStage(self)
 
     self.WriteChangesToMetadata(self.pool.applied)
+
+    # If this builder is a cq-master but not force_version build,
+    # schedule all slave builders via Buildbucket. If it's a debug mode run,
+    # PutSlaveBuildToBuildbucket would be a dryrun.
+    if (self._run.config.name == constants.CQ_MASTER and
+        not self._run.options.force_version and
+        self._run.options.buildbot):
+      # TODO: dryrun is default to True now, should set
+      # dryrun=self._run.options.debug after confirming the buildbucket
+      # server works and removing the git-based schedulers.
+      self.ScheduleSlaveBuildsViaBuildbucket(important_only=False,
+                                             dryrun=True)
 
 
 class PreCQSyncStage(SyncStage):
@@ -1186,6 +1292,10 @@ class PreCQLauncherStage(SyncStage):
   # cycle of ProcessChanges. Used to rate-limit the launcher when reopening the
   # tree after building up a large backlog.
   MAX_LAUNCHES_PER_CYCLE_DERIVATIVE = 20
+
+  # Delta time constant for checking buildbucket. Do not check status or
+  # cancel builds which were launched >= BUILDBUCKET_DELTA_TIME_HOUR ago.
+  BUILDBUCKET_DELTA_TIME_HOUR = 4
 
   def __init__(self, builder_run, **kwargs):
     super(PreCQLauncherStage, self).__init__(builder_run, **kwargs)
@@ -1324,6 +1434,29 @@ class PreCQLauncherStage(SyncStage):
       logging.error('%s has malformed config file', change, exc_info=True)
     return bool(result and result.lower() == 'yes')
 
+  def GetConfigBuildbucketIdMap(self, output):
+    """Get a config:buildbucket_id map.
+
+    Config is the config-name of a pre-cq triggered by the pre-cq-launcher.
+    buildbucket_id is the request id of the pre-cq build.
+    """
+    config_buildbucket_id_map = {}
+    for line in output.splitlines():
+      config = None
+      buildbucket_id = None
+      match_config = re.search(r'\[config:(\S*)\]', line)
+      if match_config:
+        config = match_config.group(1)
+
+      match_id = re.search(r'\[buildbucket_id:(\S*)\]', line)
+      if match_id:
+        buildbucket_id = match_id.group(1)
+
+      if config is not None and buildbucket_id is not None:
+        config_buildbucket_id_map[config] = buildbucket_id
+
+    return config_buildbucket_id_map
+
   def LaunchTrybot(self, plan, configs):
     """Launch a Pre-CQ run with the provided list of CLs.
 
@@ -1337,16 +1470,33 @@ class PreCQLauncherStage(SyncStage):
     for patch in plan:
       cmd += ['-g', cros_patch.AddPrefix(patch, patch.gerrit_number)]
       self._PrintPatchStatus(patch, 'testing')
+
+    use_buildbucket = False
+    config_buildbucket_id_map = {}
+    if buildbucket_lib.GetServiceAccount(constants.CHROMEOS_SERVICE_ACCOUNT):
+      # use buildbucket to launch trybots.
+      cmd += ['--use-buildbucket']
+      use_buildbucket = True
+
     if self._run.options.debug:
       logging.debug('Would have launched tryjob with %s', cmd)
     else:
-      cros_build_lib.RunCommand(cmd, cwd=self._build_root)
+      result = cros_build_lib.RunCommand(
+          cmd, cwd=self._build_root, capture_output=True)
+      if result and result.output:
+        logging.info('cbuildbot output: %s' % result.output)
+        if use_buildbucket:
+          config_buildbucket_id_map = self.GetConfigBuildbucketIdMap(
+              result.output)
 
+    actions = []
     build_id, db = self._run.GetCIDBHandle()
-    actions = [
-        clactions.CLAction.FromGerritPatchAndAction(
-            patch, constants.CL_ACTION_TRYBOT_LAUNCHING, config)
-        for patch, config in itertools.product(plan, configs)]
+    for patch in plan:
+      for config in configs:
+        actions.append(clactions.CLAction.FromGerritPatchAndAction(
+            patch, constants.CL_ACTION_TRYBOT_LAUNCHING, config,
+            buildbucket_id=config_buildbucket_id_map.get(config)))
+
     db.InsertCLActions(build_id, actions)
 
   def GetDisjointTransactionsToTest(self, pool, progress_map):
@@ -1475,6 +1625,63 @@ class PreCQLauncherStage(SyncStage):
         pool.RemoveReady(change, reason=config)
         pool.UpdateCLPreCQStatus(change, constants.CL_STATUS_FAILED)
 
+  def _CancelPreCQIfNeeded(self, db, old_build_action, testjob=False):
+    """Cancel the pre-cq if it's still running.
+
+    Args:
+      db: CIDB connection instance.
+      old_build_action: Old patch build action.
+      testjob: Whether to use the test instance of the buildbucket server.
+    """
+    buildbucket_id = old_build_action.buildbucket_id
+    get_content = buildbucket_lib.GetBuildBucket(
+        buildbucket_id, self.buildbucket_http, testjob,
+        dryrun=self._run.options.debug)
+
+    status = buildbucket_lib.GetBuildStatus(get_content)
+    if status in [buildbucket_lib.STARTED_STATUS,
+                  buildbucket_lib.SCHEDULED_STATUS]:
+      logging.info('Cancelling old build %s %s', buildbucket_id, status)
+      cancel_content = buildbucket_lib.CancelBuildBucket(
+          buildbucket_id, self.buildbucket_http, testjob,
+          dryrun=self._run.options.debug)
+      cancel_status = buildbucket_lib.GetBuildStatus(cancel_content)
+      if cancel_status:
+        logging.info('Cancelled buildbucket_id: %s status: %s \ncontent: %s',
+                     buildbucket_id, cancel_status, cancel_content)
+        if db:
+          cancel_action = old_build_action._replace(
+              action=constants.CL_ACTION_TRYBOT_CANCELLED)
+          db.InsertCLActions(cancel_action.build_id, [cancel_action])
+      else:
+        # If the old pre-cq build already completed, CANCEL response will
+        # give 200 returncode with error reasons.
+        logging.debug('Failed to cancel buildbucket_id: %s reason: %s',
+                      buildbucket_id,
+                      buildbucket_lib.GetErrorReason(cancel_content))
+
+  def _ProcessOldPatchPreCQRuns(self, db, change, action_history):
+    """Process Pre-cq runs for change with old patch numbers.
+
+    Args:
+      db: CIDB connection instance.
+      change: GerritPatch instance to process.
+      action_history: List of CLActions.
+    """
+    min_timestamp = datetime.datetime.now() - datetime.timedelta(
+        hours=self.BUILDBUCKET_DELTA_TIME_HOUR)
+    old_pre_cq_build_actions = clactions.GetOldPreCQBuildActions(
+        change, action_history, min_timestamp)
+    for old_build_action in old_pre_cq_build_actions:
+      try:
+        self._CancelPreCQIfNeeded(
+            db, old_build_action, testjob=self._run.options.test_tryjob)
+      except Exception as e:
+        # Log errors; do not raise exceptions.
+        logging.error('_CancelPreCQIfNeeded failed. '
+                      'change: %s old_build_action: %s error: %r',
+                      change, old_build_action, e)
+
   def _ProcessVerified(self, change, can_submit, will_submit):
     """Process a change that is fully pre-cq verified.
 
@@ -1531,6 +1738,11 @@ class PreCQLauncherStage(SyncStage):
     """
     _, db = self._run.GetCIDBHandle()
     action_history = db.GetActionsForChanges(changes)
+
+    if self.buildbucket_http is not None:
+      for change in changes:
+        self._ProcessOldPatchPreCQRuns(db, change, action_history)
+
     for change in changes:
       self._ProcessRequeuedAndSpeculative(change, action_history)
 
@@ -1633,20 +1845,11 @@ class PreCQLauncherStage(SyncStage):
         launch_count += len(configs)
         cl_launch_count += len(configs) * len(plan)
 
-    if metrics:
-      metrics.CounterMetric('chromeos/cbuildbot/pre-cq/launch_count')\
-            .increment_by(launch_count)
-      metrics.CounterMetric('chromeos/cbuildbot/pre-cq/cl_launch_count')\
-            .increment_by(cl_launch_count)
-      metrics.CounterMetric('chromeos/cbuildbot/pre-cq/tick_count')\
-            .increment()
-
-    graphite.StatsFactory.GetInstance().Counter('pre-cq').increment(
-        'launch_count', launch_count)
-    graphite.StatsFactory.GetInstance().Counter('pre-cq').increment(
-        'cl_launch_count', cl_launch_count)
-    graphite.StatsFactory.GetInstance().Counter('pre-cq').increment(
-        'tick_count')
+    metrics.Counter(constants.MON_PRECQ_LAUNCH_COUNT).increment_by(
+        launch_count)
+    metrics.Counter(constants.MON_PRECQ_CL_LAUNCH_COUNT).increment_by(
+        cl_launch_count)
+    metrics.Counter(constants.MON_PRECQ_TICK_COUNT).increment()
 
     self.last_cycle_launch_count = launch_count
 
@@ -1663,7 +1866,14 @@ class PreCQLauncherStage(SyncStage):
                                     reason=constants.STRATEGY_NONMANIFEST)
       submit_reason = constants.STRATEGY_PRECQ_SUBMIT
       will_submit = {c:submit_reason for c in will_submit}
-      pool.SubmitChanges(will_submit, check_tree_open=False)
+      submitted, _ = pool.SubmitChanges(will_submit, check_tree_open=False)
+
+      # Record stats about submissions in monarch.
+      if db:
+        submitted_change_actions = db.GetActionsForChanges(submitted)
+        strategies = {m: constants.STRATEGY_PRECQ_SUBMIT for m in submitted}
+        clactions.RecordSubmissionMetrics(
+            clactions.CLActionHistory(submitted_change_actions), strategies)
 
     # Tell ValidationPool to keep waiting for more changes until we hit
     # its internal timeout.
@@ -1690,10 +1900,8 @@ class PreCQLauncherStage(SyncStage):
       logging.info('Sending stat (name, subtype, count): (%s, %s, %s)',
                    name, subtype, count)
       graphite.StatsFactory.GetInstance().Gauge(name).send(subtype, count)
-      metrics.GaugeMetric('chromeos/cbuildbot/pre-cq/cl-count').set(
-          count,
-          {'status': str(status),
-           'subtype': subtype})
+      metrics.Gauge('chromeos/cbuildbot/pre-cq/cl-count').set(
+          count, {'status': str(status), 'subtype': subtype})
 
   @failures_lib.SetFailureType(failures_lib.InfrastructureFailure)
   def PerformStage(self):

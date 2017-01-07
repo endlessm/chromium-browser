@@ -21,7 +21,8 @@
 #include "components/test_runner/test_runner.h"
 #include "components/test_runner/web_frame_test_proxy.h"
 #include "components/test_runner/web_test_delegate.h"
-#include "components/test_runner/web_test_proxy.h"
+#include "components/test_runner/web_view_test_proxy.h"
+#include "components/test_runner/web_widget_test_proxy.h"
 #include "third_party/WebKit/public/platform/WebString.h"
 #include "third_party/WebKit/public/platform/WebURL.h"
 #include "third_party/WebKit/public/platform/WebURLRequest.h"
@@ -96,25 +97,6 @@ void PrintResponseDescription(WebTestDelegate* delegate,
       response.httpStatusCode()));
 }
 
-std::string PriorityDescription(
-    const blink::WebURLRequest::Priority& priority) {
-  switch (priority) {
-    case blink::WebURLRequest::PriorityVeryLow:
-      return "VeryLow";
-    case blink::WebURLRequest::PriorityLow:
-      return "Low";
-    case blink::WebURLRequest::PriorityMedium:
-      return "Medium";
-    case blink::WebURLRequest::PriorityHigh:
-      return "High";
-    case blink::WebURLRequest::PriorityVeryHigh:
-      return "VeryHigh";
-    case blink::WebURLRequest::PriorityUnresolved:
-    default:
-      return "Unresolved";
-  }
-}
-
 void BlockRequest(blink::WebURLRequest& request) {
   request.setURL(GURL("255.255.255.255"));
 }
@@ -184,17 +166,15 @@ const char* WebNavigationTypeToString(blink::WebNavigationType type) {
 }  // namespace
 
 WebFrameTestClient::WebFrameTestClient(
-    TestRunner* test_runner,
     WebTestDelegate* delegate,
-    WebTestProxyBase* web_test_proxy_base,
+    WebViewTestProxyBase* web_view_test_proxy_base,
     WebFrameTestProxyBase* web_frame_test_proxy_base)
-    : test_runner_(test_runner),
-      delegate_(delegate),
-      web_test_proxy_base_(web_test_proxy_base),
+    : delegate_(delegate),
+      web_view_test_proxy_base_(web_view_test_proxy_base),
       web_frame_test_proxy_base_(web_frame_test_proxy_base) {
-  DCHECK(test_runner);
   DCHECK(delegate_);
-  DCHECK(web_test_proxy_base_);
+  DCHECK(web_frame_test_proxy_base_);
+  DCHECK(web_view_test_proxy_base_);
 }
 
 WebFrameTestClient::~WebFrameTestClient() {}
@@ -204,7 +184,7 @@ blink::WebColorChooser* WebFrameTestClient::createColorChooser(
     const blink::WebColor& color,
     const blink::WebVector<blink::WebColorSuggestion>& suggestions) {
   // This instance is deleted by WebCore::ColorInputType
-  return new MockColorChooser(client, delegate_, test_runner_);
+  return new MockColorChooser(client, delegate_, test_runner());
 }
 
 void WebFrameTestClient::runModalAlertDialog(const blink::WebString& message) {
@@ -231,12 +211,12 @@ bool WebFrameTestClient::runModalPromptDialog(
 
 bool WebFrameTestClient::runModalBeforeUnloadDialog(bool is_reload) {
   delegate_->PrintMessage(std::string("CONFIRM NAVIGATION\n"));
-  return !test_runner_->shouldStayOnPageAfterHandlingBeforeUnload();
+  return !test_runner()->shouldStayOnPageAfterHandlingBeforeUnload();
 }
 
 blink::WebScreenOrientationClient*
 WebFrameTestClient::webScreenOrientationClient() {
-  return test_runner_->getMockScreenOrientationClient();
+  return test_runner()->getMockScreenOrientationClient();
 }
 
 void WebFrameTestClient::postAccessibilityEvent(const blink::WebAXObject& obj,
@@ -247,7 +227,7 @@ void WebFrameTestClient::postAccessibilityEvent(const blink::WebAXObject& obj,
   // accessibility events,
   // and AccessibilityController will hold on to their target nodes if we don't
   // ignore them here.
-  if (!test_runner_->TestIsRunning())
+  if (!test_runner()->TestIsRunning())
     return;
 
   const char* event_name = NULL;
@@ -354,7 +334,7 @@ void WebFrameTestClient::postAccessibilityEvent(const blink::WebAXObject& obj,
   }
 
   AccessibilityController* accessibility_controller =
-      web_test_proxy_base_->accessibility_controller();
+      web_view_test_proxy_base_->accessibility_controller();
   accessibility_controller->NotificationReceived(obj, event_name);
   if (accessibility_controller->ShouldLogAccessibilityEvents()) {
     std::string message("AccessibilityNotification - ");
@@ -374,7 +354,7 @@ void WebFrameTestClient::postAccessibilityEvent(const blink::WebAXObject& obj,
 }
 
 void WebFrameTestClient::didChangeSelection(bool is_empty_callback) {
-  if (test_runner_->shouldDumpEditingCallbacks())
+  if (test_runner()->shouldDumpEditingCallbacks())
     delegate_->PrintMessage(
         "EDITING DELEGATE: "
         "webViewDidChangeSelection:WebViewDidChangeSelectionNotification\n");
@@ -390,11 +370,13 @@ blink::WebPlugin* WebFrameTestClient::createPlugin(
 
 void WebFrameTestClient::showContextMenu(
     const blink::WebContextMenuData& context_menu_data) {
-  web_test_proxy_base_->event_sender()->SetContextMenuData(context_menu_data);
+  delegate_->GetWebWidgetTestProxyBase(web_frame_test_proxy_base_->web_frame())
+      ->event_sender()
+      ->SetContextMenuData(context_menu_data);
 }
 
 blink::WebUserMediaClient* WebFrameTestClient::userMediaClient() {
-  return test_runner_->getMockWebUserMediaClient();
+  return test_runner()->getMockWebUserMediaClient();
 }
 
 void WebFrameTestClient::loadURLExternally(
@@ -402,7 +384,7 @@ void WebFrameTestClient::loadURLExternally(
     blink::WebNavigationPolicy policy,
     const blink::WebString& suggested_name,
     bool replaces_current_history_item) {
-  if (test_runner_->shouldWaitUntilExternalURLLoad()) {
+  if (test_runner()->shouldWaitUntilExternalURLLoad()) {
     if (policy == blink::WebNavigationPolicyDownload) {
       delegate_->PrintMessage(
           std::string("Downloading URL with suggested filename \"") +
@@ -417,14 +399,14 @@ void WebFrameTestClient::loadURLExternally(
 
 void WebFrameTestClient::didStartProvisionalLoad(blink::WebLocalFrame* frame,
                                                  double trigering_event_time) {
-  test_runner_->tryToSetTopLoadingFrame(frame);
+  test_runner()->tryToSetTopLoadingFrame(frame);
 
-  if (test_runner_->shouldDumpFrameLoadCallbacks()) {
+  if (test_runner()->shouldDumpFrameLoadCallbacks()) {
     PrintFrameDescription(delegate_, frame);
     delegate_->PrintMessage(" - didStartProvisionalLoadForFrame\n");
   }
 
-  if (test_runner_->shouldDumpUserGestureInFrameLoadCallbacks()) {
+  if (test_runner()->shouldDumpUserGestureInFrameLoadCallbacks()) {
     PrintFrameuserGestureStatus(delegate_, frame,
                                 " - in didStartProvisionalLoadForFrame\n");
   }
@@ -432,7 +414,7 @@ void WebFrameTestClient::didStartProvisionalLoad(blink::WebLocalFrame* frame,
 
 void WebFrameTestClient::didReceiveServerRedirectForProvisionalLoad(
     blink::WebLocalFrame* frame) {
-  if (test_runner_->shouldDumpFrameLoadCallbacks()) {
+  if (test_runner()->shouldDumpFrameLoadCallbacks()) {
     PrintFrameDescription(delegate_, frame);
     delegate_->PrintMessage(
         " - didReceiveServerRedirectForProvisionalLoadForFrame\n");
@@ -443,7 +425,7 @@ void WebFrameTestClient::didFailProvisionalLoad(
     blink::WebLocalFrame* frame,
     const blink::WebURLError& error,
     blink::WebHistoryCommitType commit_type) {
-  if (test_runner_->shouldDumpFrameLoadCallbacks()) {
+  if (test_runner()->shouldDumpFrameLoadCallbacks()) {
     PrintFrameDescription(delegate_, frame);
     delegate_->PrintMessage(" - didFailProvisionalLoadWithError\n");
   }
@@ -453,7 +435,7 @@ void WebFrameTestClient::didCommitProvisionalLoad(
     blink::WebLocalFrame* frame,
     const blink::WebHistoryItem& history_item,
     blink::WebHistoryCommitType history_type) {
-  if (test_runner_->shouldDumpFrameLoadCallbacks()) {
+  if (test_runner()->shouldDumpFrameLoadCallbacks()) {
     PrintFrameDescription(delegate_, frame);
     delegate_->PrintMessage(" - didCommitLoadForFrame\n");
   }
@@ -462,34 +444,34 @@ void WebFrameTestClient::didCommitProvisionalLoad(
 void WebFrameTestClient::didReceiveTitle(blink::WebLocalFrame* frame,
                                          const blink::WebString& title,
                                          blink::WebTextDirection direction) {
-  if (test_runner_->shouldDumpFrameLoadCallbacks()) {
+  if (test_runner()->shouldDumpFrameLoadCallbacks()) {
     PrintFrameDescription(delegate_, frame);
     delegate_->PrintMessage(std::string(" - didReceiveTitle: ") + title.utf8() +
                             "\n");
   }
 
-  if (test_runner_->shouldDumpTitleChanges())
+  if (test_runner()->shouldDumpTitleChanges())
     delegate_->PrintMessage(std::string("TITLE CHANGED: '") + title.utf8() +
                             "'\n");
 }
 
 void WebFrameTestClient::didChangeIcon(blink::WebLocalFrame* frame,
                                        blink::WebIconURL::Type icon_type) {
-  if (test_runner_->shouldDumpIconChanges()) {
+  if (test_runner()->shouldDumpIconChanges()) {
     PrintFrameDescription(delegate_, frame);
     delegate_->PrintMessage(std::string(" - didChangeIcons\n"));
   }
 }
 
 void WebFrameTestClient::didFinishDocumentLoad(blink::WebLocalFrame* frame) {
-  if (test_runner_->shouldDumpFrameLoadCallbacks()) {
+  if (test_runner()->shouldDumpFrameLoadCallbacks()) {
     PrintFrameDescription(delegate_, frame);
     delegate_->PrintMessage(" - didFinishDocumentLoadForFrame\n");
   }
 }
 
 void WebFrameTestClient::didHandleOnloadEvents(blink::WebLocalFrame* frame) {
-  if (test_runner_->shouldDumpFrameLoadCallbacks()) {
+  if (test_runner()->shouldDumpFrameLoadCallbacks()) {
     PrintFrameDescription(delegate_, frame);
     delegate_->PrintMessage(" - didHandleOnloadEventsForFrame\n");
   }
@@ -498,62 +480,58 @@ void WebFrameTestClient::didHandleOnloadEvents(blink::WebLocalFrame* frame) {
 void WebFrameTestClient::didFailLoad(blink::WebLocalFrame* frame,
                                      const blink::WebURLError& error,
                                      blink::WebHistoryCommitType commit_type) {
-  if (test_runner_->shouldDumpFrameLoadCallbacks()) {
+  if (test_runner()->shouldDumpFrameLoadCallbacks()) {
     PrintFrameDescription(delegate_, frame);
     delegate_->PrintMessage(" - didFailLoadWithError\n");
   }
 }
 
 void WebFrameTestClient::didFinishLoad(blink::WebLocalFrame* frame) {
-  if (test_runner_->shouldDumpFrameLoadCallbacks()) {
+  if (test_runner()->shouldDumpFrameLoadCallbacks()) {
     PrintFrameDescription(delegate_, frame);
     delegate_->PrintMessage(" - didFinishLoadForFrame\n");
   }
 }
 
+void WebFrameTestClient::didNavigateWithinPage(
+    blink::WebLocalFrame* frame,
+    const blink::WebHistoryItem& history_item,
+    blink::WebHistoryCommitType commit_type,
+    bool contentInitiated) {
+  test_runner()->OnNavigationEnd();
+}
+
+void WebFrameTestClient::didStartLoading(bool to_different_document) {
+  test_runner()->OnNavigationBegin(web_frame_test_proxy_base_->web_frame());
+}
+
 void WebFrameTestClient::didStopLoading() {
-  test_runner_->tryToClearTopLoadingFrame(
+  test_runner()->tryToClearTopLoadingFrame(
       web_frame_test_proxy_base_->web_frame());
 }
 
 void WebFrameTestClient::didDetectXSS(const blink::WebURL& insecure_url,
                                       bool did_block_entire_page) {
-  if (test_runner_->shouldDumpFrameLoadCallbacks())
+  if (test_runner()->shouldDumpFrameLoadCallbacks())
     delegate_->PrintMessage("didDetectXSS\n");
 }
 
 void WebFrameTestClient::didDispatchPingLoader(const blink::WebURL& url) {
-  if (test_runner_->shouldDumpPingLoaderCallbacks())
+  if (test_runner()->shouldDumpPingLoaderCallbacks())
     delegate_->PrintMessage(std::string("PingLoader dispatched to '") +
                             URLDescription(url).c_str() + "'.\n");
 }
 
-void WebFrameTestClient::willSendRequest(
-    blink::WebLocalFrame* frame,
-    unsigned identifier,
-    blink::WebURLRequest& request,
-    const blink::WebURLResponse& redirect_response) {
+void WebFrameTestClient::willSendRequest(blink::WebLocalFrame* frame,
+                                         blink::WebURLRequest& request) {
   // Need to use GURL for host() and SchemeIs()
   GURL url = request.url();
   std::string request_url = url.possibly_invalid_spec();
 
   GURL main_document_url = request.firstPartyForCookies();
 
-  if (redirect_response.isNull() &&
-      (test_runner_->shouldDumpResourceLoadCallbacks() ||
-       test_runner_->shouldDumpResourcePriorities())) {
-    DCHECK(resource_identifier_map_.find(identifier) ==
-           resource_identifier_map_.end());
-    resource_identifier_map_[identifier] =
-        DescriptionSuitableForTestResult(request_url);
-  }
-
-  if (test_runner_->shouldDumpResourceLoadCallbacks()) {
-    if (resource_identifier_map_.find(identifier) ==
-        resource_identifier_map_.end())
-      delegate_->PrintMessage("<unknown>");
-    else
-      delegate_->PrintMessage(resource_identifier_map_[identifier]);
+  if (test_runner()->shouldDumpResourceLoadCallbacks()) {
+    delegate_->PrintMessage(DescriptionSuitableForTestResult(request_url));
     delegate_->PrintMessage(" - willSendRequest <NSURLRequest URL ");
     delegate_->PrintMessage(
         DescriptionSuitableForTestResult(request_url).c_str());
@@ -561,22 +539,12 @@ void WebFrameTestClient::willSendRequest(
     delegate_->PrintMessage(URLDescription(main_document_url).c_str());
     delegate_->PrintMessage(", http method ");
     delegate_->PrintMessage(request.httpMethod().utf8().data());
-    delegate_->PrintMessage("> redirectResponse ");
-    PrintResponseDescription(delegate_, redirect_response);
-    delegate_->PrintMessage("\n");
+    delegate_->PrintMessage(">\n");
   }
 
-  if (test_runner_->shouldDumpResourcePriorities()) {
-    delegate_->PrintMessage(
-        DescriptionSuitableForTestResult(request_url).c_str());
-    delegate_->PrintMessage(" has priority ");
-    delegate_->PrintMessage(PriorityDescription(request.getPriority()));
-    delegate_->PrintMessage("\n");
-  }
-
-  if (test_runner_->httpHeadersToClear()) {
+  if (test_runner()->httpHeadersToClear()) {
     const std::set<std::string>* clearHeaders =
-        test_runner_->httpHeadersToClear();
+        test_runner()->httpHeadersToClear();
     for (std::set<std::string>::const_iterator header = clearHeaders->begin();
          header != clearHeaders->end(); ++header)
       request.clearHTTPHeaderField(blink::WebString::fromUTF8(*header));
@@ -601,23 +569,19 @@ void WebFrameTestClient::willSendRequest(
   // Set the new substituted URL.
   request.setURL(delegate_->RewriteLayoutTestsURL(
       request.url().string().utf8(),
-      test_runner_->is_web_platform_tests_mode()));
+      test_runner()->is_web_platform_tests_mode()));
 }
 
 void WebFrameTestClient::didReceiveResponse(
-    unsigned identifier,
     const blink::WebURLResponse& response) {
-  if (test_runner_->shouldDumpResourceLoadCallbacks()) {
-    if (resource_identifier_map_.find(identifier) ==
-        resource_identifier_map_.end())
-      delegate_->PrintMessage("<unknown>");
-    else
-      delegate_->PrintMessage(resource_identifier_map_[identifier]);
+  if (test_runner()->shouldDumpResourceLoadCallbacks()) {
+    delegate_->PrintMessage(DescriptionSuitableForTestResult(
+        GURL(response.url()).possibly_invalid_spec()));
     delegate_->PrintMessage(" - didReceiveResponse ");
     PrintResponseDescription(delegate_, response);
     delegate_->PrintMessage("\n");
   }
-  if (test_runner_->shouldDumpResourceResponseMIMETypes()) {
+  if (test_runner()->shouldDumpResourceResponseMIMETypes()) {
     GURL url = response.url();
     blink::WebString mime_type = response.mimeType();
     delegate_->PrintMessage(url.ExtractFileName());
@@ -630,41 +594,12 @@ void WebFrameTestClient::didReceiveResponse(
   }
 }
 
-void WebFrameTestClient::didChangeResourcePriority(
-    unsigned identifier,
-    const blink::WebURLRequest::Priority& priority,
-    int intra_priority_value) {
-  if (test_runner_->shouldDumpResourcePriorities()) {
-    if (resource_identifier_map_.find(identifier) ==
-        resource_identifier_map_.end())
-      delegate_->PrintMessage("<unknown>");
-    else
-      delegate_->PrintMessage(resource_identifier_map_[identifier]);
-    delegate_->PrintMessage(base::StringPrintf(
-        " changed priority to %s, intra_priority %d\n",
-        PriorityDescription(priority).c_str(), intra_priority_value));
-  }
-}
-
-void WebFrameTestClient::didFinishResourceLoad(blink::WebLocalFrame* frame,
-                                               unsigned identifier) {
-  if (test_runner_->shouldDumpResourceLoadCallbacks()) {
-    if (resource_identifier_map_.find(identifier) ==
-        resource_identifier_map_.end())
-      delegate_->PrintMessage("<unknown>");
-    else
-      delegate_->PrintMessage(resource_identifier_map_[identifier]);
-    delegate_->PrintMessage(" - didFinishLoading\n");
-  }
-  resource_identifier_map_.erase(identifier);
-}
-
 void WebFrameTestClient::didAddMessageToConsole(
     const blink::WebConsoleMessage& message,
     const blink::WebString& source_name,
     unsigned source_line,
     const blink::WebString& stack_trace) {
-  if (!test_runner_->ShouldDumpConsoleMessages())
+  if (!test_runner()->ShouldDumpConsoleMessages())
     return;
   std::string level;
   switch (message.level) {
@@ -705,7 +640,7 @@ void WebFrameTestClient::didAddMessageToConsole(
 
 blink::WebNavigationPolicy WebFrameTestClient::decidePolicyForNavigation(
     const blink::WebFrameClient::NavigationPolicyInfo& info) {
-  if (test_runner_->shouldDumpNavigationPolicy()) {
+  if (test_runner()->shouldDumpNavigationPolicy()) {
     delegate_->PrintMessage("Default policy for navigation to '" +
                             URLDescription(info.urlRequest.url()) + "' is '" +
                             WebNavigationPolicyToString(info.defaultPolicy) +
@@ -713,20 +648,20 @@ blink::WebNavigationPolicy WebFrameTestClient::decidePolicyForNavigation(
   }
 
   blink::WebNavigationPolicy result;
-  if (!test_runner_->policyDelegateEnabled())
+  if (!test_runner()->policyDelegateEnabled())
     return info.defaultPolicy;
 
   delegate_->PrintMessage(
       std::string("Policy delegate: attempt to load ") +
       URLDescription(info.urlRequest.url()) + " with navigation type '" +
       WebNavigationTypeToString(info.navigationType) + "'\n");
-  if (test_runner_->policyDelegateIsPermissive())
+  if (test_runner()->policyDelegateIsPermissive())
     result = blink::WebNavigationPolicyCurrentTab;
   else
     result = blink::WebNavigationPolicyIgnore;
 
-  if (test_runner_->policyDelegateShouldNotifyDone()) {
-    test_runner_->policyDelegateDone();
+  if (test_runner()->policyDelegateShouldNotifyDone()) {
+    test_runner()->policyDelegateDone();
     result = blink::WebNavigationPolicyIgnore;
   }
 
@@ -748,8 +683,9 @@ void WebFrameTestClient::checkIfAudioSinkExistsAndIsAuthorized(
 }
 
 void WebFrameTestClient::didClearWindowObject(blink::WebLocalFrame* frame) {
-  web_test_proxy_base_->test_interfaces()->BindTo(frame);
-  web_test_proxy_base_->BindTo(frame);
+  web_view_test_proxy_base_->test_interfaces()->BindTo(frame);
+  web_view_test_proxy_base_->BindTo(frame);
+  delegate_->GetWebWidgetTestProxyBase(frame)->BindTo(frame);
 }
 
 bool WebFrameTestClient::runFileChooser(
@@ -758,6 +694,15 @@ bool WebFrameTestClient::runFileChooser(
   delegate_->PrintMessage("Mock: Opening a file chooser.\n");
   // FIXME: Add ability to set file names to a file upload control.
   return false;
+}
+
+blink::WebEffectiveConnectionType
+WebFrameTestClient::getEffectiveConnectionType() {
+  return test_runner()->effective_connection_type();
+}
+
+TestRunner* WebFrameTestClient::test_runner() {
+  return web_view_test_proxy_base_->test_interfaces()->GetTestRunner();
 }
 
 }  // namespace test_runner

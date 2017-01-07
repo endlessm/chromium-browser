@@ -7,8 +7,8 @@
 #include "chrome/browser/search/contextual_search_policy_handler_android.h"
 #include "chrome/common/pref_names.h"
 #include "components/policy/core/common/policy_map.h"
+#include "components/policy/policy_constants.h"
 #include "components/prefs/pref_value_map.h"
-#include "policy/policy_constants.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace policy {
@@ -27,7 +27,7 @@ TEST(ContextualSearchPolicyHandlerAndroidTest, Enabled) {
   PolicyMap policy;
   policy.Set(key::kContextualSearchEnabled, POLICY_LEVEL_MANDATORY,
              POLICY_SCOPE_USER, POLICY_SOURCE_PLATFORM,
-             base::WrapUnique(new base::FundamentalValue(true)), nullptr);
+             base::MakeUnique<base::FundamentalValue>(true), nullptr);
   PrefValueMap prefs;
   ContextualSearchPolicyHandlerAndroid handler;
   handler.ApplyPolicySettings(policy, &prefs);
@@ -42,7 +42,7 @@ TEST(ContextualSearchPolicyHandlerAndroidTest, Disabled) {
   PolicyMap policy;
   policy.Set(key::kContextualSearchEnabled, POLICY_LEVEL_MANDATORY,
              POLICY_SCOPE_USER, POLICY_SOURCE_PLATFORM,
-             base::WrapUnique(new base::FundamentalValue(false)), nullptr);
+             base::MakeUnique<base::FundamentalValue>(false), nullptr);
   PrefValueMap prefs;
   ContextualSearchPolicyHandlerAndroid handler;
   handler.ApplyPolicySettings(policy, &prefs);

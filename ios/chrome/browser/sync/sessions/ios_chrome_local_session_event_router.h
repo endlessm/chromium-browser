@@ -2,8 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#ifndef IOS_CHROME_BROWSER_SYNC_SESSIONS_IOS_CHROME_LOCAL_EVENT_SESSION_ROUTER_H_
-#define IOS_CHROME_BROWSER_SYNC_SESSIONS_IOS_CHROME_LOCAL_EVENT_SESSION_ROUTER_H_
+#ifndef IOS_CHROME_BROWSER_SYNC_SESSIONS_IOS_CHROME_LOCAL_SESSION_EVENT_ROUTER_H_
+#define IOS_CHROME_BROWSER_SYNC_SESSIONS_IOS_CHROME_LOCAL_SESSION_EVENT_ROUTER_H_
 
 #include <stddef.h>
 
@@ -12,9 +12,9 @@
 
 #include "base/callback_list.h"
 #include "base/macros.h"
+#include "components/sync/api/syncable_service.h"
 #include "components/sync_sessions/local_session_event_router.h"
 #include "ios/web/public/web_state/global_web_state_observer.h"
-#include "sync/api/syncable_service.h"
 
 class GURL;
 
@@ -29,7 +29,7 @@ class SyncSessionsClient;
 // A LocalEventRouter that drives session sync via observation of
 // web::WebState-related events.
 class IOSChromeLocalSessionEventRouter
-    : public browser_sync::LocalSessionEventRouter,
+    : public sync_sessions::LocalSessionEventRouter,
       public web::GlobalWebStateObserver {
  public:
   IOSChromeLocalSessionEventRouter(
@@ -39,7 +39,8 @@ class IOSChromeLocalSessionEventRouter
   ~IOSChromeLocalSessionEventRouter() override;
 
   // LocalEventRouter:
-  void StartRoutingTo(browser_sync::LocalSessionEventHandler* handler) override;
+  void StartRoutingTo(
+      sync_sessions::LocalSessionEventHandler* handler) override;
   void Stop() override;
 
   // web::GlobalWebStateObserver:
@@ -68,7 +69,7 @@ class IOSChromeLocalSessionEventRouter
   // and vice versa.
   void OnFaviconsChanged(const std::set<GURL>& page_urls, const GURL& icon_url);
 
-  browser_sync::LocalSessionEventHandler* handler_;
+  sync_sessions::LocalSessionEventHandler* handler_;
   ios::ChromeBrowserState* const browser_state_;
   sync_sessions::SyncSessionsClient* const sessions_client_;
   syncer::SyncableService::StartSyncFlare flare_;
@@ -83,4 +84,4 @@ class IOSChromeLocalSessionEventRouter
   DISALLOW_COPY_AND_ASSIGN(IOSChromeLocalSessionEventRouter);
 };
 
-#endif  // IOS_CHROME_BROWSER_SYNC_SESSIONS_IOS_CHROME_LOCAL_EVENT_SESSION_ROUTER_H_
+#endif  // IOS_CHROME_BROWSER_SYNC_SESSIONS_IOS_CHROME_LOCAL_SESSION_EVENT_ROUTER_H_

@@ -15,6 +15,7 @@ import org.chromium.base.test.util.DisabledTest;
 import org.chromium.base.test.util.Feature;
 import org.chromium.base.test.util.FlakyTest;
 import org.chromium.base.test.util.Restriction;
+import org.chromium.base.test.util.RetryOnFailure;
 import org.chromium.chrome.browser.prerender.ExternalPrerenderHandler;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.test.ChromeTabbedActivityTestBase;
@@ -49,7 +50,7 @@ public class PrerenderTest extends ChromeTabbedActivityTestBase {
 
     /**
      * We are using Autocomplete Action Predictor to decide whether or not to prerender.
-    /* Without any training data the default action should be no-prerender.
+     * Without any training data the default action should be no-prerender.
      */
     @LargeTest
     @Restriction({RESTRICTION_TYPE_NON_LOW_END_DEVICE})
@@ -110,6 +111,7 @@ public class PrerenderTest extends ChromeTabbedActivityTestBase {
     @LargeTest
     @Restriction({RESTRICTION_TYPE_NON_LOW_END_DEVICE})
     @Feature({"TabContents"})
+    @RetryOnFailure
     public void testPageLoadFinishNotification() throws InterruptedException {
         String url = mTestServer.getURL("/chrome/test/data/android/prerender/google.html");
         PrerenderTestHelper.prerenderUrl(url, getActivity().getActivityTab());
@@ -127,7 +129,7 @@ public class PrerenderTest extends ChromeTabbedActivityTestBase {
     @Restriction({RESTRICTION_TYPE_NON_LOW_END_DEVICE})
     @Feature({"TabContents"})
     */
-    @DisabledTest  // Prerenderer disables infobars. crbug.com/588808
+    @DisabledTest(message = "Prerenderer disables infobars. crbug.com/588808")
     public void testInfoBarDismissed() throws InterruptedException {
         final String url = mTestServer.getURL(
                 "/chrome/test/data/geolocation/geolocation_on_load.html");

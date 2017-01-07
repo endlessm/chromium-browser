@@ -20,6 +20,9 @@
 #include "chrome/common/pref_names.h"
 #include "chrome/test/base/ui_test_utils.h"
 #include "chromeos/settings/cros_settings_names.h"
+#if defined(GOOGLE_CHROME_BUILD)
+#include "components/spellcheck/browser/pref_names.h"
+#endif
 #include "components/prefs/pref_service.h"
 #include "components/signin/core/browser/signin_manager.h"
 #include "components/user_manager/user_manager.h"
@@ -79,7 +82,7 @@ const PrefTest kPrefTests[] = {
   { kAccountsPrefSupervisedUsersEnabled, true, false },
 #if defined(GOOGLE_CHROME_BUILD)
   { kStatsReportingPref, true, true },
-  { prefs::kSpellCheckUseSpellingService, false, false },
+  { spellcheck::prefs::kSpellCheckUseSpellingService, false, false },
 #endif
 };
 
@@ -356,7 +359,7 @@ IN_PROC_BROWSER_TEST_F(SharedOptionsTest, ScreenLockPreferencePrimary) {
   // Set the secondary user's preference to true, and reload the primary user's
   // browser to see the updated controlled-by indicator.
   prefs2->SetBoolean(prefs::kEnableAutoScreenLock, true);
-  chrome::Reload(browser, CURRENT_TAB);
+  chrome::Reload(browser, WindowOpenDisposition::CURRENT_TAB);
   content::WaitForLoadStop(contents);
   {
     SCOPED_TRACE("Screen lock false for primary user");
@@ -437,7 +440,7 @@ IN_PROC_BROWSER_TEST_F(SharedOptionsTest, ScreenLockPreferenceSecondary) {
   // Set the preference to false for the primary user and check that the
   // indicator disappears.
   prefs1->SetBoolean(prefs::kEnableAutoScreenLock, false);
-  chrome::Reload(browser, CURRENT_TAB);
+  chrome::Reload(browser, WindowOpenDisposition::CURRENT_TAB);
   content::WaitForLoadStop(contents);
   {
     SCOPED_TRACE("Screen lock false for both users");

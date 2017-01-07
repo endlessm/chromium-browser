@@ -21,6 +21,7 @@ examples/api/var_array_buffer/*
 examples/api/var_dictionary/*
 examples/api/video_decode/*
 examples/api/video_encode/*
+examples/api/vpn_provider/*
 examples/api/websocket/*
 examples/button_close.png
 examples/button_close_hover.png
@@ -489,6 +490,5 @@ tools/oshelpers.py
 tools/run.py
 tools/sel_ldr.py
 [linux]tools/sel_ldr_arm
-[linux]tools/sel_ldr_x86_32${EXE_EXT}
-[win]tools/sel_ldr_x86_32${EXE_EXT}
+tools/sel_ldr_x86_32${EXE_EXT}
 tools/sel_ldr_x86_64${EXE_EXT}

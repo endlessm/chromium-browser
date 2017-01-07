@@ -155,10 +155,6 @@ class FileManagerPrivateGetSizeStatsFunction
   bool RunAsync() override;
 
  private:
-  void OnGetLocalSpace(uint64_t* total_size,
-                       uint64_t* remaining_size,
-                       bool is_download);
-
   void OnGetDriveAvailableSpace(drive::FileError error,
                                 int64_t bytes_total,
                                 int64_t bytes_used);
@@ -338,6 +334,22 @@ class FileManagerPrivateInternalSetEntryTagFunction
 
   ExtensionFunction::ResponseAction Run() override;
   DISALLOW_COPY_AND_ASSIGN(FileManagerPrivateInternalSetEntryTagFunction);
+};
+
+// Implements the chrome.fileManagerPrivate.getDirectorySize method.
+class FileManagerPrivateInternalGetDirectorySizeFunction
+    : public LoggedAsyncExtensionFunction {
+ public:
+  DECLARE_EXTENSION_FUNCTION("fileManagerPrivateInternal.getDirectorySize",
+                             FILEMANAGERPRIVATEINTERNAL_GETDIRECTORYSIZE)
+
+ protected:
+  ~FileManagerPrivateInternalGetDirectorySizeFunction() override {}
+
+  void OnDirectorySizeRetrieved(int64_t size);
+
+  // AsyncExtensionFunction overrides
+  bool RunAsync() override;
 };
 
 }  // namespace extensions

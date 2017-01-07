@@ -24,9 +24,7 @@
 #include "base/win/windows_version.h"
 #include "chrome/browser/lifetime/application_lifetime.h"
 #include "chrome/browser/platform_util_internal.h"
-#include "chrome/grit/generated_resources.h"
 #include "content/public/browser/browser_thread.h"
-#include "ui/base/l10n/l10n_util.h"
 #include "ui/base/win/shell.h"
 #include "ui/gfx/native_widget_types.h"
 #include "url/gurl.h"
@@ -62,7 +60,7 @@ void ShowItemInFolderOnFileThread(const base::FilePath& full_path) {
     // the process.
     HMODULE shell32_base = GetModuleHandle(L"shell32.dll");
     if (!shell32_base) {
-      NOTREACHED() << " " << __FUNCTION__ << "(): Can't open shell32.dll";
+      NOTREACHED() << " " << __func__ << "(): Can't open shell32.dll";
       return;
     }
     open_folder_and_select_itemsPtr =
@@ -105,7 +103,7 @@ void ShowItemInFolderOnFileThread(const base::FilePath& full_path) {
     if (hr == ERROR_FILE_NOT_FOUND) {
       ShellExecute(NULL, L"open", dir.value().c_str(), NULL, NULL, SW_SHOW);
     } else {
-      LOG(WARNING) << " " << __FUNCTION__ << "(): Can't open full_path = \""
+      LOG(WARNING) << " " << __func__ << "(): Can't open full_path = \""
                    << full_path.value() << "\""
                    << " hr = " << logging::SystemErrorCodeToString(hr);
     }

@@ -279,13 +279,23 @@ class ThreadWatcherTest : public ::testing::Test {
     thread_watcher_list_ = new ThreadWatcherList();
 
     // Create thread watcher object for the IO thread.
-    io_watcher_ = new CustomThreadWatcher(BrowserThread::IO, kIOThreadName,
-                                          kSleepTime, kUnresponsiveTime);
+    std::unique_ptr<CustomThreadWatcher> io_watcher(
+        new CustomThreadWatcher(BrowserThread::IO, kIOThreadName,
+                                kSleepTime, kUnresponsiveTime));
+    io_watcher_ = io_watcher.get();
+    ThreadWatcher* registered_io_watcher =
+        ThreadWatcherList::Register(std::move(io_watcher));
+    EXPECT_EQ(io_watcher_, registered_io_watcher);
     EXPECT_EQ(io_watcher_, thread_watcher_list_->Find(BrowserThread::IO));
 
     // Create thread watcher object for the DB thread.
-    db_watcher_ = new CustomThreadWatcher(BrowserThread::DB, kDBThreadName,
-                                          kSleepTime, kUnresponsiveTime);
+    std::unique_ptr<CustomThreadWatcher> db_watcher(
+        new CustomThreadWatcher(BrowserThread::DB, kDBThreadName,
+                                kSleepTime, kUnresponsiveTime));
+    db_watcher_ = db_watcher.get();
+    ThreadWatcher* registered_db_watcher =
+        ThreadWatcherList::Register(std::move(db_watcher));
+    EXPECT_EQ(db_watcher_, registered_db_watcher);
     EXPECT_EQ(db_watcher_, thread_watcher_list_->Find(BrowserThread::DB));
 
     {
@@ -707,7 +717,7 @@ TEST_F(ThreadWatcherListTest, Restart) {
       FROM_HERE, message_loop_for_ui.QuitWhenIdleClosure(),
       base::TimeDelta::FromSeconds(
           ThreadWatcherList::g_initialize_delay_seconds));
-  message_loop_for_ui.Run();
+  base::RunLoop().Run();
 
   CheckState(false /* has_thread_watcher_list */,
              true /* stopped */,
@@ -719,7 +729,7 @@ TEST_F(ThreadWatcherListTest, Restart) {
       FROM_HERE, message_loop_for_ui.QuitWhenIdleClosure(),
       base::TimeDelta::FromSeconds(
           ThreadWatcherList::g_initialize_delay_seconds + 1));
-  message_loop_for_ui.Run();
+  base::RunLoop().Run();
 
   CheckState(true /* has_thread_watcher_list */,
              false /* stopped */,
@@ -731,7 +741,7 @@ TEST_F(ThreadWatcherListTest, Restart) {
       FROM_HERE, message_loop_for_ui.QuitWhenIdleClosure(),
       base::TimeDelta::FromSeconds(
           ThreadWatcherList::g_initialize_delay_seconds));
-  message_loop_for_ui.Run();
+  base::RunLoop().Run();
 
   CheckState(false /* has_thread_watcher_list */,
              true /* stopped */,
@@ -741,7 +751,7 @@ TEST_F(ThreadWatcherListTest, Restart) {
 class TestingJankTimeBomb : public JankTimeBomb {
  public:
   explicit TestingJankTimeBomb(base::TimeDelta duration)
-      : JankTimeBomb(duration),
+      : JankTimeBomb(duration, metrics::CallStackProfileParams::UI_THREAD),
         thread_id_(base::PlatformThread::CurrentId()),
         alarm_invoked_(false) {
   }

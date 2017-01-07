@@ -68,7 +68,7 @@ class FileWriteWatcherTest : public testing::Test {
   void SetUp() override { ASSERT_TRUE(temp_dir_.CreateUniqueTempDir()); }
 
   base::FilePath GetTempPath(const std::string& name) {
-    return temp_dir_.path().Append(name);
+    return temp_dir_.GetPath().Append(name);
   }
 
  private:
@@ -89,7 +89,7 @@ TEST_F(FileWriteWatcherTest, WatchThreeFiles) {
 
   // Set up the watcher.
   scoped_refptr<base::SingleThreadTaskRunner> file_task_runner =
-      content::BrowserThread::GetMessageLoopProxyForThread(
+      content::BrowserThread::GetTaskRunnerForThread(
           content::BrowserThread::FILE);
   FileWriteWatcher watcher(file_task_runner.get());
   watcher.DisableDelayForTesting();

@@ -65,7 +65,6 @@ Voor meer informatie over privacy bekijk je het Privacybeleid van Google (http:/
 <translation id="2359808026110333948">Doorgaan</translation>
 <translation id="2366718077645204424">Kan de host niet bereiken. Dit komt waarschijnlijk door de configuratie van het netwerk dat je gebruikt.</translation>
 <translation id="2370754117186920852"><ph name="OPTIONAL_OFFLINE_REASON" />  Laatst online gezien: <ph name="RELATIVE_TIMESTAMP" />.</translation>
-<translation id="2498359688066513246">Help en feedback</translation>
 <translation id="2499160551253595098">Help ons Chrome Remote Desktop te verbeteren door ons toestemming te geven gebruiksstatistieken en crashrapporten te verzamelen.</translation>
 <translation id="2512228156274966424">Opmerking: als je er zeker van wilt zijn dat alle sneltoetsen beschikbaar zijn, kun je Chrome Remote Desktop configureren om de modus 'Openen als venster' te gebruiken.</translation>
 <translation id="2540992418118313681">Wil je deze computer delen zodat een andere gebruiker deze kan bekijken en bedienen?</translation>
@@ -74,7 +73,6 @@ Voor meer informatie over privacy bekijk je het Privacybeleid van Google (http:/
 <translation id="2676780859508944670">Bezig…</translation>
 <translation id="2699970397166997657">Chromoting</translation>
 <translation id="2747641796667576127">Software-updates worden gewoonlijk automatisch uitgevoerd, maar kunnen in zeldzame gevallen mislukken. Het bijwerken van de software duurt slechts een paar minuten en kan worden gedaan terwijl je extern bent verbonden met je computer.</translation>
-<translation id="2813770873348017932">Verbindingen met de externe computer zijn tijdelijk geblokkeerd omdat iemand heeft geprobeerd met een ongeldige pincode verbinding te maken met de computer. Probeer het later opnieuw.</translation>
 <translation id="2841013758207633010">Tijd</translation>
 <translation id="2851674870054673688">Zodra deze persoon de code opgeeft, wordt je deelsessie gestart.</translation>
 <translation id="2851754573186462851">Streaming via Chromium-app</translation>
@@ -149,7 +147,6 @@ host</translation>
 <translation id="4573676252416618192">Chrome Remote
 Desktop-host</translation>
 <translation id="4619978527973181021">Accepteren en installeren</translation>
-<translation id="4647791084836149355">Cardboard-weergave tonen</translation>
 <translation id="4703302905453407178">Een vereiste component werkt niet meer. Meld dit probleem aan de ontwikkelaars.</translation>
 <translation id="4703799847237267011">Je Chromoting-sessie is beëindigd.</translation>
 <translation id="4736223761657662401">Verbindingsgeschiedenis</translation>
@@ -210,7 +207,6 @@ Desktop-host</translation>
 <translation id="6284412385303060032">De host die werd uitgevoerd op het console-inlogscherm, is uitgeschakeld om de gordijnmodus te ondersteunen door over te schakelen naar een host die in een gebruikersspecifieke sessie wordt uitgevoerd.</translation>
 <translation id="629730747756840877">Account</translation>
 <translation id="6304318647555713317">Client</translation>
-<translation id="6324708100353784493">Je hebt de integratiemodus voor Google Cardboard ingeschakeld. Als je deze modus wilt gebruiken, plaats je je apparaat in een Google Cardboard-viewer.</translation>
 <translation id="6381670701864002291">Iets anders.</translation>
 <translation id="6398765197997659313">Volledig scherm sluiten</translation>
 <translation id="6408143143164565232">• Luisteren naar audio vanaf Windows- of Linux-computers.
@@ -236,6 +232,7 @@ Desktop-host</translation>
 <translation id="6930242544192836755">Duur</translation>
 <translation id="6939719207673461467">Toetsenbord weergeven/verbergen.</translation>
 <translation id="6944854424004126054">Venster herstellen</translation>
+<translation id="6963936880795878952">Verbindingen met de externe computer zijn tijdelijk geblokkeerd omdat iemand heeft geprobeerd met een ongeldige pincode verbinding te maken met de computer. Probeer het later opnieuw.</translation>
 <translation id="6965382102122355670">OK</translation>
 <translation id="6985691951107243942">Weet je zeker dat je externe verbindingen met <ph name="HOSTNAME" /> wilt uitschakelen? Als je van gedachten verandert, moet je naar die computer gaan om de verbindingen weer in te schakelen.</translation>
 <translation id="6998989275928107238">Aan</translation>
@@ -266,6 +263,7 @@ Desktop-host</translation>
 <translation id="7948001860594368197">Schermopties</translation>
 <translation id="7970576581263377361">Verificatie mislukt. Log opnieuw in bij Chromium.</translation>
 <translation id="7981525049612125370">De externe sessie is verlopen.</translation>
+<translation id="8041089156583427627">Feedback verzenden</translation>
 <translation id="8041721485428375115">Door het installatieprogramma voor de Chrome Remote Desktop-host te downloaden, ga je akkoord met de <ph name="LINK_BEGIN" />Servicevoorwaarden<ph name="LINK_END" /> van Google.</translation>
 <translation id="8073845705237259513">Als je Chrome Remote Desktop wilt gebruiken, moet je een Google-account aan je apparaat toevoegen.</translation>
 <translation id="80739703311984697">De externe host vereist dat je op een website van derden wordt geverifieerd. Als je wilt doorgaan, moet je Chromoting aanvullende machtigingen geven om toegang tot dit adres te krijgen:</translation>
@@ -289,6 +287,7 @@ Desktop-host</translation>
 <translation id="8548209692293300397">Je bent eerder ingelogd als <ph name="USER_NAME" /> (<ph name="USER_EMAIL" />). Als je toegang wilt tot je computers met dat account, <ph name="LINK_BEGIN" />log je in bij Google Chrome<ph name="LINK_END" /> met dat account en installeer je Chrome Remote Desktop opnieuw.</translation>
 <translation id="8642984861538780905">Redelijk</translation>
 <translation id="8712909229180978490">Ik kan mijn opgeslagen bestanden niet online zien in Google Drive.</translation>
+<translation id="8743328882720071828">Wil je toestaan dat <ph name="CLIENT_USERNAME" /> je computer ziet en beheert?</translation>
 <translation id="8759753423332885148">Meer informatie.</translation>
 <translation id="8791202241915690908">Installatieprogramma voor Chromoting-host downloaden</translation>
 <translation id="894763922177556086">Goed</translation>

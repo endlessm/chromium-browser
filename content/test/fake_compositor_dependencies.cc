@@ -9,7 +9,6 @@
 #include "base/memory/ptr_util.h"
 #include "base/single_thread_task_runner.h"
 #include "base/threading/thread_task_runner_handle.h"
-#include "cc/test/fake_external_begin_frame_source.h"
 #include "third_party/khronos/GLES2/gl2.h"
 #include "ui/gfx/buffer_types.h"
 
@@ -60,9 +59,10 @@ bool FakeCompositorDependencies::IsGpuMemoryBufferCompositorResourcesEnabled() {
 bool FakeCompositorDependencies::IsElasticOverscrollEnabled() {
   return true;
 }
-std::vector<unsigned> FakeCompositorDependencies::GetImageTextureTargets() {
-  return std::vector<unsigned>(static_cast<size_t>(gfx::BufferFormat::LAST) + 1,
-                               GL_TEXTURE_2D);
+
+const cc::BufferToTextureTargetMap&
+FakeCompositorDependencies::GetBufferToTextureTargetMap() {
+  return buffer_to_texture_target_map_;
 }
 
 scoped_refptr<base::SingleThreadTaskRunner>
@@ -84,17 +84,9 @@ FakeCompositorDependencies::GetGpuMemoryBufferManager() {
   return &gpu_memory_buffer_manager_;
 }
 
-scheduler::RendererScheduler*
+blink::scheduler::RendererScheduler*
 FakeCompositorDependencies::GetRendererScheduler() {
   return &renderer_scheduler_;
-}
-
-std::unique_ptr<cc::BeginFrameSource>
-FakeCompositorDependencies::CreateExternalBeginFrameSource(int routing_id) {
-  double refresh_rate = 200.0;
-  bool tick_automatically = true;
-  return base::MakeUnique<cc::FakeExternalBeginFrameSource>(refresh_rate,
-                                                            tick_automatically);
 }
 
 cc::ImageSerializationProcessor*

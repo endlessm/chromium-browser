@@ -10,9 +10,11 @@
 #include "base/callback_forward.h"
 #include "base/macros.h"
 #include "chrome/browser/android/shortcut_info.h"
+#include "chrome/browser/android/webapk/webapk_installer.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 
 namespace content {
+class BrowserContext;
 class WebContents;
 }  // namespace content
 
@@ -23,18 +25,39 @@ class ShortcutHelper {
   // Registers JNI hooks.
   static bool RegisterShortcutHelper(JNIEnv* env);
 
-  // Adds a shortcut to the launcher using a SkBitmap. If the shortcut is for
-  // a standalone-capable site, |splash_image_callback| will be invoked once the
-  // Java-side operation has completed. This is necessary as Java will
-  // asynchronously create and populate a WebappDataStorage object for
-  // standalone-capable sites. This must exist before the splash image can be
-  // stored.
-  // Must not be called on the UI thread.
-  static void AddShortcutInBackgroundWithSkBitmap(
+  // Adds a shortcut to the launcher using a SkBitmap. The type of shortcut
+  // added depends on the properties in |info|. Calls one of
+  // InstallWebApkInBackgroundWithSkBitmap, AddWebappInBackgroundWithSkBitmap,
+  // or AddShortcutInBackgroundWithSkBitmap.
+  static void AddToLauncherWithSkBitmap(
+      content::BrowserContext* browser_context,
       const ShortcutInfo& info,
       const std::string& webapp_id,
       const SkBitmap& icon_bitmap,
       const base::Closure& splash_image_callback);
+
+  // Installs WebAPK and adds shortcut to the launcher.
+  static void InstallWebApkWithSkBitmap(
+      content::BrowserContext* browser_context,
+      const ShortcutInfo& info,
+      const SkBitmap& icon_bitmap,
+      const WebApkInstaller::FinishCallback& callback);
+
+  // Adds a shortcut which opens in a fullscreen window to the launcher.
+  // |splash_image_callback| will be invoked once the Java-side operation has
+  // completed. This is necessary as Java will asynchronously create and
+  // populate a WebappDataStorage object for standalone-capable sites. This must
+  // exist before the splash image can be stored.
+  static void AddWebappWithSkBitmap(
+      const ShortcutInfo& info,
+      const std::string& webapp_id,
+      const SkBitmap& icon_bitmap,
+      const base::Closure& splash_image_callback);
+
+  // Adds a shortcut which opens in a browser tab to the launcher.
+  static void AddShortcutWithSkBitmap(
+      const ShortcutInfo& info,
+      const SkBitmap& icon_bitmap);
 
   // Returns the ideal size for an icon representing a web app.
   static int GetIdealHomescreenIconSizeInDp();
@@ -68,9 +91,22 @@ class ShortcutHelper {
   // Returns the given icon, modified to match the launcher requirements.
   // This method may generate an entirely new icon; if this is the case,
   // |is_generated| will be set to |true|.
-  static SkBitmap FinalizeLauncherIcon(const SkBitmap& icon,
-                                       const GURL& url,
-                                       bool* is_generated);
+  // Must be called on a background worker thread.
+  static SkBitmap FinalizeLauncherIconInBackground(const SkBitmap& icon,
+                                                   const GURL& url,
+                                                   bool* is_generated);
+
+  // Returns the package name of the WebAPK if WebAPKs are enabled and there is
+  // an installed WebAPK which can handle |url|. Returns empty string otherwise.
+  static std::string QueryWebApkPackage(const GURL& url);
+
+  // Returns true if WebAPKs are enabled and there is an installed WebAPK which
+  // can handle |url|.
+  static bool IsWebApkInstalled(const GURL& url);
+
+  // Generates a scope URL based on the passed in |url|. It should be used
+  // when the Web Manifest does not specify a scope URL.
+  static GURL GetScopeFromURL(const GURL& url);
 
  private:
   ShortcutHelper() = delete;

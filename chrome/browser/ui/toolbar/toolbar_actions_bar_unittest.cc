@@ -20,9 +20,12 @@
 #include "chrome/browser/ui/toolbar/toolbar_actions_bar.h"
 #include "chrome/browser/ui/toolbar/toolbar_actions_bar_delegate.h"
 #include "chrome/common/pref_names.h"
+#include "chrome/test/base/scoped_testing_local_state.h"
+#include "chrome/test/base/testing_browser_process.h"
 #include "extensions/browser/extension_prefs.h"
 #include "extensions/browser/extension_system.h"
 #include "extensions/common/extension.h"
+#include "extensions/common/feature_switch.h"
 #include "ui/base/test/material_design_controller_test_api.h"
 
 namespace {
@@ -85,20 +88,15 @@ std::string VerifyToolbarOrderForBar(
 }  // namespace
 
 ToolbarActionsBarUnitTest::ToolbarActionsBarUnitTest()
-    : toolbar_model_(nullptr),
-      use_redesign_(false) {}
-
-ToolbarActionsBarUnitTest::ToolbarActionsBarUnitTest(bool use_redesign)
-    : toolbar_model_(nullptr),
-      use_redesign_(use_redesign) {}
+    : toolbar_model_(nullptr) {}
 
 ToolbarActionsBarUnitTest::~ToolbarActionsBarUnitTest() {}
 
 void ToolbarActionsBarUnitTest::SetUp() {
-  redesign_switch_.reset(new extensions::FeatureSwitch::ScopedOverride(
-      extensions::FeatureSwitch::extension_action_redesign(), use_redesign_));
-
   BrowserWithTestWindowTest::SetUp();
+  local_state_.reset(
+      new ScopedTestingLocalState(TestingBrowserProcess::GetGlobal()));
+
   // The toolbar typically displays extension icons, so create some extension
   // test infrastructure.
   extensions::TestExtensionSystem* extension_system =
@@ -117,7 +115,7 @@ void ToolbarActionsBarUnitTest::SetUp() {
   ToolbarActionsBar::disable_animations_for_testing_ = true;
   browser_action_test_util_.reset(new BrowserActionTestUtil(browser(), false));
 
-  if (use_redesign_) {
+  if (extensions::FeatureSwitch::extension_action_redesign()->IsEnabled()) {
     overflow_browser_action_test_util_ =
         browser_action_test_util_->CreateOverflowBar();
   }
@@ -129,8 +127,8 @@ void ToolbarActionsBarUnitTest::TearDown() {
   browser_action_test_util_.reset();
   overflow_browser_action_test_util_.reset();
   ToolbarActionsBar::disable_animations_for_testing_ = false;
-  redesign_switch_.reset();
   material_design_state_.reset();
+  local_state_.reset();
   BrowserWithTestWindowTest::TearDown();
 }
 
@@ -171,7 +169,7 @@ testing::AssertionResult ToolbarActionsBarUnitTest::VerifyToolbarOrder(
                                total_size,
                                visible_count);
   std::string overflow_bar_error;
-  if (use_redesign_) {
+  if (extensions::FeatureSwitch::extension_action_redesign()->IsEnabled()) {
     overflow_bar_error =
         VerifyToolbarOrderForBar(overflow_bar(),
                                  overflow_browser_action_test_util(),
@@ -187,18 +185,12 @@ testing::AssertionResult ToolbarActionsBarUnitTest::VerifyToolbarOrder(
           "overflow bar error:\n" << overflow_bar_error;
 }
 
-ToolbarActionsBarRedesignUnitTest::ToolbarActionsBarRedesignUnitTest()
-    : ToolbarActionsBarUnitTest(true) {}
-
-ToolbarActionsBarRedesignUnitTest::~ToolbarActionsBarRedesignUnitTest() {}
-
 // Note: First argument is optional and intentionally left blank.
 // (it's a prefix for the generated test cases)
 INSTANTIATE_TEST_CASE_P(
     ,
     ToolbarActionsBarUnitTest,
-    testing::Values(ui::MaterialDesignController::NON_MATERIAL,
-                    ui::MaterialDesignController::MATERIAL_NORMAL,
+    testing::Values(ui::MaterialDesignController::MATERIAL_NORMAL,
                     ui::MaterialDesignController::MATERIAL_HYBRID));
 
 TEST_P(ToolbarActionsBarUnitTest, BasicToolbarActionsBarTest) {
@@ -409,17 +401,8 @@ TEST_P(ToolbarActionsBarUnitTest, TestHighlightMode) {
   }
 }
 
-// Note: First argument is optional and intentionally left blank.
-// (it's a prefix for the generated test cases)
-INSTANTIATE_TEST_CASE_P(
-    ,
-    ToolbarActionsBarRedesignUnitTest,
-    testing::Values(ui::MaterialDesignController::NON_MATERIAL,
-                    ui::MaterialDesignController::MATERIAL_NORMAL,
-                    ui::MaterialDesignController::MATERIAL_HYBRID));
-
 // Test the bounds calculation for different indices.
-TEST_P(ToolbarActionsBarRedesignUnitTest, TestActionFrameBounds) {
+TEST_P(ToolbarActionsBarUnitTest, TestActionFrameBounds) {
   const int kIconWidth = ToolbarActionsBar::IconWidth(false);
   const int kIconHeight = ToolbarActionsBar::IconHeight();
   const int kIconWidthWithPadding = ToolbarActionsBar::IconWidth(true);
@@ -484,7 +467,7 @@ TEST_P(ToolbarActionsBarRedesignUnitTest, TestActionFrameBounds) {
             overflow_bar()->GetFrameForIndex(6));
 }
 
-TEST_P(ToolbarActionsBarRedesignUnitTest, TestStartAndEndIndexes) {
+TEST_P(ToolbarActionsBarUnitTest, TestStartAndEndIndexes) {
   const int kIconWidthWithPadding = ToolbarActionsBar::IconWidth(true);
   const int kIconSpacing = GetLayoutConstant(TOOLBAR_STANDARD_SPACING);
 
@@ -539,7 +522,7 @@ TEST_P(ToolbarActionsBarRedesignUnitTest, TestStartAndEndIndexes) {
 }
 
 // Tests the logic for determining if the container needs an overflow menu item.
-TEST_P(ToolbarActionsBarRedesignUnitTest, TestNeedsOverflow) {
+TEST_P(ToolbarActionsBarUnitTest, TestNeedsOverflow) {
   CreateAndAddExtension(
       "extension 1",
       extensions::extension_action_test_util::BROWSER_ACTION);

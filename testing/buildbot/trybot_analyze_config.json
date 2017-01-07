@@ -16,10 +16,11 @@
       "build/get_landmines.py",
       "build/gyp_chromium",
       "build/linux/sysroot_ld_path.sh",
+      "build/mac_toolchain.py",
       "build/toolchain/get_concurrent_links.py",
-      "build/toolchain/mac/*.py",
+      "build/toolchain/mac/.*py",
       "build/util/lib/common/unittest_util.py",
-      "infra/.*",
+      "infra/scripts/.*",
       "DEPS",
       "testing/buildbot/.*",
       "testing/scripts/.*",
@@ -27,29 +28,45 @@
       "third_party/android_platform/development/scripts/.*",
       "tools/clang/blink_gc_plugin/CMakeLists.txt",
       "tools/luci-go/.*"
+    ],
+    "ignores": [
+      "infra/config/recipes.cfg",
+      "infra/recipes/.*"
     ]
   },
   "chromium": {
     "exclusions": [
-      "chrome/test/data/.*",
+      "chrome/browser/resources/.*(css|html|js)",
+      "chrome/browser/ui/webui/.*browsertest.*js",
       "chrome/installer/linux/sysroot_scripts/install-debian.wheezy.sysroot.py",
+      "chrome/test/data/.*",
+      "components/about_ui/resources/.*(css|html|js)",
+      "components/flags_ui/resources/.*(css|html|js)",
       "components/test/data/.*",
+      "components/version_ui/resources/.*(css|html|js)",
       "content/test/data/.*",
       "content/test/gpu/.*",
       "extensions/test/data/.*",
       "gpu/gles2_conform_support/gles2_conform_test_expectations.txt",
-      "mojo/tools/.*",
       "media/test/data/.*",
+      "mojo/tools/.*",
       "net/data/.*",
       "sql/test/data/.*",
       "third_party/accessibility-audit/axs_testing.js",
+      "third_party/chaijs/.*(css|html|js)",
+      "third_party/closure_compiler/.*(css|html|js)",
       "third_party/hunspell_dictionaries/.*",
+      "third_party/jstemplate/.*(css|html|js)",
+      "third_party/mocha/.*(css|html|js)",
+      "third_party/polymer/v1_0/components-chromium/.*(css|html|js)",
+      "third_party/web-animations-js/.*(css|html|js)",
       "third_party/zlib/google/test/data/.*",
       "tools/clang/scripts/update.py",
       "tools/mb/.*",
       "tools/metrics/histograms/histograms.xml",
       "tools/perf/.*",
-      "tools/telemetry/.*"
+      "tools/telemetry/.*",
+      "ui/webui/resources/.*(css|html|js)"
     ]
   },
   "ios": {

@@ -10,10 +10,7 @@
 #include <string>
 #include <vector>
 
-#include "base/command_line.h"
 #include "base/macros.h"
-#include "base/metrics/field_trial.h"
-#include "ui/app_list/app_list_switches.h"
 #include "ui/app_list/search_provider.h"
 #include "ui/app_list/search_result.h"
 
@@ -21,53 +18,12 @@ namespace app_list {
 
 namespace {
 
-// The minimum number of results to show, if the AppListMixer field trial is
-// "Blended". If this quota is not reached, the per-group limitations are
-// removed and we try again. (We may still not reach the minumum, but at least
-// we tried.) Ignored if the field trial is off.
-const size_t kMinBlendedResults = 6;
-
-const char kAppListMixerFieldTrialName[] = "AppListMixer";
-const char kAppListMixerFieldTrialEnabled[] = "Blended";
-const char kAppListMixerFieldTrialDisabled[] = "Control";
-
 void UpdateResult(const SearchResult& source, SearchResult* target) {
   target->set_display_type(source.display_type());
   target->set_title(source.title());
   target->set_title_tags(source.title_tags());
   target->set_details(source.details());
   target->set_details_tags(source.details_tags());
-}
-
-// Returns true if the "AppListMixer" trial is set to "Blended". This is an
-// experiment on the new Mixer logic that allows results from different groups
-// to be blended together, rather than stratified.
-bool IsBlendedMixerTrialEnabled() {
-  // Note: It's important to query the field trial state first, to ensure that
-  // UMA reports the correct group.
-  const std::string group_name =
-      base::FieldTrialList::FindFullName(kAppListMixerFieldTrialName);
-
-  // Respect command-line flags first.
-  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
-          switches::kDisableNewAppListMixer)) {
-    return false;
-  }
-
-  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
-          switches::kEnableNewAppListMixer)) {
-    return true;
-  }
-
-  // Next, respect field-trial groups.
-  if (group_name == kAppListMixerFieldTrialEnabled)
-    return true;
-
-  if (group_name == kAppListMixerFieldTrialDisabled)
-    return false;
-
-  // By default, enable the new logic if the experimental app list is enabled.
-  return app_list::switches::IsExperimentalAppListEnabled();
 }
 
 }  // namespace
@@ -87,8 +43,8 @@ bool Mixer::SortData::operator<(const SortData& other) const {
 // Used to group relevant providers together for mixing their results.
 class Mixer::Group {
  public:
-  Group(size_t max_results, double boost, double multiplier)
-      : max_results_(max_results), boost_(boost), multiplier_(multiplier) {}
+  Group(size_t max_results, double multiplier)
+      : max_results_(max_results), multiplier_(multiplier) {}
   ~Group() {}
 
   void AddProvider(SearchProvider* provider) { providers_.push_back(provider); }
@@ -106,7 +62,7 @@ class Mixer::Group {
         double relevance = std::min(std::max(result->relevance(), 0.0), 1.0);
 
         double multiplier = multiplier_;
-        double boost = boost_;
+        double boost = 0.0;
 
         // Recommendations should not be affected by query-to-launch correlation
         // from KnownResults as it causes recommendations to become dominated by
@@ -155,7 +111,6 @@ class Mixer::Group {
  private:
   typedef std::vector<SearchProvider*> Providers;
   const size_t max_results_;
-  const double boost_;
   const double multiplier_;
 
   Providers providers_;  // Not owned.
@@ -170,26 +125,9 @@ Mixer::Mixer(AppListModel::SearchResults* ui_results)
 Mixer::~Mixer() {
 }
 
-size_t Mixer::AddGroup(size_t max_results, double boost, double multiplier) {
-  // Only consider |boost| if the AppListMixer field trial is default.
-  // Only consider |multiplier| if the AppListMixer field trial is "Blended".
-  if (IsBlendedMixerTrialEnabled())
-    boost = 0.0;
-  else
-    multiplier = 1.0;
-  groups_.push_back(new Group(max_results, boost, multiplier));
+size_t Mixer::AddGroup(size_t max_results, double multiplier) {
+  groups_.push_back(new Group(max_results, multiplier));
   return groups_.size() - 1;
-}
-
-size_t Mixer::AddOmniboxGroup(size_t max_results,
-                              double boost,
-                              double multiplier) {
-  // There should not already be an omnibox group.
-  DCHECK(!has_omnibox_group_);
-  size_t id = AddGroup(max_results, boost, multiplier);
-  omnibox_group_ = id;
-  has_omnibox_group_ = true;
-  return id;
 }
 
 void Mixer::AddProviderToGroup(size_t group_id, SearchProvider* provider) {
@@ -202,79 +140,39 @@ void Mixer::MixAndPublish(bool is_voice_query,
   FetchResults(is_voice_query, known_results);
 
   SortedResults results;
+  results.reserve(num_max_results);
 
-  if (IsBlendedMixerTrialEnabled()) {
-    results.reserve(kMinBlendedResults);
+  // Add results from each group. Limit to the maximum number of results in each
+  // group.
+  for (const Group* group : groups_) {
+    size_t num_results =
+        std::min(group->results().size(), group->max_results());
+    results.insert(results.end(), group->results().begin(),
+                   group->results().begin() + num_results);
+  }
+  // Remove results with duplicate IDs before sorting. If two providers give a
+  // result with the same ID, the result from the provider with the *lower group
+  // number* will be kept (e.g., an app result takes priority over a web store
+  // result with the same ID).
+  RemoveDuplicates(&results);
+  std::sort(results.begin(), results.end());
 
-    // Add results from each group. Limit to the maximum number of results in
-    // each group.
+  if (results.size() < num_max_results) {
+    size_t original_size = results.size();
+    // We didn't get enough results. Insert all the results again, and this
+    // time, do not limit the maximum number of results from each group. (This
+    // will result in duplicates, which will be removed by RemoveDuplicates.)
     for (const Group* group : groups_) {
-      size_t num_results =
-          std::min(group->results().size(), group->max_results());
       results.insert(results.end(), group->results().begin(),
-                     group->results().begin() + num_results);
+                     group->results().end());
     }
-    // Remove results with duplicate IDs before sorting. If two providers give a
-    // result with the same ID, the result from the provider with the *lower
-    // group number* will be kept (e.g., an app result takes priority over a web
-    // store result with the same ID).
     RemoveDuplicates(&results);
-    std::sort(results.begin(), results.end());
-
-    if (results.size() < kMinBlendedResults) {
-      size_t original_size = results.size();
-      // We didn't get enough results. Insert all the results again, and this
-      // time, do not limit the maximum number of results from each group. (This
-      // will result in duplicates, which will be removed by RemoveDuplicates.)
-      for (const Group* group : groups_) {
-        results.insert(results.end(), group->results().begin(),
-                       group->results().end());
-      }
-      RemoveDuplicates(&results);
-      // Sort just the newly added results. This ensures that, for example, if
-      // there are 6 Omnibox results (score = 0.8) and 1 People result (score =
-      // 0.4) that the People result will be 5th, not 7th, because the Omnibox
-      // group has a soft maximum of 4 results. (Otherwise, the People result
-      // would not be seen at all once the result list is truncated.)
-      std::sort(results.begin() + original_size, results.end());
-    }
-  } else {
-    results.reserve(num_max_results);
-
-    // Add results from non-omnibox groups first. Limit to the maximum number of
-    // results in each group.
-    for (size_t i = 0; i < groups_.size(); ++i) {
-      if (!has_omnibox_group_ || i != omnibox_group_) {
-        const Group& group = *groups_[i];
-        size_t num_results =
-            std::min(group.results().size(), group.max_results());
-        results.insert(results.end(), group.results().begin(),
-                       group.results().begin() + num_results);
-      }
-    }
-
-    // Collapse duplicate apps from local and web store.
-    RemoveDuplicates(&results);
-
-    // Fill the remaining slots with omnibox results. Always add at least one
-    // omnibox result (even if there are no more slots; if we over-fill the
-    // vector, the web store and people results will be removed in a later
-    // step). Note: max_results() is ignored for the omnibox group.
-    if (has_omnibox_group_) {
-      CHECK_LT(omnibox_group_, groups_.size());
-      const Group& omnibox_group = *groups_[omnibox_group_];
-      const size_t omnibox_results = std::min(
-          omnibox_group.results().size(), results.size() < num_max_results
-                                              ? num_max_results - results.size()
-                                              : 1);
-      results.insert(results.end(), omnibox_group.results().begin(),
-                     omnibox_group.results().begin() + omnibox_results);
-    }
-
-    std::sort(results.begin(), results.end());
-    RemoveDuplicates(&results);
-    if (results.size() > num_max_results)
-      results.resize(num_max_results);
+    // Sort just the newly added results. This ensures that, for example, if
+    // there are 6 Omnibox results (score = 0.8) and 1 People result (score =
+    // 0.4) that the People result will be 5th, not 7th, because the Omnibox
+    // group has a soft maximum of 4 results. (Otherwise, the People result
+    // would not be seen at all once the result list is truncated.)
+    std::sort(results.begin() + original_size, results.end());
   }
 
   Publish(results, ui_results_);
@@ -282,8 +180,6 @@ void Mixer::MixAndPublish(bool is_voice_query,
 
 void Mixer::Publish(const SortedResults& new_results,
                     AppListModel::SearchResults* ui_results) {
-  typedef std::map<std::string, SearchResult*> IdToResultMap;
-
   // The following algorithm is used:
   // 1. Transform the |ui_results| list into an unordered map from result ID
   // to item.
@@ -292,43 +188,37 @@ void Mixer::Publish(const SortedResults& new_results,
   // it from the map afterwards. Otherwise, clone new items from |new_results|.
   // 3. Delete the objects remaining in the map as they are unused.
 
-  // A map of the items in |ui_results| that takes ownership of the items.
-  IdToResultMap ui_results_map;
-  for (SearchResult* ui_result : *ui_results)
-    ui_results_map[ui_result->id()] = ui_result;
   // We have to erase all results at once so that observers are notified with
   // meaningful indexes.
-  ui_results->RemoveAll();
+  auto current_results = ui_results->RemoveAll();
+  std::map<std::string, std::unique_ptr<SearchResult>> ui_results_map;
+  for (std::unique_ptr<SearchResult>& ui_result : current_results)
+    ui_results_map[ui_result->id()] = std::move(ui_result);
 
   // Add items back to |ui_results| in the order of |new_results|.
   for (const SortData& sort_data : new_results) {
     const SearchResult& new_result = *sort_data.result;
-    IdToResultMap::const_iterator ui_result_it =
-        ui_results_map.find(new_result.id());
+    auto ui_result_it = ui_results_map.find(new_result.id());
     if (ui_result_it != ui_results_map.end()) {
       // Update and use the old result if it exists.
-      SearchResult* ui_result = ui_result_it->second;
-      UpdateResult(new_result, ui_result);
+      std::unique_ptr<SearchResult> ui_result = std::move(ui_result_it->second);
+      UpdateResult(new_result, ui_result.get());
       ui_result->set_relevance(sort_data.score);
 
-      // |ui_results| takes back ownership from |ui_results_map| here.
-      ui_results->Add(ui_result);
+      ui_results->Add(std::move(ui_result));
 
       // Remove the item from the map so that it ends up only with unused
       // results.
-      ui_results_map.erase(ui_result->id());
+      ui_results_map.erase(ui_result_it);
     } else {
       std::unique_ptr<SearchResult> result_copy = new_result.Duplicate();
       result_copy->set_relevance(sort_data.score);
       // Copy the result from |new_results| otherwise.
-      ui_results->Add(result_copy.release());
+      ui_results->Add(std::move(result_copy));
     }
   }
 
-  // Delete the results remaining in the map as they are not in the new results.
-  for (const auto& ui_result : ui_results_map) {
-    delete ui_result.second;
-  }
+  // Any remaining results in |ui_results_map| will be automatically deleted.
 }
 
 void Mixer::RemoveDuplicates(SortedResults* results) {

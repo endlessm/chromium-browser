@@ -5,16 +5,11 @@
 package org.chromium.chromoting;
 
 import android.annotation.SuppressLint;
-import android.content.DialogInterface;
-import android.content.Intent;
-import android.content.pm.ApplicationInfo;
-import android.content.pm.PackageManager;
-import android.content.pm.PackageManager.NameNotFoundException;
+import android.content.res.Configuration;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.support.v7.app.ActionBar.OnMenuVisibilityListener;
-import android.support.v7.app.AlertDialog;
 import android.support.v7.app.AppCompatActivity;
 import android.support.v7.widget.Toolbar;
 import android.view.KeyEvent;
@@ -24,12 +19,14 @@ import android.view.MotionEvent;
 import android.view.View;
 import android.view.View.OnLayoutChangeListener;
 import android.view.View.OnTouchListener;
+import android.view.animation.Animation;
+import android.view.animation.AnimationUtils;
 import android.view.inputmethod.InputMethodManager;
 
-import org.chromium.chromoting.cardboard.DesktopActivity;
 import org.chromium.chromoting.help.HelpContext;
 import org.chromium.chromoting.help.HelpSingleton;
 import org.chromium.chromoting.jni.Client;
+import org.chromium.ui.UiUtils;
 
 import java.util.List;
 
@@ -50,17 +47,14 @@ public class Desktop
         }
     }
 
-    /**
-     * Preference used for displaying an interestitial dialog only when the user first accesses the
-     * Cardboard function.
-     */
-    private static final String PREFERENCE_CARDBOARD_DIALOG_SEEN = "cardboard_dialog_seen";
-
     /** Preference used to track the last input mode selected by the user. */
     private static final String PREFERENCE_INPUT_MODE = "input_mode";
 
     /** The amount of time to wait to hide the ActionBar after user input is seen. */
     private static final int ACTIONBAR_AUTO_HIDE_DELAY_MS = 3000;
+
+    /** Duration for fade-in and fade-out animations for the ActionBar. */
+    private static final int ACTIONBAR_ANIMATION_DURATION_MS = 250;
 
     private final Event.Raisable<SystemUiVisibilityChangedEventParameter>
             mOnSystemUiVisibilityChanged = new Event.Raisable<>();
@@ -72,9 +66,6 @@ public class Desktop
     private InputEventSender mInjector;
 
     private ActivityLifecycleListener mActivityLifecycleListener;
-
-    /** Flag to indicate whether the current activity is switching to Cardboard desktop activity. */
-    private boolean mSwitchToCardboardDesktopActivity;
 
     /** Indicates whether a Soft Input UI (such as a keyboard) is visible. */
     private boolean mSoftInputVisible = false;
@@ -92,6 +83,16 @@ public class Desktop
     private CapabilityManager.HostCapability mHostTouchCapability =
             CapabilityManager.HostCapability.UNKNOWN;
 
+    private DesktopView mRemoteHostDesktop;
+
+    /**
+     * Indicates whether the device is connected to a non-hidden physical qwerty keyboard. This is
+     * set by {@link Desktop#setKeyboardState(Configuration)}. DO NOT request a soft keyboard when a
+     * physical keyboard exists, otherwise the activity will enter an undefined state where the soft
+     * keyboard never shows up meanwhile request to hide status bar always fails.
+     */
+    private boolean mHasPhysicalKeyboard;
+
     /** Called when the activity is first created. */
     @Override
     public void onCreate(Bundle savedInstanceState) {
@@ -101,12 +102,13 @@ public class Desktop
         mClient = Client.getInstance();
         mInjector = new InputEventSender(mClient);
 
+        Preconditions.notNull(mClient);
+
         mToolbar = (Toolbar) findViewById(R.id.toolbar);
         setSupportActionBar(mToolbar);
 
-        DesktopView remoteHostDesktop = (DesktopView) findViewById(R.id.desktop_view);
-        remoteHostDesktop.init(this, mClient);
-        mSwitchToCardboardDesktopActivity = false;
+        mRemoteHostDesktop = (DesktopView) findViewById(R.id.desktop_view);
+        mRemoteHostDesktop.init(mClient, this, mClient.getRenderStub());
 
         getSupportActionBar().setDisplayShowTitleEnabled(false);
         getSupportActionBar().setDisplayHomeAsUpEnabled(true);
@@ -154,7 +156,7 @@ public class Desktop
                 }
             });
         } else {
-            remoteHostDesktop.setFitsSystemWindows(true);
+            mRemoteHostDesktop.setFitsSystemWindows(true);
         }
     }
 
@@ -163,8 +165,6 @@ public class Desktop
         super.onStart();
         mActivityLifecycleListener.onActivityStarted(this);
         mClient.enableVideoChannel(true);
-        DesktopView desktopView = (DesktopView) findViewById(R.id.desktop_view);
-        desktopView.attachRedrawCallback();
         mClient.getCapabilityManager().addListener(this);
     }
 
@@ -172,9 +172,7 @@ public class Desktop
     protected void onPause() {
         if (isFinishing()) mActivityLifecycleListener.onActivityPaused(this);
         super.onPause();
-        if (!mSwitchToCardboardDesktopActivity) {
-            mClient.enableVideoChannel(false);
-        }
+        mClient.enableVideoChannel(false);
         stopActionBarAutoHideTimer();
     }
 
@@ -191,11 +189,13 @@ public class Desktop
         mClient.getCapabilityManager().removeListener(this);
         mActivityLifecycleListener.onActivityStopped(this);
         super.onStop();
-        if (mSwitchToCardboardDesktopActivity) {
-            mSwitchToCardboardDesktopActivity = false;
-        } else {
-            mClient.enableVideoChannel(false);
-        }
+        mClient.enableVideoChannel(false);
+    }
+
+    @Override
+    protected void onDestroy() {
+        mRemoteHostDesktop.destroy();
+        super.onDestroy();
     }
 
     /** Called to initialize the action bar. */
@@ -204,19 +204,6 @@ public class Desktop
         getMenuInflater().inflate(R.menu.desktop_actionbar, menu);
 
         mActivityLifecycleListener.onActivityCreatedOptionsMenu(this, menu);
-
-        boolean enableCardboard = false;
-        try {
-            ApplicationInfo ai = getPackageManager()
-                    .getApplicationInfo(getPackageName(), PackageManager.GET_META_DATA);
-            Bundle bundle = ai.metaData;
-            enableCardboard = bundle.getInt("enable_cardboard") == 1;
-        } catch (NameNotFoundException e) {
-            // Does nothing since by default Cardboard activity is turned off.
-        }
-
-        MenuItem item = menu.findItem(R.id.actionbar_cardboard);
-        item.setVisible(enableCardboard);
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
             // We don't need to show a hide ActionBar button if immersive fullscreen is supported.
@@ -250,7 +237,22 @@ public class Desktop
         // Wait to set the input mode until after the default tinting has been applied.
         setInputMode(mInputMode);
 
+        // Keyboard state must be set after the keyboard icon has been added to the menu.
+        setKeyboardState(getResources().getConfiguration());
+
         return super.onCreateOptionsMenu(menu);
+    }
+
+    @Override
+    public void onConfigurationChanged(Configuration config) {
+        super.onConfigurationChanged(config);
+        setKeyboardState(config);
+    }
+
+    private void setKeyboardState(Configuration configuration) {
+        mHasPhysicalKeyboard = (configuration.keyboard == Configuration.KEYBOARD_QWERTY)
+                && (configuration.hardKeyboardHidden == Configuration.HARDKEYBOARDHIDDEN_NO);
+        mToolbar.getMenu().findItem(R.id.actionbar_keyboard).setVisible(!mHasPhysicalKeyboard);
     }
 
     public Event<SystemUiVisibilityChangedEventParameter> onSystemUiVisibilityChanged() {
@@ -412,6 +414,15 @@ public class Desktop
         return flags;
     }
 
+    /**
+     * Shows the soft keyboard if no physical keyboard is attached.
+     */
+    public void showKeyboard() {
+        if (!mHasPhysicalKeyboard) {
+            UiUtils.showKeyboard(mRemoteHostDesktop);
+        }
+    }
+
     public void showSystemUi() {
         // Request exit from any fullscreen mode. The action-bar controls will be shown in response
         // to the SystemUiVisibility notification. The visibility of the action-bar should be tied
@@ -428,6 +439,10 @@ public class Desktop
 
     /** Shows the action bar without changing SystemUiVisibility. */
     private void showActionBar() {
+        Animation animation = AnimationUtils.loadAnimation(this, android.R.anim.fade_in);
+        animation.setDuration(ACTIONBAR_ANIMATION_DURATION_MS);
+        mToolbar.startAnimation(animation);
+
         getSupportActionBar().show();
         startActionBarAutoHideTimer();
     }
@@ -465,6 +480,10 @@ public class Desktop
 
     /** Hides the action bar without changing SystemUiVisibility. */
     private void hideActionBar() {
+        Animation animation = AnimationUtils.loadAnimation(this, android.R.anim.fade_out);
+        animation.setDuration(ACTIONBAR_ANIMATION_DURATION_MS);
+        mToolbar.startAnimation(animation);
+
         getSupportActionBar().hide();
         stopActionBarAutoHideTimer();
     }
@@ -476,10 +495,6 @@ public class Desktop
 
         mActivityLifecycleListener.onActivityOptionsItemSelected(this, item);
 
-        if (id == R.id.actionbar_cardboard) {
-            onCardboardItemSelected();
-            return true;
-        }
         if (id == R.id.actionbar_trackpad_mode) {
             // When the trackpad icon is tapped, we want to switch the input mode to touch.
             setInputMode(InputMode.TOUCH);
@@ -562,41 +577,6 @@ public class Desktop
                 }
             }
         });
-    }
-
-    private void onCardboardItemSelected() {
-        if (getPreferences(MODE_PRIVATE).getBoolean(PREFERENCE_CARDBOARD_DIALOG_SEEN, false)) {
-            switchToCardboardMode();
-            return;
-        }
-
-        new AlertDialog.Builder(this)
-                .setTitle(getTitle())
-                .setMessage(R.string.cardboard_warning_message)
-                .setIcon(R.drawable.ic_cardboard)
-                .setPositiveButton(android.R.string.ok, new DialogInterface.OnClickListener() {
-                    @Override
-                    public void onClick(DialogInterface dialog, int id) {
-                        getPreferences(MODE_PRIVATE)
-                                .edit()
-                                .putBoolean(PREFERENCE_CARDBOARD_DIALOG_SEEN, true)
-                                .apply();
-                        switchToCardboardMode();
-                    }
-                })
-                .setNegativeButton(android.R.string.cancel, new DialogInterface.OnClickListener() {
-                    @Override
-                    public void onClick(DialogInterface dialog, int id) {
-                    }
-                })
-                .create()
-                .show();
-    }
-
-    private void switchToCardboardMode() {
-        mSwitchToCardboardDesktopActivity = true;
-        Intent intent = new Intent(this, DesktopActivity.class);
-        startActivityForResult(intent, Chromoting.CARDBOARD_DESKTOP_ACTIVITY);
     }
 
     /**

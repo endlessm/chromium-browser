@@ -16,17 +16,16 @@
 #include "base/values.h"
 #include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/url_constants.h"
+#include "chrome/grit/browser_resources.h"
 #include "chrome/grit/generated_resources.h"
+#include "chrome/grit/theme_resources.h"
 #include "components/component_updater/component_updater_service.h"
 #include "content/public/browser/web_ui.h"
 #include "content/public/browser/web_ui_data_source.h"
 #include "content/public/browser/web_ui_message_handler.h"
-#include "grit/browser_resources.h"
-#include "grit/theme_resources.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/resource/resource_bundle.h"
 
@@ -159,7 +158,9 @@ ComponentsUI::~ComponentsUI() {
 void ComponentsUI::OnDemandUpdate(const std::string& component_id) {
   component_updater::ComponentUpdateService* cus =
       g_browser_process->component_updater();
-  cus->GetOnDemandUpdater().OnDemandUpdate(component_id);
+  cus->GetOnDemandUpdater().OnDemandUpdate(
+      component_id,
+      component_updater::ComponentUpdateService::CompletionCallback());
 }
 
 // static
@@ -252,9 +253,9 @@ void ComponentsUI::OnEvent(Events event, const std::string& id) {
   parameters.SetString("event", ComponentEventToString(event));
   if (!id.empty()) {
     if (event == Events::COMPONENT_UPDATED) {
-      auto cus = g_browser_process->component_updater();
+      auto* component_updater = g_browser_process->component_updater();
       update_client::CrxUpdateItem item;
-      if (cus->GetComponentDetails(id, &item))
+      if (component_updater->GetComponentDetails(id, &item))
         parameters.SetString("version", item.component.version.GetString());
     }
     parameters.SetString("id", id);

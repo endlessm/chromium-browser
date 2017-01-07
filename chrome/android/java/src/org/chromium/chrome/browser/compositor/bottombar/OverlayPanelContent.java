@@ -5,10 +5,13 @@
 package org.chromium.chrome.browser.compositor.bottombar;
 
 import android.text.TextUtils;
+import android.view.View;
+import android.view.ViewGroup;
 
 import org.chromium.base.VisibleForTesting;
 import org.chromium.base.annotations.CalledByNative;
 import org.chromium.chrome.browser.ChromeActivity;
+import org.chromium.chrome.browser.ChromeVersionInfo;
 import org.chromium.chrome.browser.WebContentsFactory;
 import org.chromium.chrome.browser.contextualsearch.ContextualSearchManager;
 import org.chromium.chrome.browser.externalnav.ExternalNavigationHandler;
@@ -16,12 +19,14 @@ import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.components.navigation_interception.InterceptNavigationDelegate;
 import org.chromium.components.navigation_interception.NavigationParams;
 import org.chromium.components.web_contents_delegate_android.WebContentsDelegateAndroid;
+import org.chromium.content.browser.ContentVideoViewEmbedder;
 import org.chromium.content.browser.ContentView;
 import org.chromium.content.browser.ContentViewClient;
 import org.chromium.content.browser.ContentViewCore;
 import org.chromium.content_public.browser.LoadUrlParams;
 import org.chromium.content_public.browser.WebContents;
 import org.chromium.content_public.browser.WebContentsObserver;
+import org.chromium.ui.base.ViewAndroidDelegate;
 
 /**
  * Content container for an OverlayPanel. This class is responsible for the management of the
@@ -132,20 +137,19 @@ public class OverlayPanelContent {
             private boolean mIsFullscreen;
 
             @Override
-            public void onLoadStarted(boolean toDifferentDocument) {
-                super.onLoadStarted(toDifferentDocument);
-                mProgressObserver.onProgressBarStarted();
-            }
-
-            @Override
-            public void onLoadStopped() {
-                super.onLoadStopped();
-                mProgressObserver.onProgressBarFinished();
+            public void loadingStateChanged(boolean toDifferentDocument) {
+                boolean isLoading = mContentViewCore != null
+                        && mContentViewCore.getWebContents() != null
+                        && mContentViewCore.getWebContents().isLoading();
+                if (isLoading) {
+                    mProgressObserver.onProgressBarStarted();
+                } else {
+                    mProgressObserver.onProgressBarFinished();
+                }
             }
 
             @Override
             public void onLoadProgressChanged(int progress) {
-                super.onLoadProgressChanged(progress);
                 mProgressObserver.onProgressBarUpdated(progress);
             }
 
@@ -157,6 +161,11 @@ public class OverlayPanelContent {
             @Override
             public boolean isFullscreenForTabOrPending() {
                 return mIsFullscreen;
+            }
+
+            @Override
+            public ContentVideoViewEmbedder getContentVideoViewEmbedder() {
+                return null;  // Have a no-op embedder be used.
             }
         };
     }
@@ -202,7 +211,7 @@ public class OverlayPanelContent {
      * @return The newly created ContentViewCore.
      */
     protected ContentViewCore createContentViewCore(ChromeActivity activity) {
-        return new ContentViewCore(activity);
+        return new ContentViewCore(activity, ChromeVersionInfo.getProductVersion());
     }
 
     /**
@@ -229,12 +238,40 @@ public class OverlayPanelContent {
 
         // Creates an initially hidden WebContents which gets shown when the panel is opened.
         WebContents panelWebContents = WebContentsFactory.createWebContents(false, true);
-        mContentViewCore.initialize(cv, cv, panelWebContents, mActivity.getWindowAndroid());
+
+        // Dummny ViewAndroidDelegate since the container view for overlay panel is
+        // never added to the view hierarchy.
+        ViewAndroidDelegate delegate =
+                new ViewAndroidDelegate() {
+                    private ViewGroup mContainerView;
+
+                    private ViewAndroidDelegate init(ViewGroup containerView) {
+                        mContainerView = containerView;
+                        return this;
+                    }
+
+                    @Override
+                    public View acquireView() {
+                        assert false : "Shold not reach here";
+                        return null;
+                    }
+
+                    @Override
+                    public void setViewPosition(View anchorView, float x, float y, float width,
+                            float height, float scale, int leftMargin, int topMargin) { }
+
+                    @Override
+                    public void removeView(View anchorView) { }
+
+                    @Override
+                    public ViewGroup getContainerView() {
+                        return mContainerView;
+                    }
+                }.init(cv);
+        mContentViewCore.initialize(delegate, cv, panelWebContents, mActivity.getWindowAndroid());
 
         // Transfers the ownership of the WebContents to the native OverlayPanelContent.
         nativeSetWebContents(mNativeOverlayPanelContentPtr, panelWebContents, mWebContentsDelegate);
-
-        nativeSetViewAndroid(mNativeOverlayPanelContentPtr, mContentViewCore);
 
         mWebContentsObserver =
                 new WebContentsObserver(panelWebContents) {
@@ -461,8 +498,6 @@ public class OverlayPanelContent {
             long nativeOverlayPanelContent, String historyUrl, long urlTimeMs);
     private native void nativeSetWebContents(long nativeOverlayPanelContent,
             WebContents webContents, WebContentsDelegateAndroid delegate);
-    private native void nativeSetViewAndroid(long nativeOverlayPanelContent,
-            ContentViewCore contentViewCore);
     private native void nativeDestroyWebContents(long nativeOverlayPanelContent);
     private native void nativeSetInterceptNavigationDelegate(long nativeOverlayPanelContent,
             InterceptNavigationDelegate delegate, WebContents webContents);

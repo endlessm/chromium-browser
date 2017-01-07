@@ -1,6 +1,6 @@
-# Copyright 2013 The Swarming Authors. All rights reserved.
-# Use of this source code is governed under the Apache License, Version 2.0 that
-# can be found in the LICENSE file.
+# Copyright 2013 The LUCI Authors. All rights reserved.
+# Use of this source code is governed under the Apache License, Version 2.0
+# that can be found in the LICENSE file.
 
 """Provides functions: get_native_path_case(), isabs() and safe_join().
 
@@ -17,15 +17,17 @@ import re
 import shlex
 import stat
 import sys
-import unicodedata
+import tempfile
 import time
+import unicodedata
 
 from utils import fs
 from utils import tools
 
 
 # Types of action accepted by link_file().
-HARDLINK, HARDLINK_WITH_FALLBACK, SYMLINK, COPY = range(1, 5)
+HARDLINK, HARDLINK_WITH_FALLBACK, SYMLINK, SYMLINK_WITH_FALLBACK, COPY = range(
+    1, 6)
 
 
 ## OS-specific imports
@@ -42,11 +44,62 @@ elif sys.platform == 'darwin':
 
 
 if sys.platform == 'win32':
+  class LUID(ctypes.Structure):
+    _fields_ = [
+      ('low_part', ctypes.wintypes.DWORD), ('high_part', ctypes.wintypes.LONG),
+    ]
+
+
+  class LUID_AND_ATTRIBUTES(ctypes.Structure):
+    _fields_ = [('LUID', LUID), ('attributes', ctypes.wintypes.DWORD)]
+
+
+  class TOKEN_PRIVILEGES(ctypes.Structure):
+    _fields_ = [
+      ('count', ctypes.wintypes.DWORD), ('privileges', LUID_AND_ATTRIBUTES*0),
+    ]
+
+    def get_array(self):
+      array_type = LUID_AND_ATTRIBUTES * self.count
+      return ctypes.cast(self.privileges, ctypes.POINTER(array_type)).contents
+
+
+  GetCurrentProcess = ctypes.windll.kernel32.GetCurrentProcess
+  GetCurrentProcess.restype = ctypes.wintypes.HANDLE
+  OpenProcessToken = ctypes.windll.advapi32.OpenProcessToken
+  OpenProcessToken.argtypes = (
+      ctypes.wintypes.HANDLE, ctypes.wintypes.DWORD,
+      ctypes.POINTER(ctypes.wintypes.HANDLE))
+  OpenProcessToken.restype = ctypes.wintypes.BOOL
+  LookupPrivilegeValue = ctypes.windll.advapi32.LookupPrivilegeValueW
+  LookupPrivilegeValue.argtypes = (
+      ctypes.wintypes.LPWSTR, ctypes.wintypes.LPWSTR, ctypes.POINTER(LUID))
+  LookupPrivilegeValue.restype = ctypes.wintypes.BOOL
+  LookupPrivilegeName = ctypes.windll.advapi32.LookupPrivilegeNameW
+  LookupPrivilegeName.argtypes = (
+      ctypes.wintypes.LPWSTR, ctypes.POINTER(LUID), ctypes.wintypes.LPWSTR,
+      ctypes.POINTER(ctypes.wintypes.DWORD))
+  LookupPrivilegeName.restype = ctypes.wintypes.BOOL
+  PTOKEN_PRIVILEGES = ctypes.POINTER(TOKEN_PRIVILEGES)
+  GetTokenInformation = ctypes.windll.advapi32.GetTokenInformation
+  GetTokenInformation.argtypes = (
+      ctypes.wintypes.HANDLE, ctypes.c_uint, ctypes.c_void_p,
+      ctypes.wintypes.DWORD, ctypes.POINTER(ctypes.wintypes.DWORD))
+  GetTokenInformation.restype = ctypes.wintypes.BOOL
+  AdjustTokenPrivileges = ctypes.windll.advapi32.AdjustTokenPrivileges
+  AdjustTokenPrivileges.restype = ctypes.wintypes.BOOL
+  AdjustTokenPrivileges.argtypes = (
+      ctypes.wintypes.HANDLE, ctypes.wintypes.BOOL, PTOKEN_PRIVILEGES,
+      ctypes.wintypes.DWORD, PTOKEN_PRIVILEGES,
+      ctypes.POINTER(ctypes.wintypes.DWORD))
+
+
   def FormatError(err):
     """Returns a formatted error on Windows in unicode."""
     # We need to take in account the current code page.
     return ctypes.wintypes.FormatError(err).decode(
         locale.getpreferredencoding(), 'replace')
+
 
   def QueryDosDevice(drive_letter):
     """Returns the Windows 'native' path for a DOS drive letter."""
@@ -59,7 +112,7 @@ if sys.platform == 'win32':
     if 0 == windll.kernel32.QueryDosDeviceW(drive_letter, p, chars):
       err = GetLastError()
       if err:
-        # pylint: disable=E0602
+        # pylint: disable=undefined-variable
         msg = u'QueryDosDevice(%s): %s (%d)' % (
               drive_letter, FormatError(err), err)
         raise WindowsError(err, msg.encode('utf-8'))
@@ -77,7 +130,7 @@ if sys.platform == 'win32':
 
     err = GetLastError()
     if err:
-      # pylint: disable=E0602
+      # pylint: disable=undefined-variable
       msg = u'GetShortPathName(%s): %s (%d)' % (
             long_path, FormatError(err), err)
       raise WindowsError(err, msg.encode('utf-8'))
@@ -94,9 +147,21 @@ if sys.platform == 'win32':
 
     err = GetLastError()
     if err:
-      # pylint: disable=E0602
+      # pylint: disable=undefined-variable
       msg = u'GetLongPathName(%s): %s (%d)' % (
             short_path, FormatError(err), err)
+      raise WindowsError(err, msg.encode('utf-8'))
+
+
+  def MoveFileEx(oldpath, newpath, flags):
+    """Calls MoveFileEx, converting errors to WindowsError exceptions."""
+    old_p = fs.extend(oldpath)
+    new_p = fs.extend(newpath)
+    if not windll.kernel32.MoveFileExW(old_p, new_p, int(flags)):
+      # pylint: disable=undefined-variable
+      err = GetLastError()
+      msg = u'MoveFileEx(%s, %s, %d): %s (%d)' % (
+            oldpath, newpath, flags, FormatError(err), err)
       raise WindowsError(err, msg.encode('utf-8'))
 
 
@@ -126,7 +191,7 @@ if sys.platform == 'win32':
                      self._MAPPING[mapped], letter))
             else:
               self._MAPPING[mapped] = letter
-          except WindowsError:  # pylint: disable=E0602
+          except WindowsError:  # pylint: disable=undefined-variable
             pass
 
     def to_win32(self, path):
@@ -306,6 +371,62 @@ if sys.platform == 'win32':
     return out.values()
 
 
+  def get_process_token():
+    """Get the current process token."""
+    TOKEN_ALL_ACCESS = 0xF01FF
+    token = ctypes.wintypes.HANDLE()
+    if not OpenProcessToken(
+        GetCurrentProcess(), TOKEN_ALL_ACCESS, ctypes.byref(token)):
+      # pylint: disable=undefined-variable
+      raise WindowsError('Couldn\'t get process token')
+    return token
+
+
+  def get_luid(name):
+    """Returns the LUID for a privilege."""
+    luid = LUID()
+    if not LookupPrivilegeValue(None, unicode(name), ctypes.byref(luid)):
+      # pylint: disable=undefined-variable
+      raise WindowsError('Couldn\'t lookup privilege value')
+    return luid
+
+
+  def enable_privilege(name):
+    """Enables the privilege for the current process token.
+
+    Returns:
+    - True if the assignment is successful.
+    """
+    SE_PRIVILEGE_ENABLED = 2
+    ERROR_NOT_ALL_ASSIGNED = 1300
+
+    size = ctypes.sizeof(TOKEN_PRIVILEGES) + ctypes.sizeof(LUID_AND_ATTRIBUTES)
+    buf = ctypes.create_string_buffer(size)
+    tp = ctypes.cast(buf, ctypes.POINTER(TOKEN_PRIVILEGES)).contents
+    tp.count = 1
+    tp.get_array()[0].LUID = get_luid(name)
+    tp.get_array()[0].Attributes = SE_PRIVILEGE_ENABLED
+    token = get_process_token()
+    try:
+      if not AdjustTokenPrivileges(token, False, tp, 0, None, None):
+        # pylint: disable=undefined-variable
+        raise WindowsError('Error in AdjustTokenPrivileges')
+    finally:
+      ctypes.windll.kernel32.CloseHandle(token)
+    return ctypes.windll.kernel32.GetLastError() != ERROR_NOT_ALL_ASSIGNED
+
+
+  def enable_symlink():
+    """Enable SeCreateSymbolicLinkPrivilege for the current token.
+
+    Returns:
+    - True if symlink support is enabled.
+
+    Thanks Microsoft. This is appreciated.
+    """
+    return enable_privilege(u'SeCreateSymbolicLinkPrivilege')
+
+
 elif sys.platform == 'darwin':
 
 
@@ -412,6 +533,10 @@ elif sys.platform == 'darwin':
     return base
 
 
+  def enable_symlink():
+    return True
+
+
 else:  # OSes other than Windows and OSX.
 
 
@@ -454,6 +579,10 @@ else:  # OSes other than Windows and OSX.
     # when isolating Chromium tests. It's important on memory constrained
     # systems running ARM.
     return path if out == path else out
+
+
+  def enable_symlink():
+    return True
 
 
 if sys.platform != 'win32':  # All non-Windows OSes.
@@ -646,7 +775,12 @@ def is_same_filesystem(path1, path2):
 
 
 def get_free_space(path):
-  """Returns the number of free bytes."""
+  """Returns the number of free bytes.
+
+  On POSIX platforms, this returns the free space as visible by the current
+  user. On some systems, there's a percentage of the free space on the partition
+  that is only accessible as the root user.
+  """
   if sys.platform == 'win32':
     free_bytes = ctypes.c_ulonglong(0)
     ctypes.windll.kernel32.GetDiskFreeSpaceExW(
@@ -713,18 +847,23 @@ def set_read_only_swallow(path, read_only):
     return e
 
 
+def remove(filepath):
+  """Removes a file, even if it is read-only."""
+  # TODO(maruel): Not do it unless necessary since it slows this function
+  # down.
+  if sys.platform == 'win32':
+    # Deleting a read-only file will fail if it is read-only.
+    set_read_only(filepath, False)
+  else:
+    # Deleting a read-only file will fail if the directory is read-only.
+    set_read_only(os.path.dirname(filepath), False)
+  fs.remove(filepath)
+
+
 def try_remove(filepath):
   """Removes a file without crashing even if it doesn't exist."""
   try:
-    # TODO(maruel): Not do it unless necessary since it slows this function
-    # down.
-    if sys.platform == 'win32':
-      # Deleting a read-only file will fail if it is read-only.
-      set_read_only(filepath, False)
-    else:
-      # Deleting a read-only file will fail if the directory is read-only.
-      set_read_only(os.path.dirname(filepath), False)
-    fs.remove(filepath)
+    remove(filepath)
   except OSError:
     pass
 
@@ -733,10 +872,11 @@ def link_file(outfile, infile, action):
   """Links a file. The type of link depends on |action|.
 
   Returns:
-    True if the action was caried on, False if fallback was used.
+    True if the action was carried on, False if fallback was used.
   """
-  if action not in (HARDLINK, HARDLINK_WITH_FALLBACK, SYMLINK, COPY):
+  if action < 1 or action > COPY:
     raise ValueError('Unknown mapping action %s' % action)
+  # TODO(maruel): Skip these checks.
   if not fs.isfile(infile):
     raise OSError('%s is missing' % infile)
   if fs.isfile(outfile):
@@ -746,27 +886,83 @@ def link_file(outfile, infile, action):
 
   if action == COPY:
     readable_copy(outfile, infile)
-  elif action == SYMLINK and sys.platform != 'win32':
-    # On windows, symlink are converted to hardlink and fails over to copy.
-    fs.symlink(infile, outfile)  # pylint: disable=E1101
-  else:
-    # HARDLINK or HARDLINK_WITH_FALLBACK.
+    return True
+
+  if action in (SYMLINK, SYMLINK_WITH_FALLBACK):
     try:
-      hardlink(infile, outfile)
-    except OSError as e:
-      if action == HARDLINK:
-        raise OSError('Failed to hardlink %s to %s: %s' % (infile, outfile, e))
-      # Probably a different file system.
+      fs.symlink(infile, outfile)  # pylint: disable=E1101
+      return True
+    except OSError:
+      if action == SYMLINK:
+        raise
       logging.warning(
-          'Failed to hardlink, failing back to copy %s to %s' % (
+          'Failed to symlink, falling back to copy %s to %s' % (
             infile, outfile))
-      readable_copy(outfile, infile)
       # Signal caller that fallback copy was used.
+      readable_copy(outfile, infile)
       return False
-  return True
+
+  # HARDLINK or HARDLINK_WITH_FALLBACK.
+  try:
+    hardlink(infile, outfile)
+    return True
+  except OSError as e:
+    if action == HARDLINK:
+      raise OSError('Failed to hardlink %s to %s: %s' % (infile, outfile, e))
+
+  # Probably a different file system.
+  logging.warning(
+      'Failed to hardlink, falling back to copy %s to %s' % (
+        infile, outfile))
+  readable_copy(outfile, infile)
+  # Signal caller that fallback copy was used.
+  return False
+
+
+def atomic_replace(path, body):
+  """Atomically replaces content of the file at given path.
+
+  'body' will be written to the file as is (as in open(..., 'wb') mode).
+
+  Does not preserve file attributes.
+
+  Raises OSError or IOError on errors (e.g. in case the file is locked on
+  Windows). The caller may retry a bunch of times in such cases before giving
+  up.
+  """
+  assert path and path[-1] != os.sep, path
+  path = os.path.abspath(path)
+  dir_name, base_name = os.path.split(path)
+
+  fd, tmp_name = tempfile.mkstemp(dir=dir_name, prefix=base_name+'_')
+  try:
+    with os.fdopen(fd, 'wb') as f:
+      f.write(body)
+      f.flush()
+      os.fsync(fd)
+    if sys.platform != 'win32':
+      os.rename(tmp_name, path)
+    else:
+      # Flags are MOVEFILE_REPLACE_EXISTING|MOVEFILE_WRITE_THROUGH.
+      MoveFileEx(unicode(tmp_name), unicode(path), 0x1|0x8)
+    tmp_name =  None # no need to remove it in 'finally' block anymore
+  finally:
+    if tmp_name:
+      try:
+        os.remove(tmp_name)
+      except OSError as e:
+        logging.warning(
+            'Failed to delete temp file %s in replace_file_content: %s',
+            tmp_name, e)
 
 
 ### Write directory functions.
+
+
+def ensure_tree(path, perm=0777):
+  """Ensures a directory exists."""
+  if not fs.isdir(path):
+    fs.makedirs(path, perm)
 
 
 def make_tree_read_only(root):

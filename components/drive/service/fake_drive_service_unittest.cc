@@ -987,7 +987,7 @@ TEST_F(FakeDriveServiceTest, DownloadFile_ExistingFile) {
   std::vector<test_util::ProgressInfo> download_progress_values;
 
   const base::FilePath kOutputFilePath =
-      temp_dir.path().AppendASCII("whatever.txt");
+      temp_dir.GetPath().AppendASCII("whatever.txt");
   DriveApiErrorCode error = DRIVE_OTHER_ERROR;
   base::FilePath output_file_path;
   test_util::TestGetContentCallback get_content_callback;
@@ -1019,7 +1019,7 @@ TEST_F(FakeDriveServiceTest, DownloadFile_NonexistingFile) {
   ASSERT_TRUE(temp_dir.CreateUniqueTempDir());
 
   const base::FilePath kOutputFilePath =
-      temp_dir.path().AppendASCII("whatever.txt");
+      temp_dir.GetPath().AppendASCII("whatever.txt");
   DriveApiErrorCode error = DRIVE_OTHER_ERROR;
   base::FilePath output_file_path;
   fake_service_.DownloadFile(
@@ -1041,7 +1041,7 @@ TEST_F(FakeDriveServiceTest, DownloadFile_Offline) {
   ASSERT_TRUE(temp_dir.CreateUniqueTempDir());
 
   const base::FilePath kOutputFilePath =
-      temp_dir.path().AppendASCII("whatever.txt");
+      temp_dir.GetPath().AppendASCII("whatever.txt");
   DriveApiErrorCode error = DRIVE_OTHER_ERROR;
   base::FilePath output_file_path;
   fake_service_.DownloadFile(
@@ -1066,11 +1066,10 @@ TEST_F(FakeDriveServiceTest, CopyResource) {
   const std::string kParentResourceId = "2_folder_resource_id";
   DriveApiErrorCode error = DRIVE_OTHER_ERROR;
   std::unique_ptr<FileResource> entry;
+  base::Time modified_date_utc;
+  EXPECT_TRUE(base::Time::FromUTCExploded(kModifiedDate, &modified_date_utc));
   fake_service_.CopyResource(
-      kResourceId,
-      kParentResourceId,
-      "new title",
-      base::Time::FromUTCExploded(kModifiedDate),
+      kResourceId, kParentResourceId, "new title", modified_date_utc,
       test_util::CreateCopyResultCallback(&error, &entry));
   base::RunLoop().RunUntilIdle();
 
@@ -1079,7 +1078,7 @@ TEST_F(FakeDriveServiceTest, CopyResource) {
   // The copied entry should have the new resource ID and the title.
   EXPECT_NE(kResourceId, entry->file_id());
   EXPECT_EQ("new title", entry->title());
-  EXPECT_EQ(base::Time::FromUTCExploded(kModifiedDate), entry->modified_date());
+  EXPECT_EQ(modified_date_utc, entry->modified_date());
   EXPECT_TRUE(HasParent(entry->file_id(), kParentResourceId));
   // Should be incremented as a new hosted document was created.
   EXPECT_EQ(old_largest_change_id + 1,
@@ -1163,11 +1162,14 @@ TEST_F(FakeDriveServiceTest, UpdateResource) {
   const std::string kParentResourceId = "2_folder_resource_id";
   DriveApiErrorCode error = DRIVE_OTHER_ERROR;
   std::unique_ptr<FileResource> entry;
+  base::Time modified_date_utc;
+  base::Time viewed_date_utc;
+  EXPECT_TRUE(base::Time::FromUTCExploded(kModifiedDate, &modified_date_utc));
+  EXPECT_TRUE(base::Time::FromUTCExploded(kViewedDate, &viewed_date_utc));
+
   fake_service_.UpdateResource(
-      kResourceId, kParentResourceId, "new title",
-      base::Time::FromUTCExploded(kModifiedDate),
-      base::Time::FromUTCExploded(kViewedDate),
-      google_apis::drive::Properties(),
+      kResourceId, kParentResourceId, "new title", modified_date_utc,
+      viewed_date_utc, google_apis::drive::Properties(),
       test_util::CreateCopyResultCallback(&error, &entry));
   base::RunLoop().RunUntilIdle();
 
@@ -1176,10 +1178,8 @@ TEST_F(FakeDriveServiceTest, UpdateResource) {
   // The updated entry should have the new title.
   EXPECT_EQ(kResourceId, entry->file_id());
   EXPECT_EQ("new title", entry->title());
-  EXPECT_EQ(base::Time::FromUTCExploded(kModifiedDate),
-            entry->modified_date());
-  EXPECT_EQ(base::Time::FromUTCExploded(kViewedDate),
-            entry->last_viewed_by_me_date());
+  EXPECT_EQ(modified_date_utc, entry->modified_date());
+  EXPECT_EQ(viewed_date_utc, entry->last_viewed_by_me_date());
   EXPECT_TRUE(HasParent(kResourceId, kParentResourceId));
   // Should be incremented as a new hosted document was created.
   EXPECT_EQ(old_largest_change_id + 1,
@@ -1803,7 +1803,7 @@ TEST_F(FakeDriveServiceTest, ResumeUpload_ExistingFile) {
   base::ScopedTempDir temp_dir;
   ASSERT_TRUE(temp_dir.CreateUniqueTempDir());
   base::FilePath local_file_path =
-      temp_dir.path().Append(FILE_PATH_LITERAL("File 1.txt"));
+      temp_dir.GetPath().Append(FILE_PATH_LITERAL("File 1.txt"));
   std::string contents("hogefugapiyo");
   ASSERT_TRUE(test_util::WriteStringToFile(local_file_path, contents));
 
@@ -1873,7 +1873,7 @@ TEST_F(FakeDriveServiceTest, ResumeUpload_NewFile) {
   base::ScopedTempDir temp_dir;
   ASSERT_TRUE(temp_dir.CreateUniqueTempDir());
   base::FilePath local_file_path =
-      temp_dir.path().Append(FILE_PATH_LITERAL("new file.foo"));
+      temp_dir.GetPath().Append(FILE_PATH_LITERAL("new file.foo"));
   std::string contents("hogefugapiyo");
   ASSERT_TRUE(test_util::WriteStringToFile(local_file_path, contents));
 

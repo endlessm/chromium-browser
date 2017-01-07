@@ -6,11 +6,12 @@ import logging
 import os
 import urlparse
 
-from catapult_base import cloud_storage  # pylint: disable=import-error
+from py_utils import cloud_storage  # pylint: disable=import-error
 
 from telemetry import story
-from telemetry.page import shared_page_state
 from telemetry.page import cache_temperature as cache_temperature_module
+from telemetry.page import shared_page_state
+from telemetry.page import traffic_setting as traffic_setting_module
 from telemetry.internal.actions import action_runner as action_runner_module
 
 
@@ -22,7 +23,8 @@ class Page(story.Story):
                startup_url='', make_javascript_deterministic=True,
                shared_page_state_class=shared_page_state.SharedPageState,
                grouping_keys=None,
-               cache_temperature=cache_temperature_module.ANY):
+               cache_temperature=cache_temperature_module.ANY,
+               traffic_setting=traffic_setting_module.NONE):
     self._url = url
 
     super(Page, self).__init__(
@@ -49,6 +51,10 @@ class Page(story.Story):
     if cache_temperature != cache_temperature_module.ANY:
       self.grouping_keys['cache_temperature'] = cache_temperature
 
+    assert traffic_setting in traffic_setting_module.NETWORK_CONFIGS, (
+        'Invalid traffic setting: %s' % traffic_setting)
+    self._traffic_setting = traffic_setting
+
     # Whether to collect garbage on the page before navigating & performing
     # page actions.
     self._collect_garbage_before_run = True
@@ -68,6 +74,10 @@ class Page(story.Story):
   @property
   def cache_temperature(self):
     return self._cache_temperature
+
+  @property
+  def traffic_setting(self):
+    return self._traffic_setting
 
   @property
   def startup_url(self):
@@ -154,10 +164,6 @@ class Page(story.Story):
 
   def __str__(self):
     return self.url
-
-  def AddCustomizeBrowserOptions(self, options):
-    """ Inherit page overrides this to add customized browser options."""
-    pass
 
   @property
   def _scheme(self):

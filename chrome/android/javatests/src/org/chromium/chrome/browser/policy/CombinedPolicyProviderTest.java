@@ -8,10 +8,9 @@ import android.test.suitebuilder.annotation.SmallTest;
 
 import org.chromium.base.ThreadUtils;
 import org.chromium.base.test.util.Feature;
+import org.chromium.base.test.util.RetryOnFailure;
 import org.chromium.chrome.browser.ChromeActivity;
-import org.chromium.chrome.browser.ChromeApplication;
 import org.chromium.chrome.browser.tabmodel.TabModel;
-import org.chromium.chrome.browser.util.FeatureUtilities;
 import org.chromium.chrome.test.ChromeActivityTestCaseBase;
 import org.chromium.policy.CombinedPolicyProvider;
 import org.chromium.policy.PolicyProvider;
@@ -35,10 +34,11 @@ public class CombinedPolicyProviderTest extends ChromeActivityTestCaseBase<Chrom
      */
     @Feature({"Policy" })
     @SmallTest
+    @RetryOnFailure
     public void testTerminateIncognitoSon() throws InterruptedException {
         final boolean incognitoMode = true;
 
-        TabModel incognitoTabModel = getTabModel(incognitoMode);
+        TabModel incognitoTabModel = getActivity().getTabModelSelector().getModel(incognitoMode);
         loadUrlInNewTab(DATA_URI, incognitoMode);
         loadUrlInNewTab(DATA_URI, incognitoMode);
         assertEquals(2, incognitoTabModel.getCount());
@@ -57,16 +57,5 @@ public class CombinedPolicyProviderTest extends ChromeActivityTestCaseBase<Chrom
         });
 
         assertEquals(0, incognitoTabModel.getCount());
-    }
-
-    /**
-     * Returns the appropriate {@link TabModel} depending on whether Chrome is running in Document
-     * or Tabbed mode.
-     */
-    private TabModel getTabModel(boolean incognito) {
-        if (FeatureUtilities.isDocumentMode(getInstrumentation().getTargetContext())) {
-            return ChromeApplication.getDocumentTabModelSelector().getModel(incognito);
-        }
-        return getActivity().getTabModelSelector().getModel(incognito);
     }
 }

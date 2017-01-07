@@ -621,6 +621,31 @@ class TestRunCommandOutput(cros_test_lib.TempDirTestCase,
     self.assertIs(ret.error, None)
     self.assertEqual(osutils.ReadFile(log), 'monkeys4\nmonkeys5\n')
 
+
+  @_ForceLoggingLevel
+  def testLogStdoutToFileWithOrWithoutAppend(self):
+    log = os.path.join(self.tempdir, 'output')
+    ret = cros_build_lib.RunCommand(
+        ['echo', 'monkeys'], log_stdout_to_file=log)
+    self.assertEqual(osutils.ReadFile(log), 'monkeys\n')
+    self.assertIs(ret.output, None)
+    self.assertIs(ret.error, None)
+
+    # Without append
+    ret = cros_build_lib.RunCommand(
+        ['echo', 'monkeys2'], log_stdout_to_file=log)
+    self.assertEqual(osutils.ReadFile(log), 'monkeys2\n')
+    self.assertIs(ret.output, None)
+    self.assertIs(ret.error, None)
+
+    # With append
+    ret = cros_build_lib.RunCommand(
+        ['echo', 'monkeys3'], append_to_file=True, log_stdout_to_file=log)
+    self.assertEqual(osutils.ReadFile(log), 'monkeys2\nmonkeys3\n')
+    self.assertIs(ret.output, None)
+    self.assertIs(ret.error, None)
+
+
   def _CaptureRunCommand(self, command, mute_output):
     """Capture a RunCommand() output with the specified |mute_output|.
 
@@ -1617,6 +1642,21 @@ class TestGetHostname(cros_test_lib.MockTestCase):
     """Verify basic behavior"""
     self.assertEqual(cros_build_lib.GetHostDomain(), 'google.com')
 
+  def testHostIsCIBuilder(self):
+    """Test HostIsCIBuilder."""
+    fq_hostname_golo = 'test.golo.chromium.org'
+    fq_hostname_gce_1 = 'test.chromeos-bot.internal'
+    fq_hostname_gce_2 = 'test.chrome.corp.google.com'
+    fq_hostname_invalid = 'test'
+    self.assertTrue(cros_build_lib.HostIsCIBuilder(fq_hostname_golo))
+    self.assertTrue(cros_build_lib.HostIsCIBuilder(fq_hostname_gce_1))
+    self.assertTrue(cros_build_lib.HostIsCIBuilder(fq_hostname_gce_2))
+    self.assertFalse(cros_build_lib.HostIsCIBuilder(fq_hostname_invalid))
+    self.assertFalse(cros_build_lib.HostIsCIBuilder(
+        fq_hostname=fq_hostname_golo, gce_only=True))
+    self.assertFalse(cros_build_lib.HostIsCIBuilder(
+        fq_hostname=fq_hostname_gce_1, golo_only=True))
+
 
 class TestGetChrootVersion(cros_test_lib.MockTestCase):
   """Tests GetChrootVersion functionality."""
@@ -1870,16 +1910,53 @@ class CreateTarballTests(cros_test_lib.TempDirTestCase):
     cros_build_lib.CreateTarball(self.target, self.inputDir,
                                  inputs=self.inputsWithDirs)
 
-  def testWriting(self):
-    """Create a tarfile."""
-    with self.assertRaises(cros_build_lib.TarOfOpenFileError):
-      with open(os.path.join(self.inputDir, self.inputs[0]), 'a'):
-        cros_build_lib.CreateTarball(self.target, self.inputDir,
-                                     inputs=self.inputs)
+# Tests for tar failure retry logic.
 
-  def testWritingWithDirs(self):
-    """Create a tarfile."""
-    with self.assertRaises(cros_build_lib.TarOfOpenFileError):
-      with open(os.path.join(self.inputDir, self.inputs[3]), 'w'):
-        cros_build_lib.CreateTarball(self.target, self.inputDir,
-                                     inputs=self.inputsWithDirs)
+class FailedCreateTarballTests(cros_test_lib.MockTestCase):
+  """Tests special case error handling for CreateTarBall."""
+
+  def setUp(self):
+    """Mock RunCommand mock."""
+    # Each test can change this value as needed.  Each element is the return
+    # code in the CommandResult for subsequent calls to RunCommand().
+    self.tarResults = []
+
+    def Result(*_args, **_kwargs):
+      """Creates CommandResult objects for each tarResults value in turn."""
+      return cros_build_lib.CommandResult(returncode=self.tarResults.pop(0))
+
+    self.mockRun = self.PatchObject(cros_build_lib, 'RunCommand',
+                                    autospec=True,
+                                    side_effect=Result)
+
+  def testSuccess(self):
+    """CreateTarball works the first time."""
+    self.tarResults = [0]
+    cros_build_lib.CreateTarball('foo', 'bar', inputs=['a', 'b'])
+
+    self.assertEqual(self.mockRun.call_count, 1)
+
+  def testFailedOnceSoft(self):
+    """Force a single retry for CreateTarball."""
+    self.tarResults = [1, 0]
+    cros_build_lib.CreateTarball('foo', 'bar', inputs=['a', 'b'])
+
+    self.assertEqual(self.mockRun.call_count, 2)
+
+  def testFailedOnceHard(self):
+    """Test unrecoverable error."""
+    self.tarResults = [2]
+    with self.assertRaises(cros_build_lib.RunCommandError) as cm:
+      cros_build_lib.CreateTarball('foo', 'bar', inputs=['a', 'b'])
+
+    self.assertEqual(self.mockRun.call_count, 1)
+    self.assertEqual(cm.exception.args[1].returncode, 2)
+
+  def testFailedTwiceSoft(self):
+    """Exhaust retries for recoverable errors."""
+    self.tarResults = [1, 1]
+    with self.assertRaises(cros_build_lib.RunCommandError) as cm:
+      cros_build_lib.CreateTarball('foo', 'bar', inputs=['a', 'b'])
+
+    self.assertEqual(self.mockRun.call_count, 2)
+    self.assertEqual(cm.exception.args[1].returncode, 1)

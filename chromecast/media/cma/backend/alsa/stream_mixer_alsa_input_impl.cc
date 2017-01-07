@@ -5,6 +5,7 @@
 #include "chromecast/media/cma/backend/alsa/stream_mixer_alsa_input_impl.h"
 
 #include <algorithm>
+#include <limits>
 
 #include "base/bind.h"
 #include "base/bind_helpers.h"
@@ -53,6 +54,10 @@ const int64_t kFadeMs = 15;
 // fill the frames with silence.
 const int kPausedReadSamples = 512;
 const int kDefaultReadSize = ::media::SincResampler::kDefaultRequestSize;
+const int64_t kNoTimestamp = std::numeric_limits<int64_t>::min();
+
+const int kMaxSlewTimeUpMs = 15;
+const int kMaxSlewTimeDownMs = 15;
 
 }  // namespace
 
@@ -67,8 +72,9 @@ StreamMixerAlsaInputImpl::StreamMixerAlsaInputImpl(
       mixer_(mixer),
       mixer_task_runner_(mixer_->task_runner()),
       caller_task_runner_(base::ThreadTaskRunnerHandle::Get()),
+      resample_ratio_(1.0),
       state_(kStateUninitialized),
-      volume_multiplier_(1.0f),
+      slew_volume_(kMaxSlewTimeUpMs, kMaxSlewTimeDownMs),
       queued_frames_(0),
       queued_frames_including_resampler_(0),
       current_buffer_offset_(0),
@@ -78,21 +84,19 @@ StreamMixerAlsaInputImpl::StreamMixerAlsaInputImpl(
       fade_out_frames_total_(0),
       zeroed_frames_(0),
       weak_factory_(this) {
+  LOG(INFO) << "Create " << this;
   DCHECK(delegate_);
   DCHECK(mixer_);
   weak_this_ = weak_factory_.GetWeakPtr();
 }
 
 StreamMixerAlsaInputImpl::~StreamMixerAlsaInputImpl() {
+  LOG(INFO) << "Destroy " << this;
   DCHECK(mixer_task_runner_->BelongsToCurrentThread());
 }
 
 int StreamMixerAlsaInputImpl::input_samples_per_second() const {
   return input_samples_per_second_;
-}
-
-float StreamMixerAlsaInputImpl::volume_multiplier() const {
-  return volume_multiplier_;
 }
 
 bool StreamMixerAlsaInputImpl::primary() const {
@@ -109,13 +113,14 @@ void StreamMixerAlsaInputImpl::Initialize(
   DCHECK(mixer_task_runner_->BelongsToCurrentThread());
   DCHECK(!IsDeleting());
   if (mixer_->output_samples_per_second() != input_samples_per_second_) {
-    double resample_ratio = static_cast<double>(input_samples_per_second_) /
-                            mixer_->output_samples_per_second();
+    resample_ratio_ = static_cast<double>(input_samples_per_second_) /
+                      mixer_->output_samples_per_second();
     resampler_.reset(new ::media::MultiChannelResampler(
-        kNumOutputChannels, resample_ratio, kDefaultReadSize,
+        kNumOutputChannels, resample_ratio_, kDefaultReadSize,
         base::Bind(&StreamMixerAlsaInputImpl::ReadCB, base::Unretained(this))));
     resampler_->PrimeWithSilence();
   }
+  slew_volume_.SetSampleRate(mixer_->output_samples_per_second());
   mixer_rendering_delay_ = mixer_rendering_delay;
   fade_out_frames_total_ = NormalFadeFrames();
   fade_frames_remaining_ = NormalFadeFrames();
@@ -144,11 +149,14 @@ void StreamMixerAlsaInputImpl::PrepareToDelete(
   {
     base::AutoLock lock(queue_lock_);
     if (state_ == kStateGotEos) {
-      fade_out_frames_total_ = queued_frames_including_resampler_;
-      fade_frames_remaining_ = queued_frames_including_resampler_;
+      fade_out_frames_total_ =
+          queued_frames_including_resampler_ / resample_ratio_;
+      fade_frames_remaining_ =
+          queued_frames_including_resampler_ / resample_ratio_;
     } else if (state_ == kStateNormalPlayback) {
       fade_out_frames_total_ =
-          std::min(static_cast<int>(queued_frames_including_resampler_),
+          std::min(static_cast<int>(queued_frames_including_resampler_ /
+                                    resample_ratio_),
                    NormalFadeFrames());
       fade_frames_remaining_ = fade_out_frames_total_;
     }
@@ -200,9 +208,11 @@ MediaPipelineBackendAlsa::RenderingDelay StreamMixerAlsaInputImpl::QueueData(
   }
 
   MediaPipelineBackendAlsa::RenderingDelay delay = mixer_rendering_delay_;
-  delay.delay_microseconds += static_cast<int64_t>(
-      queued_frames_including_resampler_ * base::Time::kMicrosecondsPerSecond /
-      input_samples_per_second_);
+  if (delay.timestamp_microseconds != kNoTimestamp) {
+    delay.delay_microseconds += static_cast<int64_t>(
+        queued_frames_including_resampler_ *
+        base::Time::kMicrosecondsPerSecond / input_samples_per_second_);
+  }
   return delay;
 }
 
@@ -217,11 +227,20 @@ void StreamMixerAlsaInputImpl::DidQueueData(bool end_of_stream) {
   RUN_ON_MIXER_THREAD(DidQueueData, end_of_stream);
   DCHECK(!IsDeleting());
   if (end_of_stream) {
+    LOG(INFO) << "End of stream for " << this;
     state_ = kStateGotEos;
   } else if (state_ == kStateUninitialized) {
     state_ = kStateNormalPlayback;
   }
   mixer_->OnFramesQueued();
+}
+
+void StreamMixerAlsaInputImpl::OnSkipped() {
+  DCHECK(mixer_task_runner_->BelongsToCurrentThread());
+  if (state_ == kStateNormalPlayback) {
+    // Fade in once this input starts providing data again.
+    fade_frames_remaining_ = NormalFadeFrames();
+  }
 }
 
 void StreamMixerAlsaInputImpl::AfterWriteFrames(
@@ -236,9 +255,10 @@ void StreamMixerAlsaInputImpl::AfterWriteFrames(
     base::AutoLock lock(queue_lock_);
     mixer_rendering_delay_ = mixer_rendering_delay;
     queued_frames_ = 0;
-    for (const auto& data : queue_)
+    for (const auto& data : queue_) {
       queued_frames_ +=
           data->data_size() / (kNumOutputChannels * sizeof(float));
+    }
     queued_frames_ -= current_buffer_offset_;
     DCHECK_GE(queued_frames_, 0);
     queued_frames_including_resampler_ =
@@ -249,8 +269,10 @@ void StreamMixerAlsaInputImpl::AfterWriteFrames(
       pending_data_ = nullptr;
       total_delay = QueueData(data);
       queued_more_data = true;
-      if (data->end_of_stream())
+      if (data->end_of_stream()) {
+        LOG(INFO) << "End of stream for " << this;
         state_ = kStateGotEos;
+      }
     }
   }
 
@@ -269,7 +291,8 @@ int StreamMixerAlsaInputImpl::MaxReadSize() {
   {
     base::AutoLock lock(queue_lock_);
     if (state_ == kStateGotEos)
-      return std::max(static_cast<int>(queued_frames_including_resampler_),
+      return std::max(static_cast<int>(queued_frames_including_resampler_ /
+                                       resample_ratio_),
                       kDefaultReadSize);
     queued_frames = queued_frames_;
   }
@@ -364,12 +387,13 @@ void StreamMixerAlsaInputImpl::FillFrames(int frame_delay,
       }
       frames_left -= frames_to_copy;
       frames_filled += frames_to_copy;
-      LOG_IF(WARNING, zeroed_frames_ > 0) << "Filled a total of "
-                                          << zeroed_frames_ << " frames with 0";
+      LOG_IF(WARNING, state_ != kStateFinalFade && zeroed_frames_ > 0)
+          << "Filled a total of " << zeroed_frames_ << " frames with 0";
       zeroed_frames_ = 0;
     } else {
       // No data left in queue; fill remaining frames with zeros.
-      LOG_IF(WARNING, zeroed_frames_ == 0) << "Starting to fill frames with 0";
+      LOG_IF(WARNING, state_ != kStateFinalFade && zeroed_frames_ == 0)
+          << "Starting to fill frames with 0";
       zeroed_frames_ += frames_left;
       output->ZeroFramesPartial(frames_filled, frames_left);
       frames_filled += frames_left;
@@ -481,12 +505,20 @@ void StreamMixerAlsaInputImpl::SetPaused(bool paused) {
 
 void StreamMixerAlsaInputImpl::SetVolumeMultiplier(float multiplier) {
   RUN_ON_MIXER_THREAD(SetVolumeMultiplier, multiplier);
+  LOG(INFO) << this << ": stream volume = " << multiplier;
   DCHECK(!IsDeleting());
   if (multiplier > 1.0f)
     multiplier = 1.0f;
   if (multiplier < 0.0f)
     multiplier = 0.0f;
-  volume_multiplier_ = multiplier;
+  slew_volume_.SetVolume(multiplier);
+}
+
+void StreamMixerAlsaInputImpl::VolumeScaleAccumulate(bool repeat_transition,
+                                                     const float* src,
+                                                     int frames,
+                                                     float* dest) {
+  slew_volume_.ProcessFMAC(repeat_transition, src, frames, dest);
 }
 
 }  // namespace media

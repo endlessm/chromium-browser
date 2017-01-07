@@ -95,10 +95,6 @@ class QuirksManagerDelegateTestImpl : public quirks::QuirksManager::Delegate {
   // |false| prevents attempts at Quirks Server contact.
   bool DevicePolicyEnabled() const override { return false; }
 
-  // Unused by these tests.
-  void GetDaysSinceOobe(
-      quirks::QuirksManager::DaysSinceOobeCallback callback) const override {}
-
  private:
   ~QuirksManagerDelegateTestImpl() override = default;
 
@@ -301,7 +297,8 @@ TEST_F(DisplayColorManagerTest, NoMatchProductID) {
   EXPECT_TRUE(
       base::MatchPattern(log_->GetActionsAndClear(), kResetGammaAction));
 
-  WaitOnColorCalibration();
+  // NOTE: If product_id == 0, there is no thread switching in Quirks or Display
+  // code, so we shouldn't call WaitOnColorCalibration().
   EXPECT_STREQ("", log_->GetActionsAndClear().c_str());
 }
 

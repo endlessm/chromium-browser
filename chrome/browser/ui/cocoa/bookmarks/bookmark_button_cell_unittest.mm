@@ -99,7 +99,7 @@ TEST_F(BookmarkButtonCellTest, MouseEnterStuff) {
   [cell setMenu:[[[NSMenu alloc] initWithTitle:@"foo"] autorelease]];
   EXPECT_FALSE([cell menu]);
 
-  BookmarkModel* model = BookmarkModelFactory::GetForProfile(profile());
+  BookmarkModel* model = BookmarkModelFactory::GetForBrowserContext(profile());
   const BookmarkNode* node = model->bookmark_bar_node();
   [cell setEmpty:NO];
   [cell setBookmarkNode:node];
@@ -110,7 +110,7 @@ TEST_F(BookmarkButtonCellTest, MouseEnterStuff) {
 }
 
 TEST_F(BookmarkButtonCellTest, BookmarkNode) {
-  BookmarkModel* model = BookmarkModelFactory::GetForProfile(profile());
+  BookmarkModel* model = BookmarkModelFactory::GetForBrowserContext(profile());
   base::scoped_nsobject<BookmarkButtonCell> cell(
       [[BookmarkButtonCell alloc] initTextCell:@"Testing"]);
 
@@ -160,7 +160,7 @@ TEST_F(BookmarkButtonCellTest, Awake) {
 
 // Subfolder arrow details.
 TEST_F(BookmarkButtonCellTest, FolderArrow) {
-  BookmarkModel* model = BookmarkModelFactory::GetForProfile(profile());
+  BookmarkModel* model = BookmarkModelFactory::GetForBrowserContext(profile());
   const BookmarkNode* bar = model->bookmark_bar_node();
   const BookmarkNode* node = model->AddURL(bar, bar->child_count(),
                                            base::ASCIIToUTF16("title"),
@@ -184,7 +184,7 @@ TEST_F(BookmarkButtonCellTest, FolderArrow) {
 }
 
 TEST_F(BookmarkButtonCellTest, VerticalTextOffset) {
-  BookmarkModel* model = BookmarkModelFactory::GetForProfile(profile());
+  BookmarkModel* model = BookmarkModelFactory::GetForBrowserContext(profile());
   const BookmarkNode* bar = model->bookmark_bar_node();
   const BookmarkNode* node = model->AddURL(bar, bar->child_count(),
                                            base::ASCIIToUTF16("title"),
@@ -202,11 +202,7 @@ TEST_F(BookmarkButtonCellTest, VerticalTextOffset) {
   ASSERT_TRUE(bookmark_cell.get());
 
   EXPECT_EQ(1, [gradient_cell verticalTextOffset]);
-  if (ui::MaterialDesignController::IsModeMaterial()) {
-    EXPECT_EQ(-1, [bookmark_cell verticalTextOffset]);
-  } else {
-    EXPECT_EQ(0, [bookmark_cell verticalTextOffset]);
-  }
+  EXPECT_EQ(-1, [bookmark_cell verticalTextOffset]);
 
   EXPECT_NE([bookmark_cell verticalTextOffset],
             [gradient_cell verticalTextOffset]);

@@ -1132,12 +1132,18 @@ for (var i = 0; i < numVertices; i++) {
         <li> Let <em>use default return value</em> be false. </li>
 
         <li> If the <a href="#webgl-context-lost-flag">webgl context lost flag</a> is set,
-        let <em>use default return value</em> be true. </li>
+        let <em>use default return value</em> be true.
 
-        <li> If any argument to the method is a <code>WebGLObject</code> with
-        its <a href="#webgl-object-invalidated-flag">invalidated flag</a> set, generate
-        an <code>INVALID_OPERATION</code> error and let <em>use default return value</em> be
-        true. </li>
+            <ol class="nestedlist">
+
+            <li> Otherwise, if any argument to the method is a <code>WebGLObject</code> with
+            its <a href="#webgl-object-invalidated-flag">invalidated flag</a> set, generate
+            an <code>INVALID_OPERATION</code> error and let <em>use default return value</em> be
+            true. </li>
+
+            </ol>
+
+        </li>
 
         <li> If <em>use default return value</em> is true, perform the following steps:
 
@@ -1149,6 +1155,8 @@ for (var i = 0; i < numVertices; i++) {
             <li> Terminate this algorithm without calling the method implementation. </li>
 
             </ol>
+
+        </li>
 
         <li> Otherwise, perform the implementation of the called method and return its result. </li>
 
@@ -1795,15 +1803,15 @@ interface <dfn id="WebGLRenderingContextBase">WebGLRenderingContextBase</dfn>
     void useProgram(WebGLProgram? program);
     void validateProgram(WebGLProgram? program);
 
-    void vertexAttrib1f(GLuint indx, GLfloat x);
-    void vertexAttrib1fv(GLuint indx, VertexAttribFVSource values);
-    void vertexAttrib2f(GLuint indx, GLfloat x, GLfloat y);
-    void vertexAttrib2fv(GLuint indx, VertexAttribFVSource values);
-    void vertexAttrib3f(GLuint indx, GLfloat x, GLfloat y, GLfloat z);
-    void vertexAttrib3fv(GLuint indx, VertexAttribFVSource values);
-    void vertexAttrib4f(GLuint indx, GLfloat x, GLfloat y, GLfloat z, GLfloat w);
-    void vertexAttrib4fv(GLuint indx, VertexAttribFVSource values);
-    void vertexAttribPointer(GLuint indx, GLint size, GLenum type,
+    void vertexAttrib1f(GLuint index, GLfloat x);
+    void vertexAttrib1fv(GLuint index, VertexAttribFVSource values);
+    void vertexAttrib2f(GLuint index, GLfloat x, GLfloat y);
+    void vertexAttrib2fv(GLuint index, VertexAttribFVSource values);
+    void vertexAttrib3f(GLuint index, GLfloat x, GLfloat y, GLfloat z);
+    void vertexAttrib3fv(GLuint index, VertexAttribFVSource values);
+    void vertexAttrib4f(GLuint index, GLfloat x, GLfloat y, GLfloat z, GLfloat w);
+    void vertexAttrib4fv(GLuint index, VertexAttribFVSource values);
+    void vertexAttribPointer(GLuint index, GLint size, GLenum type,
                              GLboolean normalized, GLsizei stride, GLintptr offset);
 
     void viewport(GLint x, GLint y, GLsizei width, GLsizei height);
@@ -2144,7 +2152,8 @@ WebGLRenderingContext implements WebGLRenderingContextBase;
             bound to this target is unbound. A given WebGLBuffer object may only be bound to one of
             the ARRAY_BUFFER or ELEMENT_ARRAY_BUFFER target in its lifetime. An attempt to bind a
             buffer object to the other target will generate an <code>INVALID_OPERATION</code> error, and the
-            current binding will remain untouched.
+            current binding will remain untouched. An attempt to bind a deleted buffer will generate an
+            <code>INVALID_OPERATION</code> error, and the current binding will remain untouched.
 
         <dt class="idl-code">void bufferData(GLenum target, GLsizeiptr size, GLenum usage)
             <span class="gl-spec">(<a href="http://www.khronos.org/registry/gles/specs/2.0/es_full_spec_2.0.25.pdf#nameddest=section-2.9">OpenGL ES 2.0 &sect;2.9</a>, <a class="nonnormative" href="http://www.khronos.org/opengles/sdk/2.0/docs/man/xhtml/glBufferData.xml">man page</a>)</span>
@@ -2221,7 +2230,9 @@ WebGLRenderingContext implements WebGLRenderingContextBase;
             (<code class="param">target</code>), which must be <code class="enum">FRAMEBUFFER</code>.
             If <code class="param">framebuffer</code> is null, the default framebuffer provided by the context
             is bound and attempts to modify or query state on <code class="param">target</code> <code class="enum">FRAMEBUFFER</code>
-            will generate an <code class="error">INVALID_OPERATION</code> error.
+            will generate an <code class="error">INVALID_OPERATION</code> error. An attempt to bind a deleted framebuffer will generate an
+            <code>INVALID_OPERATION</code> error, and the current binding will remain untouched.
+
 
         <dt class="idl-code"><a name="CHECK_FRAMEBUFFER_STATUS">[WebGLHandlesContextLoss] GLenum checkFramebufferStatus</a>(GLenum target)
             <span class="gl-spec">(<a href="http://www.khronos.org/registry/gles/specs/2.0/es_full_spec_2.0.25.pdf#nameddest=section-4.4.5">OpenGL ES 2.0 &sect;4.4.5</a>, <a class="nonnormative" href="http://www.khronos.org/opengles/sdk/2.0/docs/man/xhtml/glCheckFramebufferStatus.xml">man page</a>)</span>
@@ -2291,7 +2302,8 @@ WebGLRenderingContext implements WebGLRenderingContextBase;
             Bind the given <code class="interface">WebGLRenderbuffer</code> object to the given binding point
             (<code class="param">target</code>), which must be <code class="enum">RENDERBUFFER</code>.
             If <code class="param">renderbuffer</code> is null the renderbuffer object currently bound to
-            this <code class="param">target</code> is unbound.
+            this <code class="param">target</code> is unbound. An attempt to bind a deleted renderbuffer will
+            generate an <code>INVALID_OPERATION</code> error, and the current binding will remain untouched.
 
         <dt class="idl-code">WebGLRenderbuffer? createRenderbuffer()
             <span class="gl-spec">(<a href="http://www.khronos.org/registry/gles/specs/2.0/es_full_spec_2.0.25.pdf#nameddest=section-4.4.3">OpenGL ES 2.0 &sect;4.4.3</a>, similar to <a class="nonnormative" href="http://www.khronos.org/opengles/sdk/2.0/docs/man/xhtml/glGenRenderbuffers.xml">glGenRenderbuffers</a>)</span>
@@ -2351,6 +2363,9 @@ WebGLRenderingContext implements WebGLRenderingContextBase;
     <dl class="methods">
         <dt class="idl-code">void bindTexture(GLenum target, WebGLTexture? texture)
             <span class="gl-spec">(<a href="http://www.khronos.org/registry/gles/specs/2.0/es_full_spec_2.0.25.pdf#nameddest=section-3.7.13">OpenGL ES 2.0 &sect;3.7.13</a>, <a class="nonnormative" href="http://www.khronos.org/opengles/sdk/2.0/docs/man/xhtml/glBindTexture.xml">man page</a>)</span>
+        <dd>
+            An attempt to bind a deleted texture will generate an <code>INVALID_OPERATION</code> error, and
+            the current binding will remain untouched.
 
         <dt><p class="idl-code"><a name="COMPRESSEDTEXIMAGE2D">void compressedTexImage2D</a>(GLenum target, GLint level, GLenum internalformat,
                     GLsizei width, GLsizei height, GLint border, ArrayBufferView pixels)
@@ -2917,15 +2932,15 @@ WebGLRenderingContext implements WebGLRenderingContextBase;
             If the array passed to any of the vector forms (those ending in <code>v</code>) has an
             invalid length, an <code>INVALID_VALUE</code> error will be generated. The length is
             invalid if it is too short for or is not an integer multiple of the assigned type.
-        <dt><p class="idl-code">void vertexAttrib[1234]f(GLuint indx, ...)</p>
-            <p class="idl-code">void vertexAttrib[1234]fv(GLuint indx, ...)
+        <dt><p class="idl-code">void vertexAttrib[1234]f(GLuint index, ...)</p>
+            <p class="idl-code">void vertexAttrib[1234]fv(GLuint index, ...)
             <span class="gl-spec">(<a href="http://www.khronos.org/registry/gles/specs/2.0/es_full_spec_2.0.25.pdf#nameddest=section-2.7">OpenGL ES 2.0 &sect;2.7</a>, <a class="nonnormative" href="http://www.khronos.org/opengles/sdk/2.0/docs/man/xhtml/glVertexAttrib.xml">man page</a>)</span></p>
        <dd>
            Sets the vertex attribute at the passed index to the given constant value. Values set via the
            <code>vertexAttrib</code> are guaranteed to be returned from the <code>getVertexAttrib</code> function
            with the <code>CURRENT_VERTEX_ATTRIB</code> param, even if there have been intervening calls to
            <code>drawArrays</code> or <code>drawElements</code>.
-       <dt class="idl-code">void vertexAttribPointer(GLuint indx, GLint size, GLenum type,
+       <dt class="idl-code">void vertexAttribPointer(GLuint index, GLint size, GLenum type,
                             GLboolean normalized, GLsizei stride, GLintptr offset)
             <span class="gl-spec">(<a href="http://www.khronos.org/registry/gles/specs/2.0/es_full_spec_2.0.25.pdf#nameddest=section-2.8">OpenGL ES 2.0 &sect;2.8</a>, <a class="nonnormative" href="http://www.khronos.org/opengles/sdk/2.0/docs/man/xhtml/glVertexAttribPointer.xml">man page</a>)</span>
         <dd>
@@ -3945,11 +3960,18 @@ extensions.
 
 <h3>Transferring vertices when current program is null</h3>
 
-<div>
+<p>
     Any command that transfers vertices to the GL generates <code>INVALID_OPERATION</code> if the
     <code>CURRENT_PROGRAM</code> is null. This includes <code>drawElements</code> and
     <code>drawArrays</code>.
-</div>
+</p>
+
+<h3>Fragment shader output</h3>
+
+<p>
+    If a fragment shader writes to neither <code>gl_FragColor</code> nor <code>gl_FragData</code>,
+    the values of the fragment colors following shader execution are untouched.
+</p>
 
 <!-- ======================================================================================================= -->
 

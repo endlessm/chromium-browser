@@ -42,6 +42,11 @@ SITE_CONFIG_FILE = os.path.join(SITE_CONFIG_DIR, 'config_dump.json')
 
 CHROMEOS_CONFIG_FILE = os.path.join(CHROMITE_DIR, 'cbuildbot',
                                     'config_dump.json')
+WATERFALL_CONFIG_FILE = os.path.join(CHROMITE_DIR, 'cbuildbot',
+                                     'waterfall_layout_dump.txt')
+
+GE_BUILD_CONFIG_FILE = os.path.join(
+    CHROMITE_DIR, 'cbuildbot', 'ge_build_config.json')
 
 # The following define the location for storing toolchain packages and
 # SDK overlay tarballs created during SDK builder runs. The paths are relative
@@ -67,6 +72,7 @@ CIDB_DEBUG_BOT_CREDS = os.path.join(HOME_DIRECTORY, '.cidb_creds',
 
 WATERFALL_INTERNAL = 'chromeos'
 WATERFALL_EXTERNAL = 'chromiumos'
+WATERFALL_INFRA = 'chromeos.infra'
 WATERFALL_TRYBOT = 'chromiumos.tryserver'
 WATERFALL_RELEASE = 'chromeos_release'
 WATERFALL_BRANCH = 'chromeos.branch'
@@ -74,13 +80,17 @@ WATERFALL_BRANCH = 'chromeos.branch'
 WATERFALL_CHROMIUM = 'chromiumos.chromium'
 WATERFALL_CHROME = 'chromeos.chrome'
 WATERFALL_BRILLO = 'internal.client.brillo'
+WATERFALL_WEAVE = 'internal.client.weave'
 
 # These waterfalls should send email reports regardless of cidb connection.
-EMAIL_WATERFALLS = (WATERFALL_INTERNAL,
-                    WATERFALL_EXTERNAL,
-                    WATERFALL_RELEASE,
-                    WATERFALL_BRANCH,
-                    WATERFALL_BRILLO,)
+EMAIL_WATERFALLS = (
+    WATERFALL_INTERNAL,
+    WATERFALL_EXTERNAL,
+    WATERFALL_RELEASE,
+    WATERFALL_BRANCH,
+    WATERFALL_BRILLO,
+    WATERFALL_WEAVE,
+)
 
 CIDB_KNOWN_WATERFALLS = (WATERFALL_INTERNAL,
                          WATERFALL_EXTERNAL,
@@ -212,6 +222,24 @@ EXCEPTION_CATEGORY_ALL_CATEGORIES = (
 FINAL_STATUS_PASSED = 'passed'
 FINAL_STATUS_FAILED = 'failed'
 
+
+# Monarch metric names
+MON_CL_ACTION = 'chromeos/cbuildbot/cl_action/%s'
+MON_PRECQ_LAUNCH_COUNT = 'chromeos/cbuildbot/pre-cq/launch_count'
+MON_PRECQ_CL_LAUNCH_COUNT = 'chromeos/cbuildbot/pre-cq/cl_launch_count'
+MON_PRECQ_TICK_COUNT = 'chromeos/cbuildbot/pre-cq/tick_count'
+MON_BUILD_COMP_COUNT = 'chromeos/cbuildbot/build/completed_count'
+MON_BUILD_DURATION = 'chromeos/cbuildbot/build/durations'
+MON_STAGE_COMP_COUNT = 'chromeos/cbuildbot/stage/completed_count'
+MON_STAGE_DURATION = 'chromeos/cbuildbot/stage/durations'
+MON_CL_HANDLE_TIME = 'chromeos/cbuildbot/submitted_change/handling_times'
+MON_CL_PRECQ_TIME = 'chromeos/cbuildbot/submitted_change/precq_times'
+MON_CL_WAIT_TIME = 'chromeos/cbuildbot/submitted_change/wait_times'
+MON_CL_CQRUN_TIME = 'chromeos/cbuildbot/submitted_change/cq_run_times'
+MON_CL_FALSE_REJ = 'chromeos/cbuildbot/submitted_change/false_rejections'
+MON_CL_FALSE_REJ_COUNT = ('chromeos/cbuildbot/submitted_change/'
+                          'false_rejection_count')
+
 # Re-execution API constants.
 # Used by --resume and --bootstrap to decipher which options they
 # can pass to the target cbuildbot (since it may not have that
@@ -242,6 +270,7 @@ CHROMIUM_EMAIL = '@chromium.org'
 CORP_DOMAIN = 'corp.google.com'
 GOLO_DOMAIN = 'golo.chromium.org'
 CHROME_DOMAIN = 'chrome.' + CORP_DOMAIN
+CHROMEOS_BOT_INTERNAL = 'chromeos-bot.internal'
 
 GOB_HOST = '%s.googlesource.com'
 
@@ -262,19 +291,22 @@ INTERNAL_GERRIT_URL = 'https://%s' % INTERNAL_GERRIT_HOST
 ANDROID_BUCKET_URL = 'gs://android-build-chromeos/builds'
 ANDROID_BUILD_BRANCH = 'git_mnc-dr-arc-dev'
 ANDROID_BUILD_TARGETS = {
-    'ARM': ('linux-cheets_arm-user', r'\.zip$'),
+    # TODO(b/29509721): Workaround to roll adb with system image. We want to
+    # get rid of this.
+    'ARM': ('linux-cheets_arm-user', r'(\.zip|/adb)$'),
     'X86': ('linux-cheets_x86-user', r'\.zip$'),
-    # TODO(hidehiko): Decprecate this when we switch to public CTS bundle.
-    'CTS': ('linux-cts', r'/android-cts\.zip$'),
     'SDK_TOOLS': ('linux-static_sdk_tools', r'/(aapt|adb)$'),
+}
+ANDROID_GTS_BUILD_BRANCH = 'git_mnc-dev'
+ANDROID_GTS_BUILD_TARGETS = {
+    'XTS': ('linux-xts', r'\.zip$'),
 }
 ARC_BUCKET_URL = 'gs://chromeos-arc-images/builds'
 ARC_BUCKET_ACLS = {
     'ARM': 'googlestorage_acl_arm.txt',
     'X86': 'googlestorage_acl_x86.txt',
-    # TODO(hidehiko): Decprecate this when we switch to public CTS bundle.
-    'CTS': 'googlestorage_acl_cts.txt',
     'SDK_TOOLS': 'googlestorage_acl_cts.txt',
+    'XTS': 'googlestorage_acl_cts.txt',
 }
 
 GOB_COOKIE_PATH = os.path.expanduser('~/.git-credential-cache/cookie')
@@ -420,6 +452,9 @@ CHROME_PFQ_TYPE = 'chrome'
 # Android PFQ type.  Builds and validates new versions of Android.
 ANDROID_PFQ_TYPE = 'android'
 
+# Config updater type.
+CONFIG_UPDATER_TYPE = 'config'
+
 # Builds from source and non-incremental.  This builds fully wipe their
 # chroot before the start of every build and no not use a BINHOST.
 BUILD_FROM_SOURCE_TYPE = 'full'
@@ -434,6 +469,9 @@ PAYLOADS_TYPE = 'payloads'
 TOOLCHAIN_TYPE = 'toolchain'
 
 BRANCH_UTIL_CONFIG = 'branch-util'
+
+# Generic type of tryjob only build configs.
+TRYJOB_TYPE = 'tryjob'
 
 # Special build type for Chroot builders.  These builds focus on building
 # toolchains and validate that they work.
@@ -453,6 +491,8 @@ VALID_BUILD_TYPES = (
     PRE_CQ_LAUNCHER_TYPE,
     PAYLOADS_TYPE,
     TOOLCHAIN_TYPE,
+    CONFIG_UPDATER_TYPE,
+    TRYJOB_TYPE,
 )
 
 # The default list of pre-cq configs to use.
@@ -688,6 +728,9 @@ CL_ACTION_IRRELEVANT_TO_SLAVE = 'irrelevant_to_slave'
 # config. The |reason| field of the action will be the config.
 CL_ACTION_TRYBOT_LAUNCHING = 'trybot_launching'
 
+# Recorded by pre-cq-launcher when it cancels a trybot.
+CL_ACTION_TRYBOT_CANCELLED = 'trybot_cancelled'
+
 
 CL_ACTIONS = (CL_ACTION_PICKED_UP,
               CL_ACTION_SUBMITTED,
@@ -708,7 +751,8 @@ CL_ACTIONS = (CL_ACTION_PICKED_UP,
               CL_ACTION_SPECULATIVE,
               CL_ACTION_FORGIVEN,
               CL_ACTION_PRE_CQ_FULLY_VERIFIED,
-              CL_ACTION_PRE_CQ_RESET)
+              CL_ACTION_PRE_CQ_RESET,
+              CL_ACTION_TRYBOT_CANCELLED)
 
 # Actions taken by a builder when making a decision about a CL.
 CL_DECISION_ACTIONS = (
@@ -804,6 +848,7 @@ IMAGE_SCRIPTS_NAME = 'image_scripts'
 IMAGE_SCRIPTS_TAR = '%s.tar.xz' % IMAGE_SCRIPTS_NAME
 VM_IMAGE_NAME = 'chromiumos_qemu_image'
 VM_IMAGE_BIN = '%s.bin' % VM_IMAGE_NAME
+VM_IMAGE_TAR = '%s.tar.xz' % VM_IMAGE_NAME
 VM_DISK_PREFIX = 'chromiumos_qemu_disk.bin'
 VM_MEM_PREFIX = 'chromiumos_qemu_mem.bin'
 VM_TEST_RESULTS = 'vm_test_results_%(attempt)s'
@@ -853,7 +898,7 @@ DELTA_SYSROOT_BATCH = 'batch'
 # Global configuration constants.
 CHROMITE_CONFIG_DIR = os.path.expanduser('~/.chromite')
 CHROME_SDK_BASHRC = os.path.join(CHROMITE_CONFIG_DIR, 'chrome_sdk.bashrc')
-SYNC_RETRIES = 2
+SYNC_RETRIES = 4
 SLEEP_TIMEOUT = 30
 
 # Lab status url.
@@ -923,3 +968,11 @@ GMAIL_TOKEN_JSON_FILE = '/creds/refresh_tokens/chromeos_gmail_alerts'
 # chosen/adjusted based on expected release build times such that successive
 # builds don't overlap and create a backlog.
 MAX_RELEASE_GROUP_BOARDS = 4
+
+CHROMEOS_SERVICE_ACCOUNT = os.path.join('/', 'creds', 'service_accounts',
+                                        'service-account-chromeos.json')
+
+# Buildbucket buckets
+TRYSERVER_BUILDBUCKET_BUCKET = 'master.chromiumos.tryserver'
+CHROMEOS_BUILDBUCKET_BUCKET = 'master.chromeos'
+CHROMIUMOS_BUILDBUCKET_BUCKET = 'master.chromiumos'

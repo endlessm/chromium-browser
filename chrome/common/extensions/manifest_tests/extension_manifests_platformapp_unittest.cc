@@ -49,21 +49,22 @@ TEST_F(PlatformAppsManifestTest, PlatformApps) {
   RunTestcases(error_testcases, arraysize(error_testcases), EXPECT_TYPE_ERROR);
 
   Testcase warning_testcases[] = {
-    Testcase(
-        "init_invalid_platform_app_1.json",
-        "'app.launch' is only allowed for hosted apps and legacy packaged "
-            "apps, but this is a packaged app."),
-    Testcase(
-        "init_invalid_platform_app_4.json",
-        "'background' is only allowed for extensions, hosted apps, and legacy "
-            "packaged apps, but this is a packaged app."),
-    Testcase(
-        "init_invalid_platform_app_5.json",
-        "'background' is only allowed for extensions, hosted apps, and legacy "
-            "packaged apps, but this is a packaged app."),
-    Testcase("incognito_invalid_platform_app.json",
-        "'incognito' is only allowed for extensions and legacy packaged apps, "
-            "but this is a packaged app."),
+      Testcase(
+          "init_invalid_platform_app_1.json",
+          "'app.launch' is only allowed for legacy packaged apps and hosted "
+          "apps, but this is a packaged app."),
+      Testcase("init_invalid_platform_app_4.json",
+               "'background' is only allowed for extensions, legacy packaged "
+               "apps, and"
+               " hosted apps, but this is a packaged app."),
+      Testcase("init_invalid_platform_app_5.json",
+               "'background' is only allowed for extensions, legacy packaged "
+               "apps, and"
+               " hosted apps, but this is a packaged app."),
+      Testcase("incognito_invalid_platform_app.json",
+               "'incognito' is only allowed for extensions and legacy packaged "
+               "apps, "
+               "but this is a packaged app."),
   };
   RunTestcases(
       warning_testcases, arraysize(warning_testcases), EXPECT_TYPE_WARNING);
@@ -130,7 +131,7 @@ TEST_F(PlatformAppsManifestTest, CertainApisRequirePlatformApps) {
     permissions->AppendString(api_name);
     manifest->Set("permissions", permissions);
     manifests.push_back(
-        base::WrapUnique(new ManifestData(manifest->CreateDeepCopy(), "")));
+        base::MakeUnique<ManifestData>(manifest->CreateDeepCopy(), ""));
   }
   // First try to load without any flags. This should warn for every API.
   for (const std::unique_ptr<ManifestData>& manifest : manifests) {

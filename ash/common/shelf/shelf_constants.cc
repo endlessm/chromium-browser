@@ -10,7 +10,6 @@
 
 namespace ash {
 
-const int kInvalidImageResourceID = -1;
 const int kTimeToSwitchBackgroundMs = 1000;
 const int kWorkspaceAreaVisibleInset = 2;
 const int kWorkspaceAreaAutoHideInset = 5;
@@ -19,6 +18,7 @@ const int kShelfItemInset = 3;
 const SkColor kShelfBaseColor = SK_ColorBLACK;
 const SkColor kShelfButtonActivatedHighlightColor =
     SkColorSetA(SK_ColorWHITE, 100);
+const SkColor kShelfInkDropBaseColor = SK_ColorWHITE;
 const float kShelfInkDropVisibleOpacity = 0.2f;
 const SkColor kShelfIconColor = SK_ColorWHITE;
 const int kOverflowButtonSize = 32;
@@ -30,7 +30,7 @@ int GetShelfConstant(ShelfConstant shelf_constant) {
   const int kShelfSize[] = {47, 47, 48};
   const int kShelfButtonSpacing[] = {10, 10, 16};
   const int kShelfButtonSize[] = {44, 44, 48};
-  const int kShelfInsetsForAutoHide[] = {3, 3, 0};
+  const int kShelfInsetsForAutoHide[] = {3, 0, 0};
 
   const int mode = MaterialDesignController::GetMode();
   DCHECK(mode >= MaterialDesignController::NON_MATERIAL &&

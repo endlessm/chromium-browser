@@ -157,6 +157,7 @@ void CloseAllBrowsers() {
 
 void AttemptUserExit() {
 #if defined(OS_CHROMEOS)
+  VLOG(1) << "AttemptUserExit";
   browser_shutdown::StartShutdownTracing();
   chromeos::BootTimesRecorder::Get()->AddLogoutTimeMarker("LogoutStarted",
                                                           false);
@@ -264,6 +265,7 @@ void AttemptExit() {
 #if defined(OS_CHROMEOS)
 // A function called when SIGTERM is received.
 void ExitCleanly() {
+  VLOG(1) << "ExitCleanly";
   // We always mark exit cleanly.
   MarkAsCleanShutdown();
 
@@ -304,6 +306,13 @@ void SessionEnding() {
   shutdown_watcher.Arm(base::TimeDelta::FromSeconds(90));
 
   browser_shutdown::OnShutdownStarting(browser_shutdown::END_SESSION);
+
+  // In a clean shutdown, browser_shutdown::OnShutdownStarting sets
+  // g_shutdown_type, and browser_shutdown::ShutdownPreThreadsStop calls
+  // RecordShutdownInfoPrefs to update the pref with the value. However, here
+  // the process is going to exit without calling ShutdownPreThreadsStop.
+  // Instead, here we call RecordShutdownInfoPrefs to record the shutdown info.
+  browser_shutdown::RecordShutdownInfoPrefs();
 
   content::NotificationService::current()->Notify(
       chrome::NOTIFICATION_CLOSE_ALL_BROWSERS_REQUEST,

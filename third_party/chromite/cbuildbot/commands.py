@@ -8,6 +8,7 @@ from __future__ import print_function
 
 import base64
 import collections
+import datetime
 import fnmatch
 import glob
 import json
@@ -63,6 +64,9 @@ _SWARMING_EXPIRATION = 20 * 60
 _RUN_SUITE_PATH = '/usr/local/autotest/site_utils/run_suite.py'
 _ABORT_SUITE_PATH = '/usr/local/autotest/site_utils/abort_suite.py'
 _MAX_HWTEST_CMD_RETRY = 10
+# Be very careful about retrying suite creation command as
+# it may create multiple suites.
+_MAX_HWTEST_START_CMD_RETRY = 1
 # For json_dump json dictionary marker
 JSON_DICT_START = '#JSON_START#'
 JSON_DICT_END = '#JSON_END#'
@@ -159,11 +163,12 @@ def ValidateClobber(buildroot):
 # =========================== Main Commands ===================================
 
 
-def BuildRootGitCleanup(buildroot):
+def BuildRootGitCleanup(buildroot, prune_all=False):
   """Put buildroot onto manifest branch. Delete branches created on last run.
 
   Args:
     buildroot: buildroot to clean up.
+    prune_all: If True, prune all loose objects regardless of gc.pruneExpire.
   """
   lock_path = os.path.join(buildroot, '.clean_lock')
   deleted_objdirs = multiprocessing.Event()
@@ -182,7 +187,7 @@ def BuildRootGitCleanup(buildroot):
           git.CleanAndDetachHead(cwd)
 
         if os.path.isdir(repo_git_store):
-          git.GarbageCollection(repo_git_store)
+          git.GarbageCollection(repo_git_store, prune_all=prune_all)
       except cros_build_lib.RunCommandError as e:
         result = e.result
         logging.PrintBuildbotStepWarnings()
@@ -512,7 +517,20 @@ def GetFirmwareVersions(buildroot, board):
 
 
 def BuildImage(buildroot, board, images_to_build, version=None,
-               rootfs_verification=True, extra_env=None, disk_layout=None):
+               builder_path=None, rootfs_verification=True, extra_env=None,
+               disk_layout=None):
+  """Run the script which builds images.
+
+  Args:
+    buildroot: The buildroot of the current build.
+    board: The board of the image.
+    images_to_build: The images to be built.
+    version: The version of image.
+    builder_path: The path of the builder to build the image.
+    rootfs_verification: Whether to enable the rootfs verification.
+    extra_env: A dictionary of environmental variables to set during generation.
+    disk_layout: The disk layout.
+  """
 
   # Default to base if images_to_build is passed empty.
   if not images_to_build:
@@ -520,7 +538,10 @@ def BuildImage(buildroot, board, images_to_build, version=None,
 
   version_str = '--version=%s' % (version or '')
 
-  cmd = ['./build_image', '--board=%s' % board, '--replace', version_str]
+  builder_path_str = '--builder_path=%s' % (builder_path or '')
+
+  cmd = ['./build_image', '--board=%s' % board, '--replace', version_str,
+         builder_path_str]
 
   if not rootfs_verification:
     cmd += ['--noenable_rootfs_verification']
@@ -626,6 +647,7 @@ def RunTestSuite(buildroot, board, image_path, results_dir, test_type,
          '--board=%s' % board,
          '--type=%s' % dut_type,
          '--no_graphics',
+         '--verbose',
          '--target_image=%s' % image_path,
          '--test_results_root=%s' % results_dir_in_chroot
         ]
@@ -891,7 +913,8 @@ def RunHWTestSuite(build, suite, board, pool=None, num=None, file_bugs=None,
                             priority, timeout_mins, retry, max_retries,
                             minimum_duts, suite_min_duts, offload_failures_only,
                             subsystems, skip_duts_check)
-    swarming_args = _CreateSwarmingArgs(build, suite, timeout_mins)
+    swarming_args = _CreateSwarmingArgs(build, suite, board, priority,
+                                        timeout_mins)
     running_json_dump_flag = False
     json_dump_result = None
     job_id = _HWTestCreate(cmd, debug, **swarming_args)
@@ -921,9 +944,11 @@ def RunHWTestSuite(build, suite, board, pool=None, num=None, file_bugs=None,
           '** Failed to fullfill request with proxy server, code(%d) **'
           % result.returncode)
     else:
-      logging.debug('swarming info: name: %s, bot_id: %s, created_ts: %s',
+      logging.debug('swarming info: name: %s, bot_id: %s, task_id: %s, '
+                    'created_ts: %s',
                     result.GetValue('name'),
                     result.GetValue('bot_id'),
+                    result.GetValue('id'),
                     result.GetValue('created_ts'))
       # If running json_dump cmd, write the pass/fail subsys dict into console,
       # otherwise, write the cmd output to the console.
@@ -1040,8 +1065,7 @@ def _GetRunSuiteArgs(build, suite, board, pool=None, num=None,
   return args
 
 
-# pylint: disable=docstring-missing-args
-def _CreateSwarmingArgs(build, suite, timeout_mins=None):
+def _CreateSwarmingArgs(build, suite, board, priority, timeout_mins=None):
   """Create args for swarming client.
 
   Args:
@@ -1049,6 +1073,8 @@ def _CreateSwarmingArgs(build, suite, timeout_mins=None):
     suite: Name of the suite, will be part of the swarming task name.
     timeout_mins: run_suite timeout mins, will be used to figure out
                   timeouts for swarming task.
+    board: Name of the board.
+    priority: Priority of this call.
 
   Returns:
     A dictionary of args for swarming client.
@@ -1057,7 +1083,7 @@ def _CreateSwarmingArgs(build, suite, timeout_mins=None):
   swarming_timeout = timeout_mins or _DEFAULT_HWTEST_TIMEOUT_MINS
   swarming_timeout = swarming_timeout * 60 + _SWARMING_ADDITIONAL_TIMEOUT
 
-  swarming_args = {
+  return {
       'swarming_server': topology.topology.get(
           topology.SWARMING_PROXY_HOST_KEY),
       'task_name': '-'.join([build, suite]),
@@ -1067,8 +1093,15 @@ def _CreateSwarmingArgs(build, suite, timeout_mins=None):
       'timeout_secs': swarming_timeout,
       'io_timeout_secs': swarming_timeout,
       'hard_timeout_secs': swarming_timeout,
-      'expiration_secs': _SWARMING_EXPIRATION}
-  return swarming_args
+      'expiration_secs': _SWARMING_EXPIRATION,
+      'tags': {
+          'task_name': '-'.join([build, suite]),
+          'build': build,
+          'suite': suite,
+          'board': board,
+          'priority': priority,
+      },
+  }
 
 
 def _HWTestCreate(cmd, debug=False, **kwargs):
@@ -1094,8 +1127,10 @@ def _HWTestCreate(cmd, debug=False, **kwargs):
     logging.info('RunHWTestSuite would run: %s',
                  cros_build_lib.CmdToStr(start_cmd))
   else:
-    result = swarming_lib.RunSwarmingCommand(
-        start_cmd, capture_output=True, combine_stdout_stderr=True,
+    result = swarming_lib.RunSwarmingCommandWithRetries(
+        max_retry=_MAX_HWTEST_START_CMD_RETRY,
+        error_check=swarming_lib.SwarmingRetriableErrorCheck,
+        cmd=start_cmd, capture_output=True, combine_stdout_stderr=True,
         **kwargs)
     # If the command succeeds, result.task_summary_json
     # should have the right content.
@@ -1589,7 +1624,7 @@ def GenerateDebugTarball(buildroot, board, archive_path, gdb_symbols):
   return os.path.basename(debug_tgz)
 
 
-def GenerateHtmlIndex(index, files, url_base=None, head=None, tail=None):
+def GenerateHtmlIndex(index, files, title='Index', url_base=None):
   """Generate a simple index.html file given a set of filenames
 
   Args:
@@ -1597,9 +1632,8 @@ def GenerateHtmlIndex(index, files, url_base=None, head=None, tail=None):
     files: The list of files to create the index of.  If a string, then it
            may be a path to a file (with one file per line), or a directory
            (which will be listed).
+    title: Title string for the HTML file.
     url_base: The URL to prefix to all elements (otherwise they'll be relative).
-    head: All the content before the listing.  '<html><body>' if not specified.
-    tail: All the content after the listing.  '</body></html>' if not specified.
   """
   def GenLink(target, name=None):
     if name == '':
@@ -1614,10 +1648,12 @@ def GenerateHtmlIndex(index, files, url_base=None, head=None, tail=None):
       files = osutils.ReadFile(files).splitlines()
   url_base = url_base + '/' if url_base else ''
 
-  if not head:
-    head = '<html><body>'
-  html = head + '<ul>'
+  # Head + open list.
+  html = '<html>'
+  html += '<head><title>%s</title></head>' % title
+  html += '<body><h2>%s</h2><ul>' % title
 
+  # List members.
   dot = ('.',)
   dot_dot = ('..',)
   links = []
@@ -1633,11 +1669,98 @@ def GenerateHtmlIndex(index, files, url_base=None, head=None, tail=None):
   links.insert(0, GenLink(*dot))
   html += '\n'.join(links)
 
-  if not tail:
-    tail = '</body></html>'
-  html += '</ul>' + tail
+  # Close list and file.
+  html += '</ul></body></html>'
 
   osutils.WriteFile(index, html)
+
+
+def GenerateHtmlTimeline(timeline, rows, title):
+  """Generate a simple timeline.html file given a list of timings.
+
+  Args:
+    index: The file to write the html index to.
+    rows: The list of rows to generate a timeline of.  Each row should be
+          tuple of (entry, start_time, end_time)
+    title: Title of the timeline.
+  """
+
+  _HTML = """<html>
+  <head>
+    <title>%(title)s</title>
+    %(javascript)s
+  </head>
+  <body>
+    <h2>%(title)s</h2>
+    <!--Div that will hold the timeline-->
+    <div id="chart_div"></div>
+  </body>
+</html>
+"""
+
+  _JAVASCRIPT_HEAD = """
+    <!--Load the AJAX API-->
+    <script type="text/javascript" src="https://www.gstatic.com/charts/loader.js"></script>
+    <script type="text/javascript">
+
+      // Load the Visualization API and the timeline package.
+      google.charts.load('current', {'packages':['timeline']});
+
+      // Set a callback to run when the Google Visualization API is loaded.
+      google.charts.setOnLoadCallback(drawChart);
+
+      // Callback that creates and populates a data table,
+      // instantiates the timeline, passes in the data and
+      // draws it.
+      function drawChart() {
+
+        // Create the data table.
+        var container = document.getElementById('chart_div');
+        var data = new google.visualization.DataTable();
+        data.addColumn('string', 'Entry');
+        data.addColumn('datetime', 'Start Time');
+        data.addColumn('datetime', 'Finish Time');
+"""
+
+  _JAVASCRIPT_TAIL = """
+        // Set chart options
+        var height = data.getNumberOfRows() * 50 + 30;
+        var options = {'title':'timings',
+                       'width':'100%',
+                       'height':height};
+
+        // Instantiate and draw our chart, passing in some options.
+        var chart = new google.visualization.Timeline(container);
+        chart.draw(data, options);
+      }
+    </script>
+"""
+  def GenRow(entry, start, end):
+    def GenDate(time):
+      # Javascript months are 0..11 instead of 1..12
+      return ('new Date(%d, %d, %d, %d, %d, %d)' %
+              (time.year, time.month - 1, time.day,
+               time.hour, time.minute, time.second))
+    return ('data.addRow(["%s", %s, %s]);\n' %
+            (entry, GenDate(start), GenDate(end)))
+
+  now = datetime.datetime.utcnow()
+  rows = [(entry, start, end or now)
+          for (entry, start, end) in rows
+          if entry and start]
+
+  javascript = [_JAVASCRIPT_HEAD]
+  javascript += [GenRow(entry, start, end) for (entry, start, end) in rows]
+  javascript.append(_JAVASCRIPT_TAIL)
+
+  data = {
+      'javascript': ''.join(javascript),
+      'title': title if title else ''
+  }
+
+  html = _HTML % data
+
+  osutils.WriteFile(timeline, html)
 
 
 @failures_lib.SetFailureType(failures_lib.GSUploadFailure)
@@ -1687,8 +1810,7 @@ def UploadArchivedFile(archive_dir, upload_urls, filename, debug,
 
 
 def UploadSymbols(buildroot, board=None, official=False, cnt=None,
-                  failed_list=None, breakpad_root=None, product_name=None,
-                  error_code_ok=True):
+                  failed_list=None, breakpad_root=None, product_name=None):
   """Upload debug symbols for this build."""
   cmd = ['upload_symbols', '--yes', '--dedupe']
 
@@ -1711,12 +1833,7 @@ def UploadSymbols(buildroot, board=None, official=False, cnt=None,
   # We don't want to import upload_symbols directly because it uses the
   # swarming module which itself imports a _lot_ of stuff.  It has also
   # been known to hang.  We want to keep cbuildbot isolated & robust.
-  ret = RunBuildScript(buildroot, cmd, chromite_cmd=True,
-                       error_code_ok=error_code_ok)
-  if ret.returncode:
-    # TODO(davidjames): Convert this to a fatal error.
-    # See http://crbug.com/212437
-    logging.PrintBuildbotStepWarnings()
+  RunBuildScript(buildroot, cmd, chromite_cmd=True)
 
 
 def PushImages(board, archive_url, dryrun, profile, sign_types=()):

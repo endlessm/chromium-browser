@@ -164,6 +164,7 @@ public class TabWebContentsObserver extends WebContentsObserver {
     @Override
     public void didFailLoad(boolean isProvisionalLoad, boolean isMainFrame, int errorCode,
             String description, String failingUrl, boolean wasIgnoredByHandler) {
+        mTab.updateThemeColorIfNeeded(true);
         RewindableIterator<TabObserver> observers = mTab.getTabObservers();
         while (observers.hasNext()) {
             observers.next().onDidFailLoad(mTab, isProvisionalLoad, isMainFrame, errorCode,
@@ -207,8 +208,8 @@ public class TabWebContentsObserver extends WebContentsObserver {
             //   s = 1.05
             //   s^b = 60000
             //   b = ln(60000) / ln(1.05) ~= 225
-            RecordHistogram.recordCustomTimesHistogram("Startup.FirstCommitNavigationTime",
-                    SystemClock.uptimeMillis() - UmaUtils.getMainEntryPointTime(),
+            RecordHistogram.recordCustomTimesHistogram("Startup.FirstCommitNavigationTime2",
+                    SystemClock.uptimeMillis() - UmaUtils.getForegroundStartTime(),
                     1, 60000 /* 1 minute */, TimeUnit.MILLISECONDS, 225);
             UmaUtils.setRunningApplicationStart(false);
         }
@@ -314,7 +315,7 @@ public class TabWebContentsObserver extends WebContentsObserver {
     @Override
     public void destroy() {
         MediaCaptureNotificationService.updateMediaNotificationForTab(
-                mTab.getApplicationContext(), mTab.getId(), false, false, mTab.getUrl());
+                mTab.getApplicationContext(), mTab.getId(), 0, mTab.getUrl());
         super.destroy();
     }
 }

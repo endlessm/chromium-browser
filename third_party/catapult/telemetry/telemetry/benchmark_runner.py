@@ -14,16 +14,6 @@ import logging
 import os
 import sys
 
-
-# We need to set logging format here to make sure that any other modules
-# imported by telemetry doesn't set the logging format before this, which will
-# make this a no-op call.
-# (See: https://docs.python.org/2/library/logging.html#logging.basicConfig)
-logging.basicConfig(
-    format='(%(levelname)s) %(asctime)s %(module)s.%(funcName)s:%(lineno)d  '
-           '%(message)s')
-
-
 from telemetry import benchmark
 from telemetry.core import discover
 from telemetry import decorators
@@ -35,10 +25,28 @@ from telemetry.internal.util import ps_util
 from telemetry.util import matching
 
 
+# Right now, we only have one of each of our power perf bots. This means that
+# all eligible Telemetry benchmarks are run unsharded, which results in very
+# long (12h) cycle times. We'd like to reduce the number of tests that we run
+# on each bot drastically until we get more of the same hardware to shard tests
+# with, but we can't do so until we've verified that the hardware configuration
+# is a viable one for Chrome Telemetry tests. This is done by seeing at least
+# one all-green test run. As this happens for each bot, we'll add it to this
+# whitelist, making it eligible to run only BattOr power tests.
+GOOD_POWER_PERF_BOT_WHITELIST = [
+  "Mac Power Dual-GPU Perf",
+  "Mac Power Low-End Perf"
+]
+
+
+DEFAULT_LOG_FORMAT = (
+  '(%(levelname)s) %(asctime)s %(module)s.%(funcName)s:%(lineno)d  '
+  '%(message)s')
+
+
 def _IsBenchmarkEnabled(benchmark_class, possible_browser):
   return (issubclass(benchmark_class, benchmark.Benchmark) and
-          not benchmark_class.ShouldDisable(possible_browser) and
-          decorators.IsEnabled(benchmark_class, possible_browser)[0])
+          decorators.IsBenchmarkEnabled(benchmark_class, possible_browser))
 
 
 def PrintBenchmarkList(benchmarks, possible_browser, output_pipe=sys.stdout):
@@ -55,9 +63,11 @@ def PrintBenchmarkList(benchmarks, possible_browser, output_pipe=sys.stdout):
   if not benchmarks:
     print >> output_pipe, 'No benchmarks found!'
     return
-  b = None  # Need this to stop pylint from complaining undefined variable.
-  if any(not issubclass(b, benchmark.Benchmark) for b in benchmarks):
-    assert False, '|benchmarks| param contains non benchmark class: %s' % b
+
+  bad_benchmark = next(
+    (b for b in benchmarks if not issubclass(b, benchmark.Benchmark)), None)
+  assert bad_benchmark is None, (
+    '|benchmarks| param contains non benchmark class: %s' % bad_benchmark)
 
   # Align the benchmark names to the longest one.
   format_string = '  %%-%ds %%s' % max(len(b.Name()) for b in benchmarks)
@@ -187,7 +197,7 @@ class Run(command_line.OptparseCommand):
       matching_benchmark.SetArgumentDefaults(parser)
 
   @classmethod
-  def ProcessCommandLineArgs(cls, parser, args, environment):
+  def _FindBenchmark(cls, parser, args, environment):
     all_benchmarks = _Benchmarks(environment)
     if not args.positional_args:
       possible_browser = (
@@ -222,6 +232,12 @@ class Run(command_line.OptparseCommand):
     assert issubclass(benchmark_class, benchmark.Benchmark), (
         'Trying to run a non-Benchmark?!')
 
+    return benchmark_class
+
+  @classmethod
+  def ProcessCommandLineArgs(cls, parser, args, environment):
+    benchmark_class = cls._FindBenchmark(parser, args, environment)
+
     benchmark.ProcessCommandLineArgs(parser, args)
     benchmark_class.ProcessCommandLineArgs(parser, args)
 
@@ -229,6 +245,22 @@ class Run(command_line.OptparseCommand):
 
   def Run(self, args):
     return min(255, self._benchmark().Run(args))
+
+
+class CheckIndependent(Run):
+  """Return 0 if benchmark stories are independent, 1 if not."""
+
+  usage = '[benchmark_name]'
+
+  @classmethod
+  def ProcessCommandLineArgs(cls, parser, args, environment):
+    cls._benchmark = cls._FindBenchmark(parser, args, environment)
+
+  def Run(self, args):
+    if self._benchmark.ShouldTearDownStateAfterEachStoryRun():
+      sys.exit(0)
+    else:
+      sys.exit(1)
 
 
 def _ScriptName():
@@ -301,12 +333,11 @@ def _GetJsonBenchmarkList(possible_browser, possible_reference_browser,
     }
   }
   """
-  # TODO(nednguyen): remove this once crbug.com/616832 is fixed.
-  only_run_subset_of_benchmarks = False
+  # TODO(charliea): Remove this once we have more power perf bots.
+  only_run_battor_benchmarks = False
   print 'Environment variables: ', os.environ
-  if (os.environ.get('BUILDBOT_BUILDERNAME') ==
-      'Win Power Perf (DELL)'):
-    only_run_subset_of_benchmarks = True
+  if os.environ.get('BUILDBOT_BUILDERNAME') in GOOD_POWER_PERF_BOT_WHITELIST:
+    only_run_battor_benchmarks = True
 
   output = {
     'version': 1,
@@ -318,10 +349,11 @@ def _GetJsonBenchmarkList(possible_browser, possible_reference_browser,
       continue
 
     base_name = benchmark_class.Name()
-    # Only run benchmarks start with 'b' or 'B' to reduce the cycle time of
-    # 'Win Power Perf (DELL)' bot.
-    # TODO(nednguyen): remove this once crbug.com/616832 is fixed.
-    if only_run_subset_of_benchmarks and not base_name[0] in ('b', 'B'):
+    # TODO(charliea): Remove this once we have more power perf bots.
+    # Only run battor power benchmarks to reduce the cycle time of this bot.
+    # TODO(rnephew): Enable media.* and power.* tests when Mac BattOr issue
+    # is solved.
+    if only_run_battor_benchmarks and not base_name.startswith('battor'):
       continue
     base_cmd = [sys.executable, os.path.realpath(sys.argv[0]),
                 '-v', '--output-format=chartjson', '--upload-results',
@@ -367,7 +399,12 @@ def _GetJsonBenchmarkList(possible_browser, possible_reference_browser,
   return json.dumps(output, indent=2, sort_keys=True)
 
 
-def main(environment, extra_commands=None):
+def main(environment, extra_commands=None, **log_config_kwargs):
+  # The log level is set in browser_options.
+  log_config_kwargs.pop('level', None)
+  log_config_kwargs.setdefault('format', DEFAULT_LOG_FORMAT)
+  logging.basicConfig(**log_config_kwargs)
+
   ps_util.EnableListingStrayProcessesUponExitHook()
 
   # Get the command name from the command line.
@@ -387,7 +424,7 @@ def main(environment, extra_commands=None):
 
   if extra_commands is None:
     extra_commands = []
-  all_commands = [Help, List, Run] + extra_commands
+  all_commands = [Help, CheckIndependent, List, Run] + extra_commands
 
   # Validate and interpret the command name.
   commands = _MatchingCommands(command_name, all_commands)
@@ -403,7 +440,8 @@ def main(environment, extra_commands=None):
   else:
     command = Run
 
-  binary_manager.InitDependencyManager(environment.client_configs)
+  if binary_manager.NeedsInit():
+    binary_manager.InitDependencyManager(environment.client_configs)
 
   # Parse and run the command.
   parser = command.CreateParser()

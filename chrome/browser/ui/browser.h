@@ -24,6 +24,7 @@
 #include "chrome/browser/ui/bookmarks/bookmark_bar.h"
 #include "chrome/browser/ui/bookmarks/bookmark_tab_helper_delegate.h"
 #include "chrome/browser/ui/browser_navigator.h"
+#include "chrome/browser/ui/browser_navigator_params.h"
 #include "chrome/browser/ui/chrome_bubble_manager.h"
 #include "chrome/browser/ui/chrome_web_modal_dialog_manager_delegate.h"
 #include "chrome/browser/ui/exclusive_access/exclusive_access_manager.h"
@@ -35,7 +36,6 @@
 #include "components/content_settings/core/common/content_settings.h"
 #include "components/content_settings/core/common/content_settings_types.h"
 #include "components/prefs/pref_change_registrar.h"
-#include "components/prefs/pref_member.h"
 #include "components/sessions/core/session_id.h"
 #include "components/toolbar/toolbar_model.h"
 #include "components/translate/content/browser/content_translate_driver.h"
@@ -387,11 +387,6 @@ class Browser : public TabStripModelObserver,
   // in |SupportsWindowFeature| for details on this.
   bool CanSupportWindowFeature(WindowFeature feature) const;
 
-  // TODO(port): port these, and re-merge the two function declaration lists.
-  // Page-related commands.
-  void ToggleEncodingAutoDetect();
-  void OverrideEncoding(int encoding_id);
-
   // Show various bits of UI
   void OpenFile();
 
@@ -403,6 +398,7 @@ class Browser : public TabStripModelObserver,
   // this Browser. Updates the UI for the start of this navigation.
   void UpdateUIForNavigationInTab(content::WebContents* contents,
                                   ui::PageTransition transition,
+                                  chrome::NavigateParams::WindowAction action,
                                   bool user_initiated);
 
   // Shows the signin flow for |mode| in a tab-modal dialog.
@@ -420,6 +416,10 @@ class Browser : public TabStripModelObserver,
   // flow.
   void ShowModalSyncConfirmationWindow();
 
+  // Shows the tab modal signin error dialog that informs the user about
+  // signin errors.
+  void ShowModalSigninErrorWindow();
+
   // Used to register a KeepAlive to affect the Chrome lifetime. The KeepAlive
   // is registered when the browser is added to the browser list, and unregisted
   // when it is removed from it.
@@ -432,7 +432,8 @@ class Browser : public TabStripModelObserver,
   content::WebContents* OpenURL(const content::OpenURLParams& params) override;
 
   // Overridden from TabStripModelObserver:
-  void TabInsertedAt(content::WebContents* contents,
+  void TabInsertedAt(TabStripModel* tab_strip_model,
+                     content::WebContents* contents,
                      int index,
                      bool foreground) override;
   void TabClosingAt(TabStripModel* tab_strip_model,
@@ -451,7 +452,8 @@ class Browser : public TabStripModelObserver,
                      content::WebContents* old_contents,
                      content::WebContents* new_contents,
                      int index) override;
-  void TabPinnedStateChanged(content::WebContents* contents,
+  void TabPinnedStateChanged(TabStripModel* tab_strip_model,
+                             content::WebContents* contents,
                              int index) override;
   void TabStripEmpty() override;
 
@@ -482,7 +484,7 @@ class Browser : public TabStripModelObserver,
       content::SecurityStyleExplanations* security_style_explanations) override;
   void ShowCertificateViewerInDevTools(
       content::WebContents* web_contents,
-      int cert_id) override;
+      scoped_refptr<net::X509Certificate> certificate) override;
   std::unique_ptr<content::BluetoothChooser> RunBluetoothChooser(
       content::RenderFrameHost* frame,
       const content::BluetoothChooser::EventHandler& event_handler) override;
@@ -619,6 +621,7 @@ class Browser : public TabStripModelObserver,
       const std::string& partition_id,
       content::SessionStorageNamespace* session_storage_namespace) override;
   void WebContentsCreated(content::WebContents* source_contents,
+                          int opener_render_process_id,
                           int opener_render_frame_id,
                           const std::string& frame_name,
                           const GURL& target_url,
@@ -962,9 +965,6 @@ class Browser : public TabStripModelObserver,
 
   // Dialog box used for opening and saving files.
   scoped_refptr<ui::SelectFileDialog> select_file_dialog_;
-
-  // Keep track of the encoding auto detect pref.
-  BooleanPrefMember encoding_auto_detect_;
 
   // Helper which implements the ContentSettingBubbleModel interface.
   std::unique_ptr<BrowserContentSettingBubbleModelDelegate>

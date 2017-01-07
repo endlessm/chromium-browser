@@ -14,6 +14,10 @@
 #include "ui/base/page_transition_types.h"
 #include "ui/gfx/text_elider.h"
 
+#if !defined(__has_feature) || !__has_feature(objc_arc)
+#error "This file requires ARC support."
+#endif
+
 namespace {
 
 // Returns a new unique ID for use in NavigationItem during construction.  The
@@ -37,11 +41,12 @@ NavigationItemImpl::NavigationItemImpl()
       transition_type_(ui::PAGE_TRANSITION_LINK),
       is_overriding_user_agent_(false),
       is_created_from_push_state_(false),
+      has_state_been_replaced_(false),
+      is_created_from_hash_change_(false),
       should_skip_resubmit_data_confirmation_(false),
       is_renderer_initiated_(false),
       is_unsafe_(false),
-      facade_delegate_(nullptr) {
-}
+      facade_delegate_(nullptr) {}
 
 NavigationItemImpl::~NavigationItemImpl() {
 }
@@ -61,14 +66,15 @@ NavigationItemImpl::NavigationItemImpl(const NavigationItemImpl& item)
       http_request_headers_([item.http_request_headers_ copy]),
       serialized_state_object_([item.serialized_state_object_ copy]),
       is_created_from_push_state_(item.is_created_from_push_state_),
+      has_state_been_replaced_(item.has_state_been_replaced_),
+      is_created_from_hash_change_(item.is_created_from_hash_change_),
       should_skip_resubmit_data_confirmation_(
           item.should_skip_resubmit_data_confirmation_),
       post_data_([item.post_data_ copy]),
       is_renderer_initiated_(item.is_renderer_initiated_),
       is_unsafe_(item.is_unsafe_),
       cached_display_title_(item.cached_display_title_),
-      facade_delegate_(nullptr) {
-}
+      facade_delegate_(nullptr) {}
 
 void NavigationItemImpl::SetFacadeDelegate(
     std::unique_ptr<NavigationItemFacadeDelegate> facade_delegate) {
@@ -204,7 +210,7 @@ bool NavigationItemImpl::HasPostData() const {
 }
 
 NSDictionary* NavigationItemImpl::GetHttpRequestHeaders() const {
-  return [[http_request_headers_ copy] autorelease];
+  return [http_request_headers_ copy];
 }
 
 void NavigationItemImpl::AddHttpRequestHeaders(
@@ -220,7 +226,7 @@ void NavigationItemImpl::AddHttpRequestHeaders(
 
 void NavigationItemImpl::SetSerializedStateObject(
     NSString* serialized_state_object) {
-  serialized_state_object_.reset([serialized_state_object retain]);
+  serialized_state_object_.reset(serialized_state_object);
 }
 
 NSString* NavigationItemImpl::GetSerializedStateObject() const {
@@ -235,6 +241,22 @@ bool NavigationItemImpl::IsCreatedFromPushState() const {
   return is_created_from_push_state_;
 }
 
+void NavigationItemImpl::SetHasStateBeenReplaced(bool replace_state) {
+  has_state_been_replaced_ = replace_state;
+}
+
+bool NavigationItemImpl::HasStateBeenReplaced() const {
+  return has_state_been_replaced_;
+}
+
+void NavigationItemImpl::SetIsCreatedFromHashChange(bool hash_change) {
+  is_created_from_hash_change_ = hash_change;
+}
+
+bool NavigationItemImpl::IsCreatedFromHashChange() const {
+  return is_created_from_hash_change_;
+}
+
 void NavigationItemImpl::SetShouldSkipResubmitDataConfirmation(bool skip) {
   should_skip_resubmit_data_confirmation_ = skip;
 }
@@ -244,7 +266,7 @@ bool NavigationItemImpl::ShouldSkipResubmitDataConfirmation() const {
 }
 
 void NavigationItemImpl::SetPostData(NSData* post_data) {
-  post_data_.reset([post_data retain]);
+  post_data_.reset(post_data);
 }
 
 NSData* NavigationItemImpl::GetPostData() const {

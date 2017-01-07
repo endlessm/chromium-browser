@@ -19,8 +19,8 @@ from telemetry.internal.util import ps_util
 from telemetry.testing import browser_test_case
 from telemetry.testing import options_for_unittests
 
-from catapult_base import cloud_storage
-from catapult_base import xvfb
+from py_utils import cloud_storage
+from py_utils import xvfb
 
 import typ
 
@@ -68,6 +68,7 @@ class RunTestsCommand(command_line.OptparseCommand):
     typ.ArgumentParser.add_option_group(parser,
                                         "Options for running the tests",
                                         running=True,
+                                        discovery=True,
                                         skip=['-d', '-v', '--verbose'])
     typ.ArgumentParser.add_option_group(parser,
                                         "Options for reporting the results",

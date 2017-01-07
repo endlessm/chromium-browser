@@ -62,6 +62,19 @@ public class PersonalDataManager {
     }
 
     /**
+     * Callback for normalized addresses.
+     */
+    public interface NormalizedAddressRequestDelegate {
+        /**
+         * Called when the address has been sucessfully normalized.
+         *
+         * @param profile The profile with the normalized address.
+         */
+        @CalledByNative("NormalizedAddressRequestDelegate")
+        void onAddressNormalized(AutofillProfile profile);
+    }
+
+    /**
      * Autofill address information.
      */
     public static class AutofillProfile {
@@ -474,6 +487,8 @@ public class PersonalDataManager {
         return sManager;
     }
 
+    private static int sNormalizationTimeoutMs = 5000;
+
     private final long mPersonalDataManagerAndroid;
     private final List<PersonalDataManagerObserver> mDataObservers =
             new ArrayList<PersonalDataManagerObserver>();
@@ -498,10 +513,11 @@ public class PersonalDataManager {
     /**
      * Registers a PersonalDataManagerObserver on the native side.
      */
-    public void registerDataObserver(PersonalDataManagerObserver observer) {
+    public boolean registerDataObserver(PersonalDataManagerObserver observer) {
         ThreadUtils.assertOnUiThread();
         assert !mDataObservers.contains(observer);
         mDataObservers.add(observer);
+        return nativeIsDataLoaded(mPersonalDataManagerAndroid);
     }
 
     /**
@@ -518,6 +534,8 @@ public class PersonalDataManager {
     /**
      * Gets the profiles to show in the settings page. Returns all the profiles without any
      * processing.
+     *
+     * @return The list of profiles to show in the settings.
      */
     public List<AutofillProfile> getProfilesForSettings() {
         ThreadUtils.assertOnUiThread();
@@ -529,10 +547,15 @@ public class PersonalDataManager {
     /**
      * Gets the profiles to suggest when filling a form or completing a transaction. The profiles
      * will have been processed to be more relevant to the user.
+     *
+     * @param includeName Whether to include the name in the profile's label.
+     * @return The list of profiles to suggest to the user.
      */
-    public List<AutofillProfile> getProfilesToSuggest() {
+    public List<AutofillProfile> getProfilesToSuggest(boolean includeName) {
         ThreadUtils.assertOnUiThread();
-        return getProfilesWithLabels(nativeGetProfileLabelsToSuggest(mPersonalDataManagerAndroid),
+        return getProfilesWithLabels(
+                nativeGetProfileLabelsToSuggest(
+                        mPersonalDataManagerAndroid, includeName),
                 nativeGetProfileGUIDsToSuggest(mPersonalDataManagerAndroid));
     }
 
@@ -710,6 +733,41 @@ public class PersonalDataManager {
     }
 
     /**
+     * Starts loading the address validation rules for the specified {@code regionCode}.
+     *
+     * @param regionCode The code of the region for which to load the rules.
+     */
+    public void loadRulesForRegion(String regionCode) {
+        ThreadUtils.assertOnUiThread();
+        nativeLoadRulesForRegion(mPersonalDataManagerAndroid, regionCode);
+    }
+
+    /**
+     * Normalizes the address of the profile associated with the {@code guid} if the rules
+     * associated with the {@code regionCode} are done loading. Otherwise sets up the callback to
+     * start normalizing the address when the rules are loaded. The normalized profile will be sent
+     * to the {@code delegate}.
+     *
+     * @param guid The GUID of the profile to normalize.
+     * @param regionCode The region code indicating which rules to use for normalization.
+     * @param delegate The object requesting the normalization.
+     *
+     * @return Whether the normalization will happen asynchronously.
+     */
+    public boolean normalizeAddress(
+            String guid, String regionCode, NormalizedAddressRequestDelegate delegate) {
+        ThreadUtils.assertOnUiThread();
+        return nativeStartAddressNormalization(
+                mPersonalDataManagerAndroid, guid, regionCode, delegate);
+    }
+
+    /** Cancels the pending address normalization. */
+    public void cancelPendingAddressNormalization() {
+        ThreadUtils.assertOnUiThread();
+        nativeCancelPendingAddressNormalization(mPersonalDataManagerAndroid);
+    }
+
+    /**
      * @return Whether the Autofill feature is enabled.
      */
     public static boolean isAutofillEnabled() {
@@ -746,12 +804,26 @@ public class PersonalDataManager {
         nativeSetPaymentsIntegrationEnabled(enable);
     }
 
+    /**
+     * @return The timeout value for normalization.
+     */
+    public static int getNormalizationTimeoutMS() {
+        return sNormalizationTimeoutMs;
+    }
+
+    @VisibleForTesting
+    public static void setNormalizationTimeoutForTesting(int timeout) {
+        sNormalizationTimeoutMs = timeout;
+    }
+
     private native long nativeInit();
+    private native boolean nativeIsDataLoaded(long nativePersonalDataManagerAndroid);
     private native String[] nativeGetProfileGUIDsForSettings(long nativePersonalDataManagerAndroid);
     private native String[] nativeGetProfileGUIDsToSuggest(long nativePersonalDataManagerAndroid);
     private native String[] nativeGetProfileLabelsForSettings(
             long nativePersonalDataManagerAndroid);
-    private native String[] nativeGetProfileLabelsToSuggest(long nativePersonalDataManagerAndroid);
+    private native String[] nativeGetProfileLabelsToSuggest(long nativePersonalDataManagerAndroid,
+            boolean includeName);
     private native AutofillProfile nativeGetProfileByGUID(long nativePersonalDataManagerAndroid,
             String guid);
     private native String nativeSetProfile(long nativePersonalDataManagerAndroid,
@@ -796,6 +868,12 @@ public class PersonalDataManager {
             long nativePersonalDataManagerAndroid, String guid);
     private native void nativeGetFullCardForPaymentRequest(long nativePersonalDataManagerAndroid,
             WebContents webContents, CreditCard card, FullCardRequestDelegate delegate);
+    private native void nativeLoadRulesForRegion(
+            long nativePersonalDataManagerAndroid, String regionCode);
+    private native boolean nativeStartAddressNormalization(long nativePersonalDataManagerAndroid,
+            String guid, String regionCode, NormalizedAddressRequestDelegate delegate);
+    private native void nativeCancelPendingAddressNormalization(
+            long nativePersonalDataManagerAndroid);
     private static native boolean nativeIsAutofillEnabled();
     private static native void nativeSetAutofillEnabled(boolean enable);
     private static native boolean nativeIsAutofillManaged();

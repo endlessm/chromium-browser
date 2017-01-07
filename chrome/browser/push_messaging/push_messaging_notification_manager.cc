@@ -11,8 +11,8 @@
 #include "base/metrics/histogram_macros.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/budget_service/background_budget_service.h"
-#include "chrome/browser/budget_service/background_budget_service_factory.h"
+#include "chrome/browser/budget_service/budget_manager.h"
+#include "chrome/browser/budget_service/budget_manager_factory.h"
 #include "chrome/browser/engagement/site_engagement_service.h"
 #include "chrome/browser/notifications/platform_notification_service_impl.h"
 #include "chrome/browser/profiles/profile.h"
@@ -31,6 +31,7 @@
 #include "content/public/common/notification_resources.h"
 #include "content/public/common/url_constants.h"
 #include "net/base/registry_controlled_domains/registry_controlled_domain.h"
+#include "third_party/WebKit/public/platform/modules/budget_service/budget_service.mojom.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "url/gurl.h"
 
@@ -186,45 +187,15 @@ void PushMessagingNotificationManager::DidGetNotificationsFromDatabase(
     }
   }
 
-  // Get the budget for the service worker.
-  BackgroundBudgetService* service =
-      BackgroundBudgetServiceFactory::GetForProfile(profile_);
-  service->GetBudget(
-      origin,
-      base::Bind(&PushMessagingNotificationManager::DidGetBudget,
-                 weak_factory_.GetWeakPtr(), origin,
-                 service_worker_registration_id, message_handled_closure,
-                 notification_needed, notification_shown));
-}
-
-void PushMessagingNotificationManager::DidGetBudget(
-    const GURL& origin,
-    int64_t service_worker_registration_id,
-    const base::Closure& message_handled_closure,
-    bool notification_needed,
-    bool notification_shown,
-    const double budget) {
-  // Record the budget available any time the budget is queried.
-  UMA_HISTOGRAM_COUNTS_100("PushMessaging.BackgroundBudget", budget);
-
-  // Get the site engagement score. Only used for UMA recording.
-  SiteEngagementService* ses_service = SiteEngagementService::Get(profile_);
-  double ses_score = ses_service->GetScore(origin);
-
-  // Generate histograms for the GetBudget calls which would return "no budget"
-  // or "low budget" if an API was available to app developers.
-  double cost = BackgroundBudgetService::GetCost(
-      BackgroundBudgetService::CostType::SILENT_PUSH);
-  if (budget < cost)
-    UMA_HISTOGRAM_COUNTS_100("PushMessaging.SESForNoBudgetOrigin", ses_score);
-  else if (budget < 2.0 * cost)
-    UMA_HISTOGRAM_COUNTS_100("PushMessaging.SESForLowBudgetOrigin", ses_score);
-
   if (notification_needed && !notification_shown) {
-    // If the worker needed to show a notification and didn't, check the budget
-    // and take appropriate action.
-    CheckForMissedNotification(origin, service_worker_registration_id,
-                               message_handled_closure, budget);
+    // If the worker needed to show a notification and didn't, see if a silent
+    // push was allowed.
+    BudgetManager* manager = BudgetManagerFactory::GetForProfile(profile_);
+    manager->Consume(
+        url::Origin(origin), blink::mojom::BudgetOperationType::SILENT_PUSH,
+        base::Bind(&PushMessagingNotificationManager::ProcessSilentPush,
+                   weak_factory_.GetWeakPtr(), origin,
+                   service_worker_registration_id, message_handled_closure));
     return;
   }
 
@@ -275,26 +246,18 @@ bool PushMessagingNotificationManager::IsTabVisible(
   return visible_url.GetOrigin() == origin;
 }
 
-void PushMessagingNotificationManager::CheckForMissedNotification(
+void PushMessagingNotificationManager::ProcessSilentPush(
     const GURL& origin,
     int64_t service_worker_registration_id,
     const base::Closure& message_handled_closure,
-    const double budget) {
+    bool silent_push_allowed) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
-  // If the service needed to show a notification but did not, update the
-  // budget.
-  double cost = BackgroundBudgetService::GetCost(
-      BackgroundBudgetService::CostType::SILENT_PUSH);
-  if (budget >= cost) {
+  // If the origin was allowed to issue a silent push, just return.
+  if (silent_push_allowed) {
     RecordUserVisibleStatus(
         content::PUSH_USER_VISIBLE_STATUS_REQUIRED_BUT_NOT_SHOWN_USED_GRACE);
-
-    BackgroundBudgetService* service =
-        BackgroundBudgetServiceFactory::GetForProfile(profile_);
-    // Update the stored budget.
-    service->StoreBudget(origin, budget - cost, message_handled_closure);
-
+    message_handled_closure.Run();
     return;
   }
 
@@ -329,13 +292,13 @@ void PushMessagingNotificationManager::DidWriteNotificationDataIOProxy(
     const PlatformNotificationData& notification_data,
     const base::Closure& message_handled_closure,
     bool success,
-    int64_t persistent_notification_id) {
+    const std::string& notification_id) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
   BrowserThread::PostTask(
       BrowserThread::UI, FROM_HERE,
       base::Bind(&PushMessagingNotificationManager::DidWriteNotificationData,
                  ui_weak_ptr, origin, notification_data,
-                 message_handled_closure, success, persistent_notification_id));
+                 message_handled_closure, success, notification_id));
 }
 
 void PushMessagingNotificationManager::DidWriteNotificationData(
@@ -343,7 +306,7 @@ void PushMessagingNotificationManager::DidWriteNotificationData(
     const PlatformNotificationData& notification_data,
     const base::Closure& message_handled_closure,
     bool success,
-    int64_t persistent_notification_id) {
+    const std::string& notification_id) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   if (!success) {
     DLOG(ERROR) << "Writing forced notification to database should not fail";
@@ -351,9 +314,13 @@ void PushMessagingNotificationManager::DidWriteNotificationData(
     return;
   }
 
+  // Do not pass service worker scope. The origin will be used instead of the
+  // service worker scope to determine whether a notification should be
+  // attributed to a WebAPK on Android. This is OK because this code path is hit
+  // rarely.
   PlatformNotificationServiceImpl::GetInstance()->DisplayPersistentNotification(
-      profile_, persistent_notification_id, origin, notification_data,
-      NotificationResources());
+      profile_, notification_id, GURL() /* service_worker_scope */, origin,
+      notification_data, NotificationResources());
 
   message_handled_closure.Run();
 }

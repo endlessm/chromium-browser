@@ -10,6 +10,7 @@ import copy
 import glob
 import json
 import os
+import re
 
 from chromite.cbuildbot import constants
 from chromite.lib import commandline
@@ -131,10 +132,10 @@ class Crossdev(object):
       conf['crosspkgs'] = conf['crosspkgs'].split()
 
       for pkg, cat in cls.MANUAL_PKGS.iteritems():
-          conf[pkg + '_pn'] = pkg
-          conf[pkg + '_category'] = cat
-          if pkg not in conf['crosspkgs']:
-            conf['crosspkgs'].append(pkg)
+        conf[pkg + '_pn'] = pkg
+        conf[pkg + '_category'] = cat
+        if pkg not in conf['crosspkgs']:
+          conf['crosspkgs'].append(pkg)
 
       val[target] = conf
 
@@ -413,10 +414,12 @@ def RebuildLibtool(root='/'):
       if line.startswith('sys_lib_search_path_spec='):
         line = line.rstrip()
         for path in line.split('=', 1)[1].strip('"').split():
-          if not os.path.exists(os.path.join(root, path.lstrip(os.path.sep))):
-            print('Rebuilding libtool after gcc upgrade')
-            print(' %s' % line)
-            print(' missing path: %s' % path)
+          root_path = os.path.join(root, path.lstrip(os.path.sep))
+          logging.debug('Libtool: checking %s', root_path)
+          if not os.path.exists(root_path):
+            logging.info('Rebuilding libtool after gcc upgrade')
+            logging.info(' %s', line)
+            logging.info(' missing path: %s', path)
             needs_update = True
             break
 
@@ -429,6 +432,8 @@ def RebuildLibtool(root='/'):
       cmd.extend(['--sysroot=%s' % root, '--root=%s' % root])
     cmd.append('sys-devel/libtool')
     cros_build_lib.RunCommand(cmd)
+  else:
+    logging.debug('Libtool is up-to-date; no need to rebuild')
 
 
 def UpdateTargets(targets, usepkg, root='/'):
@@ -445,15 +450,18 @@ def UpdateTargets(targets, usepkg, root='/'):
   # For each target, we do two things. Figure out the list of updates,
   # and figure out the appropriate keywords/masks. Crossdev will initialize
   # these, but they need to be regenerated on every update.
-  print('Determining required toolchain updates...')
+  logging.info('Determining required toolchain updates...')
   mergemap = {}
   for target in targets:
+    logging.debug('Updating target %s', target)
     # Record the highest needed version for each target, for masking purposes.
     RemovePackageMask(target)
     for package in GetTargetPackages(target):
       # Portage name for the package
       if IsPackageDisabled(target, package):
+        logging.debug('   Skipping disabled package %s', package)
         continue
+      logging.debug('   Updating package %s', package)
       pkg = GetPortagePackage(target, package)
       current = GetInstalledPackageVersions(pkg, root=root)
       desired = GetDesiredPackageVersions(target, package)
@@ -467,11 +475,11 @@ def UpdateTargets(targets, usepkg, root='/'):
         packages.append(pkg)
 
   if not packages:
-    print('Nothing to update!')
+    logging.info('Nothing to update!')
     return False
 
-  print('Updating packages:')
-  print(packages)
+  logging.info('Updating packages:')
+  logging.info('%s', packages)
 
   cmd = [EMERGE_CMD, '--oneshot', '--update']
   if usepkg:
@@ -493,9 +501,12 @@ def CleanTargets(targets, root='/'):
   """
   unmergemap = {}
   for target in targets:
+    logging.debug('Cleaning target %s', target)
     for package in GetTargetPackages(target):
       if IsPackageDisabled(target, package):
+        logging.debug('   Skipping disabled package %s', package)
         continue
+      logging.debug('   Cleaning package %s', package)
       pkg = GetPortagePackage(target, package)
       current = GetInstalledPackageVersions(pkg, root=root)
       desired = GetDesiredPackageVersions(target, package)
@@ -508,7 +519,8 @@ def CleanTargets(targets, root='/'):
       # binhost sync and is probably more complex than useful.
       desired_num = VersionListToNumeric(target, package, desired, True)
       if not set(desired_num).issubset(current):
-        print('Error detecting stable version for %s, skipping clean!' % pkg)
+        logging.warning('Error detecting stable version for %s, '
+                        'skipping clean!', pkg)
         return
       unmergemap[pkg] = set(current).difference(desired_num)
 
@@ -518,15 +530,15 @@ def CleanTargets(targets, root='/'):
     packages.extend('=%s-%s' % (pkg, ver) for ver in vers if ver != '9999')
 
   if packages:
-    print('Cleaning packages:')
-    print(packages)
+    logging.info('Cleaning packages:')
+    logging.info('%s', packages)
     cmd = [EMERGE_CMD, '--unmerge']
     if root != '/':
       cmd.extend(['--sysroot=%s' % root, '--root=%s' % root])
     cmd.extend(packages)
     cros_build_lib.RunCommand(cmd)
   else:
-    print('Nothing to clean!')
+    logging.info('Nothing to clean!')
 
 
 def SelectActiveToolchains(targets, suffixes, root='/'):
@@ -636,8 +648,8 @@ def UpdateToolchains(usepkg, deleteold, hostonly, reconfig,
       else:
         crossdev_targets[target] = targets[target]
     if crossdev_targets:
-      print('The following targets need to be re-initialized:')
-      print(crossdev_targets)
+      logging.info('The following targets need to be re-initialized:')
+      logging.info('%s', crossdev_targets)
       Crossdev.UpdateTargets(crossdev_targets, usepkg)
     # Those that were not initialized may need a config update.
     Crossdev.UpdateTargets(reconfig_targets, usepkg, config_only=True)
@@ -665,6 +677,7 @@ def ShowConfig(name):
   """
   toolchains = toolchain.GetToolchainsForBoard(name)
   # Make sure we display the default toolchain first.
+  # Note: Do not use logging here as this is meant to be used by other tools.
   print(','.join(
       toolchain.FilterToolchains(toolchains, 'default', True).keys() +
       toolchain.FilterToolchains(toolchains, 'default', False).keys()))
@@ -698,6 +711,48 @@ exec "${basedir}/%(relroot)s%(path)s" "$@"
     osutils.SafeMakedirs(os.path.dirname(root_wrapper))
   osutils.WriteFile(root_wrapper, wrapper)
   os.chmod(root_wrapper, 0o755)
+
+
+def FixClangXXWrapper(root, path):
+  """Fix wrapper shell scripts and symlinks for invoking clang++
+
+  In a typical installation, clang++ symlinks to clang, which symlinks to the
+  elf executable. The executable distinguishes between clang and clang++ based
+  on argv[0].
+
+  When invoked through the LdsoWrapper, argv[0] always contains the path to the
+  executable elf file, making clang/clang++ invocations indistinguishable.
+
+  This function detects if the elf executable being wrapped is clang-X.Y, and
+  fixes wrappers/symlinks as necessary so that clang++ will work correctly.
+
+  The calling sequence now becomes:
+  -) clang++ invocation turns into clang++-3.9 (which is a copy of clang-3.9,
+     the Ldsowrapper).
+  -) clang++-3.9 uses the Ldso to invoke clang++-3.9.elf, which is a symlink
+     to the original clang-3.9 elf.
+  -) The difference this time is that inside the elf file execution, $0 is
+     set as .../usr/bin/clang++-3.9.elf, which contains 'clang++' in the name.
+
+  Args:
+    root: The root tree to generate scripts / symlinks inside of
+    path: The target elf for which LdsoWrapper was created
+  """
+  if re.match(r'/usr/bin/clang-\d+\.\d+$', path):
+    logging.info('fixing clang++ invocation for %s', path)
+    clangdir = os.path.dirname(root + path)
+    clang = os.path.basename(path)
+    clangxx = clang.replace('clang', 'clang++')
+
+    # Create a symlink clang++-X.Y.elf to point to clang-X.Y.elf
+    os.symlink(clang + '.elf', os.path.join(clangdir, clangxx + '.elf'))
+
+    # Create a hardlink clang++-X.Y pointing to clang-X.Y
+    os.link(os.path.join(clangdir, clang), os.path.join(clangdir, clangxx))
+
+    # Adjust the clang++ symlink to point to clang++-X.Y
+    os.unlink(os.path.join(clangdir, 'clang++'))
+    os.symlink(clangxx, os.path.join(clangdir, 'clang++'))
 
 
 def FileIsCrosSdkElf(elf):
@@ -877,6 +932,7 @@ def _BuildInitialPackageRoot(output_dir, paths, elfs, ldpaths,
       interp = os.path.join('/lib', os.path.basename(interp))
       lddtree.GenerateLdsoWrapper(output_dir, path_rewrite_func(elf), interp,
                                   libpaths=e['rpath'] + e['runpath'])
+      FixClangXXWrapper(output_dir, path_rewrite_func(elf))
 
     for lib, lib_data in e['libs'].iteritems():
       if lib in donelibs:

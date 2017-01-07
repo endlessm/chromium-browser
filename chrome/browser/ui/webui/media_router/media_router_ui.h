@@ -161,6 +161,7 @@ class MediaRouterUI : public ConstrainedWebDialogUI,
 
  private:
   FRIEND_TEST_ALL_PREFIXES(MediaRouterUITest, SortedSinks);
+  FRIEND_TEST_ALL_PREFIXES(MediaRouterUITest, SortSinksByIconType);
   FRIEND_TEST_ALL_PREFIXES(MediaRouterUITest,
                            UIMediaRoutesObserverFiltersNonDisplayRoutes);
   FRIEND_TEST_ALL_PREFIXES(MediaRouterUITest,
@@ -262,7 +263,7 @@ class MediaRouterUI : public ConstrainedWebDialogUI,
       GURL* origin,
       std::vector<MediaRouteResponseCallback>* route_response_callbacks,
       base::TimeDelta* timeout,
-      bool* off_the_record);
+      bool* incognito);
 
   // Updates the set of supported cast modes and sends the updated set to
   // |handler_|.

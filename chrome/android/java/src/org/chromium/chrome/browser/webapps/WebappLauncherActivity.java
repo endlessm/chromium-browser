@@ -13,10 +13,8 @@ import android.util.Base64;
 
 import org.chromium.base.ApiCompatibilityUtils;
 import org.chromium.base.ApplicationStatus;
-import org.chromium.base.CommandLine;
 import org.chromium.base.ContextUtils;
 import org.chromium.base.Log;
-import org.chromium.chrome.browser.ChromeSwitches;
 import org.chromium.chrome.browser.IntentHandler;
 import org.chromium.chrome.browser.ShortcutHelper;
 import org.chromium.chrome.browser.ShortcutSource;
@@ -46,6 +44,8 @@ public class WebappLauncherActivity extends Activity {
     public void onCreate(Bundle savedInstanceState) {
         WebappInfo webappInfo = WebappInfo.create(getIntent());
         if (webappInfo == null) {
+            // {@link WebappInfo#create()} returns null if the intent does not specify the id or the
+            // uri.
             super.onCreate(null);
             ApiCompatibilityUtils.finishAndRemoveTask(this);
             return;
@@ -53,44 +53,39 @@ public class WebappLauncherActivity extends Activity {
 
         super.onCreate(savedInstanceState);
         Intent intent = getIntent();
-        String webappId = webappInfo.id();
         String webappUrl = webappInfo.uri().toString();
         String webApkPackageName = webappInfo.webApkPackageName();
         int webappSource = webappInfo.source();
 
-        if (webappId != null && webappUrl != null) {
-            Intent launchIntent = null;
+        Intent launchIntent = null;
 
-            // Permit the launch to a standalone web app frame if any of the following are true:
-            // - the request was for a WebAPK that is valid;
-            // - the MAC is present and valid for the homescreen shortcut to be opened;
-            // - the intent was sent by Chrome.
-            if (CommandLine.getInstance().hasSwitch(ChromeSwitches.ENABLE_WEBAPK)) {
-                ChromeWebApkHost.init();
-            }
-            boolean isValidWebApk = isValidWebApk(webApkPackageName, webappUrl);
+        // Permit the launch to a standalone web app frame if any of the following are true:
+        // - the request was for a WebAPK that is valid;
+        // - the MAC is present and valid for the homescreen shortcut to be opened;
+        // - the intent was sent by Chrome.
+        ChromeWebApkHost.init();
+        boolean isValidWebApk = isValidWebApk(webApkPackageName, webappUrl);
 
-            if (isValidWebApk
-                    || isValidMacForUrl(webappUrl, IntentUtils.safeGetStringExtra(
-                            intent, ShortcutHelper.EXTRA_MAC))
-                    || wasIntentFromChrome(intent)) {
-                LaunchMetrics.recordHomeScreenLaunchIntoStandaloneActivity(webappUrl, webappSource);
-                launchIntent = createWebappLaunchIntent(webappInfo, webappSource, isValidWebApk);
-            } else {
-                Log.e(TAG, "Shortcut (%s) opened in Chrome.", webappUrl);
+        if (isValidWebApk
+                || isValidMacForUrl(webappUrl, IntentUtils.safeGetStringExtra(
+                        intent, ShortcutHelper.EXTRA_MAC))
+                || wasIntentFromChrome(intent)) {
+            LaunchMetrics.recordHomeScreenLaunchIntoStandaloneActivity(webappUrl, webappSource);
+            launchIntent = createWebappLaunchIntent(webappInfo, webappSource, isValidWebApk);
+        } else {
+            Log.e(TAG, "Shortcut (%s) opened in Chrome.", webappUrl);
 
-                // The shortcut data doesn't match the current encoding.  Change the intent action
-                // launch the URL with a VIEW Intent in the regular browser.
-                launchIntent = new Intent(Intent.ACTION_VIEW, Uri.parse(webappUrl));
-                launchIntent.setClassName(getPackageName(), ChromeLauncherActivity.class.getName());
-                launchIntent.putExtra(ShortcutHelper.REUSE_URL_MATCHING_TAB_ELSE_NEW_TAB, true);
-                launchIntent.putExtra(ShortcutHelper.EXTRA_SOURCE, webappSource);
-                launchIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK
-                        | ApiCompatibilityUtils.getActivityNewDocumentFlag());
-            }
-
-            startActivity(launchIntent);
+            // The shortcut data doesn't match the current encoding.  Change the intent action
+            // launch the URL with a VIEW Intent in the regular browser.
+            launchIntent = new Intent(Intent.ACTION_VIEW, Uri.parse(webappUrl));
+            launchIntent.setClassName(getPackageName(), ChromeLauncherActivity.class.getName());
+            launchIntent.putExtra(ShortcutHelper.REUSE_URL_MATCHING_TAB_ELSE_NEW_TAB, true);
+            launchIntent.putExtra(ShortcutHelper.EXTRA_SOURCE, webappSource);
+            launchIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK
+                    | ApiCompatibilityUtils.getActivityNewDocumentFlag());
         }
+
+        startActivity(launchIntent);
 
         ApiCompatibilityUtils.finishAndRemoveTask(this);
     }
@@ -194,12 +189,7 @@ public class WebappLauncherActivity extends Activity {
      * @return true iff all validation criteria are met.
      */
     private boolean isValidWebApk(String webApkPackage, String url) {
-        if (!CommandLine.getInstance().hasSwitch(ChromeSwitches.ENABLE_WEBAPK)
-                || webApkPackage == null) {
-            return false;
-        }
-        if (!WebApkValidator.isValidWebApk(this, webApkPackage)) {
-            Log.d(TAG, "%s is not valid WebAPK", webApkPackage);
+        if (webApkPackage == null || !ChromeWebApkHost.isEnabled()) {
             return false;
         }
         if (!webApkPackage.equals(WebApkValidator.queryWebApkPackage(this, url))) {

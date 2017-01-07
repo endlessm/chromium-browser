@@ -27,14 +27,12 @@ import android.support.v7.app.NotificationCompat;
 import android.support.v7.media.MediaRouter;
 import android.text.TextUtils;
 import android.util.SparseArray;
+import android.util.TypedValue;
 import android.view.KeyEvent;
-import android.view.View;
-import android.widget.RemoteViews;
 
-import org.chromium.base.ApiCompatibilityUtils;
+import org.chromium.base.ContextUtils;
 import org.chromium.base.VisibleForTesting;
 import org.chromium.chrome.R;
-import org.chromium.chrome.browser.ChromeFeatureList;
 import org.chromium.content_public.common.MediaMetadata;
 
 import javax.annotation.Nullable;
@@ -47,6 +45,13 @@ import javax.annotation.Nullable;
  */
 public class MediaNotificationManager {
     private static final String TAG = "MediaNotification";
+
+    // MediaStyle large icon size for pre-N.
+    private static final int PRE_N_LARGE_ICON_SIZE_DP = 128;
+    // MediaStyle large icon size for N.
+    // TODO(zqzhang): use android.R.dimen.media_notification_expanded_image_max_size when Android
+    // SDK is rolled to level 24. See https://crbug.com/645059
+    private static final int N_LARGE_ICON_SIZE_DP = 94;
 
     // We're always used on the UI thread but the LOCK is required by lint when creating the
     // singleton.
@@ -354,6 +359,33 @@ public class MediaNotificationManager {
         sManagers.clear();
     }
 
+    /**
+     * Scale a given bitmap to a proper size for display.
+     * @param icon The bitmap to be resized.
+     * @return A scaled icon to be used in media notification. Returns null if |icon| is null.
+     */
+    public static Bitmap scaleIconForDisplay(Bitmap icon) {
+        if (icon == null) return null;
+
+        int largeIconSizePx;
+        if (isRunningN()) {
+            largeIconSizePx = (int) TypedValue.applyDimension(
+                    TypedValue.COMPLEX_UNIT_DIP, N_LARGE_ICON_SIZE_DP,
+                    ContextUtils.getApplicationContext().getResources().getDisplayMetrics());
+        } else {
+            largeIconSizePx = (int) TypedValue.applyDimension(
+                    TypedValue.COMPLEX_UNIT_DIP, PRE_N_LARGE_ICON_SIZE_DP,
+                    ContextUtils.getApplicationContext().getResources().getDisplayMetrics());
+        }
+
+        if (icon.getWidth() > largeIconSizePx || icon.getHeight() > largeIconSizePx) {
+            return icon.createScaledBitmap(
+                    icon, largeIconSizePx, largeIconSizePx, true /* filter */);
+        }
+
+        return icon;
+    }
+
     private static MediaNotificationManager getManager(int notificationId) {
         if (sManagers == null) return null;
 
@@ -373,6 +405,12 @@ public class MediaNotificationManager {
         if (manager == null) return null;
 
         return manager.mNotificationBuilder;
+    }
+
+    private static boolean isRunningN() {
+        // TODO(zqzhang): Use Build.VERSION_CODES.N when Android SDK is rolled to level 24.
+        // See https://crbug.com/645059
+        return Build.VERSION.CODENAME.equals("N") || Build.VERSION.SDK_INT > Build.VERSION_CODES.M;
     }
 
     private final Context mContext;
@@ -519,11 +557,8 @@ public class MediaNotificationManager {
         updateMediaSession();
 
         mNotificationBuilder = new NotificationCompat.Builder(mContext);
-        if (ChromeFeatureList.isEnabled(ChromeFeatureList.MEDIA_STYLE_NOTIFICATION)) {
-            setMediaStyleLayoutForNotificationBuilder(mNotificationBuilder);
-        } else {
-            setCustomLayoutForNotificationBuilder(mNotificationBuilder);
-        }
+        setMediaStyleLayoutForNotificationBuilder(mNotificationBuilder);
+
         mNotificationBuilder.setSmallIcon(mMediaNotificationInfo.icon);
         mNotificationBuilder.setAutoCancel(false);
         mNotificationBuilder.setLocalOnly(true);
@@ -632,8 +667,8 @@ public class MediaNotificationManager {
             if (mDefaultLargeIcon == null) {
                 int resourceId = (mMediaNotificationInfo.defaultLargeIcon != 0)
                         ? mMediaNotificationInfo.defaultLargeIcon : R.drawable.audio_playing_square;
-                mDefaultLargeIcon = BitmapFactory.decodeResource(
-                        mContext.getResources(), resourceId);
+                mDefaultLargeIcon = scaleIconForDisplay(
+                        BitmapFactory.decodeResource(mContext.getResources(), resourceId));
             }
             builder.setLargeIcon(mDefaultLargeIcon);
         }
@@ -666,68 +701,6 @@ public class MediaNotificationManager {
         }
     }
 
-    private void setCustomLayoutForNotificationBuilder(NotificationCompat.Builder builder) {
-        builder.setContent(createContentView());
-    }
-
-    private RemoteViews createContentView() {
-        RemoteViews contentView =
-                new RemoteViews(mContext.getPackageName(), R.layout.playback_notification_bar);
-
-        // By default, play/pause button is the only one.
-        int playPauseButtonId = R.id.button1;
-        // On Android pre-L, dismissing the notification when the service is no longer in foreground
-        // doesn't work. Instead, a STOP button is shown.
-        if (mMediaNotificationInfo.supportsSwipeAway()
-                        && Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP
-                || mMediaNotificationInfo.supportsStop()) {
-            contentView.setOnClickPendingIntent(
-                    R.id.button1, createPendingIntent(ListenerService.ACTION_STOP));
-            contentView.setContentDescription(R.id.button1, mStopDescription);
-
-            // If the play/pause needs to be shown, it moves over to the second button from the end.
-            playPauseButtonId = R.id.button2;
-        }
-
-        contentView.setTextViewText(R.id.title, mMediaNotificationInfo.metadata.getTitle());
-        contentView.setTextViewText(R.id.status, mMediaNotificationInfo.origin);
-
-        // Android doesn't badge the icons for RemoteViews automatically when
-        // running the app under the Work profile.
-        if (mNotificationIcon == null) {
-            Drawable notificationIconDrawable =
-                    ApiCompatibilityUtils.getUserBadgedIcon(mContext, mMediaNotificationInfo.icon);
-            mNotificationIcon = drawableToBitmap(notificationIconDrawable);
-        }
-
-        if (mNotificationIcon != null) {
-            contentView.setImageViewBitmap(R.id.icon, mNotificationIcon);
-        } else {
-            contentView.setImageViewResource(R.id.icon, mMediaNotificationInfo.icon);
-        }
-
-        if (mMediaNotificationInfo.supportsPlayPause()) {
-            if (mMediaNotificationInfo.isPaused) {
-                contentView.setImageViewResource(playPauseButtonId, R.drawable.ic_vidcontrol_play);
-                contentView.setContentDescription(playPauseButtonId, mPlayDescription);
-                contentView.setOnClickPendingIntent(
-                        playPauseButtonId, createPendingIntent(ListenerService.ACTION_PLAY));
-            } else {
-                // If we're here, the notification supports play/pause button and is playing.
-                contentView.setImageViewResource(playPauseButtonId, R.drawable.ic_vidcontrol_pause);
-                contentView.setContentDescription(playPauseButtonId, mPauseDescription);
-                contentView.setOnClickPendingIntent(
-                        playPauseButtonId, createPendingIntent(ListenerService.ACTION_PAUSE));
-            }
-
-            contentView.setViewVisibility(playPauseButtonId, View.VISIBLE);
-        } else {
-            contentView.setViewVisibility(playPauseButtonId, View.GONE);
-        }
-
-        return contentView;
-    }
-
     private Bitmap drawableToBitmap(Drawable drawable) {
         if (!(drawable instanceof BitmapDrawable)) return null;
 
@@ -754,10 +727,5 @@ public class MediaNotificationManager {
             return artist + album;
         }
         return artist + " - " + album;
-    }
-
-    private boolean isRunningN() {
-        // TODO(zqzhang): update this when N is released.
-        return Build.VERSION.CODENAME.equals("N") || Build.VERSION.SDK_INT > Build.VERSION_CODES.M;
     }
 }

@@ -22,7 +22,7 @@
 #include "chrome/browser/sync_file_system/sync_service_state.h"
 #include "chrome/browser/sync_file_system/task_logger.h"
 #include "components/keyed_service/core/keyed_service.h"
-#include "components/sync_driver/sync_service_observer.h"
+#include "components/sync/driver/sync_service_observer.h"
 #include "extensions/browser/extension_registry_observer.h"
 #include "url/gurl.h"
 
@@ -32,7 +32,7 @@ namespace storage {
 class FileSystemContext;
 }
 
-namespace sync_driver {
+namespace syncer {
 class SyncService;
 }
 
@@ -46,7 +46,7 @@ class SyncEventObserver;
 class SyncFileSystemService
     : public KeyedService,
       public SyncProcessRunner::Client,
-      public sync_driver::SyncServiceObserver,
+      public syncer::SyncServiceObserver,
       public FileStatusObserver,
       public extensions::ExtensionRegistryObserver,
       public base::SupportsWeakPtr<SyncFileSystemService> {
@@ -147,7 +147,7 @@ class SyncFileSystemService
   void OnExtensionLoaded(content::BrowserContext* browser_context,
                          const extensions::Extension* extension) override;
 
-  // sync_driver::SyncServiceObserver implementation.
+  // syncer::SyncServiceObserver implementation.
   void OnStateChanged() override;
 
   // SyncFileStatusObserver implementation.
@@ -160,7 +160,7 @@ class SyncFileSystemService
   // Check the profile's sync preference settings and call
   // remote_file_service_->SetSyncEnabled() to update the status.
   // |profile_sync_service| must be non-null.
-  void UpdateSyncEnabledStatus(sync_driver::SyncService* profile_sync_service);
+  void UpdateSyncEnabledStatus(syncer::SyncService* profile_sync_service);
 
   // Runs the SyncProcessRunner method of all sync runners (e.g. for Local sync
   // and Remote sync).

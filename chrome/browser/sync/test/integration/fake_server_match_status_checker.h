@@ -8,8 +8,8 @@
 #include <string>
 
 #include "chrome/browser/sync/test/integration/status_change_checker.h"
-#include "sync/internal_api/public/base/model_type.h"
-#include "sync/test/fake_server/fake_server.h"
+#include "components/sync/base/model_type.h"
+#include "components/sync/test/fake_server/fake_server.h"
 
 namespace fake_server {
 
@@ -20,7 +20,9 @@ class FakeServerMatchStatusChecker : public StatusChangeChecker,
                                      public FakeServer::Observer {
  public:
   FakeServerMatchStatusChecker();
-  void Wait();
+  ~FakeServerMatchStatusChecker() override;
+
+  // FakeServer::Observer implementation.
   void OnCommit(const std::string& committer_id,
                 syncer::ModelTypeSet committed_model_types) override;
 

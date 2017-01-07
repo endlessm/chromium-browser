@@ -8,9 +8,6 @@
 
 #include <algorithm>
 
-#include "ash/shell.h"
-#include "ash/shell_delegate.h"
-#include "ash/strings/grit/ash_strings.h"
 #include "base/bind.h"
 #include "base/logging.h"
 #include "base/macros.h"
@@ -462,8 +459,7 @@ void MainMenuModel::InitMenuItems(bool should_open_button_options) {
         handler->GetDeviceStateByType(NetworkTypePattern::Cellular());
     if (cellular_device && cellular_device->support_network_scan()) {
       const gfx::ImageSkia icon =
-          ui::network_icon::GetImageForDisconnectedNetwork(
-              ui::network_icon::ICON_TYPE_LIST, shill::kTypeCellular);
+          ui::network_icon::GetImageForDisconnectedCellNetwork();
       menu_items_.push_back(MenuItem(
           ui::MenuModel::TYPE_COMMAND,
           l10n_util::GetStringUTF16(
@@ -511,8 +507,8 @@ void MainMenuModel::InitMenuItems(bool should_open_button_options) {
     }
     if (scanning_msg)
       AddMessageItem(l10n_util::GetStringUTF16(scanning_msg));
-    const gfx::ImageSkia icon = ui::network_icon::GetImageForConnectedNetwork(
-        ui::network_icon::ICON_TYPE_LIST, shill::kTypeWifi);
+    const gfx::ImageSkia icon =
+        ui::network_icon::GetImageForConnectedMobileNetwork();
     menu_items_.push_back(MenuItem(
         ui::MenuModel::TYPE_COMMAND,
         l10n_util::GetStringUTF16(IDS_OPTIONS_SETTINGS_OTHER_WIFI_NETWORKS),

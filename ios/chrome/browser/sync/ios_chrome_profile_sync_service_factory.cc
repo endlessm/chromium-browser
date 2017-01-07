@@ -9,14 +9,14 @@
 #include "base/memory/ptr_util.h"
 #include "base/memory/singleton.h"
 #include "base/time/time.h"
-#include "components/browser_sync/browser/profile_sync_service.h"
+#include "components/browser_sync/profile_sync_service.h"
 #include "components/keyed_service/ios/browser_state_dependency_manager.h"
 #include "components/network_time/network_time_tracker.h"
 #include "components/signin/core/browser/profile_oauth2_token_service.h"
 #include "components/signin/core/browser/signin_manager.h"
-#include "components/sync_driver/signin_manager_wrapper.h"
-#include "components/sync_driver/startup_controller.h"
-#include "components/sync_driver/sync_util.h"
+#include "components/sync/driver/signin_manager_wrapper.h"
+#include "components/sync/driver/startup_controller.h"
+#include "components/sync/driver/sync_util.h"
 #include "ios/chrome/browser/application_context.h"
 #include "ios/chrome/browser/autofill/personal_data_manager_factory.h"
 #include "ios/chrome/browser/bookmarks/bookmark_model_factory.h"
@@ -37,6 +37,8 @@
 #include "ios/chrome/common/channel_info.h"
 #include "ios/web/public/web_thread.h"
 #include "url/gurl.h"
+
+using browser_sync::ProfileSyncService;
 
 namespace {
 
@@ -93,8 +95,8 @@ IOSChromeProfileSyncServiceFactory::IOSChromeProfileSyncServiceFactory()
   // The ProfileSyncService depends on various SyncableServices being around
   // when it is shut down.  Specify those dependencies here to build the proper
   // destruction order.
+  DependsOn(autofill::PersonalDataManagerFactory::GetInstance());
   DependsOn(ios::AboutSigninInternalsFactory::GetInstance());
-  DependsOn(PersonalDataManagerFactory::GetInstance());
   DependsOn(ios::BookmarkModelFactory::GetInstance());
   DependsOn(SigninClientFactory::GetInstance());
   DependsOn(ios::HistoryServiceFactory::GetInstance());
@@ -128,13 +130,12 @@ IOSChromeProfileSyncServiceFactory::BuildServiceInstanceFor(
   ios::AboutSigninInternalsFactory::GetForBrowserState(browser_state);
 
   ProfileSyncService::InitParams init_params;
-  init_params.signin_wrapper =
-      base::WrapUnique(new SigninManagerWrapper(signin));
+  init_params.signin_wrapper = base::MakeUnique<SigninManagerWrapper>(signin);
   init_params.oauth2_token_service =
       OAuth2TokenServiceFactory::GetForBrowserState(browser_state);
   init_params.start_behavior = ProfileSyncService::MANUAL_START;
   init_params.sync_client =
-      base::WrapUnique(new IOSChromeSyncClient(browser_state));
+      base::MakeUnique<IOSChromeSyncClient>(browser_state);
   init_params.network_time_update_callback = base::Bind(&UpdateNetworkTime);
   init_params.base_directory = browser_state->GetStatePath();
   init_params.url_request_context = browser_state->GetRequestContext();
@@ -146,7 +147,7 @@ IOSChromeProfileSyncServiceFactory::BuildServiceInstanceFor(
       web::WebThread::GetTaskRunnerForThread(web::WebThread::FILE);
   init_params.blocking_pool = web::WebThread::GetBlockingPool();
 
-  auto pss = base::WrapUnique(new ProfileSyncService(std::move(init_params)));
+  auto pss = base::MakeUnique<ProfileSyncService>(std::move(init_params));
 
   // Will also initialize the sync client.
   pss->Initialize();

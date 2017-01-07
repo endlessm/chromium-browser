@@ -26,9 +26,8 @@ if os.path.basename(_containing_dir) == 'third_party':
 _paths = [
     'dpkt',
     os.path.join('gdata', 'src'),
+    'google',
     'pyelftools',
-    'swarming.client',
-    os.path.join('swarming.client', 'third_party'),
 ]
 
 for _path in _paths:

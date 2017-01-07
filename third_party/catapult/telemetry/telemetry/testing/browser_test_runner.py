@@ -5,6 +5,7 @@
 import argparse
 import inspect
 import json
+import logging
 import re
 import time
 import unittest
@@ -15,12 +16,19 @@ from telemetry.internal.util import binary_manager
 from telemetry.testing import options_for_unittests
 from telemetry.testing import serially_executed_browser_test_case
 
+DEFAULT_LOG_FORMAT = (
+  '(%(levelname)s) %(asctime)s %(module)s.%(funcName)s:%(lineno)d  '
+  '%(message)s')
 
-def ProcessCommandLineOptions(test_class, args):
+
+def ProcessCommandLineOptions(test_class, project_config, args):
   options = browser_options.BrowserFinderOptions()
   options.browser_type = 'any'
   parser = options.CreateParser(test_class.__doc__)
   test_class.AddCommandlineArgs(parser)
+  # Set the default chrome root variable. This is required for the
+  # Android browser finder to function properly.
+  parser.set_defaults(chrome_root=project_config.default_chrome_root)
   finder_options, positional_args = parser.parse_args(args)
   finder_options.positional_args = positional_args
   options_for_unittests.Push(finder_options)
@@ -94,7 +102,21 @@ def _TestTime(test, test_times, default_test_time):
   return test_times.get(test.shortName()) or default_test_time
 
 
-def _SplitShardsByTime(test_cases, total_shards, test_times):
+def _DebugShardDistributions(shards, test_times):
+  for i, s in enumerate(shards):
+    num_tests = len(s)
+    if test_times:
+      median = _MedianTestTime(test_times)
+      shard_time = 0.0
+      for t in s:
+        shard_time += _TestTime(t, test_times, median)
+      print 'shard %d: %d seconds (%d tests)' % (i, shard_time, num_tests)
+    else:
+      print 'shard %d: %d tests (unknown duration)' % (i, num_tests)
+
+
+def _SplitShardsByTime(test_cases, total_shards, test_times,
+                       debug_shard_distributions):
   median = _MedianTestTime(test_times)
   shards = []
   for i in xrange(total_shards):
@@ -121,15 +143,18 @@ def _SplitShardsByTime(test_cases, total_shards, test_times):
     shards[min_shard_index]['tests'].append(t)
     shards[min_shard_index]['total_time'] += _TestTime(t, test_times, median)
 
-  return [s['tests'] for s in shards]
+  res = [s['tests'] for s in shards]
+  if debug_shard_distributions:
+    _DebugShardDistributions(res, test_times)
+
+  return res
 
 
 _TEST_GENERATOR_PREFIX = 'GenerateTestCases_'
 
-def _LoadTests(test_class, finder_options, filter_regex_str,
-               total_shards, shard_index, opt_test_times=None):
+
+def _GenerateTestCases(test_class, finder_options):
   test_cases = []
-  filter_regex = re.compile(filter_regex_str)
   for name, method in inspect.getmembers(
       test_class, predicate=inspect.ismethod):
     if name.startswith('test'):
@@ -137,30 +162,103 @@ def _LoadTests(test_class, finder_options, filter_regex_str,
       # subclasses, to avoid collisions with Python's unit test runner.
       raise Exception('Name collision with Python\'s unittest runner: %s' %
                       name)
-    elif name.startswith('Test') and filter_regex.search(name):
+    elif name.startswith('Test'):
       # Pass these through for the time being. We may want to rethink
       # how they are handled in the future.
       test_cases.append(test_class(name))
     elif name.startswith(_TEST_GENERATOR_PREFIX):
       based_method_name = name[len(_TEST_GENERATOR_PREFIX):]
       assert hasattr(test_class, based_method_name), (
-          '%s is specified but %s based method %s does not exist' %
-          name, based_method_name)
+          '%s is specified but based method %s does not exist' %
+          (name, based_method_name))
       based_method = getattr(test_class, based_method_name)
       for generated_test_name, args in method(finder_options):
         _ValidateTestMethodname(generated_test_name)
-        if filter_regex.search(generated_test_name):
-          setattr(test_class, generated_test_name, _GenerateTestMethod(
-              based_method, args))
-          test_cases.append(test_class(generated_test_name))
-  if opt_test_times:
+        setattr(test_class, generated_test_name, _GenerateTestMethod(
+            based_method, args))
+        test_cases.append(test_class(generated_test_name))
+  return test_cases
+
+
+def LoadAllTestsInModule(module):
+  """ Load all tests & generated browser tests in a given module.
+
+  This is supposed to be invoke in load_tests() method of your test modules that
+  use browser_test_runner framework to discover & generate the tests to be
+  picked up by the test runner. Here is the example of how your test module
+  should looks like:
+
+  ################## my_awesome_browser_tests.py  ################
+  import sys
+
+  from telemetry.testing import serially_executed_browser_test_case
+  ...
+
+  class TestSimpleBrowser(
+      serially_executed_browser_test_case.SeriallyExecutedBrowserTestCase):
+  ...
+  ...
+
+  def load_tests(loader, tests, pattern):
+    return browser_test_runner.LoadAllTestsInModule(
+        sys.modules[__name__])
+  #################################################################
+
+  Args:
+    module: the module which contains test cases classes.
+
+  Returns:
+    an instance of unittest.TestSuite, which contains all the tests & generated
+    test cases to be run.
+  """
+  suite = unittest.TestSuite()
+  for _, obj in inspect.getmembers(module):
+    if (inspect.isclass(obj) and
+        issubclass(obj, serially_executed_browser_test_case.
+        SeriallyExecutedBrowserTestCase)):
+      for test in _GenerateTestCases(test_class=obj,
+          finder_options=options_for_unittests.GetCopy()):
+        suite.addTest(test)
+  return suite
+
+
+def _LoadTests(test_class, finder_options, filter_regex_str,
+               filter_tests_after_sharding,
+               total_shards, shard_index, test_times,
+               debug_shard_distributions):
+  test_cases = []
+  real_regex = re.compile(filter_regex_str)
+  noop_regex = re.compile('')
+  if filter_tests_after_sharding:
+    filter_regex = noop_regex
+    post_filter_regex = real_regex
+  else:
+    filter_regex = real_regex
+    post_filter_regex = noop_regex
+
+  for t in _GenerateTestCases(test_class, finder_options):
+    if filter_regex.search(t.shortName()):
+      test_cases.append(t)
+
+  if test_times:
     # Assign tests to shards.
-    shards = _SplitShardsByTime(test_cases, total_shards, opt_test_times)
-    return shards[shard_index]
+    shards = _SplitShardsByTime(test_cases, total_shards, test_times,
+                                debug_shard_distributions)
+    return [t for t in shards[shard_index]
+            if post_filter_regex.search(t.shortName())]
   else:
     test_cases.sort(key=lambda t: t.shortName())
     test_range = _TestRangeForShard(total_shards, shard_index, len(test_cases))
-    return test_cases[test_range[0]:test_range[1]]
+    if debug_shard_distributions:
+      tmp_shards = []
+      for i in xrange(total_shards):
+        tmp_range = _TestRangeForShard(total_shards, i, len(test_cases))
+        tmp_shards.append(test_cases[tmp_range[0]:tmp_range[1]])
+      # Can edit the code to get 'test_times' passed in here for
+      # debugging and comparison purposes.
+      _DebugShardDistributions(tmp_shards, None)
+    return [t for t in test_cases[test_range[0]:test_range[1]]
+            if post_filter_regex.search(t.shortName())]
 
 
 class TestRunOptions(object):
@@ -188,7 +286,12 @@ class BrowserTestResult(unittest.TextTestResult):
     self.times[test.shortName()] = (time.time() - self._current_test_start_time)
 
 
-def Run(project_config, test_run_options, args):
+def Run(project_config, test_run_options, args, **log_config_kwargs):
+  # the log level is set in browser_options
+  log_config_kwargs.pop('level', None)
+  log_config_kwargs.setdefault('format', DEFAULT_LOG_FORMAT)
+  logging.basicConfig(**log_config_kwargs)
+
   binary_manager.InitDependencyManager(project_config.client_configs)
   parser = argparse.ArgumentParser(description='Run a browser test suite')
   parser.add_argument('test', type=str, help='Name of the test suite to run')
@@ -203,18 +306,27 @@ def Run(project_config, test_run_options, args):
   parser.add_argument('--shard-index', default=0, type=int,
       help='Shard index (0..total_shards-1) of this test run.')
   parser.add_argument(
+    '--filter-tests-after-sharding', default=False, action='store_true',
+    help=('Apply the test filter after tests are split for sharding. Useful '
+          'for reproducing bugs related to the order in which tests run.'))
+  parser.add_argument(
       '--read-abbreviated-json-results-from', metavar='FILENAME',
       action='store', help=(
         'If specified, reads abbreviated results from that path in json form. '
         'The file format is that written by '
         '--write-abbreviated-json-results-to. This information is used to more '
         'evenly distribute tests among shards.'))
+  parser.add_argument('--debug-shard-distributions',
+      action='store_true', default=False,
+      help='Print debugging information about the shards\' test distributions')
+
   option, extra_args = parser.parse_known_args(args)
 
   for start_dir in project_config.start_dirs:
     modules_to_classes = discover.DiscoverClasses(
         start_dir, project_config.top_level_dir,
-        base_class=serially_executed_browser_test_case.SeriallyBrowserTestCase)
+        base_class=serially_executed_browser_test_case.
+            SeriallyExecutedBrowserTestCase)
     browser_test_classes = modules_to_classes.values()
 
   _ValidateDistinctNames(browser_test_classes)
@@ -231,7 +343,7 @@ def Run(project_config, test_run_options, args):
         cl.Name() for cl in browser_test_classes)
     return 1
 
-  options = ProcessCommandLineOptions(test_class, extra_args)
+  options = ProcessCommandLineOptions(test_class, project_config, extra_args)
 
   test_times = None
   if option.read_abbreviated_json_results_from:
@@ -241,8 +353,9 @@ def Run(project_config, test_run_options, args):
 
   suite = unittest.TestSuite()
   for test in _LoadTests(test_class, options, option.test_filter,
+                         option.filter_tests_after_sharding,
                          option.total_shards, option.shard_index,
-                         test_times):
+                         test_times, option.debug_shard_distributions):
     suite.addTest(test)
 
   results = unittest.TextTestRunner(
@@ -257,11 +370,19 @@ def Run(project_config, test_run_options, args):
       # Python's unittest APIs; errors are those which abort the test
       # case early with an execption.
       failures = []
-      failures.extend(results.failures)
-      failures.extend(results.errors)
-      failures.sort(key=lambda entry: entry[0].shortName())
-      for (failed_test_case, _) in failures:
-        json_results['failures'].append(failed_test_case.shortName())
+      for fail, _ in results.failures + results.errors:
+        # When errors in thrown in individual test method or setUp or tearDown,
+        # fail would be an instance of unittest.TestCase.
+        if isinstance(fail, unittest.TestCase):
+          failures.append(fail.shortName())
+        else:
+          # When errors in thrown in setupClass or tearDownClass, an instance of
+          # _ErrorHolder is is placed in results.errors list. We use the id()
+          # as failure name in this case since shortName() is not available.
+          failures.append(fail.id())
+      failures = sorted(list(failures))
+      for failure_id in failures:
+        json_results['failures'].append(failure_id)
       for passed_test_case in results.successes:
         json_results['successes'].append(passed_test_case.shortName())
       json_results['times'].update(results.times)

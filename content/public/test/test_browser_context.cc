@@ -46,10 +46,11 @@ namespace content {
 
 TestBrowserContext::TestBrowserContext() {
   EXPECT_TRUE(browser_context_dir_.CreateUniqueTempDir());
-  BrowserContext::Initialize(this, browser_context_dir_.path());
+  BrowserContext::Initialize(this, browser_context_dir_.GetPath());
 }
 
 TestBrowserContext::~TestBrowserContext() {
+  ShutdownStoragePartitions();
 }
 
 base::FilePath TestBrowserContext::TakePath() {
@@ -74,7 +75,7 @@ net::URLRequestContextGetter* TestBrowserContext::GetRequestContext() {
 }
 
 base::FilePath TestBrowserContext::GetPath() const {
-  return browser_context_dir_.path();
+  return browser_context_dir_.GetPath();
 }
 
 std::unique_ptr<ZoomLevelDelegate> TestBrowserContext::CreateZoomLevelDelegate(

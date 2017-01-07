@@ -16,8 +16,10 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.media.AudioManager;
+import android.preference.PreferenceManager;
 import android.util.Log;
 
 import java.util.Collections;
@@ -29,6 +31,9 @@ import java.util.Set;
  */
 public class AppRTCAudioManager {
   private static final String TAG = "AppRTCAudioManager";
+  private static final String SPEAKERPHONE_AUTO = "auto";
+  private static final String SPEAKERPHONE_TRUE = "true";
+  private static final String SPEAKERPHONE_FALSE = "false";
 
   /**
    * AudioDevice is the names of possible audio devices that we currently
@@ -49,11 +54,10 @@ public class AppRTCAudioManager {
   private boolean savedIsSpeakerPhoneOn = false;
   private boolean savedIsMicrophoneMute = false;
 
-  // For now; always use the speaker phone as default device selection when
-  // there is a choice between SPEAKER_PHONE and EARPIECE.
-  // TODO(henrika): it is possible that EARPIECE should be preferred in some
-  // cases. If so, we should set this value at construction instead.
-  private final AudioDevice defaultAudioDevice = AudioDevice.SPEAKER_PHONE;
+  private final AudioDevice defaultAudioDevice;
+
+  // Contains speakerphone setting: auto, true or false
+  private final String useSpeakerphone;
 
   // Proximity sensor object. It measures the proximity of an object in cm
   // relative to the view screen of a device and can therefore be used to
@@ -74,12 +78,14 @@ public class AppRTCAudioManager {
   // This method is called when the proximity sensor reports a state change,
   // e.g. from "NEAR to FAR" or from "FAR to NEAR".
   private void onProximitySensorChangedState() {
+    if (!useSpeakerphone.equals(SPEAKERPHONE_AUTO)) {
+      return;
+    }
+
     // The proximity sensor should only be activated when there are exactly two
     // available audio devices.
-    if (audioDevices.size() == 2
-        && audioDevices.contains(AppRTCAudioManager.AudioDevice.EARPIECE)
-        && audioDevices.contains(
-            AppRTCAudioManager.AudioDevice.SPEAKER_PHONE)) {
+    if (audioDevices.size() == 2 && audioDevices.contains(AppRTCAudioManager.AudioDevice.EARPIECE)
+        && audioDevices.contains(AppRTCAudioManager.AudioDevice.SPEAKER_PHONE)) {
       if (proximitySensor.sensorReportsNearState()) {
         // Sensor reports that a "handset is being held up to a person's ear",
         // or "something is covering the light sensor".
@@ -93,17 +99,24 @@ public class AppRTCAudioManager {
   }
 
   /** Construction */
-  static AppRTCAudioManager create(Context context,
-      Runnable deviceStateChangeListener) {
+  static AppRTCAudioManager create(Context context, Runnable deviceStateChangeListener) {
     return new AppRTCAudioManager(context, deviceStateChangeListener);
   }
 
-  private AppRTCAudioManager(Context context,
-      Runnable deviceStateChangeListener) {
+  private AppRTCAudioManager(Context context, Runnable deviceStateChangeListener) {
     apprtcContext = context;
     onStateChangeListener = deviceStateChangeListener;
-    audioManager = ((AudioManager) context.getSystemService(
-        Context.AUDIO_SERVICE));
+    audioManager = ((AudioManager) context.getSystemService(Context.AUDIO_SERVICE));
+
+    SharedPreferences sharedPreferences = PreferenceManager.getDefaultSharedPreferences(context);
+    useSpeakerphone = sharedPreferences.getString(context.getString(R.string.pref_speakerphone_key),
+        context.getString(R.string.pref_speakerphone_default));
+
+    if (useSpeakerphone.equals(SPEAKERPHONE_FALSE)) {
+      defaultAudioDevice = AudioDevice.EARPIECE;
+    } else {
+      defaultAudioDevice = AudioDevice.SPEAKER_PHONE;
+    }
 
     // Create and initialize the proximity sensor.
     // Tablet devices (e.g. Nexus 7) does not support proximity sensors.
@@ -131,8 +144,8 @@ public class AppRTCAudioManager {
     savedIsMicrophoneMute = audioManager.isMicrophoneMute();
 
     // Request audio focus before making any device switch.
-    audioManager.requestAudioFocus(null, AudioManager.STREAM_VOICE_CALL,
-        AudioManager.AUDIOFOCUS_GAIN_TRANSIENT);
+    audioManager.requestAudioFocus(
+        null, AudioManager.STREAM_VOICE_CALL, AudioManager.AUDIOFOCUS_GAIN_TRANSIENT);
 
     // Start by setting MODE_IN_COMMUNICATION as default audio mode. It is
     // required to be in this mode when playout and/or recording starts for
@@ -232,13 +245,11 @@ public class AppRTCAudioManager {
         int state = intent.getIntExtra("state", STATE_UNPLUGGED);
         int microphone = intent.getIntExtra("microphone", HAS_NO_MIC);
         String name = intent.getStringExtra("name");
-        Log.d(TAG, "BroadcastReceiver.onReceive" + AppRTCUtils.getThreadInfo()
-            + ": "
-            + "a=" + intent.getAction()
-            + ", s=" + (state == STATE_UNPLUGGED ? "unplugged" : "plugged")
-            + ", m=" + (microphone == HAS_MIC ? "mic" : "no mic")
-            + ", n=" + name
-            + ", sb=" + isInitialStickyBroadcast());
+        Log.d(TAG, "BroadcastReceiver.onReceive" + AppRTCUtils.getThreadInfo() + ": "
+                + "a=" + intent.getAction() + ", s="
+                + (state == STATE_UNPLUGGED ? "unplugged" : "plugged") + ", m="
+                + (microphone == HAS_MIC ? "mic" : "no mic") + ", n=" + name + ", sb="
+                + isInitialStickyBroadcast());
 
         boolean hasWiredHeadset = (state == STATE_PLUGGED);
         switch (state) {
@@ -286,8 +297,7 @@ public class AppRTCAudioManager {
 
   /** Gets the current earpiece state. */
   private boolean hasEarpiece() {
-    return apprtcContext.getPackageManager().hasSystemFeature(
-        PackageManager.FEATURE_TELEPHONY);
+    return apprtcContext.getPackageManager().hasSystemFeature(PackageManager.FEATURE_TELEPHONY);
   }
 
   /**
@@ -313,7 +323,7 @@ public class AppRTCAudioManager {
       // No wired headset, hence the audio-device list can contain speaker
       // phone (on a tablet), or speaker phone and earpiece (on mobile phone).
       audioDevices.add(AudioDevice.SPEAKER_PHONE);
-      if (hasEarpiece())  {
+      if (hasEarpiece()) {
         audioDevices.add(AudioDevice.EARPIECE);
       }
     }
@@ -329,8 +339,8 @@ public class AppRTCAudioManager {
 
   /** Called each time a new audio device has been added or removed. */
   private void onAudioManagerChangedState() {
-    Log.d(TAG, "onAudioManagerChangedState: devices=" + audioDevices
-        + ", selected=" + selectedAudioDevice);
+    Log.d(TAG, "onAudioManagerChangedState: devices=" + audioDevices + ", selected="
+            + selectedAudioDevice);
 
     // Enable the proximity sensor if there are two available audio devices
     // in the list. Given the current implementation, we know that the choice

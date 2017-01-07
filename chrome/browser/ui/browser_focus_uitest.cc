@@ -32,6 +32,7 @@
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/interactive_test_utils.h"
 #include "chrome/test/base/ui_test_utils.h"
+#include "components/omnibox/browser/autocomplete_match_type.h"
 #include "components/omnibox/browser/omnibox_edit_controller.h"
 #include "components/omnibox/browser/omnibox_edit_model.h"
 #include "components/omnibox/browser/omnibox_view.h"
@@ -598,7 +599,7 @@ IN_PROC_BROWSER_TEST_F(BrowserFocusTest, MAYBE_FocusOnReload) {
         content::Source<content::NavigationController>(
             &browser()->tab_strip_model()->GetActiveWebContents()->
                 GetController()));
-    chrome::Reload(browser(), CURRENT_TAB);
+    chrome::Reload(browser(), WindowOpenDisposition::CURRENT_TAB);
     observer.Wait();
   }
   // Focus should stay on the location bar.
@@ -615,7 +616,7 @@ IN_PROC_BROWSER_TEST_F(BrowserFocusTest, MAYBE_FocusOnReload) {
         content::Source<content::NavigationController>(
             &browser()->tab_strip_model()->GetActiveWebContents()->
                 GetController()));
-    chrome::Reload(browser(), CURRENT_TAB);
+    chrome::Reload(browser(), WindowOpenDisposition::CURRENT_TAB);
     observer.Wait();
   }
 
@@ -638,7 +639,7 @@ IN_PROC_BROWSER_TEST_F(BrowserFocusTest, DISABLED_FocusOnReloadCrashedTab) {
         content::Source<content::NavigationController>(
             &browser()->tab_strip_model()->GetActiveWebContents()->
                 GetController()));
-    chrome::Reload(browser(), CURRENT_TAB);
+    chrome::Reload(browser(), WindowOpenDisposition::CURRENT_TAB);
     observer.Wait();
   }
 
@@ -668,7 +669,7 @@ IN_PROC_BROWSER_TEST_F(BrowserFocusTest, NavigateFromOmniboxIntoNewTab) {
   // Navigate to url.
   chrome::NavigateParams p(browser(), url, ui::PAGE_TRANSITION_LINK);
   p.window_action = chrome::NavigateParams::SHOW_WINDOW;
-  p.disposition = CURRENT_TAB;
+  p.disposition = WindowOpenDisposition::CURRENT_TAB;
   chrome::Navigate(&p);
 
   // Focus the omnibox.
@@ -678,8 +679,9 @@ IN_PROC_BROWSER_TEST_F(BrowserFocusTest, NavigateFromOmniboxIntoNewTab) {
       GetOmniboxView()->model()->controller();
 
   // Simulate an alt-enter.
-  controller->OnAutocompleteAccept(url2, NEW_FOREGROUND_TAB,
-                                   ui::PAGE_TRANSITION_TYPED);
+  controller->OnAutocompleteAccept(
+      url2, WindowOpenDisposition::NEW_FOREGROUND_TAB,
+      ui::PAGE_TRANSITION_TYPED, AutocompleteMatchType::URL_WHAT_YOU_TYPED);
 
   // Make sure the second tab is selected.
   EXPECT_EQ(1, browser()->tab_strip_model()->active_index());
@@ -722,7 +724,7 @@ IN_PROC_BROWSER_TEST_F(BrowserFocusTest, DISABLED_FocusOnNavigate) {
     content::WindowedNotificationObserver back_nav_observer(
         content::NOTIFICATION_NAV_ENTRY_COMMITTED,
         content::NotificationService::AllSources());
-    chrome::GoBack(browser(), CURRENT_TAB);
+    chrome::GoBack(browser(), WindowOpenDisposition::CURRENT_TAB);
     back_nav_observer.Wait();
   }
 
@@ -734,7 +736,7 @@ IN_PROC_BROWSER_TEST_F(BrowserFocusTest, DISABLED_FocusOnNavigate) {
     content::WindowedNotificationObserver forward_nav_observer(
         content::NOTIFICATION_NAV_ENTRY_COMMITTED,
         content::NotificationService::AllSources());
-    chrome::GoForward(browser(), CURRENT_TAB);
+    chrome::GoForward(browser(), WindowOpenDisposition::CURRENT_TAB);
     forward_nav_observer.Wait();
   }
 

@@ -4,8 +4,8 @@
 
 #include "chrome/renderer/content_settings_observer.h"
 
+#include "chrome/common/render_messages.h"
 #include "chrome/common/ssl_insecure_content.h"
-#include "components/content_settings/content/common/content_settings_messages.h"
 #include "content/public/common/url_constants.h"
 #include "content/public/renderer/document_state.h"
 #include "content/public/renderer/render_frame.h"
@@ -49,8 +49,8 @@ GURL GetOriginOrURL(const WebFrame* frame) {
   // document URL as the primary URL in those cases.
   // TODO(alexmos): This is broken for --site-per-process, since top() can be a
   // WebRemoteFrame which does not have a document(), and the WebRemoteFrame's
-  // URL is not replicated.
-  if (top_origin == "null")
+  // URL is not replicated.  See https://crbug.com/628759.
+  if (top_origin == "null" && frame->top()->isWebLocalFrame())
     return frame->top()->document().url();
   return blink::WebStringToGURL(top_origin);
 }
@@ -90,7 +90,6 @@ ContentSettingsObserver::ContentSettingsObserver(
 #if defined(ENABLE_EXTENSIONS)
       extension_dispatcher_(extension_dispatcher),
 #endif
-      allow_displaying_insecure_content_(false),
       allow_running_insecure_content_(false),
       content_setting_rules_(NULL),
       is_interstitial_page_(false),
@@ -108,8 +107,6 @@ ContentSettingsObserver::ContentSettingsObserver(
     // Copy all the settings from the main render frame to avoid race conditions
     // when initializing this data. See https://crbug.com/333308.
     ContentSettingsObserver* parent = ContentSettingsObserver::Get(main_frame);
-    allow_displaying_insecure_content_ =
-        parent->allow_displaying_insecure_content_;
     allow_running_insecure_content_ = parent->allow_running_insecure_content_;
     temporarily_allowed_plugins_ = parent->temporarily_allowed_plugins_;
     is_interstitial_page_ = parent->is_interstitial_page_;
@@ -155,8 +152,6 @@ bool ContentSettingsObserver::OnMessageReceived(const IPC::Message& message) {
   bool handled = true;
   IPC_BEGIN_MESSAGE_MAP(ContentSettingsObserver, message)
     IPC_MESSAGE_HANDLER(ChromeViewMsg_SetAsInterstitial, OnSetAsInterstitial)
-    IPC_MESSAGE_HANDLER(ChromeViewMsg_SetAllowDisplayingInsecureContent,
-                        OnSetAllowDisplayingInsecureContent)
     IPC_MESSAGE_HANDLER(ChromeViewMsg_SetAllowRunningInsecureContent,
                         OnSetAllowRunningInsecureContent)
     IPC_MESSAGE_HANDLER(ChromeViewMsg_ReloadFrame, OnReloadFrame);
@@ -294,8 +289,7 @@ bool ContentSettingsObserver::allowScript(bool enabled_per_settings) {
     return true;
 
   WebFrame* frame = render_frame()->GetWebFrame();
-  std::map<WebFrame*, bool>::const_iterator it =
-      cached_script_permissions_.find(frame);
+  const auto it = cached_script_permissions_.find(frame);
   if (it != cached_script_permissions_.end())
     return it->second;
 
@@ -340,16 +334,15 @@ bool ContentSettingsObserver::allowStorage(bool local) {
   if (frame->getSecurityOrigin().isUnique() ||
       frame->top()->getSecurityOrigin().isUnique())
     return false;
-  bool result = false;
 
   StoragePermissionsKey key(
       blink::WebStringToGURL(frame->document().getSecurityOrigin().toString()),
       local);
-  std::map<StoragePermissionsKey, bool>::const_iterator permissions =
-      cached_storage_permissions_.find(key);
+  const auto permissions = cached_storage_permissions_.find(key);
   if (permissions != cached_storage_permissions_.end())
     return permissions->second;
 
+  bool result = false;
   Send(new ChromeViewHostMsg_AllowDOMStorage(
       routing_id(),
       blink::WebStringToGURL(frame->getSecurityOrigin().toString()),
@@ -396,20 +389,6 @@ bool ContentSettingsObserver::allowMutationEvents(bool default_value) {
   return IsPlatformApp() ? false : default_value;
 }
 
-bool ContentSettingsObserver::allowDisplayingInsecureContent(
-    bool allowed_per_settings,
-    const blink::WebURL& resource_url) {
-  ReportInsecureContent(SslInsecureContentType::DISPLAY);
-  FilteredReportInsecureContentDisplayed(GURL(resource_url));
-
-  if (allowed_per_settings || allow_displaying_insecure_content_)
-    return true;
-
-  Send(new ChromeViewHostMsg_DidBlockDisplayingInsecureContent(routing_id()));
-
-  return false;
-}
-
 bool ContentSettingsObserver::allowRunningInsecureContent(
     bool allowed_per_settings,
     const blink::WebSecurityOrigin& origin,
@@ -436,6 +415,12 @@ bool ContentSettingsObserver::allowAutoplay(bool default_value) {
          CONTENT_SETTING_ALLOW;
 }
 
+void ContentSettingsObserver::passiveInsecureContentFound(
+    const blink::WebURL& resource_url) {
+  ReportInsecureContent(SslInsecureContentType::DISPLAY);
+  FilteredReportInsecureContentDisplayed(GURL(resource_url));
+}
+
 void ContentSettingsObserver::didUseKeygen() {
   WebFrame* frame = render_frame()->GetWebFrame();
   Send(new ChromeViewHostMsg_DidUseKeygen(
@@ -460,13 +445,8 @@ void ContentSettingsObserver::OnSetAsInterstitial() {
   is_interstitial_page_ = true;
 }
 
-void ContentSettingsObserver::OnSetAllowDisplayingInsecureContent(bool allow) {
-  allow_displaying_insecure_content_ = allow;
-}
-
 void ContentSettingsObserver::OnSetAllowRunningInsecureContent(bool allow) {
   allow_running_insecure_content_ = allow;
-  OnSetAllowDisplayingInsecureContent(allow);
 }
 
 void ContentSettingsObserver::OnReloadFrame() {

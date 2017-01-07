@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "base/bind.h"
+#include "base/feature_list.h"
 #include "base/location.h"
 #include "base/macros.h"
 #include "base/profiler/scoped_tracker.h"
@@ -42,22 +43,23 @@
 #include "chrome/browser/ui/singleton_tabs.h"
 #include "chrome/browser/ui/user_manager.h"
 #include "chrome/browser/ui/webui/profile_helper.h"
+#include "chrome/common/chrome_features.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/grit/chromium_strings.h"
 #include "chrome/grit/generated_resources.h"
-#include "chrome/grit/google_chrome_strings.h"
 #include "components/prefs/pref_service.h"
 #include "components/proximity_auth/screenlock_bridge.h"
 #include "components/signin/core/account_id/account_id.h"
 #include "components/signin/core/common/profile_management_switches.h"
+#include "components/strings/grit/components_strings.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/storage_partition.h"
+#include "content/public/browser/user_metrics.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_ui.h"
 #include "google_apis/gaia/gaia_auth_fetcher.h"
 #include "google_apis/gaia/gaia_constants.h"
-#include "grit/components_strings.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/resource/resource_bundle.h"
@@ -67,7 +69,7 @@
 #include "ui/gfx/image/image_util.h"
 
 #if defined(USE_ASH)
-#include "ash/shell.h"
+#include "ash/shell.h"  // nogncheck
 #endif
 
 namespace {
@@ -140,16 +142,12 @@ extensions::ScreenlockPrivateEventRouter* GetScreenlockRouter(
 }
 
 bool IsGuestModeEnabled() {
-  if (switches::IsMaterialDesignUserManager())
-    return true;
   PrefService* service = g_browser_process->local_state();
   DCHECK(service);
   return service->GetBoolean(prefs::kBrowserGuestModeEnabled);
 }
 
 bool IsAddPersonEnabled() {
-  if (switches::IsMaterialDesignUserManager())
-    return true;
   PrefService* service = g_browser_process->local_state();
   DCHECK(service);
   return service->GetBoolean(prefs::kBrowserAddPersonEnabled);
@@ -296,6 +294,24 @@ UserManagerScreenHandler::UserManagerScreenHandler() : weak_ptr_factory_(this) {
   profile_attributes_storage_observer_.reset(
       new UserManagerScreenHandler::ProfileUpdateObserver(
           g_browser_process->profile_manager(), this));
+
+  // TODO(mahmadi): Remove the following once prefs are cleared for everyone.
+  PrefService* service = g_browser_process->local_state();
+  DCHECK(service);
+
+  const PrefService::Preference* guest_mode_enabled_pref =
+      service->FindPreference(prefs::kBrowserGuestModeEnabled);
+  const PrefService::Preference* add_person_enabled_pref =
+      service->FindPreference(prefs::kBrowserAddPersonEnabled);
+
+  if (base::FeatureList::IsEnabled(features::kMaterialDesignSettings) &&
+      (guest_mode_enabled_pref->HasUserSetting() ||
+       add_person_enabled_pref->HasUserSetting())) {
+    service->ClearPref(guest_mode_enabled_pref->name());
+    service->ClearPref(add_person_enabled_pref->name());
+    content::RecordAction(
+        base::UserMetricsAction("UserManager_Cleared_Legacy_User_Prefs"));
+  }
 }
 
 UserManagerScreenHandler::~UserManagerScreenHandler() {
@@ -453,11 +469,25 @@ void UserManagerScreenHandler::HandleAuthenticatedLaunchUser(
     }
   }
 
-  // In order to support the upgrade case where we have a local hash but no
-  // password token, the user perform a full online reauth.
-  UserManager::ShowReauthDialog(web_ui()->GetWebContents()->GetBrowserContext(),
-                                email_address_,
+  content::BrowserContext* browser_context =
+      web_ui()->GetWebContents()->GetBrowserContext();
+
+// In order to support the upgrade case where we have a local hash but no
+// password token, the user perform a full online reauth.
+// TODO(zmin): Remove the condition for MACOSX once user_manager_mac.cc is
+// updated.
+#if !defined(OS_MACOSX)
+  if (!email_address_.empty()) {
+    UserManager::ShowReauthDialog(browser_context, email_address_,
+                                  signin_metrics::Reason::REASON_UNLOCK);
+  } else {
+    // Fresh sign in via user manager without existing email address.
+    UserManager::ShowSigninDialog(browser_context, profile_path);
+  }
+#else
+  UserManager::ShowReauthDialog(browser_context, email_address_,
                                 signin_metrics::Reason::REASON_UNLOCK);
+#endif
 }
 
 void UserManagerScreenHandler::HandleRemoveUser(const base::ListValue* args) {
@@ -477,7 +507,7 @@ void UserManagerScreenHandler::HandleRemoveUser(const base::ListValue* args) {
   DCHECK(profiles::IsMultipleProfilesEnabled());
 
   if (switches::IsMaterialDesignUserManager() &&
-      profiles::AreAllProfilesLocked()) {
+      profiles::AreAllNonChildNonSupervisedProfilesLocked()) {
     web_ui()->CallJavascriptFunctionUnsafe(
         "cr.webUIListenerCallback",
         base::StringValue("show-error-dialog"),
@@ -515,7 +545,8 @@ void UserManagerScreenHandler::HandleAreAllProfilesLocked(
   AllowJavascript();
   ResolveJavascriptCallback(
       base::StringValue(webui_callback_id),
-      base::FundamentalValue(profiles::AreAllProfilesLocked()));
+      base::FundamentalValue(
+          profiles::AreAllNonChildNonSupervisedProfilesLocked()));
 }
 
 void UserManagerScreenHandler::HandleLaunchUser(const base::ListValue* args) {
@@ -810,6 +841,9 @@ void UserManagerScreenHandler::GetLocalizedValues(
           IDS_LOGIN_POD_LEGACY_SUPERVISED_USER_REMOVE_WARNING,
           base::UTF8ToUTF16(
               chrome::kLegacySupervisedUserManagementDisplayURL)));
+  localized_strings->SetString(
+      "removeNonOwnerUserWarningText",
+      l10n_util::GetStringUTF16(IDS_LOGIN_POD_NON_OWNER_USER_REMOVE_WARNING));
 
   // Strings needed for the User Manager tutorial slides.
   localized_strings->SetString("tutorialNext",

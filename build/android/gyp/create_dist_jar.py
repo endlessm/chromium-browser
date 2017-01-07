@@ -22,14 +22,12 @@ def main(args):
 
   input_jars = []
   for inputs_arg in options.inputs:
-    input_jars.extend(build_utils.ParseGypList(inputs_arg))
+    input_jars.extend(build_utils.ParseGnList(inputs_arg))
 
   build_utils.MergeZips(options.output, input_jars)
 
   if options.depfile:
-    build_utils.WriteDepfile(
-        options.depfile,
-        input_jars + build_utils.GetPythonDependencies())
+    build_utils.WriteDepfile(options.depfile, options.output, input_jars)
 
 
 if __name__ == '__main__':

@@ -11,23 +11,23 @@
 #include "base/command_line.h"
 #include "base/files/file.h"
 #include "base/files/file_util.h"
+#include "base/json/json_reader.h"
 #include "base/macros.h"
 #include "base/path_service.h"
 #include "base/strings/pattern.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
 #include "content/public/browser/client_certificate_delegate.h"
-#include "content/public/browser/geolocation_delegate.h"
 #include "content/public/browser/page_navigator.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/resource_dispatcher_host.h"
 #include "content/public/browser/storage_partition.h"
 #include "content/public/common/content_switches.h"
+#include "content/public/common/service_names.h"
 #include "content/public/common/url_constants.h"
 #include "content/public/common/web_preferences.h"
-#include "content/public/test/test_mojo_app.h"
+#include "content/public/test/test_service.h"
 #include "content/shell/browser/shell.h"
-#include "content/shell/browser/shell_access_token_store.h"
 #include "content/shell/browser/shell_browser_context.h"
 #include "content/shell/browser/shell_browser_main_parts.h"
 #include "content/shell/browser/shell_devtools_manager_delegate.h"
@@ -37,7 +37,9 @@
 #include "content/shell/browser/shell_web_contents_view_delegate_creator.h"
 #include "content/shell/common/shell_messages.h"
 #include "content/shell/common/shell_switches.h"
+#include "grit/shell_resources.h"
 #include "net/url_request/url_request_context_getter.h"
+#include "ui/base/resource/resource_bundle.h"
 #include "url/gurl.h"
 #include "url/origin.h"
 
@@ -119,22 +121,6 @@ int GetCrashSignalFD(const base::CommandLine& command_line) {
 }
 #endif  // defined(OS_POSIX) && !defined(OS_MACOSX) && !defined(OS_ANDROID)
 
-// A provider of services for Geolocation.
-class ShellGeolocationDelegate : public content::GeolocationDelegate {
- public:
-  explicit ShellGeolocationDelegate(ShellBrowserContext* context)
-      : context_(context) {}
-
-  AccessTokenStore* CreateAccessTokenStore() final {
-    return new ShellAccessTokenStore(context_);
-  }
-
- private:
-  ShellBrowserContext* context_;
-
-  DISALLOW_COPY_AND_ASSIGN(ShellGeolocationDelegate);
-};
-
 }  // namespace
 
 ShellContentBrowserClient* ShellContentBrowserClient::Get() {
@@ -163,15 +149,22 @@ BrowserMainParts* ShellContentBrowserClient::CreateBrowserMainParts(
 
 bool ShellContentBrowserClient::DoesSiteRequireDedicatedProcess(
     BrowserContext* browser_context,
-    const GURL& effective_url) {
+    const GURL& effective_site_url) {
   base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
   DCHECK(command_line->HasSwitch(switches::kIsolateSitesForTesting));
   std::string pattern =
       command_line->GetSwitchValueASCII(switches::kIsolateSitesForTesting);
-  // Practically |origin| is the same as |effective_url.spec()|, except Origin
-  // serialization strips the trailing "/", which makes for cleaner patterns.
-  std::string origin = url::Origin(effective_url).Serialize();
-  return base::MatchPattern(origin, pattern);
+  url::Origin origin(effective_site_url);
+
+  // Schemes like blob or filesystem, which have an embedded origin, should
+  // already have been canonicalized to the origin site.
+  CHECK_EQ(origin.scheme(), effective_site_url.scheme())
+      << "a site url should have the same scheme as its origin.";
+
+  // Practically |origin.Serialize()| is the same as
+  // |effective_site_url.spec()|, except Origin serialization strips the
+  // trailing "/", which makes for cleaner wildcard patterns.
+  return base::MatchPattern(origin.Serialize(), pattern);
 }
 
 bool ShellContentBrowserClient::IsHandledURL(const GURL& url) {
@@ -194,19 +187,38 @@ bool ShellContentBrowserClient::IsHandledURL(const GURL& url) {
   return false;
 }
 
-void ShellContentBrowserClient::RegisterInProcessMojoApplications(
-    StaticMojoApplicationMap* apps) {
+void ShellContentBrowserClient::RegisterInProcessServices(
+    StaticServiceMap* services) {
 #if (ENABLE_MOJO_MEDIA_IN_BROWSER_PROCESS)
-  content::MojoApplicationInfo app_info;
-  app_info.application_factory = base::Bind(&media::CreateMojoMediaApplication);
-  apps->insert(std::make_pair("mojo:media", app_info));
+  content::ServiceInfo info;
+  info.factory = base::Bind(&media::CreateMojoMediaApplication);
+  services->insert(std::make_pair("service:media", info));
 #endif
 }
 
-void ShellContentBrowserClient::RegisterOutOfProcessMojoApplications(
-      OutOfProcessMojoApplicationMap* apps) {
-  apps->insert(std::make_pair(kTestMojoAppUrl,
-                              base::UTF8ToUTF16("Test Mojo App")));
+void ShellContentBrowserClient::RegisterOutOfProcessServices(
+      OutOfProcessServiceMap* services) {
+  services->insert(std::make_pair(kTestServiceUrl,
+                                  base::UTF8ToUTF16("Test Service")));
+}
+
+std::unique_ptr<base::Value>
+ShellContentBrowserClient::GetServiceManifestOverlay(
+    const std::string& name) {
+  int id = -1;
+  if (name == content::kBrowserServiceName)
+    id = IDR_CONTENT_SHELL_BROWSER_MANIFEST_OVERLAY;
+  else if (name == content::kRendererServiceName)
+    id = IDR_CONTENT_SHELL_RENDERER_MANIFEST_OVERLAY;
+  else if (name == content::kUtilityServiceName)
+    id = IDR_CONTENT_SHELL_UTILITY_MANIFEST_OVERLAY;
+  if (id == -1)
+    return nullptr;
+
+  base::StringPiece manifest_contents =
+      ui::ResourceBundle::GetSharedInstance().GetRawDataResourceForScale(
+          id, ui::ScaleFactor::SCALE_FACTOR_NONE);
+  return base::JSONReader::Read(manifest_contents);
 }
 
 void ShellContentBrowserClient::AppendExtraCommandLineSwitches(
@@ -256,11 +268,7 @@ std::string ShellContentBrowserClient::GetDefaultDownloadName() {
 
 WebContentsViewDelegate* ShellContentBrowserClient::GetWebContentsViewDelegate(
     WebContents* web_contents) {
-#if !defined(USE_AURA)
   return CreateShellWebContentsViewDelegate(web_contents);
-#else
-  return NULL;
-#endif
 }
 
 QuotaPermissionContext*
@@ -294,7 +302,7 @@ bool ShellContentBrowserClient::ShouldSwapProcessesForRedirect(
 
 DevToolsManagerDelegate*
 ShellContentBrowserClient::GetDevToolsManagerDelegate() {
-  return new ShellDevToolsManagerDelegate();
+  return new ShellDevToolsManagerDelegate(browser_context());
 }
 
 void ShellContentBrowserClient::OpenURL(
@@ -368,10 +376,6 @@ ShellBrowserContext* ShellContentBrowserClient::browser_context() {
 ShellBrowserContext*
     ShellContentBrowserClient::off_the_record_browser_context() {
   return shell_browser_main_parts_->off_the_record_browser_context();
-}
-
-GeolocationDelegate* ShellContentBrowserClient::CreateGeolocationDelegate() {
-  return new ShellGeolocationDelegate(browser_context());
 }
 
 }  // namespace content

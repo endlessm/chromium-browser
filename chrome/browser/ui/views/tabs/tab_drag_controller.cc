@@ -40,18 +40,21 @@
 #include "ui/views/widget/widget.h"
 
 #if defined(USE_ASH)
-#include "ash/accelerators/accelerator_commands.h"
-#include "ash/common/wm/window_state.h"
-#include "ash/shell.h"
-#include "ash/wm/maximize_mode/maximize_mode_controller.h"
-#include "ash/wm/window_state_aura.h"
-#include "ui/wm/core/coordinate_conversion.h"
+#include "ash/common/accelerators/accelerator_commands.h"  // nogncheck
+#include "ash/common/wm/maximize_mode/maximize_mode_controller.h"  // nogncheck
+#include "ash/common/wm/window_state.h"  // nogncheck
+#include "ash/common/wm_shell.h"  // nogncheck
+#include "ash/wm/window_state_aura.h"  // nogncheck
+#include "ui/wm/core/coordinate_conversion.h"  // nogncheck
 #endif
 
 #if defined(USE_AURA)
-#include "ui/aura/env.h"
-#include "ui/aura/window.h"
-#include "ui/wm/core/window_modality_controller.h"
+#include "chrome/browser/ui/views/tabs/window_finder_mus.h"  // nogncheck
+#include "content/public/common/service_manager_connection.h"  // nogncheck
+#include "services/shell/runner/common/client_util.h"  // nogncheck
+#include "ui/aura/env.h"  // nogncheck
+#include "ui/aura/window.h"  // nogncheck
+#include "ui/wm/core/window_modality_controller.h"  // nogncheck
 #endif
 
 using base::UserMetricsAction;
@@ -222,9 +225,17 @@ TabDragController::TabDragController()
       is_mutating_(false),
       attach_x_(-1),
       attach_index_(-1),
-      window_finder_(new WindowFinder),
       weak_factory_(this) {
   instance_ = this;
+
+#if defined(USE_AURA)
+  content::ServiceManagerConnection* service_manager_connection =
+      content::ServiceManagerConnection::GetForProcess();
+  if (service_manager_connection && shell::ShellIsRemote())
+    window_finder_.reset(new WindowFinderMus);
+  else
+#endif
+    window_finder_.reset(new WindowFinder);
 }
 
 TabDragController::~TabDragController() {
@@ -234,7 +245,8 @@ TabDragController::~TabDragController() {
     instance_ = NULL;
 
   if (move_loop_widget_) {
-    move_loop_widget_->RemoveObserver(this);
+    if (added_observer_to_move_loop_widget_)
+      move_loop_widget_->RemoveObserver(this);
     SetWindowPositionManaged(move_loop_widget_->GetNativeWindow(), true);
   }
 
@@ -309,9 +321,10 @@ void TabDragController::Init(
     source_tabstrip_->GetWidget()->SetCapture(source_tabstrip_);
 
 #if defined(USE_ASH)
-  if (ash::Shell::HasInstance() &&
-      ash::Shell::GetInstance()->maximize_mode_controller()->
-          IsMaximizeModeWindowManagerEnabled()) {
+  if (ash::WmShell::HasInstance() &&
+      ash::WmShell::Get()
+          ->maximize_mode_controller()
+          ->IsMaximizeModeWindowManagerEnabled()) {
     detach_behavior_ = NOT_DETACHABLE;
   }
 #endif
@@ -389,6 +402,15 @@ void TabDragController::Drag(const gfx::Point& point_in_screen) {
                                          point_in_screen,
                                          &drag_bounds);
         widget->SetVisibilityChangedAnimationsEnabled(true);
+      } else {
+        // The user has to move the mouse some amount of pixels before the drag
+        // starts. Offset the window by this amount so that the relative offset
+        // of the initial location is consistent. See crbug.com/518740
+        views::Widget* widget = GetAttachedBrowserWidget();
+        gfx::Rect bounds = widget->GetWindowBoundsInScreen();
+        bounds.Offset(point_in_screen.x() - start_point_in_screen_.x(),
+                      point_in_screen.y() - start_point_in_screen_.y());
+        widget->SetBounds(bounds);
       }
       RunMoveLoop(GetWindowOffset(point_in_screen));
       return;
@@ -733,7 +755,7 @@ void TabDragController::MoveAttached(const gfx::Point& point_in_screen) {
         do_move = false;
     }
     if (do_move) {
-      WebContents* last_contents = drag_data_[drag_data_.size() - 1].contents;
+      WebContents* last_contents = drag_data_.back().contents;
       int index_of_last_item =
           attached_model->GetIndexOfWebContents(last_contents);
       if (initial_move_) {
@@ -1071,6 +1093,7 @@ void TabDragController::RunMoveLoop(const gfx::Vector2d& drag_offset) {
   move_loop_widget_ = GetAttachedBrowserWidget();
   DCHECK(move_loop_widget_);
   move_loop_widget_->AddObserver(this);
+  added_observer_to_move_loop_widget_ = true;
   is_dragging_window_ = true;
   base::WeakPtr<TabDragController> ref(weak_factory_.GetWeakPtr());
   if (can_release_capture_) {
@@ -1390,7 +1413,7 @@ void TabDragController::RevertDrag() {
       MaximizeAttachedWindow();
     if (attached_tabstrip_ == source_tabstrip_) {
       source_tabstrip_->StoppedDraggingTabs(
-          tabs, initial_tab_positions_, move_behavior_ == MOVE_VISIBILE_TABS,
+          tabs, initial_tab_positions_, move_behavior_ == MOVE_VISIBLE_TABS,
           false);
     } else {
       attached_tabstrip_->DraggedTabsDetached();
@@ -1507,7 +1530,7 @@ void TabDragController::CompleteDrag() {
     attached_tabstrip_->StoppedDraggingTabs(
         GetTabsMatchingDraggedContents(attached_tabstrip_),
         initial_tab_positions_,
-        move_behavior_ == MOVE_VISIBILE_TABS,
+        move_behavior_ == MOVE_VISIBLE_TABS,
         true);
   } else {
     // Compel the model to construct a new window for the detached
@@ -1536,6 +1559,14 @@ void TabDragController::CompleteDrag() {
 }
 
 void TabDragController::MaximizeAttachedWindow() {
+  if (move_loop_widget_ && added_observer_to_move_loop_widget_) {
+    // This function is only called when the drag is ending. At this point we
+    // don't care about any subsequent moves to the widget, so we remove the
+    // observer. If we didn't do this we could get told the widget moved and
+    // attempt to do the wrong thing.
+    move_loop_widget_->RemoveObserver(this);
+    added_observer_to_move_loop_widget_ = false;
+  }
   GetAttachedBrowserWidget()->Maximize();
 #if defined(USE_ASH)
   if (was_source_fullscreen_) {

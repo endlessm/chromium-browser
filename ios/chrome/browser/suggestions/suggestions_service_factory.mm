@@ -11,7 +11,7 @@
 #include "base/memory/singleton.h"
 #include "base/sequenced_task_runner.h"
 #include "base/threading/sequenced_worker_pool.h"
-#include "components/browser_sync/browser/profile_sync_service.h"
+#include "components/browser_sync/profile_sync_service.h"
 #include "components/image_fetcher/image_fetcher.h"
 #include "components/keyed_service/ios/browser_state_dependency_manager.h"
 #include "components/leveldb_proto/proto_database_impl.h"
@@ -74,7 +74,7 @@ SuggestionsServiceFactory::BuildServiceInstanceFor(
       ios::SigninManagerFactory::GetForBrowserState(browser_state);
   ProfileOAuth2TokenService* token_service =
       OAuth2TokenServiceFactory::GetForBrowserState(browser_state);
-  ProfileSyncService* sync_service =
+  browser_sync::ProfileSyncService* sync_service =
       IOSChromeProfileSyncServiceFactory::GetForBrowserState(browser_state);
   base::FilePath database_dir(
       browser_state->GetStatePath().Append(kThumbnailDirectory));
@@ -90,10 +90,10 @@ SuggestionsServiceFactory::BuildServiceInstanceFor(
   std::unique_ptr<ImageManager> thumbnail_manager(new ImageManager(
       std::move(image_fetcher), std::move(db), database_dir,
       web::WebThread::GetTaskRunnerForThread(web::WebThread::DB)));
-  return base::WrapUnique(new SuggestionsService(
+  return base::MakeUnique<SuggestionsService>(
       signin_manager, token_service, sync_service,
       browser_state->GetRequestContext(), std::move(suggestions_store),
-      std::move(thumbnail_manager), std::move(blacklist_store)));
+      std::move(thumbnail_manager), std::move(blacklist_store));
 }
 
 void SuggestionsServiceFactory::RegisterBrowserStatePrefs(

@@ -11,11 +11,15 @@
 #include "components/content_settings/core/common/content_settings.h"
 #include "components/content_settings/core/common/content_settings_types.h"
 #include "components/security_state/security_state_model.h"
+#include "content/public/browser/web_contents_observer.h"
 #include "url/gurl.h"
 
 namespace content {
-class CertStore;
 class WebContents;
+}
+
+namespace net {
+class X509Certificate;
 }
 
 class ChromeSSLHostStateDelegate;
@@ -29,17 +33,20 @@ class WebsiteSettingsUI;
 // information and allows users to change the permissions. |WebsiteSettings|
 // objects must be created on the heap. They destroy themselves after the UI is
 // closed.
-class WebsiteSettings : public TabSpecificContentSettings::SiteDataObserver {
+class WebsiteSettings : public TabSpecificContentSettings::SiteDataObserver,
+                        public content::WebContentsObserver {
  public:
   // TODO(palmer): Figure out if it is possible to unify SiteConnectionStatus
   // and SiteIdentityStatus.
   //
   // Status of a connection to a website.
   enum SiteConnectionStatus {
-    SITE_CONNECTION_STATUS_UNKNOWN = 0,      // No status available.
-    SITE_CONNECTION_STATUS_ENCRYPTED,        // Connection is encrypted.
-    SITE_CONNECTION_STATUS_MIXED_CONTENT,    // Non-secure passive content.
-    SITE_CONNECTION_STATUS_MIXED_SCRIPT,     // Non-secure active content.
+    SITE_CONNECTION_STATUS_UNKNOWN = 0,  // No status available.
+    SITE_CONNECTION_STATUS_ENCRYPTED,    // Connection is encrypted.
+    SITE_CONNECTION_STATUS_INSECURE_PASSIVE_SUBRESOURCE,  // Non-secure passive
+                                                          // content.
+    SITE_CONNECTION_STATUS_INSECURE_ACTIVE_SUBRESOURCE,   // Non-secure active
+                                                          // content.
     SITE_CONNECTION_STATUS_UNENCRYPTED,      // Connection is not encrypted.
     SITE_CONNECTION_STATUS_ENCRYPTED_ERROR,  // Connection error occurred.
     SITE_CONNECTION_STATUS_INTERNAL_PAGE,    // Internal site.
@@ -95,6 +102,7 @@ class WebsiteSettings : public TabSpecificContentSettings::SiteDataObserver {
   };
 
   struct ChooserUIInfo {
+    ContentSettingsType content_settings_type;
     ChooserContextBase* (*get_context)(Profile*);
     int blocked_icon_id;
     int allowed_icon_id;
@@ -112,8 +120,7 @@ class WebsiteSettings : public TabSpecificContentSettings::SiteDataObserver {
       TabSpecificContentSettings* tab_specific_content_settings,
       content::WebContents* web_contents,
       const GURL& url,
-      const security_state::SecurityStateModel::SecurityInfo& security_info,
-      content::CertStore* cert_store);
+      const security_state::SecurityStateModel::SecurityInfo& security_info);
   ~WebsiteSettings() override;
 
   void RecordWebsiteSettingsAction(WebsiteSettingsAction action);
@@ -141,14 +148,6 @@ class WebsiteSettings : public TabSpecificContentSettings::SiteDataObserver {
 
   SiteIdentityStatus site_identity_status() const {
     return site_identity_status_;
-  }
-
-  base::string16 site_connection_details() const {
-    return site_connection_details_;
-  }
-
-  base::string16 site_identity_details() const {
-    return site_identity_details_;
   }
 
   base::string16 organization_name() const {
@@ -180,11 +179,6 @@ class WebsiteSettings : public TabSpecificContentSettings::SiteDataObserver {
   // information (identity, connection status, etc.).
   WebsiteSettingsUI* ui_;
 
-#if !defined(OS_ANDROID)
-  // The WebContents of the active tab.
-  content::WebContents* web_contents_;
-#endif
-
   // The flag that controls whether an infobar is displayed after the website
   // settings UI is closed or not.
   bool show_info_bar_;
@@ -196,9 +190,8 @@ class WebsiteSettings : public TabSpecificContentSettings::SiteDataObserver {
   // Status of the website's identity verification check.
   SiteIdentityStatus site_identity_status_;
 
-  // For secure connection |cert_id_| is set to the ID of the server
-  // certificate. For non secure connections |cert_id_| is 0.
-  int cert_id_;
+  // For secure connection |certificate_| is set to the server certificate.
+  scoped_refptr<net::X509Certificate> certificate_;
 
   // Status of the connection to the website.
   SiteConnectionStatus site_connection_status_;
@@ -230,9 +223,6 @@ class WebsiteSettings : public TabSpecificContentSettings::SiteDataObserver {
   // |organization_name| is an empty string. This string will be displayed in
   // the UI.
   base::string16 organization_name_;
-
-  // The |CertStore| provides all X509Certificates.
-  content::CertStore* cert_store_;
 
   // The |HostContentSettingsMap| is the service that provides and manages
   // content settings (aka. site permissions).

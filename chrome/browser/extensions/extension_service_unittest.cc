@@ -82,11 +82,14 @@
 #include "chrome/common/extensions/manifest_handlers/content_scripts_handler.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
+#include "chrome/grit/browser_resources.h"
+#include "chrome/grit/generated_resources.h"
 #include "chrome/test/base/scoped_browser_locale.h"
 #include "chrome/test/base/testing_profile.h"
 #include "components/crx_file/id_util.h"
 #include "components/pref_registry/pref_registry_syncable.h"
 #include "components/prefs/scoped_user_pref_update.h"
+#include "components/sync/api/string_ordinal.h"
 #include "components/syncable_prefs/pref_service_syncable.h"
 #include "components/syncable_prefs/testing_pref_service_syncable.h"
 #include "content/public/browser/dom_storage_context.h"
@@ -125,8 +128,6 @@
 #include "extensions/common/url_pattern.h"
 #include "extensions/common/value_builder.h"
 #include "gpu/config/gpu_info.h"
-#include "grit/browser_resources.h"
-#include "grit/generated_resources.h"
 #include "net/cookies/cookie_options.h"
 #include "net/cookies/cookie_store.h"
 #include "net/url_request/url_request_context.h"
@@ -134,7 +135,6 @@
 #include "storage/browser/database/database_tracker.h"
 #include "storage/browser/quota/quota_manager.h"
 #include "storage/common/database/database_identifier.h"
-#include "sync/api/string_ordinal.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "testing/platform_test.h"
@@ -253,7 +253,7 @@ size_t GetExternalInstallBubbleCount(ExtensionService* service) {
   size_t bubble_count = 0u;
   std::vector<ExternalInstallError*> errors =
       service->external_install_manager()->GetErrorsForTesting();
-  for (const auto& error : errors)
+  for (auto* error : errors)
     bubble_count += error->alert_type() == ExternalInstallError::BUBBLE_ALERT;
   return bubble_count;
 }
@@ -285,7 +285,8 @@ class MockExtensionProvider : public extensions::ExternalProviderInterface {
     visit_count_++;
     for (DataMap::const_iterator i = extension_map_.begin();
          i != extension_map_.end(); ++i) {
-      std::unique_ptr<Version> version(new Version(i->second.first));
+      std::unique_ptr<base::Version> version(
+          new base::Version(i->second.first));
 
       std::unique_ptr<ExternalInstallInfoFile> info(new ExternalInstallInfoFile(
           i->first, std::move(version), i->second.second, location_,
@@ -299,15 +300,16 @@ class MockExtensionProvider : public extensions::ExternalProviderInterface {
     return extension_map_.find(id) != extension_map_.end();
   }
 
-  bool GetExtensionDetails(const std::string& id,
-                           Manifest::Location* location,
-                           std::unique_ptr<Version>* version) const override {
+  bool GetExtensionDetails(
+      const std::string& id,
+      Manifest::Location* location,
+      std::unique_ptr<base::Version>* version) const override {
     DataMap::const_iterator it = extension_map_.find(id);
     if (it == extension_map_.end())
       return false;
 
     if (version)
-      version->reset(new Version(it->second.first));
+      version->reset(new base::Version(it->second.first));
 
     if (location)
       *location = location_;
@@ -409,13 +411,13 @@ class MockProviderVisitor
 
       // Ask provider if the extension we got back is registered.
       Manifest::Location location = Manifest::INVALID_LOCATION;
-      std::unique_ptr<Version> v1;
+      std::unique_ptr<base::Version> v1;
       base::FilePath crx_path;
 
       EXPECT_TRUE(provider_->GetExtensionDetails(info.extension_id, NULL, &v1));
       EXPECT_STREQ(info.version->GetString().c_str(), v1->GetString().c_str());
 
-      std::unique_ptr<Version> v2;
+      std::unique_ptr<base::Version> v2;
       EXPECT_TRUE(
           provider_->GetExtensionDetails(info.extension_id, &location, &v2));
       EXPECT_STREQ(info.version->GetString().c_str(), v1->GetString().c_str());
@@ -445,7 +447,7 @@ class MockProviderVisitor
       EXPECT_TRUE(provider_->HasExtension(info.extension_id));
 
       // External extensions with update URLs do not have versions.
-      std::unique_ptr<Version> v1;
+      std::unique_ptr<base::Version> v1;
       Manifest::Location location1 = Manifest::INVALID_LOCATION;
       EXPECT_TRUE(
           provider_->GetExtensionDetails(info.extension_id, &location1, &v1));
@@ -464,8 +466,10 @@ class MockProviderVisitor
 
   void OnExternalProviderUpdateComplete(
       const ExternalProviderInterface* provider,
-      const ScopedVector<ExternalInstallInfoUpdateUrl>& update_url_extensions,
-      const ScopedVector<ExternalInstallInfoFile>& file_extensions,
+      const std::vector<std::unique_ptr<ExternalInstallInfoUpdateUrl>>&
+          update_url_extensions,
+      const std::vector<std::unique_ptr<ExternalInstallInfoFile>>&
+          file_extensions,
       const std::set<std::string>& removed_extensions) override {
     ADD_FAILURE() << "MockProviderVisitor does not provide incremental updates,"
                      " use MockUpdateProviderVisitor instead.";
@@ -533,8 +537,10 @@ class MockUpdateProviderVisitor : public MockProviderVisitor {
 
   void OnExternalProviderUpdateComplete(
       const ExternalProviderInterface* provider,
-      const ScopedVector<ExternalInstallInfoUpdateUrl>& update_url_extensions,
-      const ScopedVector<ExternalInstallInfoFile>& file_extensions,
+      const std::vector<std::unique_ptr<ExternalInstallInfoUpdateUrl>>&
+          update_url_extensions,
+      const std::vector<std::unique_ptr<ExternalInstallInfoFile>>&
+          file_extensions,
       const std::set<std::string>& removed_extensions) override {
     for (const auto& extension_info : update_url_extensions)
       update_url_extension_ids_.insert(extension_info->extension_id);
@@ -585,7 +591,7 @@ class ExtensionServiceTest
 
   void AddMockExternalProvider(
       extensions::ExternalProviderInterface* provider) {
-    service()->AddProviderForTesting(provider);
+    service()->AddProviderForTesting(base::WrapUnique(provider));
   }
 
  protected:
@@ -640,7 +646,7 @@ class ExtensionServiceTest
     std::unique_ptr<extensions::ExtensionSet> all_unblocked_extensions =
         registry()->GenerateInstalledExtensionsSet(
             ExtensionRegistry::EVERYTHING & ~ExtensionRegistry::BLOCKED);
-    if (all_unblocked_extensions.get()->Contains(id))
+    if (all_unblocked_extensions->Contains(id))
       return testing::AssertionFailure() << id << " is still unblocked!";
     if (!registry()->blocked_extensions().Contains(id))
       return testing::AssertionFailure() << id << " is not blocked!";
@@ -867,27 +873,27 @@ TEST_F(ExtensionServiceTest, LoadAllExtensionsFromDirectorySuccess) {
   const extensions::UserScriptList& scripts =
       extensions::ContentScriptsInfo::GetContentScripts(extension);
   ASSERT_EQ(2u, scripts.size());
-  EXPECT_EQ(expected_patterns, scripts[0].url_patterns());
-  EXPECT_EQ(2u, scripts[0].js_scripts().size());
+  EXPECT_EQ(expected_patterns, scripts[0]->url_patterns());
+  EXPECT_EQ(2u, scripts[0]->js_scripts().size());
   ExtensionResource resource00(extension->id(),
-                               scripts[0].js_scripts()[0].extension_root(),
-                               scripts[0].js_scripts()[0].relative_path());
+                               scripts[0]->js_scripts()[0]->extension_root(),
+                               scripts[0]->js_scripts()[0]->relative_path());
   base::FilePath expected_path =
       base::MakeAbsoluteFilePath(extension->path().AppendASCII("script1.js"));
   EXPECT_TRUE(resource00.ComparePathWithDefault(expected_path));
   ExtensionResource resource01(extension->id(),
-                               scripts[0].js_scripts()[1].extension_root(),
-                               scripts[0].js_scripts()[1].relative_path());
+                               scripts[0]->js_scripts()[1]->extension_root(),
+                               scripts[0]->js_scripts()[1]->relative_path());
   expected_path =
       base::MakeAbsoluteFilePath(extension->path().AppendASCII("script2.js"));
   EXPECT_TRUE(resource01.ComparePathWithDefault(expected_path));
   EXPECT_TRUE(!extensions::PluginInfo::HasPlugins(extension));
-  EXPECT_EQ(1u, scripts[1].url_patterns().patterns().size());
+  EXPECT_EQ(1u, scripts[1]->url_patterns().patterns().size());
   EXPECT_EQ("http://*.news.com/*",
-            scripts[1].url_patterns().begin()->GetAsString());
+            scripts[1]->url_patterns().begin()->GetAsString());
   ExtensionResource resource10(extension->id(),
-                               scripts[1].js_scripts()[0].extension_root(),
-                               scripts[1].js_scripts()[0].relative_path());
+                               scripts[1]->js_scripts()[0]->extension_root(),
+                               scripts[1]->js_scripts()[0]->relative_path());
   expected_path =
       extension->path().AppendASCII("js_files").AppendASCII("script3.js");
   expected_path = base::MakeAbsoluteFilePath(expected_path);
@@ -905,9 +911,9 @@ TEST_F(ExtensionServiceTest, LoadAllExtensionsFromDirectorySuccess) {
   EXPECT_EQ(std::string(), loaded_[1]->description());
   EXPECT_EQ(loaded_[1]->GetResourceURL("background.html"),
             extensions::BackgroundInfo::GetBackgroundURL(loaded_[1].get()));
-  EXPECT_EQ(0u,
-            extensions::ContentScriptsInfo::GetContentScripts(loaded_[1].get())
-                .size());
+  EXPECT_TRUE(
+      extensions::ContentScriptsInfo::GetContentScripts(loaded_[1].get())
+          .empty());
 
   // We don't parse the plugins section on Chrome OS.
 #if defined(OS_CHROMEOS)
@@ -932,9 +938,9 @@ TEST_F(ExtensionServiceTest, LoadAllExtensionsFromDirectorySuccess) {
   EXPECT_EQ(std::string(good2), loaded_[index]->id());
   EXPECT_EQ(std::string("My extension 3"), loaded_[index]->name());
   EXPECT_EQ(std::string(), loaded_[index]->description());
-  EXPECT_EQ(0u,
-            extensions::ContentScriptsInfo::GetContentScripts(
-                loaded_[index].get()).size());
+  EXPECT_TRUE(
+      extensions::ContentScriptsInfo::GetContentScripts(loaded_[index].get())
+          .empty());
   EXPECT_EQ(Manifest::INTERNAL, loaded_[index]->location());
 }
 
@@ -1150,7 +1156,7 @@ TEST_F(ExtensionServiceTest, InstallingExternalExtensionWithFlags) {
   service()->set_extensions_enabled(true);
 
   // Register and install an external extension.
-  std::unique_ptr<Version> version(new Version("1.0.0.0"));
+  std::unique_ptr<base::Version> version(new base::Version("1.0.0.0"));
   content::WindowedNotificationObserver observer(
       extensions::NOTIFICATION_CRX_INSTALLER_DONE,
       content::NotificationService::AllSources());
@@ -1186,7 +1192,7 @@ TEST_F(ExtensionServiceTest, UninstallingExternalExtensions) {
   content::WindowedNotificationObserver observer(
       extensions::NOTIFICATION_CRX_INSTALLER_DONE,
       content::NotificationService::AllSources());
-  std::unique_ptr<Version> version(new Version("1.0.0.0"));
+  std::unique_ptr<base::Version> version(new base::Version("1.0.0.0"));
   std::unique_ptr<ExternalInstallInfoFile> info(new ExternalInstallInfoFile(
       good_crx, std::move(version), path, Manifest::EXTERNAL_PREF,
       Extension::NO_FLAGS, false, false));
@@ -1207,7 +1213,7 @@ TEST_F(ExtensionServiceTest, UninstallingExternalExtensions) {
   ValidateIntegerPref(good_crx, "state",
                       Extension::EXTERNAL_EXTENSION_UNINSTALLED);
 
-  version.reset(new Version("1.0.0.1"));
+  version.reset(new base::Version("1.0.0.1"));
   // Repeat the same thing with a newer version of the extension.
   path = data_dir().AppendASCII("good2.crx");
   info.reset(new ExternalInstallInfoFile(good_crx, std::move(version), path,
@@ -1264,7 +1270,7 @@ TEST_F(ExtensionServiceTest, FailOnWrongId) {
   base::FilePath path = data_dir().AppendASCII("good.crx");
   service()->set_extensions_enabled(true);
 
-  std::unique_ptr<Version> version(new Version("1.0.0.0"));
+  std::unique_ptr<base::Version> version(new base::Version("1.0.0.0"));
 
   const std::string wrong_id = all_zero;
   const std::string correct_id = good_crx;
@@ -1304,7 +1310,7 @@ TEST_F(ExtensionServiceTest, FailOnWrongVersion) {
   content::WindowedNotificationObserver observer(
       extensions::NOTIFICATION_CRX_INSTALLER_DONE,
       content::NotificationService::AllSources());
-  std::unique_ptr<Version> wrong_version(new Version("1.2.3.4"));
+  std::unique_ptr<base::Version> wrong_version(new base::Version("1.2.3.4"));
   std::unique_ptr<ExternalInstallInfoFile> info(new ExternalInstallInfoFile(
       good_crx, std::move(wrong_version), path, Manifest::EXTERNAL_PREF,
       Extension::NO_FLAGS, false, false));
@@ -1315,7 +1321,7 @@ TEST_F(ExtensionServiceTest, FailOnWrongVersion) {
 
   // Try again with the right version. Expect success.
   service()->pending_extension_manager()->Remove(good_crx);
-  std::unique_ptr<Version> correct_version(new Version("1.0.0.0"));
+  std::unique_ptr<base::Version> correct_version(new base::Version("1.0.0.0"));
   info->version = std::move(correct_version);
   content::WindowedNotificationObserver observer2(
       extensions::NOTIFICATION_CRX_INSTALLER_DONE,
@@ -1851,7 +1857,7 @@ TEST_F(ExtensionServiceTest, PackExtension) {
 
   base::ScopedTempDir temp_dir;
   ASSERT_TRUE(temp_dir.CreateUniqueTempDir());
-  base::FilePath output_directory = temp_dir.path();
+  base::FilePath output_directory = temp_dir.GetPath();
 
   base::FilePath crx_path(output_directory.AppendASCII("ex1.crx"));
   base::FilePath privkey_path(output_directory.AppendASCII("privkey.pem"));
@@ -1891,16 +1897,16 @@ TEST_F(ExtensionServiceTest, PackExtension) {
   base::ScopedTempDir temp_dir2;
   ASSERT_TRUE(temp_dir2.CreateUniqueTempDir());
   creator.reset(new ExtensionCreator());
-  ASSERT_FALSE(creator->Run(temp_dir2.path(), crx_path, privkey_path,
+  ASSERT_FALSE(creator->Run(temp_dir2.GetPath(), crx_path, privkey_path,
                             base::FilePath(), ExtensionCreator::kOverwriteCRX));
 
   // Try packing with an invalid manifest.
   std::string invalid_manifest_content = "I am not a manifest.";
   ASSERT_TRUE(base::WriteFile(
-      temp_dir2.path().Append(extensions::kManifestFilename),
+      temp_dir2.GetPath().Append(extensions::kManifestFilename),
       invalid_manifest_content.c_str(), invalid_manifest_content.size()));
   creator.reset(new ExtensionCreator());
-  ASSERT_FALSE(creator->Run(temp_dir2.path(), crx_path, privkey_path,
+  ASSERT_FALSE(creator->Run(temp_dir2.GetPath(), crx_path, privkey_path,
                             base::FilePath(), ExtensionCreator::kOverwriteCRX));
 
   // Try packing with a private key that is a valid key, but invalid for the
@@ -1948,16 +1954,16 @@ TEST_F(ExtensionServiceTest, PackPunctuatedExtension) {
 
   for (size_t i = 0; i < arraysize(punctuated_names); ++i) {
     SCOPED_TRACE(punctuated_names[i].value().c_str());
-    base::FilePath output_dir = temp_dir.path().Append(punctuated_names[i]);
+    base::FilePath output_dir = temp_dir.GetPath().Append(punctuated_names[i]);
 
     // Copy the extension into the output directory, as PackExtensionJob doesn't
     // let us choose where to output the packed extension.
     ASSERT_TRUE(base::CopyDirectory(input_directory, output_dir, true));
 
     base::FilePath expected_crx_path =
-        temp_dir.path().Append(expected_crx_names[i]);
+        temp_dir.GetPath().Append(expected_crx_names[i]);
     base::FilePath expected_private_key_path =
-        temp_dir.path().Append(expected_private_key_names[i]);
+        temp_dir.GetPath().Append(expected_private_key_names[i]);
     PackExtensionTestClient pack_client(expected_crx_path,
                                         expected_private_key_path);
     scoped_refptr<extensions::PackExtensionJob> packer(
@@ -1985,7 +1991,8 @@ TEST_F(ExtensionServiceTest, PackExtensionContainingKeyFails) {
 
   base::ScopedTempDir extension_temp_dir;
   ASSERT_TRUE(extension_temp_dir.CreateUniqueTempDir());
-  base::FilePath input_directory = extension_temp_dir.path().AppendASCII("ext");
+  base::FilePath input_directory =
+      extension_temp_dir.GetPath().AppendASCII("ext");
   ASSERT_TRUE(
       base::CopyDirectory(data_dir()
                               .AppendASCII("good")
@@ -1997,7 +2004,7 @@ TEST_F(ExtensionServiceTest, PackExtensionContainingKeyFails) {
 
   base::ScopedTempDir output_temp_dir;
   ASSERT_TRUE(output_temp_dir.CreateUniqueTempDir());
-  base::FilePath output_directory = output_temp_dir.path();
+  base::FilePath output_directory = output_temp_dir.GetPath();
 
   base::FilePath crx_path(output_directory.AppendASCII("ex1.crx"));
   base::FilePath privkey_path(output_directory.AppendASCII("privkey.pem"));
@@ -2043,7 +2050,7 @@ TEST_F(ExtensionServiceTest, PackExtensionOpenSSLKey) {
 
   base::ScopedTempDir temp_dir;
   ASSERT_TRUE(temp_dir.CreateUniqueTempDir());
-  base::FilePath output_directory = temp_dir.path();
+  base::FilePath output_directory = temp_dir.GetPath();
 
   base::FilePath crx_path(output_directory.AppendASCII("ex1.crx"));
 
@@ -2091,9 +2098,8 @@ TEST_F(ExtensionServiceTest, MAYBE_InstallTheme) {
     ValidatePrefKeyCount(++pref_count);
     ASSERT_TRUE(extension);
     EXPECT_TRUE(extension->is_theme());
-    EXPECT_EQ(
-        0u,
-        extensions::ContentScriptsInfo::GetContentScripts(extension).size());
+    EXPECT_TRUE(
+        extensions::ContentScriptsInfo::GetContentScripts(extension).empty());
   }
 
   // A theme with image resources missing (misspelt path).
@@ -2144,7 +2150,7 @@ TEST_F(ExtensionServiceTest, UnpackedExtensionMayContainSymlinkedFiles) {
   // Set up the temporary extension directory.
   base::ScopedTempDir temp;
   ASSERT_TRUE(temp.CreateUniqueTempDir());
-  base::FilePath extension_path = temp.path();
+  base::FilePath extension_path = temp.GetPath();
   base::FilePath manifest = extension_path.Append(
       extensions::kManifestFilename);
   base::FilePath icon_symlink = extension_path.AppendASCII("icon.png");
@@ -2596,7 +2602,7 @@ TEST_F(ExtensionServiceTest, LoadExtensionsCanDowngrade) {
 
   // We'll write the extension manifest dynamically to a temporary path
   // to make it easier to change the version number.
-  base::FilePath extension_path = temp.path();
+  base::FilePath extension_path = temp.GetPath();
   base::FilePath manifest_path =
       extension_path.Append(extensions::kManifestFilename);
   ASSERT_FALSE(base::PathExists(manifest_path));
@@ -3014,7 +3020,7 @@ TEST_F(ExtensionServiceTest, UpdatePendingExtensionAlreadyInstalled) {
       good->id(),
       std::string(),
       extensions::ManifestURL::GetUpdateURL(good),
-      Version(),
+      base::Version(),
       &IsExtension,
       kGoodIsFromSync,
       Manifest::INTERNAL,
@@ -3122,6 +3128,47 @@ TEST_F(ExtensionServiceTest, BlacklistedExtensionWillNotInstall) {
 #endif  // defined(ENABLE_BLACKLIST_TESTS)
 
 #if defined(ENABLE_BLACKLIST_TESTS)
+// Tests that previously blacklisted extension will be enabled if it is removed
+// from the blacklist. Also checks that all blacklisted preferences will be
+// cleared in that case.
+TEST_F(ExtensionServiceTest, RemoveExtensionFromBlacklist) {
+  extensions::TestBlacklist test_blacklist;
+  // A profile with 3 extensions installed: good0, good1, and good2.
+  InitializeGoodInstalledExtensionService();
+  test_blacklist.Attach(service()->blacklist_);
+  service()->Init();
+
+  ASSERT_TRUE(registry()->enabled_extensions().Contains(good0));
+  extensions::TestExtensionRegistryObserver observer(
+      extensions::ExtensionRegistry::Get(profile()), good0);
+
+  // Add the extension to the blacklist.
+  test_blacklist.SetBlacklistState(good0, extensions::BLACKLISTED_MALWARE,
+                                   true);
+  observer.WaitForExtensionUnloaded();
+
+  // The extension should be disabled, both "blacklist" and "blacklist_state"
+  // prefs should be set.
+  auto* prefs = ExtensionPrefs::Get(profile());
+  EXPECT_FALSE(registry()->enabled_extensions().Contains(good0));
+  EXPECT_TRUE(prefs->IsExtensionBlacklisted(good0));
+  EXPECT_EQ(extensions::BLACKLISTED_MALWARE,
+            prefs->GetExtensionBlacklistState(good0));
+
+  // Remove the extension from the blacklist.
+  test_blacklist.SetBlacklistState(good0, extensions::NOT_BLACKLISTED, true);
+  observer.WaitForExtensionLoaded()->id();
+
+  // The extension should be enabled, both "blacklist" and "blacklist_state"
+  // should be cleared.
+  EXPECT_TRUE(registry()->enabled_extensions().Contains(good0));
+  EXPECT_FALSE(prefs->IsExtensionBlacklisted(good0));
+  EXPECT_EQ(extensions::NOT_BLACKLISTED,
+            prefs->GetExtensionBlacklistState(good0));
+}
+#endif  // defined(ENABLE_BLACKLIST_TESTS)
+
+#if defined(ENABLE_BLACKLIST_TESTS)
 // Unload blacklisted extension on policy change.
 TEST_F(ExtensionServiceTest, UnloadBlacklistedExtensionPolicy) {
   extensions::TestBlacklist test_blacklist;
@@ -3189,8 +3236,10 @@ TEST_F(ExtensionServiceTest, BlacklistedInPrefsFromStartup) {
 
   InitializeGoodInstalledExtensionService();
   test_blacklist.Attach(service()->blacklist_);
-  ExtensionPrefs::Get(profile())->SetExtensionBlacklisted(good0, true);
-  ExtensionPrefs::Get(profile())->SetExtensionBlacklisted(good1, true);
+  ExtensionPrefs::Get(profile())->SetExtensionBlacklistState(
+      good0, extensions::BLACKLISTED_MALWARE);
+  ExtensionPrefs::Get(profile())->SetExtensionBlacklistState(
+      good1, extensions::BLACKLISTED_MALWARE);
 
   test_blacklist.SetBlacklistState(
       good1, extensions::BLACKLISTED_MALWARE, false);
@@ -3932,7 +3981,7 @@ TEST_F(ExtensionServiceTest, PolicyBlockedPermissionConflictsWithForceInstall) {
   base::FilePath pem_path = data_dir().AppendASCII("permissions_blocklist.pem");
   base::ScopedTempDir temp_dir;
   EXPECT_TRUE(temp_dir.CreateUniqueTempDir());
-  base::FilePath crx_path = temp_dir.path().AppendASCII("temp.crx");
+  base::FilePath crx_path = temp_dir.GetPath().AppendASCII("temp.crx");
 
   PackCRX(path, pem_path, crx_path);
 
@@ -4032,7 +4081,7 @@ TEST_F(ExtensionServiceTest, PolicyBlockedPermissionPolicyUpdate) {
   // Pack the crx file.
   base::ScopedTempDir temp_dir;
   EXPECT_TRUE(temp_dir.CreateUniqueTempDir());
-  base::FilePath crx_path = temp_dir.path().AppendASCII("temp.crx");
+  base::FilePath crx_path = temp_dir.GetPath().AppendASCII("temp.crx");
 
   PackCRX(path2, pem_path, crx_path);
 
@@ -4192,7 +4241,7 @@ TEST_F(ExtensionServiceTest, UpdatingPendingExternalExtensionWithFlags) {
   service()->set_extensions_enabled(true);
 
   // Register and install an external extension.
-  std::unique_ptr<Version> version(new Version("1.0.0.0"));
+  std::unique_ptr<base::Version> version(new base::Version("1.0.0.0"));
   content::WindowedNotificationObserver observer(
       extensions::NOTIFICATION_CRX_INSTALLER_DONE,
       content::NotificationService::AllSources());
@@ -5769,8 +5818,8 @@ TEST_F(ExtensionServiceTest, InstallPriorityExternalUpdateUrl) {
 }
 
 TEST_F(ExtensionServiceTest, InstallPriorityExternalLocalFile) {
-  Version older_version("0.1.0.0");
-  Version newer_version("2.0.0.0");
+  base::Version older_version("0.1.0.0");
+  base::Version newer_version("2.0.0.0");
 
   // We don't want the extension to be installed.  A path that doesn't
   // point to a valid CRX ensures this.
@@ -5801,7 +5850,8 @@ TEST_F(ExtensionServiceTest, InstallPriorityExternalLocalFile) {
       service()->pending_extension_manager();
   EXPECT_FALSE(pending->IsIdPending(kGoodId));
 
-  std::unique_ptr<Version> older_version_ptr(new Version(older_version));
+  std::unique_ptr<base::Version> older_version_ptr(
+      new base::Version(older_version));
   std::unique_ptr<ExternalInstallInfoFile> info(new ExternalInstallInfoFile(
       kGoodId, std::move(older_version_ptr), kInvalidPathToCrx,
       Manifest::INTERNAL, kCreationFlags, kDontMarkAcknowledged,
@@ -5882,29 +5932,29 @@ TEST_F(ExtensionServiceTest, InstallPriorityExternalLocalFile) {
   // older, or the same, and succeed if the version is newer.
 
   // Older than the installed version...
-  info->version.reset(new Version(older_version));
+  info->version.reset(new base::Version(older_version));
   EXPECT_FALSE(service()->OnExternalExtensionFileFound(*info));
   EXPECT_FALSE(pending->IsIdPending(kGoodId));
 
   // Same version as the installed version...
-  info->version.reset(new Version(ext->VersionString()));
+  info->version.reset(new base::Version(ext->VersionString()));
   EXPECT_FALSE(service()->OnExternalExtensionFileFound(*info));
   EXPECT_FALSE(pending->IsIdPending(kGoodId));
 
   // Newer than the installed version...
-  info->version.reset(new Version(newer_version));
+  info->version.reset(new base::Version(newer_version));
   EXPECT_TRUE(service()->OnExternalExtensionFileFound(*info));
   EXPECT_TRUE(pending->IsIdPending(kGoodId));
 
   // An external install for a higher priority install source should succeed
   // if the version is greater.  |older_version| is not...
-  info->version.reset(new Version(older_version));
+  info->version.reset(new base::Version(older_version));
   info->crx_location = Manifest::EXTERNAL_PREF;
   EXPECT_FALSE(service()->OnExternalExtensionFileFound(*info));
   EXPECT_TRUE(pending->IsIdPending(kGoodId));
 
   // |newer_version| is newer.
-  info->version.reset(new Version(newer_version));
+  info->version.reset(new base::Version(newer_version));
   EXPECT_TRUE(service()->OnExternalExtensionFileFound(*info));
   EXPECT_TRUE(pending->IsIdPending(kGoodId));
 
@@ -5922,9 +5972,9 @@ TEST_F(ExtensionServiceTest, InstallPriorityExternalLocalFile) {
 }
 
 TEST_F(ExtensionServiceTest, ConcurrentExternalLocalFile) {
-  Version kVersion123("1.2.3");
-  Version kVersion124("1.2.4");
-  Version kVersion125("1.2.5");
+  base::Version kVersion123("1.2.3");
+  base::Version kVersion124("1.2.4");
+  base::Version kVersion125("1.2.5");
   const base::FilePath kInvalidPathToCrx(FILE_PATH_LITERAL("invalid_path"));
   const int kCreationFlags = 0;
   const bool kDontMarkAcknowledged = false;
@@ -5938,9 +5988,9 @@ TEST_F(ExtensionServiceTest, ConcurrentExternalLocalFile) {
 
   // An external provider starts installing from a local crx.
   std::unique_ptr<ExternalInstallInfoFile> info(new ExternalInstallInfoFile(
-      kGoodId, base::WrapUnique(new Version(kVersion123)), kInvalidPathToCrx,
-      Manifest::EXTERNAL_PREF, kCreationFlags, kDontMarkAcknowledged,
-      kDontInstallImmediately));
+      kGoodId, base::MakeUnique<base::Version>(kVersion123),
+      kInvalidPathToCrx, Manifest::EXTERNAL_PREF, kCreationFlags,
+      kDontMarkAcknowledged, kDontInstallImmediately));
   EXPECT_TRUE(service()->OnExternalExtensionFileFound(*info));
 
   const extensions::PendingExtensionInfo* pending_info;
@@ -5949,14 +5999,14 @@ TEST_F(ExtensionServiceTest, ConcurrentExternalLocalFile) {
   EXPECT_EQ(pending_info->version(), kVersion123);
 
   // Adding a newer version overrides the currently pending version.
-  info->version.reset(new Version(kVersion124));
+  info->version.reset(new base::Version(kVersion124));
   EXPECT_TRUE(service()->OnExternalExtensionFileFound(*info));
   EXPECT_TRUE((pending_info = pending->GetById(kGoodId)));
   EXPECT_TRUE(pending_info->version().IsValid());
   EXPECT_EQ(pending_info->version(), kVersion124);
 
   // Adding an older version fails.
-  info->version.reset(new Version(kVersion123));
+  info->version.reset(new base::Version(kVersion123));
   EXPECT_FALSE(service()->OnExternalExtensionFileFound(*info));
   EXPECT_TRUE((pending_info = pending->GetById(kGoodId)));
   EXPECT_TRUE(pending_info->version().IsValid());
@@ -5974,7 +6024,7 @@ TEST_F(ExtensionServiceTest, ConcurrentExternalLocalFile) {
   GURL kUpdateUrl("http://example.com/update");
   std::unique_ptr<ExternalInstallInfoUpdateUrl> update_info(
       new ExternalInstallInfoUpdateUrl(
-          kGoodId, std::string(), base::WrapUnique(new GURL(kUpdateUrl)),
+          kGoodId, std::string(), base::MakeUnique<GURL>(kUpdateUrl),
           Manifest::EXTERNAL_POLICY_DOWNLOAD, Extension::NO_FLAGS, false));
   EXPECT_TRUE(service()->OnExternalExtensionUpdateUrlFound(*update_info, true));
   EXPECT_TRUE((pending_info = pending->GetById(kGoodId)));
@@ -6029,7 +6079,7 @@ class ExtensionSourcePriorityTest : public ExtensionServiceTest {
 
   // Fake an external file from external_extensions.json.
   bool AddPendingExternalPrefFileInstall() {
-    std::unique_ptr<Version> version(new Version("1.0.0.0"));
+    std::unique_ptr<base::Version> version(new base::Version("1.0.0.0"));
     std::unique_ptr<ExternalInstallInfoFile> info(new ExternalInstallInfoFile(
         crx_id_, std::move(version), crx_path_, Manifest::EXTERNAL_PREF,
         Extension::NO_FLAGS, false, false));
@@ -6392,12 +6442,12 @@ TEST_F(ExtensionServiceTest, MultipleExternalInstallBubbleErrors) {
   AddMockExternalProvider(provider);
 
   std::vector<BubbleErrorsTestData> data;
-  data.push_back(
-      BubbleErrorsTestData(updates_from_webstore, "1",
-                           temp_dir().path().AppendASCII("webstore.crx"), 1u));
-  data.push_back(
-      BubbleErrorsTestData(updates_from_webstore2, "1",
-                           temp_dir().path().AppendASCII("webstore2.crx"), 2u));
+  data.push_back(BubbleErrorsTestData(
+      updates_from_webstore, "1",
+      temp_dir().GetPath().AppendASCII("webstore.crx"), 1u));
+  data.push_back(BubbleErrorsTestData(
+      updates_from_webstore2, "1",
+      temp_dir().GetPath().AppendASCII("webstore2.crx"), 2u));
   data.push_back(BubbleErrorsTestData(good_crx, "1.0.0.0",
                                       data_dir().AppendASCII("good.crx"), 2u));
 
@@ -6461,7 +6511,7 @@ TEST_F(ExtensionServiceTest, MultipleExternalInstallBubbleErrors) {
   // error bubble is for this newly added extension.
   {
     base::FilePath webstore_crx_three =
-        temp_dir().path().AppendASCII("webstore3.crx");
+        temp_dir().GetPath().AppendASCII("webstore3.crx");
     PackCRX(data_dir().AppendASCII("update_from_webstore3"),
             data_dir().AppendASCII("update_from_webstore3.pem"),
             webstore_crx_three);
@@ -6474,7 +6524,7 @@ TEST_F(ExtensionServiceTest, MultipleExternalInstallBubbleErrors) {
         content::NotificationService::AllSources());
     provider->UpdateOrAddExtension(
         updates_from_webstore3, "1",
-        temp_dir().path().AppendASCII("webstore3.crx"));
+        temp_dir().GetPath().AppendASCII("webstore3.crx"));
     service()->CheckForExternalUpdates();
     observer.Wait();
     // Make sure ExternalInstallError::OnDialogReady() fires.
@@ -6511,12 +6561,12 @@ TEST_F(ExtensionServiceTest, BubbleAlertDoesNotHideAnotherAlertFromMenu) {
   AddMockExternalProvider(provider);
 
   std::vector<BubbleErrorsTestData> data;
-  data.push_back(
-      BubbleErrorsTestData(updates_from_webstore, "1",
-                           temp_dir().path().AppendASCII("webstore.crx"), 1u));
-  data.push_back(
-      BubbleErrorsTestData(updates_from_webstore2, "1",
-                           temp_dir().path().AppendASCII("webstore2.crx"), 2u));
+  data.push_back(BubbleErrorsTestData(
+      updates_from_webstore, "1",
+      temp_dir().GetPath().AppendASCII("webstore.crx"), 1u));
+  data.push_back(BubbleErrorsTestData(
+      updates_from_webstore2, "1",
+      temp_dir().GetPath().AppendASCII("webstore2.crx"), 2u));
 
   PackCRX(data_dir().AppendASCII("update_from_webstore"),
           data_dir().AppendASCII("update_from_webstore.pem"), data[0].crx_path);
@@ -6605,7 +6655,7 @@ TEST_F(ExtensionServiceTest, ExternalInstallUpdatesFromWebstoreOldProfile) {
   params.is_first_run = false;
   InitializeExtensionService(params);
 
-  base::FilePath crx_path = temp_dir().path().AppendASCII("webstore.crx");
+  base::FilePath crx_path = temp_dir().GetPath().AppendASCII("webstore.crx");
   PackCRX(data_dir().AppendASCII("update_from_webstore"),
           data_dir().AppendASCII("update_from_webstore.pem"),
           crx_path);
@@ -6634,7 +6684,7 @@ TEST_F(ExtensionServiceTest, ExternalInstallUpdatesFromWebstoreNewProfile) {
 
   InitializeEmptyExtensionService();
 
-  base::FilePath crx_path = temp_dir().path().AppendASCII("webstore.crx");
+  base::FilePath crx_path = temp_dir().GetPath().AppendASCII("webstore.crx");
   PackCRX(data_dir().AppendASCII("update_from_webstore"),
           data_dir().AppendASCII("update_from_webstore.pem"),
           crx_path);
@@ -6666,7 +6716,7 @@ TEST_F(ExtensionServiceTest, ExternalInstallClickToRemove) {
   params.is_first_run = false;
   InitializeExtensionService(params);
 
-  base::FilePath crx_path = temp_dir().path().AppendASCII("webstore.crx");
+  base::FilePath crx_path = temp_dir().GetPath().AppendASCII("webstore.crx");
   PackCRX(data_dir().AppendASCII("update_from_webstore"),
           data_dir().AppendASCII("update_from_webstore.pem"),
           crx_path);
@@ -6709,7 +6759,7 @@ TEST_F(ExtensionServiceTest, ExternalInstallClickToKeep) {
   params.is_first_run = false;
   InitializeExtensionService(params);
 
-  base::FilePath crx_path = temp_dir().path().AppendASCII("webstore.crx");
+  base::FilePath crx_path = temp_dir().GetPath().AppendASCII("webstore.crx");
   PackCRX(data_dir().AppendASCII("update_from_webstore"),
           data_dir().AppendASCII("update_from_webstore.pem"),
           crx_path);
@@ -6873,4 +6923,26 @@ TEST_F(ExtensionServiceTest, DestroyingProfileClearsExtensions) {
   EXPECT_EQ(0u, registry()->disabled_extensions().size());
   EXPECT_EQ(0u, registry()->terminated_extensions().size());
   EXPECT_EQ(0u, registry()->blacklisted_extensions().size());
+}
+
+// Test that updating a corrupt extension removes the DISABLE_CORRUPTED disable
+// reason.
+TEST_F(ExtensionServiceTest, CorruptExtensionUpdate) {
+  InitializeEmptyExtensionService();
+
+  base::FilePath v1_path = data_dir().AppendASCII("good.crx");
+  const Extension* v1 = InstallCRX(v1_path, INSTALL_NEW);
+  std::string id = v1->id();
+
+  service()->DisableExtension(id, Extension::DISABLE_CORRUPTED);
+
+  ExtensionPrefs* prefs = ExtensionPrefs::Get(profile());
+  EXPECT_TRUE(registry()->disabled_extensions().Contains(id));
+  EXPECT_TRUE(prefs->HasDisableReason(id, Extension::DISABLE_CORRUPTED));
+
+  base::FilePath v2_path = data_dir().AppendASCII("good2.crx");
+  UpdateExtension(id, v2_path, ENABLED);
+
+  EXPECT_FALSE(registry()->disabled_extensions().Contains(id));
+  EXPECT_FALSE(prefs->HasDisableReason(id, Extension::DISABLE_CORRUPTED));
 }

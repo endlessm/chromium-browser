@@ -4,7 +4,6 @@
 
 #include "chrome/browser/chromeos/status/data_promo_notification.h"
 
-#include "ash/common/system/system_notifier.h"
 #include "base/command_line.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/browser_process.h"
@@ -30,12 +29,12 @@
 #include "components/prefs/pref_service.h"
 #include "content/public/browser/user_metrics.h"
 #include "extensions/browser/extension_registry.h"
-#include "grit/ui_chromeos_resources.h"
 #include "third_party/cros_system_api/dbus/service_constants.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/chromeos/network/network_connect.h"
 #include "ui/chromeos/network/network_state_notifier.h"
+#include "ui/chromeos/resources/grit/ui_chromeos_resources.h"
 #include "ui/message_center/message_center.h"
 #include "ui/message_center/notification.h"
 #include "ui/views/view.h"

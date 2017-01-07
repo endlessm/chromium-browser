@@ -17,14 +17,15 @@ from devil.android import device_utils
 from devil.android.sdk import version_codes
 from devil.utils import timeout_retry
 
+logger = logging.getLogger(__name__)
+
 _DEFAULT_TIMEOUT = 30
 _DEFAULT_RETRIES = 3
 
 
 _DEVICE_PROFILES = [
   {
-    'name': 'Nexus 4',
-    'witness_file': '/sys/module/pm8921_charger/parameters/disabled',
+    'name': ['Nexus 4'],
     'enable_command': (
         'echo 0 > /sys/module/pm8921_charger/parameters/disabled && '
         'dumpsys battery reset'),
@@ -36,12 +37,11 @@ _DEVICE_PROFILES = [
     'current': None,
   },
   {
-    'name': 'Nexus 5',
+    'name': ['Nexus 5'],
     # Nexus 5
     # Setting the HIZ bit of the bq24192 causes the charger to actually ignore
     # energy coming from USB. Setting the power_supply offline just updates the
     # Android system to reflect that.
-    'witness_file': '/sys/kernel/debug/bq24192/INPUT_SRC_CONT',
     'enable_command': (
         'echo 0x4A > /sys/kernel/debug/bq24192/INPUT_SRC_CONT && '
         'chmod 644 /sys/class/power_supply/usb/online && '
@@ -57,8 +57,7 @@ _DEVICE_PROFILES = [
     'current': None,
   },
   {
-    'name': 'Nexus 6',
-    'witness_file': None,
+    'name': ['Nexus 6'],
     'enable_command': (
         'echo 1 > /sys/class/power_supply/battery/charging_enabled && '
         'dumpsys battery reset'),
@@ -71,8 +70,7 @@ _DEVICE_PROFILES = [
     'current': '/sys/class/power_supply/max170xx_battery/current_now',
   },
   {
-    'name': 'Nexus 9',
-    'witness_file': None,
+    'name': ['Nexus 9'],
     'enable_command': (
         'echo Disconnected > '
         '/sys/bus/i2c/drivers/bq2419x/0-006b/input_cable_state && '
@@ -86,14 +84,61 @@ _DEVICE_PROFILES = [
     'current': '/sys/class/power_supply/battery/current_now',
   },
   {
-    'name': 'Nexus 10',
-    'witness_file': None,
+    'name': ['Nexus 10'],
     'enable_command': None,
     'disable_command': None,
     'charge_counter': None,
     'voltage': '/sys/class/power_supply/ds2784-fuelgauge/voltage_now',
     'current': '/sys/class/power_supply/ds2784-fuelgauge/current_now',
 
+  },
+  {
+    'name': ['Nexus 5X'],
+    'enable_command': (
+        'echo 1 > /sys/class/power_supply/battery/charging_enabled && '
+        'dumpsys battery reset'),
+    'disable_command': (
+        'echo 0 > /sys/class/power_supply/battery/charging_enabled && '
+        'dumpsys battery set ac 0 && dumpsys battery set usb 0'),
+    'charge_counter': None,
+    'voltage': None,
+    'current': None,
+  },
+  { # Galaxy s5
+    'name': ['SM-G900H'],
+    'enable_command': (
+        'chmod 644 /sys/class/power_supply/battery/test_mode && '
+        'chmod 644 /sys/class/power_supply/sec-charger/current_now && '
+        'echo 0 > /sys/class/power_supply/battery/test_mode && '
+        'echo 9999 > /sys/class/power_supply/sec-charger/current_now &&'
+        'dumpsys battery reset'),
+    'disable_command': (
+        'chmod 644 /sys/class/power_supply/battery/test_mode && '
+        'chmod 644 /sys/class/power_supply/sec-charger/current_now && '
+        'echo 1 > /sys/class/power_supply/battery/test_mode && '
+        'echo 0 > /sys/class/power_supply/sec-charger/current_now && '
+        'dumpsys battery set ac 0 && dumpsys battery set usb 0'),
+    'charge_counter': None,
+    'voltage': '/sys/class/power_supply/sec-fuelgauge/voltage_now',
+    'current': '/sys/class/power_supply/sec-charger/current_now',
+  },
+  { # Galaxy s6, Galaxy s6, Galaxy s6 edge
+    'name': ['SM-G920F', 'SM-G920V', 'SM-G925V'],
+    'enable_command': (
+        'chmod 644 /sys/class/power_supply/battery/test_mode && '
+        'chmod 644 /sys/class/power_supply/max77843-charger/current_now && '
+        'echo 0 > /sys/class/power_supply/battery/test_mode && '
+        'echo 9999 > /sys/class/power_supply/max77843-charger/current_now &&'
+        'dumpsys battery reset'),
+    'disable_command': (
+        'chmod 644 /sys/class/power_supply/battery/test_mode && '
+        'chmod 644 /sys/class/power_supply/max77843-charger/current_now && '
+        'echo 1 > /sys/class/power_supply/battery/test_mode && '
+        'echo 0 > /sys/class/power_supply/max77843-charger/current_now && '
+        'dumpsys battery set ac 0 && dumpsys battery set usb 0'),
+    'charge_counter': None,
+    'voltage': '/sys/class/power_supply/max77843-fuelgauge/voltage_now',
+    'current': '/sys/class/power_supply/max77843-charger/current_now',
   },
 ]
 
@@ -201,8 +246,8 @@ class BatteryUtils(object):
     if package not in self._cache['uids']:
       self.GetPowerData()
       if package not in self._cache['uids']:
-        logging.warning('No UID found for %s. Can\'t get network data.',
-                        package)
+        logger.warning('No UID found for %s. Can\'t get network data.',
+                       package)
         return None
 
     network_data_path = '/proc/uid_stat/%s/' % self._cache['uids'][package]
@@ -211,12 +256,12 @@ class BatteryUtils(object):
     # If ReadFile throws exception, it means no network data usage file for
     # package has been recorded. Return 0 sent and 0 received.
     except device_errors.AdbShellCommandFailedError:
-      logging.warning('No sent data found for package %s', package)
+      logger.warning('No sent data found for package %s', package)
       send_data = 0
     try:
       recv_data = int(self._device.ReadFile(network_data_path + 'tcp_rcv'))
     except device_errors.AdbShellCommandFailedError:
-      logging.warning('No received data found for package %s', package)
+      logger.warning('No received data found for package %s', package)
       recv_data = 0
     return (send_data, recv_data)
 
@@ -298,10 +343,10 @@ class BatteryUtils(object):
         ['dumpsys', 'battery'], check_return=True)[1:]:
       # If usb charging has been disabled, an extra line of header exists.
       if 'UPDATES STOPPED' in line:
-        logging.warning('Dumpsys battery not receiving updates. '
-                        'Run dumpsys battery reset if this is in error.')
+        logger.warning('Dumpsys battery not receiving updates. '
+                       'Run dumpsys battery reset if this is in error.')
       elif ':' not in line:
-        logging.warning('Unknown line found in dumpsys battery: "%s"', line)
+        logger.warning('Unknown line found in dumpsys battery: "%s"', line)
       else:
         k, v = line.split(':', 1)
         result[k.strip()] = v.strip()
@@ -415,12 +460,12 @@ class BatteryUtils(object):
       raise ValueError('Discharge amount(%s) must be between 1 and 99'
                        % percent)
     if battery_level is None:
-      logging.warning('Unable to find current battery level. Cannot discharge.')
+      logger.warning('Unable to find current battery level. Cannot discharge.')
       return
     # Do not discharge if it would make battery level too low.
     if percent >= battery_level - 10:
-      logging.warning('Battery is too low or discharge amount requested is too '
-                      'high. Cannot discharge phone %s percent.', percent)
+      logger.warning('Battery is too low or discharge amount requested is too '
+                     'high. Cannot discharge phone %s percent.', percent)
       return
 
     self._HardwareSetCharging(False)
@@ -428,7 +473,7 @@ class BatteryUtils(object):
     def device_discharged():
       self._HardwareSetCharging(True)
       current_level = int(self.GetBatteryInfo().get('level'))
-      logging.info('current battery level: %s', current_level)
+      logger.info('current battery level: %s', current_level)
       if battery_level - current_level >= percent:
         return True
       self._HardwareSetCharging(False)
@@ -453,10 +498,10 @@ class BatteryUtils(object):
     def device_charged():
       battery_level = self.GetBatteryInfo().get('level')
       if battery_level is None:
-        logging.warning('Unable to find current battery level.')
+        logger.warning('Unable to find current battery level.')
         battery_level = 100
       else:
-        logging.info('current battery level: %s', battery_level)
+        logger.info('current battery level: %s', battery_level)
         battery_level = int(battery_level)
 
       # Use > so that it will not reset if charge is going down.
@@ -484,21 +529,21 @@ class BatteryUtils(object):
     def cool_device():
       temp = self.GetBatteryInfo().get('temperature')
       if temp is None:
-        logging.warning('Unable to find current battery temperature.')
+        logger.warning('Unable to find current battery temperature.')
         temp = 0
       else:
-        logging.info('Current battery temperature: %s', temp)
+        logger.info('Current battery temperature: %s', temp)
       if int(temp) <= target_temp:
         return True
       else:
-        if self._cache['profile']['name'] == 'Nexus 5':
+        if 'Nexus 5' in self._cache['profile']['name']:
           self._DischargeDevice(1)
         return False
 
     self._DiscoverDeviceProfile()
     self.EnableBatteryUpdates()
-    logging.info('Waiting for the device to cool down to %s (0.1 C)',
-                 target_temp)
+    logger.info('Waiting for the device to cool down to %s (0.1 C)',
+                target_temp)
     timeout_retry.WaitFor(cool_device, wait_period=wait_period)
 
   @decorators.WithTimeoutAndRetriesFromInstance()
@@ -512,7 +557,7 @@ class BatteryUtils(object):
       retries: number of retries
     """
     if self.GetCharging() == enabled:
-      logging.warning('Device charging already in expected state: %s', enabled)
+      logger.warning('Device charging already in expected state: %s', enabled)
       return
 
     self._DiscoverDeviceProfile()
@@ -520,15 +565,15 @@ class BatteryUtils(object):
       if self._cache['profile']['enable_command']:
         self._HardwareSetCharging(enabled)
       else:
-        logging.info('Unable to enable charging via hardware. '
-                     'Falling back to software enabling.')
+        logger.info('Unable to enable charging via hardware. '
+                    'Falling back to software enabling.')
         self.EnableBatteryUpdates()
     else:
       if self._cache['profile']['enable_command']:
         self._ClearPowerData()
         self._HardwareSetCharging(enabled)
       else:
-        logging.info('Unable to disable charging via hardware. '
+        logger.info('Unable to disable charging via hardware. '
                      'Falling back to software disabling.')
         self.DisableBatteryUpdates()
 
@@ -600,8 +645,8 @@ class BatteryUtils(object):
         but fails.
     """
     if self._device.build_version_sdk < version_codes.LOLLIPOP:
-      logging.warning('Dumpsys power data only available on 5.0 and above. '
-                      'Cannot clear power data.')
+      logger.warning('Dumpsys power data only available on 5.0 and above. '
+                     'Cannot clear power data.')
       return False
 
     self._device.RunShellCommand(
@@ -640,12 +685,11 @@ class BatteryUtils(object):
     if 'profile' in self._cache:
       return True
     for profile in _DEVICE_PROFILES:
-      if self._device.product_model == profile['name']:
+      if self._device.product_model in profile['name']:
         self._cache['profile'] = profile
         return True
     self._cache['profile'] = {
-        'name': None,
-        'witness_file': None,
+        'name': [],
         'enable_command': None,
         'disable_command': None,
         'charge_counter': None,

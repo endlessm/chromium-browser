@@ -1,7 +1,7 @@
 #!/usr/bin/env python
-# Copyright 2013 The Swarming Authors. All rights reserved.
-# Use of this source code is governed under the Apache License, Version 2.0 that
-# can be found in the LICENSE file.
+# Copyright 2013 The LUCI Authors. All rights reserved.
+# Use of this source code is governed under the Apache License, Version 2.0
+# that can be found in the LICENSE file.
 
 """Triggers a ton of fake jobs to test its handling under high load.
 
@@ -19,7 +19,8 @@ import string
 import sys
 import time
 
-ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(
+    __file__.decode(sys.getfilesystemencoding()))))
 
 sys.path.insert(0, ROOT_DIR)
 
@@ -90,12 +91,12 @@ def trigger_task(
   ]
   manifest.add_task('echo stuff', cmd)
   data = {'request': manifest.to_json()}
-  response = net.url_open(swarming_url + '/test', data=data)
-  if not response:
+  response = net.url_read(swarming_url + '/test', data=data)
+  if response is None:
     # Failed to trigger. Return a failure.
     return 'failed_trigger'
 
-  result = json.load(response)
+  result = json.loads(response)
   # Old API uses harcoded config name. New API doesn't have concept of config
   # name so it uses the task name. Ignore this detail.
   test_keys = []
@@ -125,7 +126,7 @@ def trigger_task(
     out = [
       output
       for _index, output in swarming.yield_results(
-          swarming_url, test_keys, timeout, None, False, None)
+          swarming_url, test_keys, timeout, None, False, None, False)
     ]
     if not out:
       return 'no_result'

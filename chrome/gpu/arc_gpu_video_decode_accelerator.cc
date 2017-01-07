@@ -8,8 +8,8 @@
 #include "base/logging.h"
 #include "base/numerics/safe_math.h"
 #include "base/run_loop.h"
-#include "content/public/gpu/gpu_video_decode_accelerator_factory.h"
 #include "media/base/video_frame.h"
+#include "media/gpu/gpu_video_decode_accelerator_factory.h"
 
 namespace chromeos {
 namespace arc {
@@ -51,11 +51,14 @@ ArcGpuVideoDecodeAccelerator::OutputBufferInfo::OutputBufferInfo(
 
 ArcGpuVideoDecodeAccelerator::OutputBufferInfo::~OutputBufferInfo() = default;
 
-ArcGpuVideoDecodeAccelerator::ArcGpuVideoDecodeAccelerator()
+ArcGpuVideoDecodeAccelerator::ArcGpuVideoDecodeAccelerator(
+    const gpu::GpuPreferences& gpu_preferences)
     : arc_client_(nullptr),
       next_bitstream_buffer_id_(0),
       output_pixel_format_(media::PIXEL_FORMAT_UNKNOWN),
-      output_buffer_size_(0) {}
+      output_buffer_size_(0),
+      requested_num_of_output_buffers_(0),
+      gpu_preferences_(gpu_preferences) {}
 
 ArcGpuVideoDecodeAccelerator::~ArcGpuVideoDecodeAccelerator() {
   DCHECK(thread_checker_.CalledOnValidThread());
@@ -102,6 +105,9 @@ ArcVideoAccelerator::Result ArcGpuVideoDecodeAccelerator::Initialize(
     case HAL_PIXEL_FORMAT_VP8:
       vda_config.profile = media::VP8PROFILE_ANY;
       break;
+    case HAL_PIXEL_FORMAT_VP9:
+      vda_config.profile = media::VP9PROFILE_PROFILE0;
+      break;
     default:
       DLOG(ERROR) << "Unsupported input format: " << config.input_pixel_format;
       return INVALID_ARGUMENT;
@@ -109,9 +115,9 @@ ArcVideoAccelerator::Result ArcGpuVideoDecodeAccelerator::Initialize(
   vda_config.output_mode =
       media::VideoDecodeAccelerator::Config::OutputMode::IMPORT;
 
-  std::unique_ptr<content::GpuVideoDecodeAcceleratorFactory> vda_factory =
-      content::GpuVideoDecodeAcceleratorFactory::CreateWithNoGL();
-  vda_ = vda_factory->CreateVDA(this, vda_config);
+  auto vda_factory = media::GpuVideoDecodeAcceleratorFactory::CreateWithNoGL();
+  vda_ = vda_factory->CreateVDA(
+      this, vda_config, gpu::GpuDriverBugWorkarounds(), gpu_preferences_);
   if (!vda_) {
     DLOG(ERROR) << "Failed to create VDA.";
     return PLATFORM_FAILURE;
@@ -294,8 +300,8 @@ void ArcGpuVideoDecodeAccelerator::UseBuffer(PortType port,
         handle.native_pixmap_handle.fds.emplace_back(
             base::FileDescriptor(info.handle.release(), true));
         for (const auto& plane : info.planes) {
-          handle.native_pixmap_handle.strides_and_offsets.emplace_back(
-              plane.stride, plane.offset);
+          handle.native_pixmap_handle.planes.emplace_back(plane.stride,
+                                                          plane.offset, 0, 0);
         }
 #endif
         vda_->ImportBufferForPicture(index, handle);
@@ -338,13 +344,24 @@ void ArcGpuVideoDecodeAccelerator::ProvidePictureBuffers(
            << ", dimensions=" << dimensions.ToString() << ")";
   DCHECK(thread_checker_.CalledOnValidThread());
   coded_size_ = dimensions;
+
+  // By default, use an empty rect to indicate the visible rectangle is not
+  // available.
+  visible_rect_ = gfx::Rect();
   if ((output_pixel_format_ != media::PIXEL_FORMAT_UNKNOWN) &&
       (output_pixel_format_ != output_pixel_format)) {
     arc_client_->OnError(PLATFORM_FAILURE);
     return;
   }
   output_pixel_format_ = output_pixel_format;
+  requested_num_of_output_buffers_ = requested_num_of_buffers;
+  output_buffer_size_ =
+      media::VideoFrame::AllocationSize(output_pixel_format_, coded_size_);
 
+  NotifyOutputFormatChanged();
+}
+
+void ArcGpuVideoDecodeAccelerator::NotifyOutputFormatChanged() {
   VideoFormat video_format;
   switch (output_pixel_format_) {
     case media::PIXEL_FORMAT_I420:
@@ -364,17 +381,14 @@ void ArcGpuVideoDecodeAccelerator::ProvidePictureBuffers(
       arc_client_->OnError(PLATFORM_FAILURE);
       return;
   }
-  video_format.buffer_size =
-      media::VideoFrame::AllocationSize(output_pixel_format_, coded_size_);
-  output_buffer_size_ = video_format.buffer_size;
-  video_format.min_num_buffers = requested_num_of_buffers;
-  video_format.coded_width = dimensions.width();
-  video_format.coded_height = dimensions.height();
-  // TODO(owenlin): How to get visible size?
-  video_format.crop_top = 0;
-  video_format.crop_left = 0;
-  video_format.crop_width = dimensions.width();
-  video_format.crop_height = dimensions.height();
+  video_format.buffer_size = output_buffer_size_;
+  video_format.min_num_buffers = requested_num_of_output_buffers_;
+  video_format.coded_width = coded_size_.width();
+  video_format.coded_height = coded_size_.height();
+  video_format.crop_top = visible_rect_.y();
+  video_format.crop_left = visible_rect_.x();
+  video_format.crop_width = visible_rect_.width();
+  video_format.crop_height = visible_rect_.height();
   arc_client_->OnOutputFormatChanged(video_format);
 }
 
@@ -387,6 +401,13 @@ void ArcGpuVideoDecodeAccelerator::PictureReady(const media::Picture& picture) {
   DVLOG(5) << "PictureReady(picture_buffer_id=" << picture.picture_buffer_id()
            << ", bitstream_buffer_id=" << picture.bitstream_buffer_id();
   DCHECK(thread_checker_.CalledOnValidThread());
+
+  // Handle visible size change.
+  if (visible_rect_ != picture.visible_rect()) {
+    DVLOG(5) << "visible size changed: " << picture.visible_rect().ToString();
+    visible_rect_ = picture.visible_rect();
+    NotifyOutputFormatChanged();
+  }
 
   InputRecord* input_record = FindInputRecord(picture.bitstream_buffer_id());
   if (input_record == nullptr) {

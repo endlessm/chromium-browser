@@ -21,6 +21,7 @@
 #include "chrome/common/extensions/extension_constants.h"
 #include "chrome/common/extensions/manifest_handlers/app_launch_info.h"
 #include "chrome/common/url_constants.h"
+#include "chrome/grit/component_extension_resources_map.h"
 #include "extensions/browser/extension_prefs.h"
 #include "extensions/browser/extension_system.h"
 #include "extensions/browser/image_loader.h"
@@ -28,7 +29,6 @@
 #include "extensions/common/extension_resource.h"
 #include "extensions/common/manifest_handlers/icons_handler.h"
 #include "extensions/grit/extensions_browser_resources.h"
-#include "grit/component_extension_resources_map.h"
 #include "skia/ext/image_operations.h"
 #include "ui/base/layout.h"
 #include "ui/base/resource/resource_bundle.h"
@@ -97,9 +97,9 @@ GURL ExtensionIconSource::GetIconURL(const Extension* extension,
 
 // static
 SkBitmap* ExtensionIconSource::LoadImageByResourceId(int resource_id) {
-  std::string contents = ResourceBundle::GetSharedInstance()
-      .GetRawDataResourceForScale(resource_id,
-                                  ui::SCALE_FACTOR_100P).as_string();
+  base::StringPiece contents =
+      ResourceBundle::GetSharedInstance().GetRawDataResourceForScale(
+          resource_id, ui::SCALE_FACTOR_100P);
 
   // Convert and return it.
   const unsigned char* data =
@@ -119,8 +119,7 @@ std::string ExtensionIconSource::GetMimeType(const std::string&) const {
 
 void ExtensionIconSource::StartDataRequest(
     const std::string& path,
-    int render_process_id,
-    int render_frame_id,
+    const content::ResourceRequestInfo::WebContentsGetter& wc_getter,
     const content::URLDataSource::GotDataCallback& callback) {
   // This is where everything gets started. First, parse the request and make
   // the request data available for later.
@@ -147,7 +146,7 @@ void ExtensionIconSource::StartDataRequest(
 
 ExtensionIconSource::~ExtensionIconSource() {
   // Clean up all the temporary data we're holding for requests.
-  STLDeleteValues(&request_map_);
+  base::STLDeleteValues(&request_map_);
 }
 
 const SkBitmap* ExtensionIconSource::GetDefaultAppImage() {

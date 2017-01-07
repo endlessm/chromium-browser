@@ -93,7 +93,7 @@ void SyncInvalidationScheduler::Stop() {
   is_stopped_ = true;
   is_started_ = false;
   weak_factory_.InvalidateWeakPtrs();
-  STLDeleteElements(&posted_tasks_);
+  base::STLDeleteElements(&posted_tasks_);
 }
 
 void SyncInvalidationScheduler::Schedule(invalidation::TimeDelta delay,
@@ -139,7 +139,7 @@ SyncNetworkChannel::SyncNetworkChannel()
       received_messages_count_(0) {}
 
 SyncNetworkChannel::~SyncNetworkChannel() {
-  STLDeleteElements(&network_status_receivers_);
+  base::STLDeleteElements(&network_status_receivers_);
 }
 
 void SyncNetworkChannel::SetMessageReceiver(
@@ -170,14 +170,14 @@ std::unique_ptr<SyncNetworkChannel> SyncNetworkChannel::CreatePushClientChannel(
     const notifier::NotifierOptions& notifier_options) {
   std::unique_ptr<notifier::PushClient> push_client(
       notifier::PushClient::CreateDefaultOnIOThread(notifier_options));
-  return base::WrapUnique(new PushClientChannel(std::move(push_client)));
+  return base::MakeUnique<PushClientChannel>(std::move(push_client));
 }
 
 std::unique_ptr<SyncNetworkChannel> SyncNetworkChannel::CreateGCMNetworkChannel(
     scoped_refptr<net::URLRequestContextGetter> request_context_getter,
     std::unique_ptr<GCMNetworkChannelDelegate> delegate) {
-  return base::WrapUnique(
-      new GCMNetworkChannel(request_context_getter, std::move(delegate)));
+  return base::MakeUnique<GCMNetworkChannel>(request_context_getter,
+                                             std::move(delegate));
 }
 
 void SyncNetworkChannel::NotifyNetworkStatusChange(bool online) {

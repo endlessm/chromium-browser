@@ -27,6 +27,9 @@ NSString* const kEnableViewCopyPasswords = @"EnableViewCopyPasswords";
 NSString* const kHeuristicsForPasswordGeneration =
     @"HeuristicsForPasswordGeneration";
 NSString* const kEnableReadingList = @"EnableReadingList";
+NSString* const kUpdatePasswordUIDisabled = @"UpdatePasswordUIDisabled";
+NSString* const kEnableNewClearBrowsingDataUI = @"EnableNewClearBrowsingDataUI";
+NSString* const kMDMIntegrationDisabled = @"MDMIntegrationDisabled";
 }  // namespace
 
 namespace experimental_flags {
@@ -115,7 +118,7 @@ bool IsAllBookmarksEnabled() {
       base::FieldTrialList::FindFullName("RemoveAllBookmarks");
 
   if (group_name.empty()) {
-    return true;  // If no finch experiment, keep all bookmarks enabled.
+    return false;  // If no finch experiment, all bookmarks is disabled.
   }
   return base::StartsWith(group_name, "Enabled",
                           base::CompareCase::INSENSITIVE_ASCII);
@@ -134,6 +137,52 @@ bool IsPhysicalWebEnabled() {
       base::FieldTrialList::FindFullName("PhysicalWebEnabled");
   return base::StartsWith(group_name, "Enabled",
                           base::CompareCase::INSENSITIVE_ASCII);
+}
+
+bool IsUpdatePasswordUIEnabled() {
+  return ![[NSUserDefaults standardUserDefaults]
+      boolForKey:kUpdatePasswordUIDisabled];
+}
+
+bool IsQRCodeReaderEnabled() {
+  return false;
+}
+
+bool IsNewClearBrowsingDataUIEnabled() {
+  NSString* countersFlag = [[NSUserDefaults standardUserDefaults]
+      objectForKey:kEnableNewClearBrowsingDataUI];
+  if ([countersFlag isEqualToString:@"Enabled"])
+    return true;
+  return false;
+}
+
+bool IsPaymentRequestEnabled() {
+  // This call activates the field trial, if needed, so it must come before any
+  // early returns.
+  std::string group_name =
+      base::FieldTrialList::FindFullName("IOSPaymentRequest");
+
+  // Check if the experimental flag is forced on or off.
+  base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
+  if (command_line->HasSwitch(switches::kEnablePaymentRequest)) {
+    return true;
+  } else if (command_line->HasSwitch(switches::kDisablePaymentRequest)) {
+    return false;
+  }
+
+  // Check if the Finch experiment is turned on.
+  return base::StartsWith(group_name, "Enabled",
+                          base::CompareCase::INSENSITIVE_ASCII);
+}
+
+bool IsSpotlightActionsEnabled() {
+  base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
+  return !command_line->HasSwitch(switches::kDisableSpotlightActions);
+}
+
+bool IsMDMIntegrationEnabled() {
+  return ![[NSUserDefaults standardUserDefaults]
+      boolForKey:kMDMIntegrationDisabled];
 }
 
 }  // namespace experimental_flags

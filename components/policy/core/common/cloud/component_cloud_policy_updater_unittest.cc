@@ -20,12 +20,12 @@
 #include "components/policy/core/common/policy_bundle.h"
 #include "components/policy/core/common/policy_map.h"
 #include "components/policy/core/common/policy_types.h"
+#include "components/policy/proto/chrome_extension_policy.pb.h"
+#include "components/policy/proto/device_management_backend.pb.h"
 #include "crypto/sha2.h"
 #include "net/url_request/test_url_fetcher_factory.h"
 #include "net/url_request/url_fetcher_delegate.h"
 #include "net/url_request/url_request_context_getter.h"
-#include "policy/proto/chrome_extension_policy.pb.h"
-#include "policy/proto/device_management_backend.pb.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "url/gurl.h"
@@ -87,7 +87,7 @@ class ComponentCloudPolicyUpdaterTest : public testing::Test {
 void ComponentCloudPolicyUpdaterTest::SetUp() {
   ASSERT_TRUE(temp_dir_.CreateUniqueTempDir());
   task_runner_ = new base::TestSimpleTaskRunner();
-  cache_.reset(new ResourceCache(temp_dir_.path(), task_runner_));
+  cache_.reset(new ResourceCache(temp_dir_.GetPath(), task_runner_));
   store_.reset(new ComponentCloudPolicyStore(&store_delegate_, cache_.get()));
   store_->SetCredentials(ComponentPolicyBuilder::kFakeUsername,
                          ComponentPolicyBuilder::kFakeToken);
@@ -111,10 +111,10 @@ void ComponentCloudPolicyUpdaterTest::SetUp() {
   PolicyMap& policy = expected_bundle_.Get(ns);
   policy.Set("Name", POLICY_LEVEL_MANDATORY, POLICY_SCOPE_USER,
              POLICY_SOURCE_CLOUD,
-             base::WrapUnique(new base::StringValue("disabled")), nullptr);
+             base::MakeUnique<base::StringValue>("disabled"), nullptr);
   policy.Set("Second", POLICY_LEVEL_RECOMMENDED, POLICY_SCOPE_USER,
-             POLICY_SOURCE_CLOUD,
-             base::WrapUnique(new base::StringValue("maybe")), nullptr);
+             POLICY_SOURCE_CLOUD, base::MakeUnique<base::StringValue>("maybe"),
+             nullptr);
 }
 
 void ComponentCloudPolicyUpdaterTest::TearDown() {
@@ -125,7 +125,7 @@ void ComponentCloudPolicyUpdaterTest::TearDown() {
 std::unique_ptr<em::PolicyFetchResponse>
 ComponentCloudPolicyUpdaterTest::CreateResponse() {
   builder_.Build();
-  return base::WrapUnique(new em::PolicyFetchResponse(builder_.policy()));
+  return base::MakeUnique<em::PolicyFetchResponse>(builder_.policy());
 }
 
 TEST_F(ComponentCloudPolicyUpdaterTest, FetchAndCache) {
@@ -243,7 +243,8 @@ TEST_F(ComponentCloudPolicyUpdaterTest, PolicyDataInvalid) {
   EXPECT_EQ(GURL(kTestDownload2), fetcher->GetOriginalURL());
 
   // Indicate that the policy data size will exceed allowed maximum.
-  fetcher->delegate()->OnURLFetchDownloadProgress(fetcher, 6 * 1024 * 1024, -1);
+  fetcher->delegate()->OnURLFetchDownloadProgress(fetcher, 6 * 1024 * 1024, -1,
+                                                  6 * 1024 * 1024);
   task_runner_->RunUntilIdle();
 
   // Verify that the third download has been started.

@@ -6,15 +6,13 @@
 
 #include <stddef.h>
 
-#include "ash/desktop_background/desktop_background_controller.h"
-#include "ash/desktop_background/desktop_background_controller_observer.h"
-#include "ash/desktop_background/desktop_background_controller_test_api.h"
+#include "ash/common/wallpaper/wallpaper_controller.h"
+#include "ash/common/wm_shell.h"
 #include "ash/display/display_manager.h"
 #include "ash/shell.h"
 #include "ash/test/ash_test_base.h"
 #include "ash/test/ash_test_helper.h"
 #include "ash/test/display_manager_test_api.h"
-#include "ash/test/test_user_wallpaper_delegate.h"
 #include "base/command_line.h"
 #include "base/compiler_specific.h"
 #include "base/files/file_path.h"
@@ -42,7 +40,6 @@
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/image/image_skia.h"
 
-using wallpaper::WallpaperLayout;
 using wallpaper::WallpaperInfo;
 using wallpaper::WALLPAPER_LAYOUT_CENTER;
 using wallpaper::WALLPAPER_LAYOUT_CENTER_CROPPED;
@@ -74,10 +71,9 @@ class WallpaperManagerBrowserTest : public InProcessBrowserTest {
   ~WallpaperManagerBrowserTest() override {}
 
   void SetUpOnMainThread() override {
-    controller_ = ash::Shell::GetInstance()->desktop_background_controller();
+    controller_ = ash::WmShell::Get()->wallpaper_controller();
+    controller_->set_wallpaper_reload_delay_for_test(0);
     local_state_ = g_browser_process->local_state();
-    ash::DesktopBackgroundController::TestAPI(controller_)
-        .set_wallpaper_reload_delay_for_test(0);
     UpdateDisplay("800x600");
   }
 
@@ -91,7 +87,9 @@ class WallpaperManagerBrowserTest : public InProcessBrowserTest {
   // Update the display configuration as given in |display_specs|.  See
   // ash::test::DisplayManagerTestApi::UpdateDisplay for more details.
   void UpdateDisplay(const std::string& display_specs) {
-    ash::test::DisplayManagerTestApi().UpdateDisplay(display_specs);
+    ash::test::DisplayManagerTestApi(
+        ash::Shell::GetInstance()->display_manager())
+        .UpdateDisplay(display_specs);
   }
 
   void WaitAsyncWallpaperLoadStarted() {
@@ -118,6 +116,9 @@ class WallpaperManagerBrowserTest : public InProcessBrowserTest {
   void LogIn(const AccountId& account_id, const std::string& user_id_hash) {
     user_manager::UserManager::Get()->UserLoggedIn(account_id, user_id_hash,
                                                    false);
+    // Adding a secondary display creates a shelf on that display, which
+    // assumes a shelf on the primary display if the user was logged in.
+    ash::Shell::GetInstance()->CreateShelf();
     WaitAsyncWallpaperLoadStarted();
   }
 
@@ -130,6 +131,11 @@ class WallpaperManagerBrowserTest : public InProcessBrowserTest {
         user_manager::UserManager::Get()->FindUserAndModify(account_id);
     user_manager::UserManager::Get()->ChangeUserChildStatus(
         user, true /* is_child */);
+    // TODO(jamescook): For some reason creating the shelf here (which is what
+    // would happen in normal login) causes the child wallpaper tests to fail
+    // with the wallpaper having alpha. This looks like the wallpaper is mid-
+    // animation, but happens even if animations are disabled. Something is
+    // wrong with how these tests simulate login.
   }
 
   int LoadedWallpapers() {
@@ -155,7 +161,7 @@ class WallpaperManagerBrowserTest : public InProcessBrowserTest {
         *wallpaper_dir_, &wallpaper_manager_command_line_);
   }
 
-  ash::DesktopBackgroundController* controller_;
+  ash::WallpaperController* controller_;
   PrefService* local_state_;
   std::unique_ptr<base::CommandLine> wallpaper_manager_command_line_;
 
@@ -540,7 +546,7 @@ IN_PROC_BROWSER_TEST_F(WallpaperManagerBrowserTestCacheUpdate,
   WallpaperManager* wallpaper_manager = WallpaperManager::Get();
 
   // Force load initial wallpaper
-  // (simulate DesktopBackgroundController::UpdateDisplay()).
+  // (simulate WallpaperController::UpdateDisplay()).
   wallpaper_manager->UpdateWallpaper(true);
   wallpaper_manager_test_utils::WaitAsyncWallpaperLoadFinished();
   std::unique_ptr<WallpaperManager::TestApi> test_api;
@@ -627,10 +633,6 @@ class TestObserver : public WallpaperManager::Observer {
 };
 
 IN_PROC_BROWSER_TEST_F(WallpaperManagerBrowserTest, DisplayChange) {
-  // TODO(derat|oshima|bshe): Host windows can't be resized on Win8.
-  if (!ash::test::AshTestHelper::SupportsHostWindowResize())
-    return;
-
   TestObserver observer(WallpaperManager::Get());
 
   // Set the wallpaper to ensure that UpdateWallpaper() will be called when the
@@ -643,7 +645,6 @@ IN_PROC_BROWSER_TEST_F(WallpaperManagerBrowserTest, DisplayChange) {
   // equal to kSmallWallpaperMaxWidth by kSmallWallpaperMaxHeight, even if
   // multiple displays are connected.
   UpdateDisplay("800x600");
-  // Wait for asynchronous DisplayBackgroundController::UpdateDisplay() call.
   base::RunLoop().RunUntilIdle();
   wallpaper_manager_test_utils::WaitAsyncWallpaperLoadFinished();
   EXPECT_EQ(WallpaperManager::WALLPAPER_RESOLUTION_SMALL,
@@ -651,7 +652,6 @@ IN_PROC_BROWSER_TEST_F(WallpaperManagerBrowserTest, DisplayChange) {
   EXPECT_EQ(0, observer.GetUpdateWallpaperCountAndReset());
 
   UpdateDisplay("800x600,800x600");
-  // Wait for asynchronous DisplayBackgroundController::UpdateDisplay() call.
   base::RunLoop().RunUntilIdle();
   wallpaper_manager_test_utils::WaitAsyncWallpaperLoadFinished();
   EXPECT_EQ(WallpaperManager::WALLPAPER_RESOLUTION_SMALL,
@@ -659,7 +659,6 @@ IN_PROC_BROWSER_TEST_F(WallpaperManagerBrowserTest, DisplayChange) {
   EXPECT_EQ(0, observer.GetUpdateWallpaperCountAndReset());
 
   UpdateDisplay("1366x800");
-  // Wait for asynchronous DisplayBackgroundController::UpdateDisplay() call.
   base::RunLoop().RunUntilIdle();
   wallpaper_manager_test_utils::WaitAsyncWallpaperLoadFinished();
   EXPECT_EQ(WallpaperManager::WALLPAPER_RESOLUTION_SMALL,
@@ -668,7 +667,6 @@ IN_PROC_BROWSER_TEST_F(WallpaperManagerBrowserTest, DisplayChange) {
 
   // At larger sizes, large wallpapers should be used.
   UpdateDisplay("1367x800");
-  // Wait for asynchronous DisplayBackgroundController::UpdateDisplay() call.
   base::RunLoop().RunUntilIdle();
   wallpaper_manager_test_utils::WaitAsyncWallpaperLoadFinished();
   EXPECT_EQ(WallpaperManager::WALLPAPER_RESOLUTION_LARGE,
@@ -676,7 +674,6 @@ IN_PROC_BROWSER_TEST_F(WallpaperManagerBrowserTest, DisplayChange) {
   EXPECT_EQ(1, observer.GetUpdateWallpaperCountAndReset());
 
   UpdateDisplay("1367x801");
-  // Wait for asynchronous DisplayBackgroundController::UpdateDisplay() call.
   base::RunLoop().RunUntilIdle();
   wallpaper_manager_test_utils::WaitAsyncWallpaperLoadFinished();
   EXPECT_EQ(WallpaperManager::WALLPAPER_RESOLUTION_LARGE,
@@ -684,7 +681,6 @@ IN_PROC_BROWSER_TEST_F(WallpaperManagerBrowserTest, DisplayChange) {
   EXPECT_EQ(1, observer.GetUpdateWallpaperCountAndReset());
 
   UpdateDisplay("2560x1700");
-  // Wait for asynchronous DisplayBackgroundController::UpdateDisplay() call.
   base::RunLoop().RunUntilIdle();
   wallpaper_manager_test_utils::WaitAsyncWallpaperLoadFinished();
   EXPECT_EQ(WallpaperManager::WALLPAPER_RESOLUTION_LARGE,
@@ -693,7 +689,6 @@ IN_PROC_BROWSER_TEST_F(WallpaperManagerBrowserTest, DisplayChange) {
 
   // Rotated smaller screen may use larger image.
   UpdateDisplay("800x600/r");
-  // Wait for asynchronous DisplayBackgroundController::UpdateDisplay() call.
   base::RunLoop().RunUntilIdle();
   wallpaper_manager_test_utils::WaitAsyncWallpaperLoadFinished();
   EXPECT_EQ(WallpaperManager::WALLPAPER_RESOLUTION_SMALL,
@@ -701,14 +696,12 @@ IN_PROC_BROWSER_TEST_F(WallpaperManagerBrowserTest, DisplayChange) {
   EXPECT_EQ(1, observer.GetUpdateWallpaperCountAndReset());
 
   UpdateDisplay("800x600/r,800x600");
-  // Wait for asynchronous DisplayBackgroundController::UpdateDisplay() call.
   base::RunLoop().RunUntilIdle();
   wallpaper_manager_test_utils::WaitAsyncWallpaperLoadFinished();
   EXPECT_EQ(WallpaperManager::WALLPAPER_RESOLUTION_SMALL,
             WallpaperManager::Get()->GetAppropriateResolution());
   EXPECT_EQ(1, observer.GetUpdateWallpaperCountAndReset());
   UpdateDisplay("1366x800/r");
-  // Wait for asynchronous DisplayBackgroundController::UpdateDisplay() call.
   base::RunLoop().RunUntilIdle();
   wallpaper_manager_test_utils::WaitAsyncWallpaperLoadFinished();
   EXPECT_EQ(WallpaperManager::WALLPAPER_RESOLUTION_LARGE,
@@ -717,7 +710,6 @@ IN_PROC_BROWSER_TEST_F(WallpaperManagerBrowserTest, DisplayChange) {
 
   // Max display size didn't change.
   UpdateDisplay("900x800/r,400x1366");
-  // Wait for asynchronous DisplayBackgroundController::UpdateDisplay() call.
   base::RunLoop().RunUntilIdle();
   wallpaper_manager_test_utils::WaitAsyncWallpaperLoadFinished();
   EXPECT_EQ(0, observer.GetUpdateWallpaperCountAndReset());

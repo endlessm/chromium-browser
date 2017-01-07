@@ -7,9 +7,9 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/webui/popular_sites_internals_message_handler.h"
 #include "chrome/common/url_constants.h"
+#include "chrome/grit/browser_resources.h"
 #include "content/public/browser/web_ui.h"
 #include "content/public/browser/web_ui_data_source.h"
-#include "grit/browser_resources.h"
 
 content::WebUIDataSource* CreatePopularSitesInternalsHTMLSource() {
   content::WebUIDataSource* source = content::WebUIDataSource::Create(
@@ -20,6 +20,7 @@ content::WebUIDataSource* CreatePopularSitesInternalsHTMLSource() {
   source->AddResourcePath("popular_sites_internals.css",
                           IDR_POPULAR_SITES_INTERNALS_CSS);
   source->SetDefaultResource(IDR_POPULAR_SITES_INTERNALS_HTML);
+  source->DisableI18nAndUseGzipForAllPaths();
   return source;
 }
 

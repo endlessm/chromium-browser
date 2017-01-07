@@ -16,7 +16,6 @@ from chromite.cbuildbot.builders import simple_builders
 from chromite.lib import cros_test_lib
 from chromite.lib import osutils
 from chromite.lib import parallel
-from chromite.lib import parallel_unittest
 from chromite.scripts import cbuildbot
 
 
@@ -45,9 +44,6 @@ class SimpleBuilderTest(cros_test_lib.MockTempDirTestCase):
     chroot_path = os.path.join(self.buildroot, constants.DEFAULT_CHROOT_DIR)
     osutils.SafeMakedirs(os.path.join(chroot_path, 'tmp'))
 
-    # Parallel mock is used since some work in simple builders get done on a
-    # separate process.
-    self.StartPatcher(parallel_unittest.ParallelMock())
     self.PatchObject(generic_builders.Builder, '_RunStage',
                      new=run_stage)
     self.PatchObject(simple_builders.SimpleBuilder, '_RunParallelStages',

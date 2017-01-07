@@ -17,11 +17,11 @@
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/url_constants.h"
+#include "chrome/grit/browser_resources.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/storage_partition.h"
 #include "extensions/browser/extension_system.h"
-#include "grit/browser_resources.h"
 
 #if defined(OS_CHROMEOS)
 #include "chrome/browser/chromeos/system/input_device_settings.h"
@@ -95,21 +95,6 @@ void GaiaAuthExtensionLoader::UnloadIfNeeded() {
     UnloadGaiaAuthExtension(browser_context_);
     data_.clear();
   }
-}
-
-int GaiaAuthExtensionLoader::AddData(const std::string& data) {
-  ++last_data_id_;
-  data_[last_data_id_] = data;
-  return last_data_id_;
-}
-
-bool GaiaAuthExtensionLoader::GetData(int data_id, std::string* data) {
-  auto it = data_.find(data_id);
-  if (it == data_.end())
-    return false;
-
-  *data = it->second;
-  return true;
 }
 
 void GaiaAuthExtensionLoader::Shutdown() {

@@ -5,7 +5,6 @@
 import logging
 import os
 import sys
-import tempfile
 
 from telemetry.core import exceptions
 from telemetry.core import util
@@ -17,9 +16,10 @@ from telemetry.internal.platform.profiler import profiler_finder
 from telemetry.internal.util import exception_formatter
 from telemetry.internal.util import file_handle
 from telemetry.page import cache_temperature
+from telemetry.page import traffic_setting
 from telemetry.page import legacy_page_test
 from telemetry import story
-from telemetry.util import image_util
+from telemetry.util import screenshot
 from telemetry.util import wpr_modes
 from telemetry.web_perf import timeline_based_measurement
 
@@ -47,11 +47,12 @@ class SharedPageState(story.SharedState):
   def __init__(self, test, finder_options, story_set):
     super(SharedPageState, self).__init__(test, finder_options, story_set)
     if isinstance(test, timeline_based_measurement.TimelineBasedMeasurement):
-      assert not finder_options.profiler, (
-          'This is a Timeline Based Measurement benchmark. You cannot run it '
-          'with the --profiler flag. If you need trace data, tracing is always '
-          ' enabled in Timeline Based Measurement benchmarks and you can get '
-          'the trace data by using --output-format=json.')
+      if finder_options.profiler:
+        assert not 'trace' in finder_options.profiler, (
+            'This is a Timeline Based Measurement benchmark. You cannot run it '
+            'with trace profiler enabled. If you need trace data, tracing is '
+            'always enabled in Timeline Based Measurement benchmarks and you '
+            'can get the trace data by adding --output-format=json.')
       # This is to avoid the cyclic-import caused by timeline_based_page_test.
       from telemetry.web_perf import timeline_based_page_test
       self._test = timeline_based_page_test.TimelineBasedPageTest(test)
@@ -93,11 +94,18 @@ class SharedPageState(story.SharedState):
     else:
       wpr_mode = wpr_modes.WPR_REPLAY
 
+    use_live_traffic = wpr_mode == wpr_modes.WPR_OFF
+
     if self.platform.network_controller.is_open:
       self.platform.network_controller.Close()
+    self.platform.network_controller.InitializeIfNeeded(
+        use_live_traffic=use_live_traffic)
     self.platform.network_controller.Open(wpr_mode,
                                           browser_options.extra_wpr_args)
 
+  @property
+  def possible_browser(self):
+    return self._possible_browser
 
   @property
   def browser(self):
@@ -121,9 +129,6 @@ class SharedPageState(story.SharedState):
     if not enabled and not finder_options.run_disabled_tests:
       logging.warning(msg)
       logging.warning('You are trying to run a disabled test.')
-      logging.warning(
-          'Pass --also-run-disabled-tests to squelch this message.')
-      sys.exit(0)
 
     if possible_browser.IsRemote():
       possible_browser.RunRemote()
@@ -139,33 +144,11 @@ class SharedPageState(story.SharedState):
 
     # Capture a screenshot
     if self._finder_options.browser_options.take_screenshot_for_failed_page:
-      self._TryCaptureScreenShot(page, self._current_tab, results)
+      fh = screenshot.TryCaptureScreenShot(self.platform, self._current_tab)
+      if fh is not None:
+        results.AddProfilingFile(page, fh)
     else:
       logging.warning('Taking screenshots upon failures disabled.')
-
-  def _TryCaptureScreenShot(self, page, tab, results):
-    try:
-      # TODO(nednguyen): once all platforms support taking screenshot,
-      # remove the tab checking logic and consider moving this to story_runner.
-      # (crbug.com/369490)
-      if self.platform.CanTakeScreenshot():
-        tf = tempfile.NamedTemporaryFile(delete=False, suffix='.png')
-        tf.close()
-        self.platform.TakeScreenshot(tf.name)
-        results.AddProfilingFile(page, file_handle.FromTempFile(tf))
-      elif tab and tab.IsAlive() and tab.screenshot_supported:
-        tf = tempfile.NamedTemporaryFile(delete=False, suffix='.png')
-        tf.close()
-        image = tab.Screenshot()
-        image_util.WritePngFile(image, tf.name)
-        results.AddProfilingFile(page, file_handle.FromTempFile(tf))
-      else:
-        logging.warning(
-            'Either tab has crashed or browser does not support taking tab '
-            'screenshot. Skip taking screenshot on failure.')
-    except Exception as e:
-      logging.warning('Exception when trying to capture screenshot: %s',
-                      repr(e))
 
   def DidRunStory(self, results):
     if self._finder_options.profiler:
@@ -261,8 +244,16 @@ class SharedPageState(story.SharedState):
       if started_browser:
         self.browser.tabs[0].WaitForDocumentReadyStateToBeComplete()
 
+    # Reset traffic shaping to speed up cache temperature setup.
+    self.platform.network_controller.UpdateTrafficSettings(0, 0, 0)
     cache_temperature.EnsurePageCacheTemperature(
         self._current_page, self.browser, self._previous_page)
+    if self._current_page.traffic_setting != traffic_setting.NONE:
+      s = traffic_setting.NETWORK_CONFIGS[self._current_page.traffic_setting]
+      self.platform.network_controller.UpdateTrafficSettings(
+          round_trip_latency_ms=s.round_trip_latency_ms,
+          download_bandwidth_kbps=s.download_bandwidth_kbps,
+          upload_bandwidth_kbps=s.upload_bandwidth_kbps)
 
     # Start profiling if needed.
     if self._finder_options.profiler:

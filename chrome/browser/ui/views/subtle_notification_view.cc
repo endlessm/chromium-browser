@@ -157,7 +157,6 @@ SubtleNotificationView::SubtleNotificationView(
   link_->SetFocusBehavior(FocusBehavior::NEVER);
   link_->set_listener(link_listener);
   link_->SetFontList(font_list);
-  link_->SetPressedColor(kForegroundColor);
   link_->SetEnabledColor(kForegroundColor);
   link_->SetBackgroundColor(kBackgroundColor);
   link_->SetVisible(false);
@@ -182,6 +181,7 @@ void SubtleNotificationView::UpdateContent(
   instruction_view_->SetVisible(!instruction_text.empty());
   link_->SetText(link_text);
   link_->SetVisible(!link_text.empty());
+  Layout();
 }
 
 // static

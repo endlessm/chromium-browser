@@ -6,10 +6,12 @@
 
 #include <utility>
 
+#include "chrome/browser/prefs/pref_service_syncable_util.h"
 #include "chrome/browser/profiles/off_the_record_profile_impl.h"
 #include "chrome/browser/profiles/profile.h"
 #include "components/content_settings/core/browser/host_content_settings_map.h"
 #include "components/keyed_service/content/browser_context_dependency_manager.h"
+#include "components/syncable_prefs/pref_service_syncable.h"
 #include "content/public/browser/browser_thread.h"
 
 #if defined(ENABLE_EXTENSIONS)
@@ -64,13 +66,25 @@ scoped_refptr<RefcountedKeyedService>
 
   // If off the record, retrieve the host content settings map of the parent
   // profile in order to ensure the preferences have been migrated.
-  if (profile->GetProfileType() == Profile::INCOGNITO_PROFILE)
+  // TODO(crbug.com/277296): Remove check that profile does not equal the
+  // original profile once TestingProfile::ForceIncognito is gone.
+  if (profile->GetProfileType() == Profile::INCOGNITO_PROFILE &&
+      profile != profile->GetOriginalProfile()) {
     GetForProfile(profile->GetOriginalProfile());
+  }
 
   scoped_refptr<HostContentSettingsMap> settings_map(new HostContentSettingsMap(
       profile->GetPrefs(),
       profile->GetProfileType() == Profile::INCOGNITO_PROFILE,
       profile->GetProfileType() == Profile::GUEST_PROFILE));
+
+  syncable_prefs::PrefServiceSyncable* pref_service =
+      PrefServiceSyncableFromProfile(profile);
+  if (pref_service) {
+    pref_service->RegisterMergeDataFinishedCallback(
+        base::Bind(&HostContentSettingsMap::MigrateDomainScopedSettings,
+                   settings_map->GetWeakPtr(), true /* after_sync */));
+  }
 
 #if defined(ENABLE_EXTENSIONS)
   ExtensionService *ext_service =

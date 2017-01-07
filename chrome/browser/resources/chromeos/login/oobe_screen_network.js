@@ -27,27 +27,27 @@ login.createScreen('NetworkScreen', 'connect', function() {
 
     /** @override */
     decorate: function() {
-      var self = this;
-
       Oobe.setupSelect($('language-select'),
                        loadTimeData.getValue('languageList'),
-                       function(languageId) {
-                         self.context.set(CONTEXT_KEY_LOCALE, languageId);
-                         self.commitContextChanges();
-                       });
+                       this.onLanguageSelected_.bind(this));
       Oobe.setupSelect($('keyboard-select'),
                        loadTimeData.getValue('inputMethodsList'),
-                       function(inputMethodId) {
-                         self.context.set(CONTEXT_KEY_INPUT_METHOD,
-                                          inputMethodId);
-                         self.commitContextChanges();
-                       });
+                       this.onKeyboardSelected_.bind(this));
       Oobe.setupSelect($('timezone-select'),
                        loadTimeData.getValue('timezoneList'),
-                       function(timezoneId) {
-                         self.context.set(CONTEXT_KEY_TIMEZONE, timezoneId);
-                         self.commitContextChanges();
-                       });
+                       this.onTimezoneSelected_.bind(this));
+
+      // ---------- Welcome screen
+      var welcomeScreen = $('oobe-welcome-md');
+      welcomeScreen.screen = this;
+
+      var languageList = loadTimeData.getValue('languageList');
+      welcomeScreen.languages = languageList;
+      welcomeScreen.currentLanguage = Oobe.getSelectedTitle(languageList);
+
+      var inputMethodsList = loadTimeData.getValue('inputMethodsList');
+      welcomeScreen.keyboards = inputMethodsList;
+      // -------------------------
 
       this.dropdown_ = $('networks-list');
       cr.ui.DropDown.decorate(this.dropdown_);
@@ -81,7 +81,23 @@ login.createScreen('NetworkScreen', 'connect', function() {
       });
     },
 
+    onLanguageSelected_: function(languageId) {
+      this.context.set(CONTEXT_KEY_LOCALE, languageId);
+      this.commitContextChanges();
+    },
+
+    onKeyboardSelected_: function(inputMethodId) {
+      this.context.set(CONTEXT_KEY_INPUT_METHOD, inputMethodId);
+      this.commitContextChanges();
+    },
+
+    onTimezoneSelected_: function(timezoneId) {
+      this.context.set(CONTEXT_KEY_TIMEZONE, timezoneId);
+      this.commitContextChanges();
+    },
+
     onBeforeShow: function(data) {
+      this.setMDMode_();
       cr.ui.DropDown.show('networks-list', true, -1);
       this.classList.toggle('connect-debugging-view',
         data && 'isDeveloperMode' in data && data['isDeveloperMode']);
@@ -140,7 +156,35 @@ login.createScreen('NetworkScreen', 'connect', function() {
       $('bubble').showContentForElement($('networks-list'),
                                         cr.ui.Bubble.Attachment.BOTTOM,
                                         error);
-    }
+    },
+
+    /**
+     * This is called after resources are updated.
+     */
+    updateLocalizedContent: function() {
+      this.setMDMode_();
+    },
+
+    /**
+     * This method takes care of switching to material-design OOBE.
+     * @private
+     */
+    setMDMode_: function() {
+      var useMDOobe = (loadTimeData.getString('newOobeUI') == 'on');
+
+      $('oobe-connect').hidden = useMDOobe;
+      $('oobe-welcome-md').hidden = !useMDOobe;
+
+      if (useMDOobe) {
+        var welcomeScreen = $('oobe-welcome-md');
+        var languageList = loadTimeData.getValue('languageList');
+        welcomeScreen.currentLanguage = Oobe.getSelectedTitle(languageList);
+        welcomeScreen.languages = languageList;
+
+        welcomeScreen.keyboards = loadTimeData.getValue('inputMethodsList');
+        welcomeScreen.enabled = true;
+      }
+    },
   };
 });
 

@@ -14,8 +14,10 @@ import optparse
 import os
 import sys
 
-sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', '..',
-                             'tools', 'grit'))
+# Prepend the grit module from the source tree so it takes precedence over other
+# grit versions that might present in the search path.
+sys.path.insert(1, os.path.join(os.path.dirname(__file__), '..', '..', '..',
+                                'tools', 'grit'))
 from grit.format import data_pack
 
 # Some build paths defined by gyp.
@@ -43,6 +45,8 @@ def calc_inputs(locale):
   inputs = []
   if CHROMECAST_BRANDING != 'public':
     inputs.append(os.path.join(GRIT_DIR, 'app_strings_%s.pak' % locale))
+    if CHROMECAST_WEBUI:
+      inputs.append(os.path.join(GRIT_DIR, 'webui_localized_%s.pak' % locale))
   inputs.append(os.path.join(GRIT_DIR, 'chromecast_settings_%s.pak' % locale))
   return inputs
 
@@ -86,6 +90,7 @@ def repack_locales(locales):
 
 def DoMain(argv):
   global CHROMECAST_BRANDING
+  global CHROMECAST_WEBUI
   global GRIT_DIR
   global INT_DIR
 
@@ -101,6 +106,9 @@ def DoMain(argv):
   parser.add_option("-b", action="store", dest="chromecast_branding",
                     help="Chromecast branding " +
                          "('public', 'internal' or 'google').")
+  parser.add_option("-u", action="store_true", dest="chromecast_webui",
+                    default=False,
+                    help="Include Chromecast webui related resources.")
   options, locales = parser.parse_args(argv)
 
   if not locales:
@@ -111,6 +119,7 @@ def DoMain(argv):
   GRIT_DIR = options.grit_dir
   INT_DIR = options.int_dir
   CHROMECAST_BRANDING = options.chromecast_branding
+  CHROMECAST_WEBUI = options.chromecast_webui
 
   if (CHROMECAST_BRANDING != 'public' and
       CHROMECAST_BRANDING != 'internal' and

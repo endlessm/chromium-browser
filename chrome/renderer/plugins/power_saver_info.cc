@@ -90,8 +90,7 @@ PowerSaverInfo PowerSaverInfo::Get(content::RenderFrame* render_frame,
       plugin_info.name == base::ASCIIToUTF16(content::kFlashPluginName);
 
   PowerSaverInfo info;
-  bool is_eligible = power_saver_setting_on &&
-                     (is_flash || override_for_testing == "ignore-list");
+  bool is_eligible = power_saver_setting_on && is_flash;
   info.power_saver_enabled = override_for_testing == "always" ||
                              (power_saver_setting_on && is_eligible);
 
@@ -102,7 +101,8 @@ PowerSaverInfo PowerSaverInfo::Get(content::RenderFrame* render_frame,
 
     auto status = render_frame->GetPeripheralContentStatus(
         render_frame->GetWebFrame()->top()->getSecurityOrigin(),
-        url::Origin(params.url), gfx::Size());
+        url::Origin(params.url), gfx::Size(),
+        content::RenderFrame::RECORD_DECISION);
 
     // Early-exit from the whole Power Saver system if the content is
     // same-origin or whitelisted-origin. We ignore the other possibilities,

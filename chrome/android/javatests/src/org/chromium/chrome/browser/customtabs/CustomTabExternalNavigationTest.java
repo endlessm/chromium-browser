@@ -9,6 +9,7 @@ import android.os.Bundle;
 import android.os.Environment;
 import android.test.suitebuilder.annotation.SmallTest;
 
+import org.chromium.base.test.util.RetryOnFailure;
 import org.chromium.chrome.browser.customtabs.CustomTabDelegateFactory.CustomTabNavigationDelegate;
 import org.chromium.chrome.browser.externalnav.ExternalNavigationHandler;
 import org.chromium.chrome.browser.externalnav.ExternalNavigationHandler.OverrideUrlLoadingResult;
@@ -20,6 +21,7 @@ import org.chromium.net.test.EmbeddedTestServer;
 /**
  * Instrumentation test for external navigation handling of a Custom Tab.
  */
+@RetryOnFailure
 public class CustomTabExternalNavigationTest extends CustomTabActivityTestBase {
 
     /**
@@ -69,9 +71,13 @@ public class CustomTabExternalNavigationTest extends CustomTabActivityTestBase {
                 getInstrumentation().getTargetContext(), mTestServer.getURL(TEST_PATH)));
         Tab tab = getActivity().getActivityTab();
         TabDelegateFactory delegateFactory = tab.getDelegateFactory();
-        assert delegateFactory instanceof CustomTabDelegateFactory;
-        mUrlHandler = ((CustomTabDelegateFactory) delegateFactory).getExternalNavigationHandler();
-        mNavigationDelegate = ((CustomTabDelegateFactory) delegateFactory)
+        assertTrue(delegateFactory instanceof CustomTabDelegateFactory);
+        CustomTabDelegateFactory customTabDelegateFactory =
+                ((CustomTabDelegateFactory) delegateFactory);
+        mUrlHandler = customTabDelegateFactory.getExternalNavigationHandler();
+        assertTrue(customTabDelegateFactory.getExternalNavigationDelegate()
+                instanceof CustomTabNavigationDelegate);
+        mNavigationDelegate = (CustomTabNavigationDelegate) customTabDelegateFactory
                 .getExternalNavigationDelegate();
     }
 

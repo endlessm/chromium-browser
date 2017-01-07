@@ -649,6 +649,7 @@ goog.scope(function() {
     es3fFramebufferBlitTests.BlitColorConversionCase.prototype.preCheck = function() {
         this.checkFormatSupport(this.m_srcFormat);
         this.checkFormatSupport(this.m_dstFormat);
+        return true; // No exception thrown
     };
 
     /**
@@ -805,6 +806,7 @@ goog.scope(function() {
      */
     es3fFramebufferBlitTests.BlitDepthStencilCase.prototype.preCheck = function() {
         this.checkFormatSupport(this.m_format);
+        return true; // No exception thrown
     };
 
     /**
@@ -972,6 +974,7 @@ goog.scope(function() {
      */
     es3fFramebufferBlitTests.BlitDefaultFramebufferCase.prototype.preCheck = function() {
         this.checkFormatSupport(this.m_format);
+        return true; // No exception thrown
     };
 
     /**
@@ -1249,7 +1252,7 @@ goog.scope(function() {
             tcuTestCase.runTestCases();
         }
         catch (err) {
-            console.log(err);
+            bufferedLogToConsole(err);
             testFailedOptions('Failed to es3fFramebufferBlitTests.run tests', false);
             tcuTestCase.runner.terminate();
         }

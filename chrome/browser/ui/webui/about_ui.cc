@@ -23,6 +23,7 @@
 #include "base/macros.h"
 #include "base/memory/singleton.h"
 #include "base/metrics/statistics_recorder.h"
+#include "base/process/process_metrics.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/string_split.h"
@@ -43,9 +44,11 @@
 #include "chrome/browser/ui/browser_dialogs.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/url_constants.h"
+#include "chrome/grit/browser_resources.h"
 #include "chrome/grit/chromium_strings.h"
 #include "chrome/grit/generated_resources.h"
 #include "chrome/grit/locale_settings.h"
+#include "components/grit/components_resources.h"
 #include "components/strings/grit/components_locale_settings.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/render_process_host.h"
@@ -55,8 +58,6 @@
 #include "content/public/common/content_client.h"
 #include "content/public/common/process_type.h"
 #include "google_apis/gaia/google_service_auth_error.h"
-#include "grit/browser_resources.h"
-#include "grit/components_resources.h"
 #include "net/base/escape.h"
 #include "net/base/filename_util.h"
 #include "net/base/load_flags.h"
@@ -745,8 +746,7 @@ std::string AboutUIHTMLSource::GetSource() const {
 
 void AboutUIHTMLSource::StartDataRequest(
     const std::string& path,
-    int render_process_id,
-    int render_frame_id,
+    const content::ResourceRequestInfo::WebContentsGetter& wc_getter,
     const content::URLDataSource::GotDataCallback& callback) {
   std::string response;
   // Add your data source here, in alphabetical order.

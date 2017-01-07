@@ -18,15 +18,10 @@ from chromite.lib import clactions
 from chromite.lib import cros_logging as logging
 from chromite.lib import factory
 from chromite.lib import graphite
+from chromite.lib import metrics
 from chromite.lib import osutils
 from chromite.lib import retry_stats
 
-try:
-  from infra_libs.ts_mon.common import metrics
-  from infra_libs.ts_mon.common import interface
-except (ImportError, RuntimeError):
-  metrics = None
-  interface = None
 
 sqlalchemy_imported = False
 try:
@@ -597,10 +592,12 @@ class SchemaVersionedMySQLConnection(object):
 class CIDBConnection(SchemaVersionedMySQLConnection):
   """Connection to a Continuous Integration database."""
 
+  # The buildbucket_id is the request id inserted by pre-cq-launcher when
+  # it launches by a pre-cq, not the pre-cq-launcher builder buildbucket_id
   _SQL_FETCH_ACTIONS = (
       'SELECT c.id, b.id, action, c.reason, build_config, '
-      'change_number, patch_number, change_source, timestamp FROM '
-      'clActionTable c JOIN buildTable b ON build_id = b.id ')
+      'change_number, patch_number, change_source, timestamp, c.buildbucket_id '
+      'FROM clActionTable c JOIN buildTable b ON build_id = b.id ')
   _SQL_FETCH_MESSAGES = (
       'SELECT build_id, build_config, waterfall, builder_name, build_number, '
       'message_type, message_subtype, message_value, timestamp, board FROM '
@@ -612,7 +609,7 @@ class CIDBConnection(SchemaVersionedMySQLConnection):
   BUILD_STATUS_KEYS = (
       'id', 'build_config', 'start_time', 'finish_time', 'status', 'waterfall',
       'build_number', 'builder_name', 'platform_version', 'full_version',
-      'milestone_version', 'important')
+      'milestone_version', 'important', 'buildbucket_id')
 
   def __init__(self, db_credentials_dir, *args, **kwargs):
     super(CIDBConnection, self).__init__('cidb', CIDB_MIGRATIONS_DIR,
@@ -626,10 +623,10 @@ class CIDBConnection(SchemaVersionedMySQLConnection):
     """
     return self._Execute('SELECT NOW()').fetchall()[0][0]
 
-  @minimum_schema(43)
+  @minimum_schema(47)
   def InsertBuild(self, builder_name, waterfall, build_number,
                   build_config, bot_hostname, master_build_id=None,
-                  timeout_seconds=None, important=None):
+                  timeout_seconds=None, important=None, buildbucket_id=None):
     """Insert a build row.
 
     Args:
@@ -640,8 +637,11 @@ class CIDBConnection(SchemaVersionedMySQLConnection):
       bot_hostname: hostname of bot running the build
       master_build_id: (Optional) primary key of master build to this build.
       timeout_seconds: (Optional) If provided, total time allocated for this
-          build. A deadline is recorded in cidb for the current build to end.
+                       build. A deadline is recorded in cidb for the current
+                       build to end.
       important: (Optional) If provided, the |important| value for this build.
+      buildbucket_id: (Optional) If provided, the |buildbucket_id| value for
+                       this build.
     """
     values = {
         'builder_name': builder_name,
@@ -653,6 +653,7 @@ class CIDBConnection(SchemaVersionedMySQLConnection):
         'start_time': sqlalchemy.func.current_timestamp(),
         'master_build_id': master_build_id,
         'important': important,
+        'buildbucket_id': buildbucket_id
     }
     if timeout_seconds is not None:
       now = self.GetTime()
@@ -684,13 +685,15 @@ class CIDBConnection(SchemaVersionedMySQLConnection):
       change_source = cl_action.change_source
       action = cl_action.action
       reason = cl_action.reason
+      buildbucket_id = cl_action.buildbucket_id
       values.append({
           'build_id': build_id,
           'change_source': change_source,
           'change_number': change_number,
           'patch_number': patch_number,
           'action': action,
-          'reason': reason})
+          'reason': reason,
+          'buildbucket_id': buildbucket_id})
 
     retval = self._InsertMany('clActionTable', values)
 
@@ -704,14 +707,9 @@ class CIDBConnection(SchemaVersionedMySQLConnection):
       statsd_name = 'cl_actions.%s' % cl_action.action
       stats.Counter(statsd_name).increment(r.replace(':', '_'))
 
-      if metrics:
-        monarch_name = 'chromeos/cbuildbot/cl_action/' + cl_action.action
-        # This is necessary because ts_mon does not allow constructing a metrics
-        # object with the same name twice.
-        counter = (
-            interface.state.metrics.get(monarch_name) or
-            metrics.CounterMetric(monarch_name, fields={'reason': r}))
-        counter.increment()
+      monarch_name = constants.MON_CL_ACTION % cl_action.action
+      counter = metrics.Counter(monarch_name)
+      counter.increment(fields={'reason': r})
 
     return retval
 
@@ -838,6 +836,22 @@ class CIDBConnection(SchemaVersionedMySQLConnection):
                          'toolchain_url': d.get('toolchain-url'),
                          'build_type': d.get('build_type'),
                          'important': d.get('important')})
+
+  @minimum_schema(2)
+  def GetMetadata(self, build_id):
+    """Get the metadata for |build_id| in buildTable.
+
+    Args:
+      build_id: Id of the row to select.
+      fields: List of fields (column names) to select.
+
+    Returns:
+      The metadata object.
+    """
+    fields = ['chrome_version', 'milestone_version', 'platform_version',
+              'full_version', 'sdk_version', 'toolchain_url', 'build_type',
+              'important']
+    return self._Select('buildTable', build_id, fields)
 
   @minimum_schema(32)
   def ExtendDeadline(self, build_id, timeout_seconds):
@@ -970,8 +984,7 @@ class CIDBConnection(SchemaVersionedMySQLConnection):
         'WHERE (build_id, child_config) = (%d, "%s")' %
         (status, build_id, child_config))
 
-
-  @minimum_schema(43)
+  @minimum_schema(47)
   def GetBuildStatus(self, build_id):
     """Gets the status of the build.
 
@@ -985,7 +998,7 @@ class CIDBConnection(SchemaVersionedMySQLConnection):
     statuses = self.GetBuildStatuses([build_id])
     return statuses[0] if statuses else None
 
-  @minimum_schema(43)
+  @minimum_schema(47)
   def GetBuildStatuses(self, build_ids):
     """Gets the statuses of the builds.
 
@@ -1134,10 +1147,11 @@ class CIDBConnection(SchemaVersionedMySQLConnection):
     deadline_past = (r[0][0] == 0)
     return 0 if deadline_past else abs(time_remaining.total_seconds())
 
-  @minimum_schema(43)
+  @minimum_schema(47)
   def GetBuildHistory(self, build_config, num_results,
                       ignore_build_id=None, start_date=None, end_date=None,
-                      starting_build_number=None, milestone_version=None):
+                      starting_build_number=None, milestone_version=None,
+                      starting_build_id=None):
     """Returns basic information about most recent builds.
 
     By default this function returns the most recent builds. Some arguments can
@@ -1159,18 +1173,20 @@ class CIDBConnection(SchemaVersionedMySQLConnection):
           master for which data should be retrieved.
       milestone_version: (Optional) Return only results for this
           milestone_version.
+      starting_build_id: (Optional) The minimum build_id for which data should
+          be retrieved.
 
     Returns:
       A sorted list of dicts containing up to |number| dictionaries for
       build statuses in descending order. Valid keys in the dictionary are
       [id, build_config, buildbot_generation, waterfall, build_number,
       start_time, finish_time, platform_version, full_version, status,
-      important].
+      important, buildbucket_id].
     """
     # TODO(akeshet): Unify this with BUILD_STATUS_KEYS
     columns = ['id', 'build_config', 'buildbot_generation', 'waterfall',
                'build_number', 'start_time', 'finish_time', 'platform_version',
-               'full_version', 'status', 'important']
+               'full_version', 'status', 'important', 'buildbucket_id']
 
     where_clauses = ['build_config = "%s"' % build_config]
     if start_date is not None:
@@ -1181,6 +1197,8 @@ class CIDBConnection(SchemaVersionedMySQLConnection):
                            end_date.strftime(self._DATE_FORMAT))
     if starting_build_number is not None:
       where_clauses.append('build_number >= %d' % starting_build_number)
+    if starting_build_id is not None:
+      where_clauses.append('id >= %d' % starting_build_id)
     if ignore_build_id is not None:
       where_clauses.append('id != %d' % ignore_build_id)
     if milestone_version is not None:
@@ -1254,6 +1272,17 @@ class CIDBConnection(SchemaVersionedMySQLConnection):
     clause = ' OR '.join(clauses)
     results = self._Execute(
         '%s WHERE %s' % (self._SQL_FETCH_ACTIONS, clause)).fetchall()
+    return [clactions.CLAction(*values) for values in results]
+
+  @minimum_schema(11)
+  def GetActionsForBuild(self, build_id):
+    """Gets all the actions associated with build |build_id|.
+
+    Returns:
+      A list of CLAction instance, in action id order.
+    """
+    q = '%s WHERE build_id = %s' % (self._SQL_FETCH_ACTIONS, build_id)
+    results = self._Execute(q).fetchall()
     return [clactions.CLAction(*values) for values in results]
 
   @minimum_schema(11)

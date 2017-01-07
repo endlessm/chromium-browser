@@ -7,12 +7,13 @@
 #include <algorithm>
 
 #include "ash/common/ash_layout_constants.h"
-#include "ash/common/material_design/material_design_controller.h"
+#include "ash/common/frame/caption_buttons/frame_caption_button_container_view.h"
+#include "ash/common/frame/default_header_painter.h"
+#include "ash/common/frame/frame_border_hit_test.h"
+#include "ash/common/frame/header_painter_util.h"
+#include "ash/common/wm_lookup.h"
 #include "ash/common/wm_shell.h"
-#include "ash/frame/caption_buttons/frame_caption_button_container_view.h"
-#include "ash/frame/default_header_painter.h"
-#include "ash/frame/frame_border_hit_test_controller.h"
-#include "ash/frame/header_painter_util.h"
+#include "ash/common/wm_window.h"
 #include "build/build_config.h"
 #include "chrome/app/chrome_command_ids.h"
 #include "chrome/browser/extensions/extension_util.h"
@@ -32,10 +33,10 @@
 #include "chrome/browser/ui/views/tabs/tab_strip.h"
 #include "chrome/browser/ui/views/toolbar/toolbar_view.h"
 #include "chrome/browser/web_applications/web_app.h"
+#include "chrome/grit/theme_resources.h"
 #include "components/signin/core/common/profile_management_switches.h"
 #include "content/public/browser/web_contents.h"
 #include "extensions/browser/extension_registry.h"
-#include "grit/theme_resources.h"
 #include "ui/accessibility/ax_view_state.h"
 #include "ui/aura/client/aura_constants.h"
 #include "ui/aura/window.h"
@@ -53,6 +54,10 @@
 #include "ui/views/layout/layout_constants.h"
 #include "ui/views/widget/widget.h"
 #include "ui/views/widget/widget_delegate.h"
+
+#if defined(OS_CHROMEOS)
+#include "ash/shared/app_types.h"
+#endif
 
 namespace {
 
@@ -94,9 +99,10 @@ BrowserNonClientFrameViewAsh::BrowserNonClientFrameViewAsh(
     : BrowserNonClientFrameView(frame, browser_view),
       caption_button_container_(nullptr),
       web_app_left_header_view_(nullptr),
-      window_icon_(nullptr),
-      frame_border_hit_test_controller_(
-          new ash::FrameBorderHitTestController(frame)) {
+      window_icon_(nullptr) {
+  ash::WmLookup::Get()
+      ->GetWindowForWidget(frame)
+      ->InstallResizeHandleWindowTargeter(nullptr);
   ash::WmShell::Get()->AddShellObserver(this);
 }
 
@@ -134,6 +140,16 @@ void BrowserNonClientFrameViewAsh::Init() {
     header_painter->Init(frame(), browser_view(), this, window_icon_,
                          caption_button_container_);
   }
+
+#if defined(OS_CHROMEOS)
+  if (browser_view()->browser()->is_app()) {
+    frame()->GetNativeWindow()->SetProperty(
+        aura::client::kAppType, static_cast<int>(ash::AppType::CHROME_APP));
+  } else {
+    frame()->GetNativeWindow()->SetProperty(
+        aura::client::kAppType, static_cast<int>(ash::AppType::BROWSER));
+  }
+#endif
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -215,8 +231,8 @@ gfx::Rect BrowserNonClientFrameViewAsh::GetWindowBoundsForClientBounds(
 }
 
 int BrowserNonClientFrameViewAsh::NonClientHitTest(const gfx::Point& point) {
-  const int hit_test = ash::FrameBorderHitTestController::NonClientHitTest(
-      this, caption_button_container_, point);
+  const int hit_test =
+      ash::FrameBorderNonClientHitTest(this, caption_button_container_, point);
 
   // See if the point is actually within the web app back button.
   if (hit_test == HTCAPTION && web_app_left_header_view_ &&
@@ -247,6 +263,8 @@ void BrowserNonClientFrameViewAsh::ResetWindowControls() {
   // Hide the caption buttons in immersive fullscreen when the tab light bar
   // is visible because it's confusing when the user hovers or clicks in the
   // top-right of the screen and hits one.
+  // TODO(yiyix): Update |caption_button_container_|'s visibility calculation
+  // when Chrome OS MD is enabled by default.
   caption_button_container_->SetVisible(!UseImmersiveLightbarHeaderStyle());
   caption_button_container_->ResetWindowControls();
 }
@@ -355,13 +373,13 @@ void BrowserNonClientFrameViewAsh::ChildPreferredSizeChanged(
 // ash::ShellObserver:
 
 void BrowserNonClientFrameViewAsh::OnOverviewModeStarting() {
-  if (ash::MaterialDesignController::IsOverviewMaterial())
-    caption_button_container_->SetVisible(false);
+  frame()->GetNativeWindow()->SetProperty(aura::client::kTopViewColor,
+                                          GetFrameColor());
+  caption_button_container_->SetVisible(false);
 }
 
 void BrowserNonClientFrameViewAsh::OnOverviewModeEnded() {
-  if (ash::MaterialDesignController::IsOverviewMaterial())
-    caption_button_container_->SetVisible(true);
+  caption_button_container_->SetVisible(true);
 }
 
 void BrowserNonClientFrameViewAsh::OnMaximizeModeStarted() {
@@ -409,39 +427,11 @@ void BrowserNonClientFrameViewAsh::UpdateProfileIcons() {
 ///////////////////////////////////////////////////////////////////////////////
 // BrowserNonClientFrameViewAsh, private:
 
-// views::NonClientFrameView:
-bool BrowserNonClientFrameViewAsh::DoesIntersectRect(
-    const views::View* target,
-    const gfx::Rect& rect) const {
-  CHECK_EQ(this, target);
-  if (!views::ViewTargeterDelegate::DoesIntersectRect(this, rect)) {
-    // |rect| is outside BrowserNonClientFrameViewAsh's bounds.
-    return false;
-  }
-
-  if (!browser_view()->IsTabStripVisible()) {
-    // Claim |rect| if it is above the top of the topmost client area view.
-    return rect.y() < GetTopInset(false);
-  }
-
-  // Claim |rect| only if it is above the bottom of the tabstrip in a non-tab
-  // portion. In particular, the avatar label/button is left of the tabstrip and
-  // the window controls are right of the tabstrip.
-  TabStrip* tabstrip = browser_view()->tabstrip();
-  gfx::RectF rect_in_tabstrip_coords_f(rect);
-  View::ConvertRectToTarget(this, tabstrip, &rect_in_tabstrip_coords_f);
-  const gfx::Rect rect_in_tabstrip_coords(
-      gfx::ToEnclosingRect(rect_in_tabstrip_coords_f));
-  return (rect_in_tabstrip_coords.y() <= tabstrip->height()) &&
-          (!tabstrip->HitTestRect(rect_in_tabstrip_coords) ||
-          tabstrip->IsRectInWindowCaption(rect_in_tabstrip_coords));
-}
-
 int BrowserNonClientFrameViewAsh::GetTabStripLeftInset() const {
   const gfx::Insets insets(GetLayoutInsets(AVATAR_ICON));
   const int avatar_right = profile_indicator_icon()
-                               ? (insets.left() + GetOTRAvatarIcon().width())
-                               : 0;
+      ? (insets.left() + GetIncognitoAvatarIcon().width())
+      : 0;
   return avatar_right + insets.right();
 }
 
@@ -478,7 +468,7 @@ void BrowserNonClientFrameViewAsh::LayoutProfileIndicatorIcon() {
   DCHECK(browser_view()->IsTabStripVisible());
 #endif
 
-  const gfx::ImageSkia incognito_icon = GetOTRAvatarIcon();
+  const gfx::ImageSkia incognito_icon = GetIncognitoAvatarIcon();
   const gfx::Insets avatar_insets = GetLayoutInsets(AVATAR_ICON);
   const int avatar_bottom = GetTopInset(false) +
       browser_view()->GetTabStripHeight() - avatar_insets.bottom();
@@ -525,7 +515,7 @@ void BrowserNonClientFrameViewAsh::PaintToolbarBackground(gfx::Canvas* canvas) {
   const gfx::ImageSkia* const bg = tp->GetImageSkiaNamed(IDR_THEME_TOOLBAR);
   const int x = toolbar_bounds.x();
   const int y = toolbar_bounds.y();
-  const int bg_y = GetTopInset(false) + Tab::GetYInsetForActiveTabBackground();
+  const int bg_y = GetTopInset(false) + GetLayoutInsets(TAB).top();
   const int w = toolbar_bounds.width();
   const int h = toolbar_bounds.height();
   const SkColor separator_color =
@@ -547,8 +537,7 @@ void BrowserNonClientFrameViewAsh::PaintToolbarBackground(gfx::Canvas* canvas) {
     gfx::ScopedCanvas scoped_canvas(canvas);
     gfx::Rect tabstrip_bounds(GetBoundsForTabStrip(browser_view()->tabstrip()));
     tabstrip_bounds.set_x(GetMirroredXForRect(tabstrip_bounds));
-    canvas->sk_canvas()->clipRect(gfx::RectToSkRect(tabstrip_bounds),
-                                  SkRegion::kDifference_Op);
+    canvas->ClipRect(tabstrip_bounds, SkRegion::kDifference_Op);
     separator_rect.set_y(tabstrip_bounds.bottom());
     BrowserView::Paint1pxHorizontalLine(canvas, GetToolbarTopSeparatorColor(),
                                         separator_rect, true);

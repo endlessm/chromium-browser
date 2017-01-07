@@ -10,7 +10,7 @@
 #include "base/files/file_path.h"
 #include "base/logging.h"
 #include "base/memory/ptr_util.h"
-#include "base/metrics/histogram.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
@@ -105,8 +105,8 @@ void VerifyBlacklistLoadState(
       }
 
       // Send the report.
-      incident_receiver->AddIncidentForProcess(base::WrapUnique(
-          new BlacklistLoadIncident(std::move(blacklist_load))));
+      incident_receiver->AddIncidentForProcess(
+          base::MakeUnique<BlacklistLoadIncident>(std::move(blacklist_load)));
     }
   }
 }

@@ -162,7 +162,7 @@ class KioskAppData::CrxLoader : public extensions::SandboxedUnpackerClient {
     scoped_refptr<extensions::SandboxedUnpacker> unpacker(
         new extensions::SandboxedUnpacker(
             extensions::Manifest::INTERNAL, extensions::Extension::NO_FLAGS,
-            temp_dir_.path(), task_runner_.get(), this));
+            temp_dir_.GetPath(), task_runner_.get(), this));
     unpacker->StartWithCrx(extensions::CRXFileInfo(crx_file_));
   }
 
@@ -171,7 +171,7 @@ class KioskAppData::CrxLoader : public extensions::SandboxedUnpackerClient {
 
     if (!temp_dir_.Delete()) {
       LOG(WARNING) << "Can not delete temp directory at "
-                   << temp_dir_.path().value();
+                   << temp_dir_.GetPath().value();
     }
 
     BrowserThread::PostTask(
@@ -475,6 +475,20 @@ bool KioskAppData::IsFromWebStore() const {
 
 void KioskAppData::SetStatusForTest(Status status) {
   SetStatus(status);
+}
+
+// static
+std::unique_ptr<KioskAppData> KioskAppData::CreateForTest(
+    KioskAppDataDelegate* delegate,
+    const std::string& app_id,
+    const AccountId& account_id,
+    const GURL& update_url,
+    const std::string& required_platform_version) {
+  std::unique_ptr<KioskAppData> data(new KioskAppData(
+      delegate, app_id, account_id, update_url, base::FilePath()));
+  data->status_ = STATUS_LOADED;
+  data->required_platform_version_ = required_platform_version;
+  return data;
 }
 
 void KioskAppData::SetStatus(Status status) {

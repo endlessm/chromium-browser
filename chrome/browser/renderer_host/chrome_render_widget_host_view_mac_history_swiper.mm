@@ -142,46 +142,6 @@ BOOL forceMagicMouse = NO;
   }
 }
 
-- (BOOL)canRubberbandLeft:(NSView*)view {
-  Browser* browser = chrome::FindBrowserWithWindow([view window]);
-  // If history swiping isn't possible, allow rubberbanding.
-  if (!browser)
-    return true;
-
-  // TODO(erikchen): Update this comment after determining whether this
-  // NULL-check fixes the crash.
-  // This NULL check likely prevents a crash. http://crbug.com/418761
-  if (!browser->tab_strip_model()->GetActiveWebContents())
-    return true;
-
-  if (!chrome::CanGoBack(browser))
-    return true;
-  // History swiping is possible. By default, disallow rubberbanding.  If the
-  // user has both started, and then cancelled history swiping for this
-  // gesture, allow rubberbanding.
-  return receivingTouches_ && recognitionState_ == history_swiper::kCancelled;
-}
-
-- (BOOL)canRubberbandRight:(NSView*)view {
-  Browser* browser = chrome::FindBrowserWithWindow([view window]);
-  // If history swiping isn't possible, allow rubberbanding.
-  if (!browser)
-    return true;
-
-  // TODO(erikchen): Update this comment after determining whether this
-  // NULL-check fixes the crash.
-  // This NULL check likely prevents a crash. http://crbug.com/418761
-  if (!browser->tab_strip_model()->GetActiveWebContents())
-    return true;
-
-  if (!chrome::CanGoForward(browser))
-    return true;
-  // History swiping is possible. By default, disallow rubberbanding.  If the
-  // user has both started, and then cancelled history swiping for this
-  // gesture, allow rubberbanding.
-  return receivingTouches_ && recognitionState_ == history_swiper::kCancelled;
-}
-
 - (void)beginGestureWithEvent:(NSEvent*)event {
   inGesture_ = YES;
 
@@ -417,9 +377,9 @@ BOOL forceMagicMouse = NO;
       historyOverlay_.view.window);
   if (browser) {
     if (direction == history_swiper::kForwards)
-      chrome::GoForward(browser, CURRENT_TAB);
+      chrome::GoForward(browser, WindowOpenDisposition::CURRENT_TAB);
     else
-      chrome::GoBack(browser, CURRENT_TAB);
+      chrome::GoBack(browser, WindowOpenDisposition::CURRENT_TAB);
   }
 }
 
@@ -522,9 +482,9 @@ BOOL forceMagicMouse = NO;
               chrome::FindBrowserWithWindow(historyOverlay.view.window);
           if (ended && browser) {
             if (isRightScroll)
-              chrome::GoForward(browser, CURRENT_TAB);
+              chrome::GoForward(browser, WindowOpenDisposition::CURRENT_TAB);
             else
-              chrome::GoBack(browser, CURRENT_TAB);
+              chrome::GoBack(browser, WindowOpenDisposition::CURRENT_TAB);
           }
 
           if (ended || isComplete) {

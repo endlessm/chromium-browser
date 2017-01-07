@@ -5,6 +5,7 @@
 #include "chrome/browser/metrics/subprocess_metrics_provider.h"
 
 #include <memory>
+#include <string>
 
 #include "base/memory/ptr_util.h"
 #include "base/metrics/histogram.h"
@@ -13,6 +14,7 @@
 #include "base/metrics/persistent_histogram_allocator.h"
 #include "base/metrics/persistent_memory_allocator.h"
 #include "base/metrics/statistics_recorder.h"
+#include "content/public/test/test_browser_thread_bundle.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace {
@@ -56,7 +58,8 @@ class HistogramFlattenerDeltaRecorder : public base::HistogramFlattener {
 
 class SubprocessMetricsProviderTest : public testing::Test {
  protected:
-  SubprocessMetricsProviderTest() {
+  SubprocessMetricsProviderTest()
+      : thread_bundle_(content::TestBrowserThreadBundle::DEFAULT) {
     // Get this first so it isn't created inside a persistent allocator.
     base::PersistentHistogramAllocator::GetCreateHistogramResultHistogram();
 
@@ -83,10 +86,10 @@ class SubprocessMetricsProviderTest : public testing::Test {
   std::unique_ptr<base::PersistentHistogramAllocator> CreateDuplicateAllocator(
       base::PersistentHistogramAllocator* allocator) {
     // Just wrap around the data segment in-use by the passed allocator.
-    return WrapUnique(new base::PersistentHistogramAllocator(
-        WrapUnique(new base::PersistentMemoryAllocator(
-            const_cast<void*>(allocator->data()), allocator->length(),
-            0, 0, "", false))));
+    return base::MakeUnique<base::PersistentHistogramAllocator>(
+        base::MakeUnique<base::PersistentMemoryAllocator>(
+            const_cast<void*>(allocator->data()), allocator->length(), 0, 0,
+            std::string(), false));
   }
 
   size_t GetSnapshotHistogramCount() {
@@ -117,6 +120,11 @@ class SubprocessMetricsProviderTest : public testing::Test {
   }
 
  private:
+  // A thread-bundle makes the tests appear on the UI thread, something that is
+  // checked in methods called from the SubprocessMetricsProvider class under
+  // test. This must be constructed before the |provider_| field.
+  content::TestBrowserThreadBundle thread_bundle_;
+
   SubprocessMetricsProvider provider_;
   std::unique_ptr<base::StatisticsRecorder> test_recorder_;
 

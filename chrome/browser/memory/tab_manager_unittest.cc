@@ -10,6 +10,8 @@
 
 #include "base/logging.h"
 #include "base/macros.h"
+#include "base/memory/ptr_util.h"
+#include "base/metrics/field_trial.h"
 #include "base/strings/string16.h"
 #include "base/test/mock_entropy_provider.h"
 #include "base/test/simple_test_tick_clock.h"
@@ -174,6 +176,7 @@ class TaskRunnerProxy : public base::TaskRunner {
 
 enum TestIndicies {
   kSelected,
+  kAutoDiscardable,
   kPinned,
   kApp,
   kPlayingAudio,
@@ -277,6 +280,14 @@ TEST_F(TabManagerTest, Comparator) {
     test_list.push_back(stats);
   }
 
+  {
+    TabStats stats;
+    stats.last_active = now;
+    stats.is_auto_discardable = false;
+    stats.child_process_host_id = kAutoDiscardable;
+    test_list.push_back(stats);
+  }
+
   // This entry sorts to the front, so by adding it last, it verifies that the
   // array is being sorted.
   {
@@ -291,6 +302,7 @@ TEST_F(TabManagerTest, Comparator) {
 
   int index = 0;
   EXPECT_EQ(kSelected, test_list[index++].child_process_host_id);
+  EXPECT_EQ(kAutoDiscardable, test_list[index++].child_process_host_id);
   EXPECT_EQ(kFormEntry, test_list[index++].child_process_host_id);
   EXPECT_EQ(kPlayingAudio, test_list[index++].child_process_host_id);
   EXPECT_EQ(kPinned, test_list[index++].child_process_host_id);
@@ -439,7 +451,7 @@ TEST_F(TabManagerTest, DiscardedTabKeepsLastActiveTime) {
 
 // Test to see if a tab can only be discarded once. On Windows and Mac, this
 // defaults to true unless overridden through a variation parameter. On other
-// platforms, it's always false
+// platforms, it's always false.
 #if defined(OS_WIN) || defined(OS_MACOSX)
 TEST_F(TabManagerTest, CanOnlyDiscardOnce) {
   TabManager tab_manager;
@@ -455,7 +467,8 @@ TEST_F(TabManagerTest, CanOnlyDiscardOnce) {
   {
     std::unique_ptr<base::FieldTrialList> field_trial_list_;
     field_trial_list_.reset(
-        new base::FieldTrialList(new base::MockEntropyProvider()));
+        new base::FieldTrialList(
+            base::MakeUnique<base::MockEntropyProvider>()));
     variations::testing::ClearAllVariationParams();
 
     std::map<std::string, std::string> params;
@@ -471,7 +484,8 @@ TEST_F(TabManagerTest, CanOnlyDiscardOnce) {
   {
     std::unique_ptr<base::FieldTrialList> field_trial_list_;
     field_trial_list_.reset(
-        new base::FieldTrialList(new base::MockEntropyProvider()));
+        new base::FieldTrialList(
+            base::MakeUnique<base::MockEntropyProvider>()));
     variations::testing::ClearAllVariationParams();
 
     std::map<std::string, std::string> params;
@@ -541,9 +555,9 @@ TEST_F(TabManagerTest, MAYBE_ChildProcessNotifications) {
       &TabManagerTest::NotifyRendererProcess, base::Unretained(this));
 
   // Create two dummy tabs.
-  auto tab0 = CreateWebContents();
-  auto tab1 = CreateWebContents();
-  auto tab2 = CreateWebContents();
+  auto* tab0 = CreateWebContents();
+  auto* tab1 = CreateWebContents();
+  auto* tab2 = CreateWebContents();
   tabstrip.AppendWebContents(tab0, true);   // Foreground tab.
   tabstrip.AppendWebContents(tab1, false);  // Background tab.
   tabstrip.AppendWebContents(tab2, false);  // Background tab.

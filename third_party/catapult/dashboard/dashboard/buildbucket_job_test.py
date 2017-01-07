@@ -5,7 +5,7 @@
 import unittest
 
 from dashboard import buildbucket_job
-from dashboard import testing_common
+from dashboard.common import testing_common
 
 
 class BuildbucketJobTest(testing_common.TestCase):
@@ -14,7 +14,6 @@ class BuildbucketJobTest(testing_common.TestCase):
     super(BuildbucketJobTest, self).setUp()
     self._args_base = {
         'try_job_id': 1,
-        'bisect_director': 'linux_perf_bisector',
         'recipe_tester_name': 'linux_perf_bisect',
         'good_revision': '1',
         'bad_revision': '2',

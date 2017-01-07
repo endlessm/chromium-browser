@@ -5,7 +5,9 @@
 #ifndef CHROME_BROWSER_UI_VIEWS_DESKTOP_CAPTURE_DESKTOP_MEDIA_LIST_VIEW_H_
 #define CHROME_BROWSER_UI_VIEWS_DESKTOP_CAPTURE_DESKTOP_MEDIA_LIST_VIEW_H_
 
-#include "chrome/browser/media/desktop_media_list_observer.h"
+#include <memory>
+
+#include "chrome/browser/media/webrtc/desktop_media_list_observer.h"
 #include "chrome/browser/ui/views/desktop_capture/desktop_media_source_view.h"
 #include "content/public/browser/desktop_media_id.h"
 #include "ui/views/view.h"
@@ -20,7 +22,8 @@ class DesktopMediaListView : public views::View,
   DesktopMediaListView(DesktopMediaPickerDialogView* parent,
                        std::unique_ptr<DesktopMediaList> media_list,
                        DesktopMediaSourceViewStyle generic_style,
-                       DesktopMediaSourceViewStyle single_style);
+                       DesktopMediaSourceViewStyle single_style,
+                       const base::string16& accessible_name);
 
   ~DesktopMediaListView() override;
 
@@ -39,6 +42,7 @@ class DesktopMediaListView : public views::View,
   gfx::Size GetPreferredSize() const override;
   void Layout() override;
   bool OnKeyPressed(const ui::KeyEvent& event) override;
+  void GetAccessibleState(ui::AXViewState* state) override;
 
  private:
   // DesktopMediaList::Observer interface
@@ -56,12 +60,17 @@ class DesktopMediaListView : public views::View,
   // Change the source style of this list on the fly.
   void SetStyle(DesktopMediaSourceViewStyle* style);
 
-  DesktopMediaPickerDialogView* parent_;
+  // Helper for child_at().
+  DesktopMediaSourceView* GetChild(int index);
+
+  DesktopMediaPickerDialogView* const parent_;
   std::unique_ptr<DesktopMediaList> media_list_;
 
   DesktopMediaSourceViewStyle single_style_;
   DesktopMediaSourceViewStyle generic_style_;
   DesktopMediaSourceViewStyle* active_style_;
+
+  const base::string16 accessible_name_;
 
   base::WeakPtrFactory<DesktopMediaListView> weak_factory_;
 

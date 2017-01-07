@@ -25,13 +25,13 @@
 #include "components/policy/core/common/policy_types.h"
 #include "components/policy/core/common/schema.h"
 #include "components/policy/core/common/schema_map.h"
+#include "components/policy/proto/chrome_extension_policy.pb.h"
+#include "components/policy/proto/device_management_backend.pb.h"
 #include "crypto/sha2.h"
 #include "net/url_request/test_url_fetcher_factory.h"
 #include "net/url_request/url_fetcher_delegate.h"
 #include "net/url_request/url_request_context.h"
 #include "net/url_request/url_request_context_getter.h"
-#include "policy/proto/chrome_extension_policy.pb.h"
-#include "policy/proto/device_management_backend.pb.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -119,7 +119,7 @@ class ComponentCloudPolicyServiceTest : public testing::Test {
     ASSERT_TRUE(temp_dir_.CreateUniqueTempDir());
 
     owned_cache_.reset(
-        new ResourceCache(temp_dir_.path(), loop_.task_runner()));
+        new ResourceCache(temp_dir_.GetPath(), loop_.task_runner()));
     cache_ = owned_cache_.get();
 
     builder_.policy_data().set_policy_type(
@@ -130,11 +130,10 @@ class ComponentCloudPolicyServiceTest : public testing::Test {
 
     expected_policy_.Set(
         "Name", POLICY_LEVEL_MANDATORY, POLICY_SCOPE_USER, POLICY_SOURCE_CLOUD,
-        base::WrapUnique(new base::StringValue("disabled")), nullptr);
+        base::MakeUnique<base::StringValue>("disabled"), nullptr);
     expected_policy_.Set("Second", POLICY_LEVEL_RECOMMENDED, POLICY_SCOPE_USER,
                          POLICY_SOURCE_CLOUD,
-                         base::WrapUnique(new base::StringValue("maybe")),
-                         nullptr);
+                         base::MakeUnique<base::StringValue>("maybe"), nullptr);
   }
 
   void TearDown() override {
@@ -203,7 +202,7 @@ class ComponentCloudPolicyServiceTest : public testing::Test {
 
   std::unique_ptr<em::PolicyFetchResponse> CreateResponse() {
     builder_.Build();
-    return base::WrapUnique(new em::PolicyFetchResponse(builder_.policy()));
+    return base::MakeUnique<em::PolicyFetchResponse>(builder_.policy());
   }
 
   std::string CreateSerializedResponse() {
@@ -394,7 +393,7 @@ TEST_F(ComponentCloudPolicyServiceTest, LoadAndPurgeCache) {
   std::map<std::string, std::string> contents;
   cache_->LoadAllSubkeys("extension-policy", &contents);
   EXPECT_EQ(1u, contents.size());
-  EXPECT_TRUE(ContainsKey(contents, kTestExtension2));
+  EXPECT_TRUE(base::ContainsKey(contents, kTestExtension2));
 }
 
 TEST_F(ComponentCloudPolicyServiceTest, SignInAfterStartup) {
@@ -512,7 +511,7 @@ TEST_F(ComponentCloudPolicyServiceTest, LoadInvalidPolicyFromCache) {
   const PolicyNamespace ns(POLICY_DOMAIN_EXTENSIONS, kTestExtension);
   expected_bundle.Get(ns).Set(
       "Name", POLICY_LEVEL_MANDATORY, POLICY_SCOPE_USER, POLICY_SOURCE_CLOUD,
-      base::WrapUnique(new base::StringValue("published")), nullptr);
+      base::MakeUnique<base::StringValue>("published"), nullptr);
   EXPECT_TRUE(service_->policy().Equals(expected_bundle));
 }
 
@@ -538,8 +537,8 @@ TEST_F(ComponentCloudPolicyServiceTest, PurgeWhenServerRemovesPolicy) {
   std::map<std::string, std::string> contents;
   cache_->LoadAllSubkeys("extension-policy", &contents);
   ASSERT_EQ(2u, contents.size());
-  EXPECT_TRUE(ContainsKey(contents, kTestExtension));
-  EXPECT_TRUE(ContainsKey(contents, kTestExtension2));
+  EXPECT_TRUE(base::ContainsKey(contents, kTestExtension));
+  EXPECT_TRUE(base::ContainsKey(contents, kTestExtension2));
 
   PolicyBundle expected_bundle;
   const PolicyNamespace ns(POLICY_DOMAIN_EXTENSIONS, kTestExtension);
@@ -566,8 +565,8 @@ TEST_F(ComponentCloudPolicyServiceTest, PurgeWhenServerRemovesPolicy) {
   contents.clear();
   cache_->LoadAllSubkeys("extension-policy", &contents);
   ASSERT_EQ(1u, contents.size());
-  EXPECT_TRUE(ContainsKey(contents, kTestExtension));
-  EXPECT_FALSE(ContainsKey(contents, kTestExtension2));
+  EXPECT_TRUE(base::ContainsKey(contents, kTestExtension));
+  EXPECT_FALSE(base::ContainsKey(contents, kTestExtension2));
 
   // And the service isn't publishing policy for the second extension anymore.
   expected_bundle.Clear();

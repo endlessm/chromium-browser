@@ -43,6 +43,8 @@
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/chrome_paths_internal.h"
 #include "chrome/common/chrome_switches.h"
+#include "chrome/common/shell_handler_win.mojom.h"
+#include "chrome/grit/generated_resources.h"
 #include "chrome/installer/setup/setup_util.h"
 #include "chrome/installer/util/browser_distribution.h"
 #include "chrome/installer/util/create_reg_key_work_item.h"
@@ -55,6 +57,8 @@
 #include "chrome/installer/util/work_item_list.h"
 #include "components/variations/variations_associated_data.h"
 #include "content/public/browser/browser_thread.h"
+#include "content/public/browser/utility_process_mojo_client.h"
+#include "ui/base/l10n/l10n_util.h"
 
 using content::BrowserThread;
 
@@ -196,21 +200,28 @@ base::string16 GetAppForProtocolUsingAssocQuery(const GURL& url) {
 }
 
 base::string16 GetAppForProtocolUsingRegistry(const GURL& url) {
-  const base::string16 cmd_key_path =
-      base::ASCIIToUTF16(url.scheme() + "\\shell\\open\\command");
-  base::win::RegKey cmd_key(HKEY_CLASSES_ROOT,
-                            cmd_key_path.c_str(),
-                            KEY_READ);
-  base::string16 application_to_launch;
-  if (cmd_key.ReadValue(NULL, &application_to_launch) == ERROR_SUCCESS) {
-    const base::string16 url_spec =
-        base::ASCIIToUTF16(url.possibly_invalid_spec());
-    base::ReplaceSubstringsAfterOffset(&application_to_launch,
-                                       0,
-                                       L"%1",
-                                       url_spec);
-    return application_to_launch;
+  base::string16 command_to_launch;
+
+  // First, try and extract the application's display name.
+  base::string16 cmd_key_path = base::ASCIIToUTF16(url.scheme());
+  base::win::RegKey cmd_key_name(HKEY_CLASSES_ROOT, cmd_key_path.c_str(),
+                                 KEY_READ);
+  if (cmd_key_name.ReadValue(NULL, &command_to_launch) == ERROR_SUCCESS &&
+      !command_to_launch.empty()) {
+    return command_to_launch;
   }
+
+  // Otherwise, parse the command line in the registry, and return the basename
+  // of the program path if it exists.
+  cmd_key_path = base::ASCIIToUTF16(url.scheme() + "\\shell\\open\\command");
+  base::win::RegKey cmd_key_exe(HKEY_CLASSES_ROOT, cmd_key_path.c_str(),
+                                KEY_READ);
+  if (cmd_key_exe.ReadValue(NULL, &command_to_launch) == ERROR_SUCCESS) {
+    base::CommandLine command_line(
+        base::CommandLine::FromString(command_to_launch));
+    return command_line.GetProgram().BaseName().value();
+  }
+
   return base::string16();
 }
 
@@ -376,8 +387,8 @@ class OpenSystemSettingsHelper {
   // Helper function to create a registry watcher for a given |key_path|. Do
   // nothing on initialization failure.
   void AddRegistryKeyWatcher(const wchar_t* key_path) {
-    auto reg_key = base::WrapUnique(
-        new base::win::RegKey(HKEY_CURRENT_USER, key_path, KEY_NOTIFY));
+    auto reg_key = base::MakeUnique<base::win::RegKey>(HKEY_CURRENT_USER,
+                                                       key_path, KEY_NOTIFY);
 
     if (reg_key->Valid() &&
         reg_key->StartWatching(
@@ -420,6 +431,41 @@ class OpenSystemSettingsHelper {
 };
 
 OpenSystemSettingsHelper* OpenSystemSettingsHelper::instance_ = nullptr;
+
+void RecordPinnedToTaskbarProcessError(bool error) {
+  UMA_HISTOGRAM_BOOLEAN("Windows.IsPinnedToTaskbar.ProcessError", error);
+}
+
+// Record the UMA histogram when a response is received. The callback that binds
+// to this function holds a reference to the ShellHandlerClient to keep it alive
+// until invokation.
+void OnIsPinnedToTaskbarResult(
+    content::UtilityProcessMojoClient<mojom::ShellHandler>* client,
+    bool succeeded,
+    bool is_pinned_to_taskbar) {
+  // Clean up the utility process.
+  delete client;
+
+  RecordPinnedToTaskbarProcessError(false);
+
+  enum Result { NOT_PINNED, PINNED, FAILURE, NUM_RESULTS };
+
+  Result result = FAILURE;
+  if (succeeded)
+    result = is_pinned_to_taskbar ? PINNED : NOT_PINNED;
+  UMA_HISTOGRAM_ENUMERATION("Windows.IsPinnedToTaskbar", result, NUM_RESULTS);
+}
+
+// Called when a connection error happen with the shell handler process. A call
+// to this function is mutially exclusive with a call to
+// OnIsPinnedToTaskbarResult().
+void OnShellHandlerConnectionError(
+    content::UtilityProcessMojoClient<mojom::ShellHandler>* client) {
+  // Clean up the utility process.
+  delete client;
+
+  RecordPinnedToTaskbarProcessError(true);
+}
 
 }  // namespace
 
@@ -482,11 +528,15 @@ bool IsElevationNeededForSettingDefaultProtocolClient() {
 }
 
 base::string16 GetApplicationNameForProtocol(const GURL& url) {
-  // Windows 8 or above requires a new protocol association query.
-  if (base::win::GetVersion() >= base::win::VERSION_WIN8)
-    return GetAppForProtocolUsingAssocQuery(url);
-  else
-    return GetAppForProtocolUsingRegistry(url);
+  base::string16 application_name;
+  // Windows 8 or above has a new protocol association query.
+  if (base::win::GetVersion() >= base::win::VERSION_WIN8) {
+    application_name = GetAppForProtocolUsingAssocQuery(url);
+    if (!application_name.empty())
+      return application_name;
+  }
+
+  return GetAppForProtocolUsingRegistry(url);
 }
 
 DefaultWebClientState GetDefaultBrowser() {
@@ -501,7 +551,7 @@ DefaultWebClientState GetDefaultBrowser() {
 // - HKCR\http\shell\open\command (XP)
 // - HKCU\Software\Microsoft\Windows\Shell\Associations\UrlAssociations\
 //   http\UserChoice (Vista)
-// This method checks if Firefox is defualt browser by checking these
+// This method checks if Firefox is default browser by checking these
 // locations and returns true if Firefox traces are found there. In case of
 // error (or if Firefox is not found)it returns the default value which
 // is false.
@@ -657,6 +707,25 @@ void MigrateTaskbarPins() {
       BrowserThread::FILE, FROM_HERE,
       base::Bind(&MigrateTaskbarPinsCallback),
       base::TimeDelta::FromSeconds(kMigrateTaskbarPinsDelaySeconds));
+}
+
+void RecordIsPinnedToTaskbarHistogram() {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
+
+  // The code to check if Chrome is pinned to the taskbar brings in shell
+  // extensions which can hinder stability so it is executed in a utility
+  // process.
+  content::UtilityProcessMojoClient<mojom::ShellHandler>* client =
+      new content::UtilityProcessMojoClient<mojom::ShellHandler>(
+          l10n_util::GetStringUTF16(IDS_UTILITY_PROCESS_SHELL_HANDLER_NAME));
+
+  client->set_error_callback(
+      base::Bind(&OnShellHandlerConnectionError, client));
+  client->set_disable_sandbox();
+  client->Start();
+
+  client->service()->IsPinnedToTaskbar(
+      base::Bind(&OnIsPinnedToTaskbarResult, client));
 }
 
 int MigrateShortcutsInPathInternal(const base::FilePath& chrome_exe,

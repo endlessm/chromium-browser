@@ -398,7 +398,7 @@ class AutofillInteractiveTest : public InProcessBrowserTest {
         &y));
     content::SimulateMouseClickAt(GetWebContents(),
                                   0,
-                                  blink::WebMouseEvent::ButtonLeft,
+                                  blink::WebMouseEvent::Button::Left,
                                   gfx::Point(x, y));
   }
 
@@ -560,7 +560,8 @@ class AutofillInteractiveTest : public InProcessBrowserTest {
 
 // Test that basic form fill is working.
 // Flakily times out on ChromeOS http://crbug.com/585885
-#if defined(OS_CHROMEOS)
+// Flakily fails on Windows http://crbug.com/639940
+#if defined(OS_CHROMEOS) || defined(OS_WIN)
 #define MAYBE_BasicFormFill DISABLED_BasicFormFill
 #else
 #define MAYBE_BasicFormFill BasicFormFill
@@ -1171,8 +1172,14 @@ IN_PROC_BROWSER_TEST_F(AutofillInteractiveTest,
   TryBasicFormFill();
 }
 
+// Flakily fails on ChromeOS (crbug.com/646576).
+#if defined(OS_CHROMEOS)
+#define MAYBE_DynamicFormFill DISABLED_DynamicFormFill
+#else
+#define MAYBE_DynamicFormFill DynamicFormFill
+#endif
 // Test that we can Autofill dynamically generated forms.
-IN_PROC_BROWSER_TEST_F(AutofillInteractiveTest, DynamicFormFill) {
+IN_PROC_BROWSER_TEST_F(AutofillInteractiveTest, MAYBE_DynamicFormFill) {
   CreateTestProfile();
 
   // Load the test page.
@@ -1278,7 +1285,13 @@ IN_PROC_BROWSER_TEST_F(AutofillInteractiveTest, AutofillAfterReload) {
 
 // Test that filling a form sends all the expected events to the different
 // fields being filled.
-IN_PROC_BROWSER_TEST_F(AutofillInteractiveTest, AutofillEvents) {
+// Flakily fails on ChromeOS (crbug.com/646576).
+#if defined(OS_CHROMEOS)
+#define MAYBE_AutofillEvents DISABLED_AutofillEvents
+#else
+#define MAYBE_AutofillEvents AutofillEvents
+#endif
+IN_PROC_BROWSER_TEST_F(AutofillInteractiveTest, MAYBE_AutofillEvents) {
   CreateTestProfile();
 
   // Load the test page.

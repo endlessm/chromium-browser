@@ -18,16 +18,18 @@
 #include "base/files/file_enumerator.h"
 #include "base/files/file_util.h"
 #include "base/format_macros.h"
-#include "base/location.h"
 #include "base/logging.h"
 #include "base/macros.h"
 #include "base/memory/ptr_util.h"
 #include "base/posix/eintr_wrapper.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
+#include "base/strings/stringprintf.h"
 #include "base/sys_info.h"
 #include "base/task_runner_util.h"
+#include "base/threading/sequenced_task_runner_handle.h"
 #include "base/values.h"
+#include "base/version.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chromeos/app_mode/kiosk_app_manager.h"
 #include "chrome/browser/chromeos/login/users/chrome_user_manager.h"
@@ -36,6 +38,8 @@
 #include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/chromeos/settings/cros_settings.h"
 #include "chrome/common/pref_names.h"
+#include "chromeos/dbus/dbus_thread_manager.h"
+#include "chromeos/dbus/update_engine_client.h"
 #include "chromeos/disks/disk_mount_manager.h"
 #include "chromeos/network/device_state.h"
 #include "chromeos/network/network_handler.h"
@@ -43,7 +47,10 @@
 #include "chromeos/network/network_state_handler.h"
 #include "chromeos/settings/cros_settings_names.h"
 #include "chromeos/system/statistics_provider.h"
+#include "components/arc/arc_bridge_service.h"
+#include "components/arc/common/enterprise_reporting.mojom.h"
 #include "components/policy/core/common/cloud/cloud_policy_constants.h"
+#include "components/policy/proto/device_management_backend.pb.h"
 #include "components/prefs/pref_registry_simple.h"
 #include "components/prefs/pref_service.h"
 #include "components/prefs/scoped_user_pref_update.h"
@@ -54,7 +61,6 @@
 #include "content/public/browser/browser_thread.h"
 #include "extensions/browser/extension_registry.h"
 #include "extensions/common/extension.h"
-#include "policy/proto/device_management_backend.pb.h"
 #include "storage/browser/fileapi/external_mount_points.h"
 #include "third_party/cros_system_api/dbus/service_constants.h"
 
@@ -73,21 +79,8 @@ const unsigned int kMaxStoredPastActivityDays = 30;
 // How many days in the future to store active periods for.
 const unsigned int kMaxStoredFutureActivityDays = 2;
 
-// How often, in seconds, to update the device location.
-const unsigned int kGeolocationPollIntervalSeconds = 30 * 60;
-
-// How often, in seconds, to sample the hardware state.
-static const unsigned int kHardwareStatusSampleIntervalSeconds = 120;
-
-// Keys for the geolocation status dictionary in local state.
-const char kLatitude[] = "latitude";
-const char kLongitude[] = "longitude";
-const char kAltitude[] = "altitude";
-const char kAccuracy[] = "accuracy";
-const char kAltitudeAccuracy[] = "altitude_accuracy";
-const char kHeading[] = "heading";
-const char kSpeed[] = "speed";
-const char kTimestamp[] = "timestamp";
+// How often, in seconds, to sample the hardware resource usage.
+const unsigned int kResourceUsageSampleIntervalSeconds = 120;
 
 // The location we read our CPU statistics from.
 const char kProcStat[] = "/proc/stat";
@@ -103,7 +96,10 @@ const char kCPUTempFilePattern[] = "temp*_input";
 int64_t TimestampToDayKey(Time timestamp) {
   Time::Exploded exploded;
   timestamp.LocalMidnight().LocalExplode(&exploded);
-  return (Time::FromUTCExploded(exploded) - Time::UnixEpoch()).InMilliseconds();
+  Time out_time;
+  bool conversion_success = Time::FromUTCExploded(exploded, &out_time);
+  DCHECK(conversion_success);
+  return (out_time - Time::UnixEpoch()).InMilliseconds();
 }
 
 // Helper function (invoked via blocking pool) to fetch information about
@@ -153,12 +149,16 @@ std::string ReadCPUStatistics() {
   return std::string();
 }
 
-// Reads the CPU temperature info from
-// /sys/class/hwmon/hwmon*/device/temp*_input and
-// /sys/class/hwmon/hwmon*/device/temp*_label files.
+// Read system temperature sensors from
 //
-// temp*_input contains CPU temperature in millidegree Celsius
-// temp*_label contains appropriate temperature channel label.
+// /sys/class/hwmon/hwmon*/(device/)?temp*_input
+//
+// which contains millidegree Celsius temperature and
+//
+// /sys/class/hwmon/hwmon*/(device/)?temp*_label or
+// /sys/class/hwmon/hwmon*/name
+//
+// which contains an appropriate label name for the given sensor.
 std::vector<em::CPUTempInfo> ReadCPUTempInfo() {
   std::vector<em::CPUTempInfo> contents;
   // Get directories /sys/class/hwmon/hwmon*
@@ -168,11 +168,12 @@ std::vector<em::CPUTempInfo> ReadCPUTempInfo() {
 
   for (base::FilePath hwmon_path = hwmon_enumerator.Next(); !hwmon_path.empty();
        hwmon_path = hwmon_enumerator.Next()) {
-    // Get files /sys/class/hwmon/hwmon*/device/temp*_input
-    const base::FilePath hwmon_device_dir = hwmon_path.Append(kDeviceDir);
-    base::FileEnumerator enumerator(hwmon_device_dir, false,
-                                    base::FileEnumerator::FILES,
-                                    kCPUTempFilePattern);
+    // Get temp*_input files in hwmon*/ and hwmon*/device/
+    if (base::PathExists(hwmon_path.Append(kDeviceDir))) {
+      hwmon_path = hwmon_path.Append(kDeviceDir);
+    }
+    base::FileEnumerator enumerator(
+        hwmon_path, false, base::FileEnumerator::FILES, kCPUTempFilePattern);
     for (base::FilePath temperature_path = enumerator.Next();
          !temperature_path.empty(); temperature_path = enumerator.Next()) {
       // Get appropriate temp*_label file.
@@ -182,11 +183,16 @@ std::vector<em::CPUTempInfo> ReadCPUTempInfo() {
         continue;
       }
       base::ReplaceSubstringsAfterOffset(&label_path, 0, "input", "label");
+      base::FilePath name_path = hwmon_path.Append("name");
 
-      // Read label.
+      // Get the label describing this temperature. Use temp*_label
+      // if present, fall back on name file or blank.
       std::string label;
-      if (!base::PathExists(base::FilePath(label_path)) ||
-          !base::ReadFileToString(base::FilePath(label_path), &label)) {
+      if (base::PathExists(base::FilePath(label_path))) {
+        base::ReadFileToString(base::FilePath(label_path), &label);
+      } else if (base::PathExists(base::FilePath(name_path))) {
+        base::ReadFileToString(name_path, &label);
+      } else {
         label = std::string();
       }
 
@@ -211,6 +217,21 @@ std::vector<em::CPUTempInfo> ReadCPUTempInfo() {
   return contents;
 }
 
+bool ReadAndroidStatus(
+    const policy::DeviceStatusCollector::AndroidStatusReceiver& receiver) {
+  auto* const arc_service = arc::ArcBridgeService::Get();
+  if (!arc_service)
+    return false;
+  auto* const instance_holder = arc_service->enterprise_reporting();
+  if (!instance_holder)
+    return false;
+  auto* const instance = instance_holder->GetInstanceForMethod("GetStatus", 1);
+  if (!instance)
+    return false;
+  instance->GetStatus(receiver);
+  return true;
+}
+
 // Returns the DeviceLocalAccount associated with the current kiosk session.
 // Returns null if there is no active kiosk session, or if that kiosk
 // session has been removed from policy since the session started, in which
@@ -227,48 +248,187 @@ std::unique_ptr<policy::DeviceLocalAccount> GetCurrentKioskDeviceLocalAccount(
   for (const auto& device_local_account : accounts) {
     if (AccountId::FromUserEmail(device_local_account.user_id) ==
         user->GetAccountId()) {
-      return base::WrapUnique(
-          new policy::DeviceLocalAccount(device_local_account));
+      return base::MakeUnique<policy::DeviceLocalAccount>(device_local_account);
     }
   }
   LOG(WARNING) << "Kiosk app not found in list of device-local accounts";
   return std::unique_ptr<policy::DeviceLocalAccount>();
 }
 
+base::Version GetPlatformVersion() {
+  int32_t major_version;
+  int32_t minor_version;
+  int32_t bugfix_version;
+  base::SysInfo::OperatingSystemVersionNumbers(&major_version, &minor_version,
+                                               &bugfix_version);
+  return base::Version(base::StringPrintf("%d.%d.%d", major_version,
+                                          minor_version, bugfix_version));
+}
+
+// Helper routine to convert from Shill-provided signal strength (percent)
+// to dBm units expected by server.
+int ConvertWifiSignalStrength(int signal_strength) {
+  // Shill attempts to convert WiFi signal strength from its internal dBm to a
+  // percentage range (from 0-100) by adding 120 to the raw dBm value,
+  // and then clamping the result to the range 0-100 (see
+  // shill::WiFiService::SignalToStrength()).
+  //
+  // To convert back to dBm, we subtract 120 from the percentage value to yield
+  // a clamped dBm value in the range of -119 to -20dBm.
+  //
+  // TODO(atwilson): Tunnel the raw dBm signal strength from Shill instead of
+  // doing the conversion here so we can report non-clamped values
+  // (crbug.com/463334).
+  DCHECK_GT(signal_strength, 0);
+  DCHECK_LE(signal_strength, 100);
+  return signal_strength - 120;
+}
+
 }  // namespace
 
 namespace policy {
 
+// Helper class for state tracking of async status queries. Creates device and
+// session status blobs in the constructor and sends them to the the status
+// response callback in the destructor.
+//
+// Some methods like |SampleVolumeInfo| queue async queries to collect data. The
+// response callback of these queries, e.g. |OnVolumeInfoReceived|, holds a
+// reference to the instance of this class, so that the destructor will not be
+// invoked and the status response callback will not be fired until the original
+// owner of the instance releases its reference and all async queries finish.
+//
+// Therefore, if you create an instance of this class, make sure to release your
+// reference after quering all async queries (if any), e.g. by using a local
+// |scoped_refptr<GetStatusState>| and letting it go out of scope.
+class GetStatusState : public base::RefCountedThreadSafe<GetStatusState> {
+ public:
+  explicit GetStatusState(
+      const scoped_refptr<base::SequencedTaskRunner> task_runner,
+      const policy::DeviceStatusCollector::StatusCallback& response)
+      : task_runner_(task_runner), response_(response) {}
+
+  inline em::DeviceStatusReportRequest* device_status() {
+    return device_status_.get();
+  }
+
+  inline em::SessionStatusReportRequest* session_status() {
+    return session_status_.get();
+  }
+
+  inline void ResetDeviceStatus() { device_status_.reset(); }
+
+  inline void ResetSessionStatus() { session_status_.reset(); }
+
+  // Queues an async callback to query disk volume information.
+  void SampleVolumeInfo(const policy::DeviceStatusCollector::VolumeInfoFetcher&
+                            volume_info_fetcher) {
+    // Create list of mounted disk volumes to query status.
+    std::vector<storage::MountPoints::MountPointInfo> external_mount_points;
+    storage::ExternalMountPoints::GetSystemInstance()->AddMountPointInfosTo(
+        &external_mount_points);
+
+    std::vector<std::string> mount_points;
+    for (const auto& info : external_mount_points)
+      mount_points.push_back(info.path.value());
+
+    for (const auto& mount_info :
+         chromeos::disks::DiskMountManager::GetInstance()->mount_points()) {
+      // Extract a list of mount points to populate.
+      mount_points.push_back(mount_info.first);
+    }
+
+    // Call out to the blocking pool to sample disk volume info.
+    base::PostTaskAndReplyWithResult(
+        content::BrowserThread::GetBlockingPool(), FROM_HERE,
+        base::Bind(volume_info_fetcher, mount_points),
+        base::Bind(&GetStatusState::OnVolumeInfoReceived, this));
+  }
+
+  // Queues an async callback to query CPU temperature information.
+  void SampleCPUTempInfo(
+      const policy::DeviceStatusCollector::CPUTempFetcher& cpu_temp_fetcher) {
+    // Call out to the blocking pool to sample CPU temp.
+    base::PostTaskAndReplyWithResult(
+        content::BrowserThread::GetBlockingPool(), FROM_HERE, cpu_temp_fetcher,
+        base::Bind(&GetStatusState::OnCPUTempInfoReceived, this));
+  }
+
+  bool FetchAndroidStatus(
+      const policy::DeviceStatusCollector::AndroidStatusFetcher&
+          android_status_fetcher) {
+    return android_status_fetcher.Run(
+        base::Bind(&GetStatusState::OnAndroidInfoReceived, this));
+  }
+
+ private:
+  friend class RefCountedThreadSafe<GetStatusState>;
+
+  // Posts the response on the UI thread. As long as there is an outstanding
+  // async query, the query holds a reference to us, so the destructor is
+  // not called.
+  ~GetStatusState() {
+    task_runner_->PostTask(FROM_HERE,
+                           base::Bind(response_, base::Passed(&device_status_),
+                                      base::Passed(&session_status_)));
+  }
+
+  void OnVolumeInfoReceived(const std::vector<em::VolumeInfo>& volume_info) {
+    device_status_->clear_volume_info();
+    for (const em::VolumeInfo& info : volume_info)
+      *device_status_->add_volume_info() = info;
+  }
+
+  void OnCPUTempInfoReceived(
+      const std::vector<em::CPUTempInfo>& cpu_temp_info) {
+    if (cpu_temp_info.empty())
+      DLOG(WARNING) << "Unable to read CPU temp information.";
+
+    device_status_->clear_cpu_temp_info();
+    for (const em::CPUTempInfo& info : cpu_temp_info)
+      *device_status_->add_cpu_temp_info() = info;
+  }
+
+  void OnAndroidInfoReceived(mojo::String status,
+                             mojo::String droid_guard_info) {
+    em::AndroidStatus* const android_status =
+        session_status_->mutable_android_status();
+    android_status->set_status_payload(status);
+    android_status->set_droid_guard_info(droid_guard_info);
+  }
+
+  const scoped_refptr<base::SequencedTaskRunner> task_runner_;
+  policy::DeviceStatusCollector::StatusCallback response_;
+  std::unique_ptr<em::DeviceStatusReportRequest> device_status_ =
+      base::MakeUnique<em::DeviceStatusReportRequest>();
+  std::unique_ptr<em::SessionStatusReportRequest> session_status_ =
+      base::MakeUnique<em::SessionStatusReportRequest>();
+};
+
 DeviceStatusCollector::DeviceStatusCollector(
     PrefService* local_state,
     chromeos::system::StatisticsProvider* provider,
-    const LocationUpdateRequester& location_update_requester,
     const VolumeInfoFetcher& volume_info_fetcher,
     const CPUStatisticsFetcher& cpu_statistics_fetcher,
-    const CPUTempFetcher& cpu_temp_fetcher)
+    const CPUTempFetcher& cpu_temp_fetcher,
+    const AndroidStatusFetcher& android_status_fetcher)
     : max_stored_past_activity_days_(kMaxStoredPastActivityDays),
       max_stored_future_activity_days_(kMaxStoredFutureActivityDays),
       local_state_(local_state),
       last_idle_check_(Time()),
-      last_reported_day_(0),
-      duration_for_last_reported_day_(0),
-      geolocation_update_in_progress_(false),
       volume_info_fetcher_(volume_info_fetcher),
       cpu_statistics_fetcher_(cpu_statistics_fetcher),
       cpu_temp_fetcher_(cpu_temp_fetcher),
+      android_status_fetcher_(android_status_fetcher),
       statistics_provider_(provider),
-      last_cpu_active_(0),
-      last_cpu_idle_(0),
-      location_update_requester_(location_update_requester),
-      report_version_info_(false),
-      report_activity_times_(false),
-      report_boot_mode_(false),
-      report_location_(false),
-      report_network_interfaces_(false),
-      report_users_(false),
-      report_hardware_status_(false),
-      report_session_status_(false),
+      cros_settings_(chromeos::CrosSettings::Get()),
+      task_runner_(nullptr),
       weak_factory_(this) {
+  // Get the task runner of the current thread, so we can queue status responses
+  // on this thread.
+  CHECK(base::SequencedTaskRunnerHandle::IsSet());
+  task_runner_ = base::SequencedTaskRunnerHandle::Get();
+
   if (volume_info_fetcher_.is_null())
     volume_info_fetcher_ = base::Bind(&GetVolumeInfo);
 
@@ -278,16 +438,15 @@ DeviceStatusCollector::DeviceStatusCollector(
   if (cpu_temp_fetcher_.is_null())
     cpu_temp_fetcher_ = base::Bind(&ReadCPUTempInfo);
 
+  if (android_status_fetcher_.is_null())
+    android_status_fetcher_ = base::Bind(&ReadAndroidStatus);
+
   idle_poll_timer_.Start(FROM_HERE,
                          TimeDelta::FromSeconds(kIdlePollIntervalSeconds),
                          this, &DeviceStatusCollector::CheckIdleState);
-  hardware_status_sampling_timer_.Start(
-      FROM_HERE,
-      TimeDelta::FromSeconds(kHardwareStatusSampleIntervalSeconds),
-      this, &DeviceStatusCollector::SampleHardwareStatus);
-
-  cros_settings_ = chromeos::CrosSettings::Get();
-
+  resource_usage_sampling_timer_.Start(
+      FROM_HERE, TimeDelta::FromSeconds(kResourceUsageSampleIntervalSeconds),
+      this, &DeviceStatusCollector::SampleResourceUsage);
 
   // Watch for changes to the individual policies that control what the status
   // reports contain.
@@ -300,8 +459,6 @@ DeviceStatusCollector::DeviceStatusCollector(
       chromeos::kReportDeviceActivityTimes, callback);
   boot_mode_subscription_ = cros_settings_->AddSettingsObserver(
       chromeos::kReportDeviceBootMode, callback);
-  location_subscription_ = cros_settings_->AddSettingsObserver(
-      chromeos::kReportDeviceLocation, callback);
   network_interfaces_subscription_ = cros_settings_->AddSettingsObserver(
       chromeos::kReportDeviceNetworkInterfaces, callback);
   users_subscription_ = cros_settings_->AddSettingsObserver(
@@ -310,27 +467,13 @@ DeviceStatusCollector::DeviceStatusCollector(
       chromeos::kReportDeviceHardwareStatus, callback);
   session_status_subscription_ = cros_settings_->AddSettingsObserver(
       chromeos::kReportDeviceSessionStatus, callback);
+  os_update_status_subscription_ = cros_settings_->AddSettingsObserver(
+      chromeos::kReportOsUpdateStatus, callback);
+  running_kiosk_app_subscription_ = cros_settings_->AddSettingsObserver(
+      chromeos::kReportRunningKioskApp, callback);
 
-  // The last known location is persisted in local state. This makes location
-  // information available immediately upon startup and avoids the need to
-  // reacquire the location on every user session change or browser crash.
-  content::Geoposition position;
-  std::string timestamp_str;
-  int64_t timestamp;
-  const base::DictionaryValue* location =
-      local_state_->GetDictionary(prefs::kDeviceLocation);
-  if (location->GetDouble(kLatitude, &position.latitude) &&
-      location->GetDouble(kLongitude, &position.longitude) &&
-      location->GetDouble(kAltitude, &position.altitude) &&
-      location->GetDouble(kAccuracy, &position.accuracy) &&
-      location->GetDouble(kAltitudeAccuracy, &position.altitude_accuracy) &&
-      location->GetDouble(kHeading, &position.heading) &&
-      location->GetDouble(kSpeed, &position.speed) &&
-      location->GetString(kTimestamp, &timestamp_str) &&
-      base::StringToInt64(timestamp_str, &timestamp)) {
-    position.timestamp = Time::FromInternalValue(timestamp);
-    position_ = position;
-  }
+  report_arc_status_pref_.Init(prefs::kReportArcStatusEnabled, local_state_,
+      callback);
 
   // Fetch the current values of the policies.
   UpdateReportingSettings();
@@ -358,8 +501,7 @@ DeviceStatusCollector::~DeviceStatusCollector() {
 void DeviceStatusCollector::RegisterPrefs(PrefRegistrySimple* registry) {
   registry->RegisterDictionaryPref(prefs::kDeviceActivityTimes,
                                    new base::DictionaryValue);
-  registry->RegisterDictionaryPref(prefs::kDeviceLocation,
-                                   new base::DictionaryValue);
+  registry->RegisterBooleanPref(prefs::kReportArcStatusEnabled, true);
 }
 
 void DeviceStatusCollector::CheckIdleState() {
@@ -408,32 +550,30 @@ void DeviceStatusCollector::UpdateReportingSettings() {
     report_hardware_status_ = true;
   }
 
-  if (!cros_settings_->GetBoolean(
-          chromeos::kReportDeviceSessionStatus, &report_session_status_)) {
-    report_session_status_ = true;
+  if (!cros_settings_->GetBoolean(chromeos::kReportDeviceSessionStatus,
+                                  &report_kiosk_session_status_)) {
+    report_kiosk_session_status_ = true;
   }
 
-  // Device location reporting is disabled by default because it is
-  // not launched yet.
-  if (!cros_settings_->GetBoolean(
-      chromeos::kReportDeviceLocation, &report_location_)) {
-    report_location_ = false;
-  }
-
-  if (report_location_) {
-    ScheduleGeolocationUpdateRequest();
-  } else {
-    geolocation_update_timer_.Stop();
-    position_ = content::Geoposition();
-    local_state_->ClearPref(prefs::kDeviceLocation);
-  }
+  report_android_status_ =
+      local_state_->GetBoolean(prefs::kReportArcStatusEnabled);
 
   if (!report_hardware_status_) {
-    ClearCachedHardwareStatus();
+    ClearCachedResourceUsage();
   } else if (!already_reporting_hardware_status) {
     // Turning on hardware status reporting - fetch an initial sample
     // immediately instead of waiting for the sampling timer to fire.
-    SampleHardwareStatus();
+    SampleResourceUsage();
+  }
+
+  // Os update status and running kiosk app reporting are disabled by default.
+  if (!cros_settings_->GetBoolean(chromeos::kReportOsUpdateStatus,
+                                  &report_os_update_status_)) {
+    report_os_update_status_ = false;
+  }
+  if (!cros_settings_->GetBoolean(chromeos::kReportRunningKioskApp,
+                                  &report_running_kiosk_app_)) {
+    report_running_kiosk_app_ = false;
   }
 }
 
@@ -501,8 +641,7 @@ void DeviceStatusCollector::AddActivePeriod(Time start, Time end) {
   }
 }
 
-void DeviceStatusCollector::ClearCachedHardwareStatus() {
-  volume_info_.clear();
+void DeviceStatusCollector::ClearCachedResourceUsage() {
   resource_usage_.clear();
   last_cpu_active_ = 0;
   last_cpu_idle_ = 0;
@@ -549,43 +688,20 @@ DeviceStatusCollector::GetAutoLaunchedKioskSessionInfo() {
   return std::unique_ptr<DeviceLocalAccount>();
 }
 
-void DeviceStatusCollector::SampleHardwareStatus() {
+void DeviceStatusCollector::SampleResourceUsage() {
+  // Results must be written in the creation thread since that's where they
+  // are read from in the Get*StatusAsync methods.
+  DCHECK(thread_checker_.CalledOnValidThread());
+
   // If hardware reporting has been disabled, do nothing here.
   if (!report_hardware_status_)
     return;
 
-  // Create list of mounted disk volumes to query status.
-  std::vector<storage::MountPoints::MountPointInfo> external_mount_points;
-  storage::ExternalMountPoints::GetSystemInstance()->AddMountPointInfosTo(
-      &external_mount_points);
-
-  std::vector<std::string> mount_points;
-  for (const auto& info : external_mount_points)
-    mount_points.push_back(info.path.value());
-
-  for (const auto& mount_info :
-           chromeos::disks::DiskMountManager::GetInstance()->mount_points()) {
-    // Extract a list of mount points to populate.
-    mount_points.push_back(mount_info.first);
-  }
-
-  // Call out to the blocking pool to measure disk, CPU usage and CPU temp.
-  base::PostTaskAndReplyWithResult(
-      content::BrowserThread::GetBlockingPool(),
-      FROM_HERE,
-      base::Bind(volume_info_fetcher_, mount_points),
-      base::Bind(&DeviceStatusCollector::ReceiveVolumeInfo,
-                 weak_factory_.GetWeakPtr()));
-
+  // Call out to the blocking pool to sample CPU stats.
   base::PostTaskAndReplyWithResult(
       content::BrowserThread::GetBlockingPool(), FROM_HERE,
       cpu_statistics_fetcher_,
       base::Bind(&DeviceStatusCollector::ReceiveCPUStatistics,
-                 weak_factory_.GetWeakPtr()));
-
-  base::PostTaskAndReplyWithResult(
-      content::BrowserThread::GetBlockingPool(), FROM_HERE, cpu_temp_fetcher_,
-      base::Bind(&DeviceStatusCollector::StoreCPUTempInfo,
                  weak_factory_.GetWeakPtr()));
 }
 
@@ -642,21 +758,12 @@ void DeviceStatusCollector::ReceiveCPUStatistics(const std::string& stats) {
     resource_usage_.pop_front();
 }
 
-void DeviceStatusCollector::StoreCPUTempInfo(
-    const std::vector<em::CPUTempInfo>& info) {
-  if (info.empty()) {
-    DLOG(WARNING) << "Unable to read CPU temp information.";
-  }
-
-  if (report_hardware_status_)
-    cpu_temp_info_ = info;
-}
-
-void DeviceStatusCollector::GetActivityTimes(
-    em::DeviceStatusReportRequest* request) {
+bool DeviceStatusCollector::GetActivityTimes(
+    em::DeviceStatusReportRequest* status) {
   DictionaryPrefUpdate update(local_state_, prefs::kDeviceActivityTimes);
   base::DictionaryValue* activity_times = update.Get();
 
+  bool anything_reported = false;
   for (base::DictionaryValue::Iterator it(*activity_times); !it.IsAtEnd();
        it.Advance()) {
     int64_t start_timestamp;
@@ -667,7 +774,7 @@ void DeviceStatusCollector::GetActivityTimes(
       // second occurs, two consecutive seconds have the same timestamp.
       int64_t end_timestamp = start_timestamp + Time::kMillisecondsPerDay;
 
-      em::ActiveTimePeriod* active_period = request->add_active_period();
+      em::ActiveTimePeriod* active_period = status->add_active_period();
       em::TimePeriod* period = active_period->mutable_time_period();
       period->set_start_timestamp(start_timestamp);
       period->set_end_timestamp(end_timestamp);
@@ -676,76 +783,38 @@ void DeviceStatusCollector::GetActivityTimes(
         last_reported_day_ = start_timestamp;
         duration_for_last_reported_day_ = activity_milliseconds;
       }
+      anything_reported = true;
     } else {
       NOTREACHED();
     }
   }
+  return anything_reported;
 }
 
-void DeviceStatusCollector::GetVersionInfo(
-    em::DeviceStatusReportRequest* request) {
-  request->set_browser_version(version_info::GetVersionNumber());
-  request->set_os_version(os_version_);
-  request->set_firmware_version(firmware_version_);
+bool DeviceStatusCollector::GetVersionInfo(
+    em::DeviceStatusReportRequest* status) {
+  status->set_browser_version(version_info::GetVersionNumber());
+  status->set_os_version(os_version_);
+  status->set_firmware_version(firmware_version_);
+  return true;
 }
 
-void DeviceStatusCollector::GetBootMode(
-    em::DeviceStatusReportRequest* request) {
+bool DeviceStatusCollector::GetBootMode(em::DeviceStatusReportRequest* status) {
   std::string dev_switch_mode;
+  bool anything_reported = false;
   if (statistics_provider_->GetMachineStatistic(
           chromeos::system::kDevSwitchBootKey, &dev_switch_mode)) {
     if (dev_switch_mode == chromeos::system::kDevSwitchBootValueDev)
-      request->set_boot_mode("Dev");
+      status->set_boot_mode("Dev");
     else if (dev_switch_mode == chromeos::system::kDevSwitchBootValueVerified)
-      request->set_boot_mode("Verified");
+      status->set_boot_mode("Verified");
+    anything_reported = true;
   }
+  return anything_reported;
 }
 
-void DeviceStatusCollector::GetLocation(
-    em::DeviceStatusReportRequest* request) {
-  em::DeviceLocation* location = request->mutable_device_location();
-  if (!position_.Validate()) {
-    location->set_error_code(
-        em::DeviceLocation::ERROR_CODE_POSITION_UNAVAILABLE);
-    location->set_error_message(position_.error_message);
-  } else {
-    location->set_latitude(position_.latitude);
-    location->set_longitude(position_.longitude);
-    location->set_accuracy(position_.accuracy);
-    location->set_timestamp(
-        (position_.timestamp - Time::UnixEpoch()).InMilliseconds());
-    // Lowest point on land is at approximately -400 meters.
-    if (position_.altitude > -10000.)
-      location->set_altitude(position_.altitude);
-    if (position_.altitude_accuracy >= 0.)
-      location->set_altitude_accuracy(position_.altitude_accuracy);
-    if (position_.heading >= 0. && position_.heading <= 360)
-      location->set_heading(position_.heading);
-    if (position_.speed >= 0.)
-      location->set_speed(position_.speed);
-    location->set_error_code(em::DeviceLocation::ERROR_CODE_NONE);
-  }
-}
-
-int DeviceStatusCollector::ConvertWifiSignalStrength(int signal_strength) {
-  // Shill attempts to convert WiFi signal strength from its internal dBm to a
-  // percentage range (from 0-100) by adding 120 to the raw dBm value,
-  // and then clamping the result to the range 0-100 (see
-  // shill::WiFiService::SignalToStrength()).
-  //
-  // To convert back to dBm, we subtract 120 from the percentage value to yield
-  // a clamped dBm value in the range of -119 to -20dBm.
-  //
-  // TODO(atwilson): Tunnel the raw dBm signal strength from Shill instead of
-  // doing the conversion here so we can report non-clamped values
-  // (crbug.com/463334).
-  DCHECK_GT(signal_strength, 0);
-  DCHECK_LE(signal_strength, 100);
-  return signal_strength - 120;
-}
-
-void DeviceStatusCollector::GetNetworkInterfaces(
-    em::DeviceStatusReportRequest* request) {
+bool DeviceStatusCollector::GetNetworkInterfaces(
+    em::DeviceStatusReportRequest* status) {
   // Maps shill device type strings to proto enum constants.
   static const struct {
     const char* type_string;
@@ -782,6 +851,7 @@ void DeviceStatusCollector::GetNetworkInterfaces(
       chromeos::NetworkHandler::Get()->network_state_handler();
   network_state_handler->GetDeviceList(&device_list);
 
+  bool anything_reported = false;
   chromeos::NetworkStateHandler::DeviceStateList::const_iterator device;
   for (device = device_list.begin(); device != device_list.end(); ++device) {
     // Determine the type enum constant for |device|.
@@ -796,7 +866,7 @@ void DeviceStatusCollector::GetNetworkInterfaces(
     if (type_idx >= arraysize(kDeviceTypeMap))
       continue;
 
-    em::NetworkInterface* interface = request->add_network_interface();
+    em::NetworkInterface* interface = status->add_network_interface();
     interface->set_type(kDeviceTypeMap[type_idx].type_constant);
     if (!(*device)->mac_address().empty())
       interface->set_mac_address((*device)->mac_address());
@@ -806,12 +876,13 @@ void DeviceStatusCollector::GetNetworkInterfaces(
       interface->set_imei((*device)->imei());
     if (!(*device)->path().empty())
       interface->set_device_path((*device)->path());
+    anything_reported = true;
   }
 
   // Don't write any network state if we aren't in a kiosk or public session.
   if (!GetAutoLaunchedKioskSessionInfo() &&
       !user_manager::UserManager::Get()->IsLoggedInAsPublicAccount())
-    return;
+    return anything_reported;
 
   // Walk the various networks and store their state in the status report.
   chromeos::NetworkStateHandler::NetworkStateList state_list;
@@ -835,8 +906,9 @@ void DeviceStatusCollector::GetNetworkInterfaces(
     }
 
     // Copy fields from NetworkState into the status report.
-    em::NetworkState* proto_state = request->add_network_state();
+    em::NetworkState* proto_state = status->add_network_state();
     proto_state->set_connection_state(connection_state_enum);
+    anything_reported = true;
 
     // Report signal strength for wifi connections.
     if (state->type() == shill::kTypeWifi) {
@@ -859,18 +931,20 @@ void DeviceStatusCollector::GetNetworkInterfaces(
     if (!state->gateway().empty())
       proto_state->set_gateway(state->gateway());
   }
+  return anything_reported;
 }
 
-void DeviceStatusCollector::GetUsers(em::DeviceStatusReportRequest* request) {
+bool DeviceStatusCollector::GetUsers(em::DeviceStatusReportRequest* status) {
   const user_manager::UserList& users =
       chromeos::ChromeUserManager::Get()->GetUsers();
 
-  for (const auto& user : users) {
+  bool anything_reported = false;
+  for (auto* user : users) {
     // Only users with gaia accounts (regular) are reported.
     if (!user->HasGaiaAccount())
       continue;
 
-    em::DeviceUser* device_user = request->add_user();
+    em::DeviceUser* device_user = status->add_user();
     if (chromeos::ChromeUserManager::Get()->ShouldReportUser(user->email())) {
       device_user->set_type(em::DeviceUser::USER_TYPE_MANAGED);
       device_user->set_email(user->email());
@@ -878,17 +952,23 @@ void DeviceStatusCollector::GetUsers(em::DeviceStatusReportRequest* request) {
       device_user->set_type(em::DeviceUser::USER_TYPE_UNMANAGED);
       // Do not report the email address of unmanaged users.
     }
+    anything_reported = true;
   }
+  return anything_reported;
 }
 
-void DeviceStatusCollector::GetHardwareStatus(
-    em::DeviceStatusReportRequest* status) {
-  // Add volume info.
-  status->clear_volume_info();
-  for (const em::VolumeInfo& info : volume_info_) {
-    *status->add_volume_info() = info;
-  }
+bool DeviceStatusCollector::GetHardwareStatus(
+    em::DeviceStatusReportRequest* status,
+    scoped_refptr<GetStatusState> state) {
+  // Sample disk volume info in a background thread.
+  state->SampleVolumeInfo(volume_info_fetcher_);
 
+  // Sample CPU temperature in a background thread.
+  state->SampleCPUTempInfo(cpu_temp_fetcher_);
+
+  // Add CPU utilization and free RAM. Note that these stats are sampled in
+  // regular intervals. Unlike CPU temp and volume info these are not one-time
+  // sampled values, hence the difference in logic.
   status->set_system_ram_total(base::SysInfo::AmountOfPhysicalMemory());
   status->clear_system_ram_free();
   status->clear_cpu_utilization_pct();
@@ -896,57 +976,172 @@ void DeviceStatusCollector::GetHardwareStatus(
     status->add_cpu_utilization_pct(usage.cpu_usage_percent);
     status->add_system_ram_free(usage.bytes_of_ram_free);
   }
-
-  // Add CPU temp info.
-  status->clear_cpu_temp_info();
-  for (const em::CPUTempInfo& info : cpu_temp_info_) {
-    *status->add_cpu_temp_info() = info;
-  }
+  return true;
 }
 
-bool DeviceStatusCollector::GetDeviceStatus(
+bool DeviceStatusCollector::GetOsUpdateStatus(
     em::DeviceStatusReportRequest* status) {
-  if (report_activity_times_)
-    GetActivityTimes(status);
+  const base::Version platform_version(GetPlatformVersion());
+  if (!platform_version.IsValid())
+    return false;
 
-  if (report_version_info_)
-    GetVersionInfo(status);
+  const std::string required_platform_version_string =
+      chromeos::KioskAppManager::Get()
+          ->GetAutoLaunchAppRequiredPlatformVersion();
+  if (required_platform_version_string.empty())
+    return false;
 
-  if (report_boot_mode_)
-    GetBootMode(status);
+  const base::Version required_platfrom_version(
+      required_platform_version_string);
 
-  if (report_location_)
-    GetLocation(status);
+  em::OsUpdateStatus* os_update_status = status->mutable_os_update_status();
+  os_update_status->set_new_required_platform_version(
+      required_platfrom_version.GetString());
 
-  if (report_network_interfaces_)
-    GetNetworkInterfaces(status);
+  if (platform_version == required_platfrom_version) {
+    os_update_status->set_update_status(em::OsUpdateStatus::OS_UP_TO_DATE);
+    return true;
+  }
 
-  if (report_users_)
-    GetUsers(status);
+  const chromeos::UpdateEngineClient::Status update_engine_status =
+      chromeos::DBusThreadManager::Get()
+          ->GetUpdateEngineClient()
+          ->GetLastStatus();
+  if (update_engine_status.status ==
+          chromeos::UpdateEngineClient::UPDATE_STATUS_DOWNLOADING ||
+      update_engine_status.status ==
+          chromeos::UpdateEngineClient::UPDATE_STATUS_VERIFYING ||
+      update_engine_status.status ==
+          chromeos::UpdateEngineClient::UPDATE_STATUS_FINALIZING) {
+    os_update_status->set_update_status(
+        em::OsUpdateStatus::OS_IMAGE_DOWNLOAD_IN_PROGRESS);
+    os_update_status->set_new_platform_version(
+        update_engine_status.new_version);
+  } else if (update_engine_status.status ==
+             chromeos::UpdateEngineClient::UPDATE_STATUS_UPDATED_NEED_REBOOT) {
+    os_update_status->set_update_status(
+        em::OsUpdateStatus::OS_UPDATE_NEED_REBOOT);
+    // Note the new_version could be a dummy "0.0.0.0" for some edge cases,
+    // e.g. update engine is somehow restarted without a reboot.
+    os_update_status->set_new_platform_version(
+        update_engine_status.new_version);
+  } else {
+    os_update_status->set_update_status(
+        em::OsUpdateStatus::OS_IMAGE_DOWNLOAD_NOT_STARTED);
+  }
 
-  if (report_hardware_status_)
-    GetHardwareStatus(status);
-
-  return (report_activity_times_ ||
-          report_version_info_ ||
-          report_boot_mode_ ||
-          report_location_ ||
-          report_network_interfaces_ ||
-          report_users_ ||
-          report_hardware_status_);
+  return true;
 }
 
-bool DeviceStatusCollector::GetDeviceSessionStatus(
-    em::SessionStatusReportRequest* status) {
-  // Only generate session status reports if session status reporting is
-  // enabled.
-  if (!report_session_status_)
-    return false;
+bool DeviceStatusCollector::GetRunningKioskApp(
+    em::DeviceStatusReportRequest* status) {
+  // Must be on creation thread since some stats are written to in that thread
+  // and accessing them from another thread would lead to race conditions.
+  DCHECK(thread_checker_.CalledOnValidThread());
 
   std::unique_ptr<const DeviceLocalAccount> account =
       GetAutoLaunchedKioskSessionInfo();
-  // Only generate session status reports if we are in an auto-launched kiosk
+  // Only generate running kiosk app reports if we are in an auto-launched kiosk
   // session.
+  if (!account)
+    return false;
+
+  em::AppStatus* running_kiosk_app = status->mutable_running_kiosk_app();
+  running_kiosk_app->set_app_id(account->kiosk_app_id);
+
+  const std::string app_version = GetAppVersion(account->kiosk_app_id);
+  if (app_version.empty()) {
+    DLOG(ERROR) << "Unable to get version for extension: "
+                << account->kiosk_app_id;
+  } else {
+    running_kiosk_app->set_extension_version(app_version);
+  }
+
+  chromeos::KioskAppManager::App app_info;
+  if (chromeos::KioskAppManager::Get()->GetApp(account->kiosk_app_id,
+                                               &app_info)) {
+    running_kiosk_app->set_required_platform_version(
+        app_info.required_platform_version);
+  }
+  return true;
+}
+
+void DeviceStatusCollector::GetDeviceAndSessionStatusAsync(
+    const StatusCallback& response) {
+  // Must be on creation thread since some stats are written to in that thread
+  // and accessing them from another thread would lead to race conditions.
+  DCHECK(thread_checker_.CalledOnValidThread());
+
+  // Some of the data we're collecting is gathered in background threads.
+  // This object keeps track of the state of each async request.
+  scoped_refptr<GetStatusState> state(
+      new GetStatusState(task_runner_, response));
+
+  // Gather device status (might queue some async queries)
+  GetDeviceStatus(state);
+
+  // Gather session status (might queue some async queries)
+  GetSessionStatus(state);
+
+  // If there are no outstanding async queries, e.g. from GetHardwareStatus(),
+  // the destructor of |state| calls |response|. If there are async queries, the
+  // queries hold references to |state|, so that |state| is only destroyed when
+  // the last async query has finished.
+}
+
+void DeviceStatusCollector::GetDeviceStatus(
+    scoped_refptr<GetStatusState> state) {
+  em::DeviceStatusReportRequest* status = state->device_status();
+  bool anything_reported = false;
+
+  if (report_activity_times_)
+    anything_reported |= GetActivityTimes(status);
+
+  if (report_version_info_)
+    anything_reported |= GetVersionInfo(status);
+
+  if (report_boot_mode_)
+    anything_reported |= GetBootMode(status);
+
+  if (report_network_interfaces_)
+    anything_reported |= GetNetworkInterfaces(status);
+
+  if (report_users_)
+    anything_reported |= GetUsers(status);
+
+  if (report_hardware_status_)
+    anything_reported |= GetHardwareStatus(status, state);
+
+  if (report_os_update_status_)
+    anything_reported |= GetOsUpdateStatus(status);
+
+  if (report_running_kiosk_app_)
+    anything_reported |= GetRunningKioskApp(status);
+
+  // Wipe pointer if we didn't actually add any data.
+  if (!anything_reported)
+    state->ResetDeviceStatus();
+}
+
+void DeviceStatusCollector::GetSessionStatus(
+    scoped_refptr<GetStatusState> state) {
+  em::SessionStatusReportRequest* status = state->session_status();
+  bool anything_reported = false;
+
+  if (report_kiosk_session_status_)
+    anything_reported |= GetKioskSessionStatus(status);
+  if (report_android_status_)
+    anything_reported |= GetAndroidStatus(status, state);
+
+  // Wipe pointer if we didn't actually add any data.
+  if (!anything_reported)
+    state->ResetSessionStatus();
+}
+
+bool DeviceStatusCollector::GetKioskSessionStatus(
+    em::SessionStatusReportRequest* status) {
+  std::unique_ptr<const DeviceLocalAccount> account =
+      GetAutoLaunchedKioskSessionInfo();
   if (!account)
     return false;
 
@@ -963,7 +1158,14 @@ bool DeviceStatusCollector::GetDeviceSessionStatus(
   } else {
     app_status->set_extension_version(app_version);
   }
+
   return true;
+}
+
+bool DeviceStatusCollector::GetAndroidStatus(
+    em::SessionStatusReportRequest* status,
+    const scoped_refptr<GetStatusState>& state) {
+  return state->FetchAndroidStatus(android_status_fetcher_);
 }
 
 std::string DeviceStatusCollector::GetAppVersion(
@@ -991,70 +1193,6 @@ void DeviceStatusCollector::OnOSVersion(const std::string& version) {
 
 void DeviceStatusCollector::OnOSFirmware(const std::string& version) {
   firmware_version_ = version;
-}
-
-void DeviceStatusCollector::ScheduleGeolocationUpdateRequest() {
-  if (geolocation_update_timer_.IsRunning() || geolocation_update_in_progress_)
-    return;
-
-  if (position_.Validate()) {
-    TimeDelta elapsed = GetCurrentTime() - position_.timestamp;
-    TimeDelta interval =
-        TimeDelta::FromSeconds(kGeolocationPollIntervalSeconds);
-    if (elapsed <= interval) {
-      geolocation_update_timer_.Start(
-          FROM_HERE,
-          interval - elapsed,
-          this,
-          &DeviceStatusCollector::ScheduleGeolocationUpdateRequest);
-      return;
-    }
-  }
-
-  geolocation_update_in_progress_ = true;
-  if (location_update_requester_.is_null()) {
-    geolocation_subscription_ = content::GeolocationProvider::GetInstance()->
-        AddLocationUpdateCallback(
-            base::Bind(&DeviceStatusCollector::ReceiveGeolocationUpdate,
-                       weak_factory_.GetWeakPtr()),
-            true);
-  } else {
-    location_update_requester_.Run(base::Bind(
-        &DeviceStatusCollector::ReceiveGeolocationUpdate,
-        weak_factory_.GetWeakPtr()));
-  }
-}
-
-void DeviceStatusCollector::ReceiveGeolocationUpdate(
-    const content::Geoposition& position) {
-  geolocation_update_in_progress_ = false;
-
-  // Ignore update if device location reporting has since been disabled.
-  if (!report_location_)
-    return;
-
-  if (position.Validate()) {
-    position_ = position;
-    base::DictionaryValue location;
-    location.SetDouble(kLatitude, position.latitude);
-    location.SetDouble(kLongitude, position.longitude);
-    location.SetDouble(kAltitude, position.altitude);
-    location.SetDouble(kAccuracy, position.accuracy);
-    location.SetDouble(kAltitudeAccuracy, position.altitude_accuracy);
-    location.SetDouble(kHeading, position.heading);
-    location.SetDouble(kSpeed, position.speed);
-    location.SetString(kTimestamp,
-        base::Int64ToString(position.timestamp.ToInternalValue()));
-    local_state_->Set(prefs::kDeviceLocation, location);
-  }
-
-  ScheduleGeolocationUpdateRequest();
-}
-
-void DeviceStatusCollector::ReceiveVolumeInfo(
-    const std::vector<em::VolumeInfo>& info) {
-  if (report_hardware_status_)
-    volume_info_ = info;
 }
 
 }  // namespace policy

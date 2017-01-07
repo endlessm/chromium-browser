@@ -29,6 +29,7 @@
 #include "components/history/core/browser/history_service.h"
 #include "components/history/core/test/test_history_database.h"
 #include "components/prefs/pref_service.h"
+#include "content/public/browser/browser_thread.h"
 #include "content/public/browser/navigation_entry.h"
 #include "content/public/browser/page_navigator.h"
 #include "content/public/browser/web_contents.h"
@@ -42,6 +43,7 @@ base::FilePath g_temp_history_dir;
 const int kMoreAccumulationsThanNeededToMaxDailyEngagement = 40;
 const int kMoreDaysThanNeededToMaxTotalEngagement = 40;
 const int kMorePeriodsThanNeededToDecayMaxScore = 40;
+const double kMaxRoundingDeviation = 0.0001;
 
 // Waits until a change is observed in site engagement content settings.
 class SiteEngagementChangeWaiter : public content_settings::Observer {
@@ -85,7 +87,10 @@ base::Time GetReferenceTime() {
   exploded_reference_time.second = 0;
   exploded_reference_time.millisecond = 0;
 
-  return base::Time::FromLocalExploded(exploded_reference_time);
+  base::Time out_time;
+  EXPECT_TRUE(
+      base::Time::FromLocalExploded(exploded_reference_time, &out_time));
+  return out_time;
 }
 
 std::unique_ptr<KeyedService> BuildTestHistoryService(
@@ -143,7 +148,7 @@ class SiteEngagementServiceTest : public ChromeRenderViewHostTestHarness {
   void SetUp() override {
     ChromeRenderViewHostTestHarness::SetUp();
     ASSERT_TRUE(temp_dir_.CreateUniqueTempDir());
-    g_temp_history_dir = temp_dir_.path();
+    g_temp_history_dir = temp_dir_.GetPath();
     HistoryServiceFactory::GetInstance()->SetTestingFactory(
         profile(), &BuildTestHistoryService);
     SiteEngagementScore::SetParamValuesForTesting();
@@ -175,7 +180,36 @@ class SiteEngagementServiceTest : public ChromeRenderViewHostTestHarness {
     EXPECT_EQ(prev_score, service->GetScore(url));
   }
 
+  void SetParamValue(SiteEngagementScore::Variation variation, double value) {
+    SiteEngagementScore::GetParamValues()[variation].second = value;
+  }
+
+  void AssertInRange(double expected, double actual) {
+    EXPECT_NEAR(expected, actual, kMaxRoundingDeviation);
+  }
+
+  double CheckScoreFromSettingsOnThread(
+      content::BrowserThread::ID thread_id,
+      HostContentSettingsMap* settings_map,
+      const GURL& url) {
+    double score = 0;
+    base::RunLoop run_loop;
+    content::BrowserThread::PostTaskAndReply(
+        thread_id, FROM_HERE,
+        base::Bind(&SiteEngagementServiceTest::CheckScoreFromSettings,
+                   base::Unretained(this), settings_map, url, &score),
+                   run_loop.QuitClosure());
+    run_loop.Run();
+    return score;
+  }
+
  private:
+  void CheckScoreFromSettings(HostContentSettingsMap* settings_map,
+                              const GURL& url,
+                              double *score) {
+    *score = SiteEngagementService::GetScoreFromSettings(settings_map, url);
+  }
+
   base::ScopedTempDir temp_dir_;
 };
 
@@ -927,6 +961,38 @@ TEST_F(SiteEngagementServiceTest, CleanupEngagementScores) {
   }
 }
 
+TEST_F(SiteEngagementServiceTest, CleanupEngagementScoresProportional) {
+  SetParamValue(SiteEngagementScore::DECAY_PROPORTION, 0.5);
+  SetParamValue(SiteEngagementScore::DECAY_POINTS, 0);
+  SetParamValue(SiteEngagementScore::SCORE_CLEANUP_THRESHOLD, 0.5);
+
+  base::SimpleTestClock* clock = new base::SimpleTestClock();
+  std::unique_ptr<SiteEngagementService> service(
+      new SiteEngagementService(profile(), base::WrapUnique(clock)));
+
+  base::Time current_day = GetReferenceTime();
+  clock->SetNow(current_day);
+
+  GURL url1("https://www.google.com/");
+  GURL url2("https://www.somewhereelse.com/");
+
+  service->AddPoints(url1, 1.0);
+  service->AddPoints(url2, 1.2);
+
+  current_day += base::TimeDelta::FromDays(7);
+  clock->SetNow(current_day);
+  std::map<GURL, double> score_map = service->GetScoreMap();
+  EXPECT_EQ(2u, score_map.size());
+  AssertInRange(0.5, service->GetScore(url1));
+  AssertInRange(0.6, service->GetScore(url2));
+
+  service->CleanupEngagementScores(false);
+  score_map = service->GetScoreMap();
+  EXPECT_EQ(1u, score_map.size());
+  EXPECT_EQ(0, service->GetScore(url1));
+  AssertInRange(0.6, service->GetScore(url2));
+}
+
 TEST_F(SiteEngagementServiceTest, NavigationAccumulation) {
   GURL url("https://www.google.com/");
 
@@ -981,6 +1047,10 @@ TEST_F(SiteEngagementServiceTest, IsBootstrapped) {
 }
 
 TEST_F(SiteEngagementServiceTest, CleanupOriginsOnHistoryDeletion) {
+  // Enable proportional decay to ensure that the undecay that happens to
+  // balance out history deletion also accounts for the proportional decay.
+  SetParamValue(SiteEngagementScore::DECAY_PROPORTION, 0.5);
+
   base::SimpleTestClock* clock = new base::SimpleTestClock();
   std::unique_ptr<SiteEngagementService> engagement(
       new SiteEngagementService(profile(), base::WrapUnique(clock)));
@@ -1022,10 +1092,10 @@ TEST_F(SiteEngagementServiceTest, CleanupOriginsOnHistoryDeletion) {
   history->AddPage(origin4a, yesterday_afternoon, history::SOURCE_BROWSED);
   engagement->AddPoints(origin4, 5.0);
 
-  EXPECT_EQ(3.0, engagement->GetScore(origin1));
-  EXPECT_EQ(5.0, engagement->GetScore(origin2));
-  EXPECT_EQ(5.0, engagement->GetScore(origin3));
-  EXPECT_EQ(5.0, engagement->GetScore(origin4));
+  AssertInRange(3.0, engagement->GetScore(origin1));
+  AssertInRange(5.0, engagement->GetScore(origin2));
+  AssertInRange(5.0, engagement->GetScore(origin3));
+  AssertInRange(5.0, engagement->GetScore(origin4));
 
   {
     SiteEngagementChangeWaiter waiter(profile());
@@ -1041,11 +1111,11 @@ TEST_F(SiteEngagementServiceTest, CleanupOriginsOnHistoryDeletion) {
     // cutting origin1's score by 1/3. origin3 is untouched. origin4 has 1 URL
     // deleted and 1 remaining, but its most recent visit is more than 1 week in
     // the past. Ensure that its scored is halved, and not decayed further.
-    EXPECT_EQ(2, engagement->GetScore(origin1));
+    AssertInRange(2, engagement->GetScore(origin1));
     EXPECT_EQ(0, engagement->GetScore(origin2));
-    EXPECT_EQ(5.0, engagement->GetScore(origin3));
-    EXPECT_EQ(2.5, engagement->GetScore(origin4));
-    EXPECT_EQ(9.5, engagement->GetTotalEngagementPoints());
+    AssertInRange(5.0, engagement->GetScore(origin3));
+    AssertInRange(2.5, engagement->GetScore(origin4));
+    AssertInRange(9.5, engagement->GetTotalEngagementPoints());
   }
 
   {
@@ -1065,11 +1135,11 @@ TEST_F(SiteEngagementServiceTest, CleanupOriginsOnHistoryDeletion) {
 
     // origin1's score should be halved again. origin3 and origin4 remain
     // untouched.
-    EXPECT_EQ(1, engagement->GetScore(origin1));
+    AssertInRange(1, engagement->GetScore(origin1));
     EXPECT_EQ(0, engagement->GetScore(origin2));
-    EXPECT_EQ(5.0, engagement->GetScore(origin3));
-    EXPECT_EQ(2.5, engagement->GetScore(origin4));
-    EXPECT_EQ(8.5, engagement->GetTotalEngagementPoints());
+    AssertInRange(5.0, engagement->GetScore(origin3));
+    AssertInRange(2.5, engagement->GetScore(origin4));
+    AssertInRange(8.5, engagement->GetTotalEngagementPoints());
   }
 
   {
@@ -1090,9 +1160,9 @@ TEST_F(SiteEngagementServiceTest, CleanupOriginsOnHistoryDeletion) {
     // origin1 should be removed. origin3 and origin4 remain untouched.
     EXPECT_EQ(0, engagement->GetScore(origin1));
     EXPECT_EQ(0, engagement->GetScore(origin2));
-    EXPECT_EQ(5.0, engagement->GetScore(origin3));
-    EXPECT_EQ(2.5, engagement->GetScore(origin4));
-    EXPECT_EQ(7.5, engagement->GetTotalEngagementPoints());
+    AssertInRange(5.0, engagement->GetScore(origin3));
+    AssertInRange(2.5, engagement->GetScore(origin4));
+    AssertInRange(7.5, engagement->GetTotalEngagementPoints());
   }
 }
 
@@ -1411,9 +1481,17 @@ TEST_F(SiteEngagementServiceTest, LastEngagementTime) {
   EXPECT_EQ(rebased_time, last_engagement_time);
   EXPECT_EQ(rebased_time, service->GetLastEngagementTime());
 
-  // Add some more points and ensure the value is persisted.
+  // Adding 0 points shouldn't update the last engagement time.
   base::Time later_in_day = current_day + base::TimeDelta::FromSeconds(30);
   clock->SetNow(later_in_day);
+  service->AddPoints(origin, 0);
+
+  last_engagement_time = base::Time::FromInternalValue(
+      profile()->GetPrefs()->GetInt64(prefs::kSiteEngagementLastUpdateTime));
+  EXPECT_EQ(rebased_time, last_engagement_time);
+  EXPECT_EQ(rebased_time, service->GetLastEngagementTime());
+
+  // Add some more points and ensure the value is persisted.
   service->AddPoints(origin, 3);
 
   last_engagement_time = base::Time::FromInternalValue(
@@ -1421,4 +1499,215 @@ TEST_F(SiteEngagementServiceTest, LastEngagementTime) {
 
   EXPECT_EQ(later_in_day, last_engagement_time);
   EXPECT_EQ(later_in_day, service->GetLastEngagementTime());
+}
+
+TEST_F(SiteEngagementServiceTest, CleanupMovesScoreBackToNow) {
+  base::SimpleTestClock* clock = new base::SimpleTestClock();
+  std::unique_ptr<SiteEngagementService> service(
+      new SiteEngagementService(profile(), base::WrapUnique(clock)));
+  base::Time last_engagement_time;
+
+  base::Time current_day = GetReferenceTime();
+  clock->SetNow(current_day);
+
+  GURL origin("http://www.google.com/");
+  service->AddPoints(origin, 1);
+  EXPECT_EQ(1, service->GetScore(origin));
+  EXPECT_EQ(current_day, service->GetLastEngagementTime());
+
+  // Send the clock back in time before the stale period and add engagement for
+  // a new origin. Ensure that the original origin has its last engagement time
+  // updated to now as a result.
+  base::Time before_stale_period =
+      clock->Now() - service->GetStalePeriod() - service->GetMaxDecayPeriod();
+  clock->SetNow(before_stale_period);
+
+  GURL origin1("http://maps.google.com/");
+  service->AddPoints(origin1, 1);
+
+  EXPECT_EQ(before_stale_period,
+            service->CreateEngagementScore(origin).last_engagement_time());
+  EXPECT_EQ(before_stale_period, service->GetLastEngagementTime());
+  EXPECT_EQ(1, service->GetScore(origin));
+  EXPECT_EQ(1, service->GetScore(origin1));
+
+  // Advance within a decay period and add points.
+  base::TimeDelta less_than_decay_period =
+      base::TimeDelta::FromHours(SiteEngagementScore::GetDecayPeriodInHours()) -
+      base::TimeDelta::FromSeconds(30);
+  base::Time origin1_last_updated = clock->Now() + less_than_decay_period;
+  clock->SetNow(origin1_last_updated);
+  service->AddPoints(origin, 1);
+  service->AddPoints(origin1, 5);
+  EXPECT_EQ(2, service->GetScore(origin));
+  EXPECT_EQ(6, service->GetScore(origin1));
+
+  clock->SetNow(clock->Now() + less_than_decay_period);
+  service->AddPoints(origin, 5);
+  EXPECT_EQ(7, service->GetScore(origin));
+
+  // Move forward to the max number of decays per score. This is within the
+  // stale period so no cleanup should be run.
+  for (int i = 0; i < SiteEngagementScore::GetMaxDecaysPerScore(); ++i) {
+    clock->SetNow(clock->Now() + less_than_decay_period);
+    service->AddPoints(origin, 5);
+    EXPECT_EQ(clock->Now(), service->GetLastEngagementTime());
+  }
+  EXPECT_EQ(12, service->GetScore(origin));
+  EXPECT_EQ(clock->Now(), service->GetLastEngagementTime());
+
+  // Move the clock back to precisely 1 decay period after origin1's last
+  // updated time. |last_engagement_time| is in the future, so AddPoints
+  // triggers a cleanup. Ensure that |last_engagement_time| is moved back
+  // appropriately, while origin1 is decayed correctly (once).
+  clock->SetNow(origin1_last_updated + less_than_decay_period +
+                base::TimeDelta::FromSeconds(30));
+  service->AddPoints(origin1, 1);
+
+  EXPECT_EQ(clock->Now(),
+            service->CreateEngagementScore(origin).last_engagement_time());
+  EXPECT_EQ(clock->Now(), service->GetLastEngagementTime());
+  EXPECT_EQ(12, service->GetScore(origin));
+  EXPECT_EQ(1, service->GetScore(origin1));
+}
+
+TEST_F(SiteEngagementServiceTest, CleanupMovesScoreBackToRebase) {
+  base::SimpleTestClock* clock = new base::SimpleTestClock();
+  std::unique_ptr<SiteEngagementService> service(
+      new SiteEngagementService(profile(), base::WrapUnique(clock)));
+  base::Time last_engagement_time;
+
+  base::Time current_day = GetReferenceTime();
+  clock->SetNow(current_day);
+
+  GURL origin("http://www.google.com/");
+  service->ResetScoreForURL(origin, 5);
+  service->AddPoints(origin, 5);
+  EXPECT_EQ(10, service->GetScore(origin));
+  EXPECT_EQ(current_day, service->GetLastEngagementTime());
+
+  // Send the clock back in time before the stale period and add engagement for
+  // a new origin.
+  base::Time before_stale_period =
+      clock->Now() - service->GetStalePeriod() - service->GetMaxDecayPeriod();
+  clock->SetNow(before_stale_period);
+
+  GURL origin1("http://maps.google.com/");
+  service->AddPoints(origin1, 1);
+
+  EXPECT_EQ(before_stale_period, service->GetLastEngagementTime());
+
+  // Set the clock such that |origin|'s last engagement time is between
+  // last_engagement_time and rebase_time.
+  clock->SetNow(current_day + service->GetStalePeriod() +
+                service->GetMaxDecayPeriod() -
+                base::TimeDelta::FromSeconds((30)));
+  base::Time rebased_time = clock->Now() - service->GetMaxDecayPeriod();
+  service->CleanupEngagementScores(true);
+
+  // Ensure that the original origin has its last engagement time updated to
+  // rebase_time, and it has decayed when we access the score.
+  EXPECT_EQ(rebased_time,
+            service->CreateEngagementScore(origin).last_engagement_time());
+  EXPECT_EQ(rebased_time, service->GetLastEngagementTime());
+  EXPECT_EQ(5, service->GetScore(origin));
+  EXPECT_EQ(0, service->GetScore(origin1));
+}
+
+TEST_F(SiteEngagementServiceTest, IncognitoEngagementService) {
+  SiteEngagementService* service = SiteEngagementService::Get(profile());
+  ASSERT_TRUE(service);
+
+  GURL url1("http://www.google.com/");
+  GURL url2("https://www.google.com/");
+  GURL url3("https://drive.google.com/");
+  GURL url4("https://maps.google.com/");
+
+  service->AddPoints(url1, 1);
+  service->AddPoints(url2, 2);
+
+  SiteEngagementService* incognito_service =
+      SiteEngagementService::Get(profile()->GetOffTheRecordProfile());
+  EXPECT_EQ(1, incognito_service->GetScore(url1));
+  EXPECT_EQ(2, incognito_service->GetScore(url2));
+  EXPECT_EQ(0, incognito_service->GetScore(url3));
+
+  incognito_service->AddPoints(url3, 1);
+  EXPECT_EQ(1, incognito_service->GetScore(url3));
+  EXPECT_EQ(0, service->GetScore(url3));
+
+  incognito_service->AddPoints(url2, 1);
+  EXPECT_EQ(3, incognito_service->GetScore(url2));
+  EXPECT_EQ(2, service->GetScore(url2));
+
+  service->AddPoints(url3, 2);
+  EXPECT_EQ(1, incognito_service->GetScore(url3));
+  EXPECT_EQ(2, service->GetScore(url3));
+
+  EXPECT_EQ(0, incognito_service->GetScore(url4));
+  service->AddPoints(url4, 2);
+  EXPECT_EQ(2, incognito_service->GetScore(url4));
+  EXPECT_EQ(2, service->GetScore(url4));
+}
+
+TEST_F(SiteEngagementServiceTest, GetScoreFromSettings) {
+  GURL url1("http://www.google.com/");
+  GURL url2("https://www.google.com/");
+
+  HostContentSettingsMap* settings_map =
+      HostContentSettingsMapFactory::GetForProfile(profile());
+  HostContentSettingsMap* incognito_settings_map =
+      HostContentSettingsMapFactory::GetForProfile(
+          profile()->GetOffTheRecordProfile());
+
+  // All scores are 0 to start.
+  EXPECT_EQ(0, CheckScoreFromSettingsOnThread(content::BrowserThread::IO,
+                                              settings_map, url1));
+  EXPECT_EQ(0, CheckScoreFromSettingsOnThread(content::BrowserThread::FILE,
+                                              settings_map, url2));
+  EXPECT_EQ(0, CheckScoreFromSettingsOnThread(content::BrowserThread::FILE,
+                                              incognito_settings_map, url1));
+  EXPECT_EQ(0, CheckScoreFromSettingsOnThread(content::BrowserThread::IO,
+                                              incognito_settings_map, url2));
+
+  SiteEngagementService* service = SiteEngagementService::Get(profile());
+  ASSERT_TRUE(service);
+  service->AddPoints(url1, 1);
+  service->AddPoints(url2, 2);
+
+  EXPECT_EQ(1, CheckScoreFromSettingsOnThread(content::BrowserThread::FILE,
+                                              settings_map, url1));
+  EXPECT_EQ(2, CheckScoreFromSettingsOnThread(content::BrowserThread::IO,
+                                              settings_map, url2));
+  EXPECT_EQ(1, CheckScoreFromSettingsOnThread(content::BrowserThread::FILE,
+                                              incognito_settings_map, url1));
+  EXPECT_EQ(2, CheckScoreFromSettingsOnThread(content::BrowserThread::IO,
+                                              incognito_settings_map, url2));
+
+  SiteEngagementService* incognito_service =
+      SiteEngagementService::Get(profile()->GetOffTheRecordProfile());
+  ASSERT_TRUE(incognito_service);
+  incognito_service->AddPoints(url1, 3);
+  incognito_service->AddPoints(url2, 1);
+
+  EXPECT_EQ(1, CheckScoreFromSettingsOnThread(content::BrowserThread::IO,
+                                              settings_map, url1));
+  EXPECT_EQ(2, CheckScoreFromSettingsOnThread(content::BrowserThread::FILE,
+                                              settings_map, url2));
+  EXPECT_EQ(4, CheckScoreFromSettingsOnThread(content::BrowserThread::IO,
+                                              incognito_settings_map, url1));
+  EXPECT_EQ(3, CheckScoreFromSettingsOnThread(content::BrowserThread::FILE,
+                                              incognito_settings_map, url2));
+
+  service->AddPoints(url1, 2);
+  service->AddPoints(url2, 1);
+
+  EXPECT_EQ(3, CheckScoreFromSettingsOnThread(content::BrowserThread::IO,
+                                              settings_map, url1));
+  EXPECT_EQ(3, CheckScoreFromSettingsOnThread(content::BrowserThread::FILE,
+                                              settings_map, url2));
+  EXPECT_EQ(4, CheckScoreFromSettingsOnThread(content::BrowserThread::FILE,
+                                              incognito_settings_map, url1));
+  EXPECT_EQ(3, CheckScoreFromSettingsOnThread(content::BrowserThread::IO,
+                                              incognito_settings_map, url2));
 }

@@ -4,6 +4,10 @@
 
 #include "chrome/browser/sync/test/integration/sync_extension_helper.h"
 
+#include <list>
+#include <memory>
+#include <utility>
+
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/guid.h"
@@ -20,6 +24,7 @@
 #include "chrome/browser/sync/test/integration/sync_datatype_helper.h"
 #include "chrome/browser/sync/test/integration/sync_test.h"
 #include "components/crx_file/id_util.h"
+#include "components/sync/api/string_ordinal.h"
 #include "extensions/browser/extension_prefs.h"
 #include "extensions/browser/extension_registry.h"
 #include "extensions/browser/extension_system.h"
@@ -28,7 +33,6 @@
 #include "extensions/common/extension.h"
 #include "extensions/common/extension_set.h"
 #include "extensions/common/manifest_constants.h"
-#include "sync/api/string_ordinal.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 using extensions::Extension;
@@ -186,7 +190,7 @@ void SyncExtensionHelper::InstallExtensionsPendingForSync(Profile* profile) {
   std::list<std::string>::const_iterator iter;
   const extensions::PendingExtensionInfo* info = NULL;
   for (iter = pending_crx_ids.begin(); iter != pending_crx_ids.end(); ++iter) {
-    ASSERT_TRUE((info = pending_extension_manager->GetById(*iter)));
+    ASSERT_TRUE(info = pending_extension_manager->GetById(*iter));
     if (!info->is_from_sync())
       continue;
 

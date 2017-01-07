@@ -65,7 +65,6 @@
 <translation id="2359808026110333948">المتابعة</translation>
 <translation id="2366718077645204424">يتعذر الوصول إلى المضيف. ربما يرجع ذلك إلى تهيئة الشبكة التي تستخدمها.</translation>
 <translation id="2370754117186920852"><ph name="OPTIONAL_OFFLINE_REASON" />  شوهد متصلاً آخر مرة <ph name="RELATIVE_TIMESTAMP" />.</translation>
-<translation id="2498359688066513246">المساعدة والتعليقات</translation>
 <translation id="2499160551253595098">‏ساعدنا في تحسين سطح المكتب البعيد من Chrome من خلال السماح لنا بتجميع إحصاءات الاستخدام وتقارير الأعطال.</translation>
 <translation id="2512228156274966424">‏ملاحظة: للتأكد من توفر كل اختصارات لوحة المفاتيح، يمكنك تهيئة ميزة سطح المكتب البعيد من Chrome على "فتح كنافذة".</translation>
 <translation id="2540992418118313681">هل ترغب في مشاركة هذا الكمبيوتر مع مستخدم آخر للمشاهدة والتحكم؟</translation>
@@ -74,7 +73,6 @@
 <translation id="2676780859508944670">جارٍ العمل…</translation>
 <translation id="2699970397166997657">‏التوافق مع نظام التشغيل Chrome</translation>
 <translation id="2747641796667576127">يتم عادةً إجراء تحديثات البرامج تلقائيًا، لكنها قد تخفق في بعض الحالات النادرة. من المفترض ألا يستغرق تحديث البرامج أكثر من بضع دقائق، كما يمكن إجراؤه أثناء الاتصال بالكمبيوتر عن بُعد.</translation>
-<translation id="2813770873348017932">تم حظر الاتصالات بجهاز الكمبيوتر البعيد نظرًا لأن شخصًا ما كان يحاول الاتصال به باستخدام رقم تعريف شخصي غير صالح. الرجاء إعادة المحاولة لاحقًا.</translation>
 <translation id="2841013758207633010">الوقت</translation>
 <translation id="2851674870054673688">عند إدخاله الرمز، تبدأ جلسة المشاركة.</translation>
 <translation id="2851754573186462851">Chromium App Streaming</translation>
@@ -150,7 +148,6 @@
 <translation id="4573676252416618192">‏مضيف سطح المكتب
 البعيد من Chrome</translation>
 <translation id="4619978527973181021">قبول وتثبيت</translation>
-<translation id="4647791084836149355">‏إظهار عرض Cardboard</translation>
 <translation id="4703302905453407178">توقف مكوّن مطلوب عن العمل. يُرجى إبلاغ هذه المشكلة إلى مطوري البرامج.</translation>
 <translation id="4703799847237267011">‏انتهت جلسة تطبيق التوافق مع نظام التشغيل Chrome.</translation>
 <translation id="4736223761657662401">سجل الاتصالات</translation>
@@ -211,7 +208,6 @@
 <translation id="6284412385303060032">‏تم إيقاف المضيف الذي يعمل على شاشة تسجيل لوحة التحكم لدعم الوضع Curtain من خلال التبديل إلى مضيف يعمل في جلسة خاصة بالمستخدم.</translation>
 <translation id="629730747756840877">الحساب</translation>
 <translation id="6304318647555713317">العميل</translation>
-<translation id="6324708100353784493">‏لقد مكنت وضع دمج Google Cardboard. لاستخدام هذا الوضع، أدرج جهازك في عارض Google Cardboard المتوافق.</translation>
 <translation id="6381670701864002291">غير ذلك.</translation>
 <translation id="6398765197997659313">إنهاء وضع ملء الشاشة</translation>
 <translation id="6408143143164565232">‏• الاستماع إلى الصوت من أجهزة كمبيوتر تعمل بنظام التشغيل Windows أو Linux.
@@ -237,6 +233,7 @@
 <translation id="6930242544192836755">المدة</translation>
 <translation id="6939719207673461467">عرض/إخفاء لوحة المفاتيح</translation>
 <translation id="6944854424004126054">استعادة النافذة</translation>
+<translation id="6963936880795878952">تم حظر الاتصالات بجهاز الكمبيوتر البعيد مؤقتًا نظرًا لأن شخصًا ما كان يحاول الاتصال به باستخدام رقم تعريف شخصي غير صالح. يُرجى إعادة المحاولة لاحقًا.</translation>
 <translation id="6965382102122355670">موافق</translation>
 <translation id="6985691951107243942">هل تريد بالتأكيد تعطيل الاتصالات عن بُعد بـ <ph name="HOSTNAME" />؟ إذا عدلت عن هذا القرار، فسيلزمك الانتقال إلى جهاز الكمبيوتر لإعادة تمكين الاتصالات.</translation>
 <translation id="6998989275928107238">إلى</translation>
@@ -267,6 +264,7 @@
 <translation id="7948001860594368197">خيارات الشاشة</translation>
 <translation id="7970576581263377361">‏أخفقت المصادقة.يُرجى تسجيل الدخول إلى Chromium مرة أخرى.</translation>
 <translation id="7981525049612125370">انتهت صلاحية الجلسة البعيدة.</translation>
+<translation id="8041089156583427627">إرسال تعليقات</translation>
 <translation id="8041721485428375115">‏من خلال تنزيل أداة تثبيت مضيف سطح المكتب البعيد من Chrome، توافق على <ph name="LINK_BEGIN" />بنود خدمة<ph name="LINK_END" /> Google.</translation>
 <translation id="8073845705237259513">‏لاستخدام سطح المكتب البعيد من Chrome، يجب إضافة حساب في Google إلى جهازك.</translation>
 <translation id="80739703311984697">‏يتطلب منك المضيف البعيد مصادقة موقع ويب لجهة خارجية. للمتابعة، يجب منح عملية التوافق مع نظام التشغيل Chrome أذونات إضافية للدخول إلى هذا العنوان:</translation>
@@ -290,6 +288,7 @@
 <translation id="8548209692293300397">‏لقد سجّلت الدخول سابقًا كالآتي <ph name="USER_NAME" /> (<ph name="USER_EMAIL" />).  للوصول إلى أجهزة الكمبيوتر من خلال هذا الحساب، <ph name="LINK_BEGIN" />سجّل الدخول إلى Google Chrome<ph name="LINK_END" /> بهذا الحساب ثم أعد تثبيت سطح المكتب البعيد من Chrome.</translation>
 <translation id="8642984861538780905">متوسطة</translation>
 <translation id="8712909229180978490">‏لا أستطيع أن أرى الملفات المحفوظة عبر الإنترنت في Google Drive.</translation>
+<translation id="8743328882720071828">هل تريد السماح لـ <ph name="CLIENT_USERNAME" /> برؤية جهاز الكمبيوتر والتحكم فيه؟</translation>
 <translation id="8759753423332885148">معرفة المزيد.</translation>
 <translation id="8791202241915690908">‏تنزيل أداة تثبيت مضيف التوافق مع نظام التشغيل Chrome</translation>
 <translation id="894763922177556086">جيدة</translation>

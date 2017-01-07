@@ -33,7 +33,7 @@ void SafeIAppsLibraryParser::ParseITunesLibrary(
 }
 
 void SafeIAppsLibraryParser::Start() {
-  DCHECK(MediaFileSystemBackend::CurrentlyOnMediaTaskRunnerThread());
+  MediaFileSystemBackend::AssertCurrentlyOnMediaSequence();
 
   // |library_file_| will be closed on the IO thread once it has been handed
   // off to the child process.
@@ -60,7 +60,7 @@ void SafeIAppsLibraryParser::StartProcessOnIOThread() {
   DCHECK_EQ(INITIAL_STATE, parser_state_);
 
   scoped_refptr<base::SingleThreadTaskRunner> task_runner =
-      BrowserThread::GetMessageLoopProxyForThread(BrowserThread::IO);
+      BrowserThread::GetTaskRunnerForThread(BrowserThread::IO);
   utility_process_host_ =
       UtilityProcessHost::Create(this, task_runner.get())->AsWeakPtr();
   utility_process_host_->SetName(l10n_util::GetStringUTF16(

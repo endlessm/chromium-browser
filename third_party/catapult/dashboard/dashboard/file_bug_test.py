@@ -16,8 +16,8 @@ from dashboard import mock_oauth2_decorator
 # pylint: enable=unused-import
 
 from dashboard import file_bug
-from dashboard import testing_common
-from dashboard import utils
+from dashboard.common import testing_common
+from dashboard.common import utils
 from dashboard.models import anomaly
 from dashboard.models import bug_label_patterns
 from dashboard.models import sheriff
@@ -72,7 +72,9 @@ class FileBugTest(testing_common.TestCase):
   def _AddSampleAlerts(self):
     """Adds sample data and returns a dict of rev to anomaly key."""
     # Add sample sheriff, masters, bots, and tests.
-    sheriff_key = sheriff.Sheriff(id='Sheriff').put()
+    sheriff_key = sheriff.Sheriff(
+        id='Sheriff',
+        labels=['Performance-Sheriff', 'Cr-Blink-Javascript']).put()
     testing_common.AddTests(['ChromiumPerf'], ['linux'], {
         'scrolling': {
             'first_paint': {},
@@ -107,6 +109,8 @@ class FileBugTest(testing_common.TestCase):
     response = self.testapp.get(
         '/file_bug?summary=s&description=d&keys=%s' % alert_keys[0].urlsafe())
     self.assertEqual(1, len(response.html('form')))
+    self.assertIn('<input name="cc" type="text" value="foo@chromium.org">',
+                  str(response.html('form')[0]))
 
   def testInternalBugLabel(self):
     # If any of the alerts are marked as internal-only, which should happen
@@ -132,6 +136,8 @@ class FileBugTest(testing_common.TestCase):
             alert_keys[0].urlsafe(), alert_keys[1].urlsafe()))
     self.assertIn('label1-foo', response.body)
     self.assertIn('Performance&gt;Blink', response.body)
+    self.assertIn('Performance-Sheriff', response.body)
+    self.assertIn('Blink&gt;Javascript', response.body)
 
   @mock.patch(
       'google.appengine.api.app_identity.get_default_version_hostname',

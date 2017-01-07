@@ -7,19 +7,19 @@
 #include "base/android/jni_android.h"
 #include "base/android/jni_array.h"
 #include "base/android/jni_string.h"
+#include "base/stl_util.h"
 #include "chrome/browser/android/resource_mapper.h"
 #include "chrome/browser/infobars/infobar_service.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ssl/chrome_security_state_model_client.h"
 #include "chrome/browser/ui/website_settings/website_settings.h"
 #include "chrome/grit/generated_resources.h"
+#include "components/strings/grit/components_strings.h"
 #include "content/public/browser/browser_context.h"
-#include "content/public/browser/cert_store.h"
 #include "content/public/browser/navigation_controller.h"
 #include "content/public/browser/navigation_entry.h"
+#include "content/public/browser/ssl_status.h"
 #include "content/public/browser/web_contents.h"
-#include "content/public/common/ssl_status.h"
-#include "grit/components_strings.h"
 #include "jni/ConnectionInfoPopup_jni.h"
 #include "net/cert/x509_certificate.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -28,8 +28,8 @@ using base::android::CheckException;
 using base::android::ConvertUTF8ToJavaString;
 using base::android::ConvertUTF16ToJavaString;
 using base::android::GetClass;
+using base::android::JavaParamRef;
 using base::android::ScopedJavaLocalRef;
-using content::CertStore;
 using content::WebContents;
 
 static ScopedJavaLocalRef<jobjectArray> GetCertificateChain(
@@ -41,11 +41,8 @@ static ScopedJavaLocalRef<jobjectArray> GetCertificateChain(
   if (!web_contents)
     return ScopedJavaLocalRef<jobjectArray>();
 
-  int cert_id =
-      web_contents->GetController().GetVisibleEntry()->GetSSL().cert_id;
-  scoped_refptr<net::X509Certificate> cert;
-  bool ok = CertStore::GetInstance()->RetrieveCert(cert_id, &cert);
-  CHECK(ok);
+  scoped_refptr<net::X509Certificate> cert =
+      web_contents->GetController().GetVisibleEntry()->GetSSL().certificate;
 
   std::vector<std::string> cert_chain;
   net::X509Certificate::OSCertHandles cert_handles =
@@ -87,7 +84,7 @@ ConnectionInfoPopupAndroid::ConnectionInfoPopupAndroid(
   // Important to use GetVisibleEntry to match what's showing in the omnibox.
   content::NavigationEntry* nav_entry =
       web_contents->GetController().GetVisibleEntry();
-  if (nav_entry == NULL)
+  if (nav_entry == nullptr)
     return;
 
   popup_jobject_.Reset(env, java_website_settings_pop);
@@ -96,11 +93,13 @@ ConnectionInfoPopupAndroid::ConnectionInfoPopupAndroid(
       ChromeSecurityStateModelClient::FromWebContents(web_contents);
   DCHECK(security_model_client);
 
+  security_state::SecurityStateModel::SecurityInfo security_info;
+  security_model_client->GetSecurityInfo(&security_info);
+
   presenter_.reset(new WebsiteSettings(
       this, Profile::FromBrowserContext(web_contents->GetBrowserContext()),
       TabSpecificContentSettings::FromWebContents(web_contents), web_contents,
-      nav_entry->GetURL(), security_model_client->GetSecurityInfo(),
-      content::CertStore::GetInstance()));
+      nav_entry->GetURL(), security_info));
 }
 
 ConnectionInfoPopupAndroid::~ConnectionInfoPopupAndroid() {
@@ -132,7 +131,7 @@ void ConnectionInfoPopupAndroid::SetIdentityInfo(
     // name from the provided certificate. If the organization name is not
     // available than the hostname of the site is used instead.
     std::string headline;
-    if (identity_info.cert_id) {
+    if (identity_info.certificate) {
       headline = identity_info.site_identity;
     }
 
@@ -149,20 +148,15 @@ void ConnectionInfoPopupAndroid::SetIdentityInfo(
     }
 
     Java_ConnectionInfoPopup_addCertificateSection(
-        env,
-        popup_jobject_.obj(),
-        icon_id,
-        ConvertUTF8ToJavaString(env, headline).obj(),
-        description.obj(),
-        ConvertUTF16ToJavaString(env, certificate_label).obj());
+        env, popup_jobject_, icon_id, ConvertUTF8ToJavaString(env, headline),
+        description, ConvertUTF16ToJavaString(env, certificate_label));
 
     if (identity_info.show_ssl_decision_revoke_button) {
       base::string16 reset_button_label = l10n_util::GetStringUTF16(
           IDS_PAGEINFO_RESET_INVALID_CERTIFICATE_DECISIONS_BUTTON);
       Java_ConnectionInfoPopup_addResetCertDecisionsButton(
-          env,
-          popup_jobject_.obj(),
-          ConvertUTF16ToJavaString(env, reset_button_label).obj());
+          env, popup_jobject_,
+          ConvertUTF16ToJavaString(env, reset_button_label));
     }
   }
 
@@ -173,16 +167,15 @@ void ConnectionInfoPopupAndroid::SetIdentityInfo(
 
     ScopedJavaLocalRef<jstring> description = ConvertUTF8ToJavaString(
         env, identity_info.connection_status_description);
-    Java_ConnectionInfoPopup_addDescriptionSection(
-        env, popup_jobject_.obj(), icon_id, NULL, description.obj());
+    Java_ConnectionInfoPopup_addDescriptionSection(env, popup_jobject_, icon_id,
+                                                   nullptr, description);
   }
 
   Java_ConnectionInfoPopup_addMoreInfoLink(
-      env,
-      popup_jobject_.obj(),
+      env, popup_jobject_,
       ConvertUTF8ToJavaString(
-          env, l10n_util::GetStringUTF8(IDS_PAGE_INFO_HELP_CENTER_LINK)).obj());
-  Java_ConnectionInfoPopup_showDialog(env, popup_jobject_.obj());
+          env, l10n_util::GetStringUTF8(IDS_PAGE_INFO_HELP_CENTER_LINK)));
+  Java_ConnectionInfoPopup_showDialog(env, popup_jobject_);
 }
 
 void ConnectionInfoPopupAndroid::SetCookieInfo(
@@ -193,6 +186,9 @@ void ConnectionInfoPopupAndroid::SetCookieInfo(
 void ConnectionInfoPopupAndroid::SetPermissionInfo(
     const PermissionInfoList& permission_info_list,
     const ChosenObjectInfoList& chosen_object_info_list) {
+  base::STLDeleteContainerPointers(chosen_object_info_list.begin(),
+                                   chosen_object_info_list.end());
+
   NOTIMPLEMENTED();
 }
 

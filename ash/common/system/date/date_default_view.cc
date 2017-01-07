@@ -8,6 +8,8 @@
 #include "ash/common/session/session_state_delegate.h"
 #include "ash/common/system/date/date_view.h"
 #include "ash/common/system/tray/special_popup_row.h"
+#include "ash/common/system/tray/system_tray.h"
+#include "ash/common/system/tray/system_tray_controller.h"
 #include "ash/common/system/tray/system_tray_delegate.h"
 #include "ash/common/system/tray/tray_constants.h"
 #include "ash/common/system/tray/tray_popup_header_button.h"
@@ -21,6 +23,11 @@
 #include "ui/views/layout/fill_layout.h"
 #include "ui/views/view.h"
 
+#if defined(OS_CHROMEOS)
+#include "chromeos/dbus/dbus_thread_manager.h"
+#include "chromeos/dbus/session_manager_client.h"
+#endif
+
 namespace {
 
 // The ISO-639 code for the Hebrew locale. The help icon asset is a '?' which is
@@ -33,15 +40,15 @@ const int kPaddingVertical = 19;
 
 namespace ash {
 
-DateDefaultView::DateDefaultView(LoginStatus login)
-    : help_button_(NULL),
-      shutdown_button_(NULL),
-      lock_button_(NULL),
-      date_view_(NULL),
+DateDefaultView::DateDefaultView(SystemTrayItem* owner, LoginStatus login)
+    : help_button_(nullptr),
+      shutdown_button_(nullptr),
+      lock_button_(nullptr),
+      date_view_(nullptr),
       weak_factory_(this) {
   SetLayoutManager(new views::FillLayout);
 
-  date_view_ = new tray::DateView();
+  date_view_ = new tray::DateView(owner);
   date_view_->SetBorder(views::Border::CreateEmptyBorder(
       kPaddingVertical, ash::kTrayPopupPaddingHorizontal, 0, 0));
   SpecialPopupRow* view = new SpecialPopupRow();
@@ -62,6 +69,7 @@ DateDefaultView::DateDefaultView(LoginStatus login)
       this, IDR_AURA_UBER_TRAY_HELP, IDR_AURA_UBER_TRAY_HELP,
       IDR_AURA_UBER_TRAY_HELP_HOVER, IDR_AURA_UBER_TRAY_HELP_HOVER,
       IDS_ASH_STATUS_TRAY_HELP);
+
   if (base::i18n::IsRTL() &&
       base::i18n::GetConfiguredLocale() == kHebrewLocale) {
     // The asset for the help button is a question mark '?'. Normally this asset
@@ -71,7 +79,7 @@ DateDefaultView::DateDefaultView(LoginStatus login)
   }
   help_button_->SetTooltipText(
       l10n_util::GetStringUTF16(IDS_ASH_STATUS_TRAY_HELP));
-  view->AddButton(help_button_);
+  view->AddViewToRowNonMd(help_button_, true);
 
 #if !defined(OS_WIN)
   if (login != LoginStatus::LOCKED) {
@@ -81,7 +89,7 @@ DateDefaultView::DateDefaultView(LoginStatus login)
         IDS_ASH_STATUS_TRAY_SHUTDOWN);
     shutdown_button_->SetTooltipText(
         l10n_util::GetStringUTF16(IDS_ASH_STATUS_TRAY_SHUTDOWN));
-    view->AddButton(shutdown_button_);
+    view->AddViewToRowNonMd(shutdown_button_, true);
   }
 
   if (shell->GetSessionStateDelegate()->CanLockScreen()) {
@@ -91,7 +99,7 @@ DateDefaultView::DateDefaultView(LoginStatus login)
         IDR_AURA_UBER_TRAY_LOCKSCREEN_HOVER, IDS_ASH_STATUS_TRAY_LOCK);
     lock_button_->SetTooltipText(
         l10n_util::GetStringUTF16(IDS_ASH_STATUS_TRAY_LOCK));
-    view->AddButton(lock_button_);
+    view->AddViewToRowNonMd(lock_button_, true);
   }
   SystemTrayDelegate* system_tray_delegate = shell->system_tray_delegate();
   system_tray_delegate->AddShutdownPolicyObserver(this);
@@ -130,16 +138,21 @@ void DateDefaultView::ButtonPressed(views::Button* sender,
   SystemTrayDelegate* tray_delegate = shell->system_tray_delegate();
   if (sender == help_button_) {
     shell->RecordUserMetricsAction(UMA_TRAY_HELP);
-    tray_delegate->ShowHelp();
+    shell->system_tray_controller()->ShowHelp();
   } else if (sender == shutdown_button_) {
     shell->RecordUserMetricsAction(UMA_TRAY_SHUT_DOWN);
     tray_delegate->RequestShutdown();
   } else if (sender == lock_button_) {
     shell->RecordUserMetricsAction(UMA_TRAY_LOCK_SCREEN);
-    tray_delegate->RequestLockScreen();
+#if defined(OS_CHROMEOS)
+    chromeos::DBusThreadManager::Get()
+        ->GetSessionManagerClient()
+        ->RequestLockScreen();
+#endif
   } else {
     NOTREACHED();
   }
+  date_view_->CloseSystemBubble();
 }
 
 void DateDefaultView::OnShutdownPolicyChanged(bool reboot_on_shutdown) {

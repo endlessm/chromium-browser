@@ -6,7 +6,11 @@
 #define CHROMEOS_DBUS_FAKE_DEBUG_DAEMON_CLIENT_H_
 
 #include <stdint.h>
+#include <sys/types.h>
 
+#include <map>
+#include <set>
+#include <string>
 #include <vector>
 
 #include "base/compiler_specific.h"
@@ -24,8 +28,7 @@ class CHROMEOS_EXPORT FakeDebugDaemonClient : public DebugDaemonClient {
 
   void Init(dbus::Bus* bus) override;
   void DumpDebugLogs(bool is_compressed,
-                     base::File file,
-                     scoped_refptr<base::TaskRunner> task_runner,
+                     int file_descriptor,
                      const GetDebugLogsCallback& callback) override;
   void SetDebugMode(const std::string& subsystem,
                     const SetDebugModeCallback& callback) override;
@@ -46,7 +49,7 @@ class CHROMEOS_EXPORT FakeDebugDaemonClient : public DebugDaemonClient {
       const GetNetworkInterfacesCallback& callback) override;
   void GetPerfOutput(base::TimeDelta duration,
                      const std::vector<std::string>& perf_args,
-                     dbus::ScopedFileDescriptor file_descriptor,
+                     int file_descriptor,
                      const DBusMethodErrorCallback& error_callback) override;
   void GetScrubbedLogs(const GetLogsCallback& callback) override;
   void GetScrubbedBigLogs(const GetLogsCallback& callback) override;
@@ -67,6 +70,17 @@ class CHROMEOS_EXPORT FakeDebugDaemonClient : public DebugDaemonClient {
       const EnableDebuggingCallback& callback) override;
   void WaitForServiceToBeAvailable(
       const WaitForServiceToBeAvailableCallback& callback) override;
+  void SetOomScoreAdj(const std::map<pid_t, int32_t>& pid_to_oom_score_adj,
+                      const SetOomScoreAdjCallback& callback) override;
+  void CupsAddPrinter(const std::string& name,
+                      const std::string& uri,
+                      const std::string& ppd_path,
+                      bool ipp_everywhere,
+                      const CupsAddPrinterCallback& callback,
+                      const base::Closure& error_callback) override;
+  void CupsRemovePrinter(const std::string& name,
+                         const CupsRemovePrinterCallback& callback,
+                         const base::Closure& error_callback) override;
 
   // Sets debugging features mask for testing.
   virtual void SetDebuggingFeaturesStatus(int featues_mask);
@@ -81,6 +95,7 @@ class CHROMEOS_EXPORT FakeDebugDaemonClient : public DebugDaemonClient {
   bool service_is_available_;
   std::vector<WaitForServiceToBeAvailableCallback>
       pending_wait_for_service_to_be_available_callbacks_;
+  std::set<std::string> printers_;
 
   DISALLOW_COPY_AND_ASSIGN(FakeDebugDaemonClient);
 };

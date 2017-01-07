@@ -25,6 +25,7 @@
 #include "courgette/courgette.h"
 #include "courgette/third_party/bsdiff/bsdiff.h"
 #include "ipc/ipc_channel.h"
+#include "mojo/public/cpp/bindings/strong_binding.h"
 #include "services/shell/public/cpp/interface_registry.h"
 #include "third_party/zlib/google/zip.h"
 #include "ui/gfx/geometry/size.h"
@@ -38,7 +39,8 @@
 #endif
 
 #if defined(OS_WIN)
-#include "chrome/utility/shell_handler_win.h"
+#include "chrome/utility/ipc_shell_handler_win.h"
+#include "chrome/utility/shell_handler_impl_win.h"
 #endif
 
 #if defined(ENABLE_EXTENSIONS)
@@ -67,19 +69,14 @@ void ReleaseProcessIfNeeded() {
 
 #if !defined(OS_ANDROID)
 void CreateProxyResolverFactory(
-    mojo::InterfaceRequest<net::interfaces::ProxyResolverFactory> request) {
-  // MojoProxyResolverFactoryImpl is strongly bound to the Mojo message pipe it
-  // is connected to. When that message pipe is closed, either explicitly on the
-  // other end (in the browser process), or by a connection error, this object
-  // will be destroyed.
-  new net::MojoProxyResolverFactoryImpl(std::move(request));
+    net::interfaces::ProxyResolverFactoryRequest request) {
+  mojo::MakeStrongBinding(base::MakeUnique<net::MojoProxyResolverFactoryImpl>(),
+                          std::move(request));
 }
 
 class ResourceUsageReporterImpl : public mojom::ResourceUsageReporter {
  public:
-  explicit ResourceUsageReporterImpl(
-      mojo::InterfaceRequest<mojom::ResourceUsageReporter> req)
-      : binding_(this, std::move(req)) {}
+  ResourceUsageReporterImpl() {}
   ~ResourceUsageReporterImpl() override {}
 
  private:
@@ -93,19 +90,19 @@ class ResourceUsageReporterImpl : public mojom::ResourceUsageReporter {
     }
     callback.Run(std::move(data));
   }
-
-  mojo::StrongBinding<mojom::ResourceUsageReporter> binding_;
 };
 
 void CreateResourceUsageReporter(
     mojo::InterfaceRequest<mojom::ResourceUsageReporter> request) {
-  new ResourceUsageReporterImpl(std::move(request));
+  mojo::MakeStrongBinding(base::MakeUnique<ResourceUsageReporterImpl>(),
+                          std::move(request));
 }
-#endif  // OS_ANDROID
+#endif  // !defined(OS_ANDROID)
 
 void CreateImageDecoder(mojo::InterfaceRequest<mojom::ImageDecoder> request) {
   content::UtilityThread::Get()->EnsureBlinkInitialized();
-  new ImageDecoderImpl(std::move(request));
+  mojo::MakeStrongBinding(base::MakeUnique<ImageDecoderImpl>(),
+                          std::move(request));
 }
 
 }  // namespace
@@ -127,7 +124,7 @@ ChromeContentUtilityClient::ChromeContentUtilityClient()
 #endif
 
 #if defined(OS_WIN)
-  handlers_.push_back(new ShellHandler());
+  handlers_.push_back(new IPCShellHandler());
 #endif
 }
 
@@ -151,8 +148,10 @@ void ChromeContentUtilityClient::UtilityThreadStarted() {
 
 bool ChromeContentUtilityClient::OnMessageReceived(
     const IPC::Message& message) {
-  if (filter_messages_ && !ContainsKey(message_id_whitelist_, message.type()))
+  if (filter_messages_ &&
+      !base::ContainsKey(message_id_whitelist_, message.type())) {
     return false;
+  }
 
   bool handled = true;
   IPC_BEGIN_MESSAGE_MAP(ChromeContentUtilityClient, message)
@@ -177,7 +176,7 @@ bool ChromeContentUtilityClient::OnMessageReceived(
   if (handled)
     return true;
 
-  for (const auto& handler : handlers_) {
+  for (auto* handler : handlers_) {
     // At least one of the utility process handlers adds a new handler to
     // |handlers_| when it handles a message. This causes any iterator over
     // |handlers_| to become invalid. Therefore, it is necessary to break the
@@ -209,6 +208,9 @@ void ChromeContentUtilityClient::ExposeInterfacesToBrowser(
   registry->AddInterface(base::Bind(&CreateImageDecoder));
   registry->AddInterface(
       base::Bind(&safe_json::SafeJsonParserMojoImpl::Create));
+#if defined(OS_WIN)
+  registry->AddInterface(base::Bind(&ShellHandlerImpl::Create));
+#endif
 }
 
 void ChromeContentUtilityClient::AddHandler(
@@ -262,9 +264,9 @@ void ChromeContentUtilityClient::OnPatchFileBsdiff(
   if (input_file.empty() || patch_file.empty() || output_file.empty()) {
     Send(new ChromeUtilityHostMsg_PatchFile_Finished(-1));
   } else {
-    const int patch_status = courgette::ApplyBinaryPatch(input_file,
-                                                         patch_file,
-                                                         output_file);
+    const int patch_status = bsdiff::ApplyBinaryPatch(input_file,
+                                                      patch_file,
+                                                      output_file);
     Send(new ChromeUtilityHostMsg_PatchFile_Finished(patch_status));
   }
   ReleaseProcessIfNeeded();

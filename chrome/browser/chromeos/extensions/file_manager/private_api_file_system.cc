@@ -11,6 +11,7 @@
 #include <utility>
 #include <vector>
 
+#include "base/files/file_util.h"
 #include "base/memory/ptr_util.h"
 #include "base/memory/weak_ptr.h"
 #include "base/posix/eintr_wrapper.h"
@@ -81,29 +82,6 @@ void GetSizeStatsOnBlockingPool(const base::FilePath& mount_path,
   size = base::SysInfo::AmountOfFreeDiskSpace(mount_path);
   if (size >= 0)
     *remaining_size = size;
-}
-
-// Used for OnCalculateEvictableCacheSize.
-using GetSizeStatsCallback =
-    base::Callback<void(const uint64_t* total_size,
-                        const uint64_t* remaining_space)>;
-
-// Calculates the real remaining size of Download volume and pass it to
-// GetSizeStatsCallback.
-void OnCalculateEvictableCacheSize(const GetSizeStatsCallback& callback,
-                                   uint64_t total_size,
-                                   uint64_t remaining_size,
-                                   int64_t evictable_cache_size) {
-  // For calculating real remaining size of Download volume
-  // - Adds evictable cache size since the space is available if they are
-  //   evicted.
-  // - Subtracts minimum free space of cryptohome since the space is not
-  //   available for file manager.
-  const uint64_t real_remaining_size =
-      std::max(static_cast<int64_t>(remaining_size + evictable_cache_size) -
-                   cryptohome::kMinFreeSpaceInBytes,
-               int64_t(0));
-  callback.Run(&total_size, &real_remaining_size);
 }
 
 // Retrieves the maximum file name length of the file system of |path|.
@@ -303,7 +281,7 @@ ExtensionFunction::ResponseAction FileManagerPrivateGrantAccessFunction::Run() {
 
   const std::vector<Profile*>& profiles =
       g_browser_process->profile_manager()->GetLoadedProfiles();
-  for (const auto& profile : profiles) {
+  for (auto* profile : profiles) {
     if (profile->IsOffTheRecord())
       continue;
     const GURL site = util::GetSiteForExtensionId(extension_id(), profile);
@@ -472,32 +450,10 @@ bool FileManagerPrivateGetSizeStatsFunction::RunAsync() {
     BrowserThread::PostBlockingPoolTaskAndReply(
         FROM_HERE, base::Bind(&GetSizeStatsOnBlockingPool, volume->mount_path(),
                               total_size, remaining_size),
-        base::Bind(
-            &FileManagerPrivateGetSizeStatsFunction::OnGetLocalSpace, this,
-            base::Owned(total_size), base::Owned(remaining_size),
-            volume->type() == file_manager::VOLUME_TYPE_DOWNLOADS_DIRECTORY));
+        base::Bind(&FileManagerPrivateGetSizeStatsFunction::OnGetSizeStats,
+                   this, base::Owned(total_size), base::Owned(remaining_size)));
   }
   return true;
-}
-
-void FileManagerPrivateGetSizeStatsFunction::OnGetLocalSpace(
-    uint64_t* total_size,
-    uint64_t* remaining_size,
-    bool is_download) {
-  drive::FileSystemInterface* const file_system =
-      drive::util::GetFileSystemByProfile(GetProfile());
-
-  if (!is_download || !file_system) {
-    OnGetSizeStats(total_size, remaining_size);
-    return;
-  }
-
-  // We need to add evictable cache size to the remaining size of Downloads
-  // volume if drive is available.
-  file_system->CalculateEvictableCacheSize(base::Bind(
-      &OnCalculateEvictableCacheSize,
-      base::Bind(&FileManagerPrivateGetSizeStatsFunction::OnGetSizeStats, this),
-      *total_size, *remaining_size));
 }
 
 void FileManagerPrivateGetSizeStatsFunction::OnGetDriveAvailableSpace(
@@ -642,7 +598,7 @@ bool FileManagerPrivateInternalStartCopyFunction::RunAsync() {
 
   // |parent| may have a trailing slash if it is a root directory.
   std::string destination_url_string = params->parent_url;
-  if (destination_url_string[destination_url_string.size() - 1] != '/')
+  if (destination_url_string.back() != '/')
     destination_url_string += '/';
   destination_url_string += net::EscapePath(params->new_name);
 
@@ -845,7 +801,7 @@ bool FileManagerPrivateInternalComputeChecksumFunction::RunAsync() {
   EXTENSION_FUNCTION_VALIDATE(params);
 
   if (params->url.empty()) {
-    SetError("File URL must be provided");
+    SetError("File URL must be provided.");
     return false;
   }
 
@@ -929,8 +885,7 @@ void FileManagerPrivateSearchFilesByHashesFunction::OnSearchByHashes(
 
   std::unique_ptr<base::DictionaryValue> result(new base::DictionaryValue());
   for (const auto& hash : hashes) {
-    result->SetWithoutPathExpansion(hash,
-                                    base::WrapUnique(new base::ListValue()));
+    result->SetWithoutPathExpansion(hash, base::MakeUnique<base::ListValue>());
   }
 
   for (const auto& hashAndPath : search_results) {
@@ -999,6 +954,54 @@ void FileManagerPrivateInternalSetEntryTagFunction::OnSetEntryPropertyCompleted(
     drive::FileError result) {
   Respond(result == drive::FILE_ERROR_OK ? NoArguments()
                                          : Error("Failed to set a tag."));
+}
+
+bool FileManagerPrivateInternalGetDirectorySizeFunction::RunAsync() {
+  using extensions::api::file_manager_private_internal::GetDirectorySize::
+      Params;
+  const std::unique_ptr<Params> params(Params::Create(*args_));
+  EXTENSION_FUNCTION_VALIDATE(params);
+
+  if (params->url.empty()) {
+    SetError("File URL must be provided.");
+    return false;
+  }
+
+  scoped_refptr<storage::FileSystemContext> file_system_context =
+      file_manager::util::GetFileSystemContextForRenderFrameHost(
+          GetProfile(), render_frame_host());
+  const storage::FileSystemURL file_system_url(
+      file_system_context->CrackURL(GURL(params->url)));
+  if (!chromeos::FileSystemBackend::CanHandleURL(file_system_url)) {
+    SetError("FileSystemBackend failed to handle the entry's url.");
+    return false;
+  }
+  if (file_system_url.type() != storage::kFileSystemTypeNativeLocal) {
+    SetError("Only local directories are supported.");
+    return false;
+  }
+
+  const base::FilePath root_path = file_manager::util::GetLocalPathFromURL(
+      render_frame_host(), GetProfile(), GURL(params->url));
+  if (root_path.empty()) {
+    SetError("Failed to get a local path from the entry's url.");
+    return false;
+  }
+
+  base::PostTaskAndReplyWithResult(
+      BrowserThread::GetBlockingPool(), FROM_HERE,
+      base::Bind(&base::ComputeDirectorySize, root_path),
+      base::Bind(&FileManagerPrivateInternalGetDirectorySizeFunction::
+                     OnDirectorySizeRetrieved,
+                 this));
+  return true;
+}
+
+void FileManagerPrivateInternalGetDirectorySizeFunction::
+    OnDirectorySizeRetrieved(int64_t size) {
+  SetResult(
+      base::MakeUnique<base::FundamentalValue>(static_cast<double>(size)));
+  SendResponse(true);
 }
 
 }  // namespace extensions

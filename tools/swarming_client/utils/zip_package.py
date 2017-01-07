@@ -1,6 +1,6 @@
-# Copyright 2013 The Swarming Authors. All rights reserved.
-# Use of this source code is governed under the Apache License, Version 2.0 that
-# can be found in the LICENSE file.
+# Copyright 2013 The LUCI Authors. All rights reserved.
+# Use of this source code is governed under the Apache License, Version 2.0
+# that can be found in the LICENSE file.
 
 """Utilities to work with importable python zip packages."""
 
@@ -33,6 +33,18 @@ EXCLUDE_LIST = (
 # Temporary files extracted by extract_resource. Removed in atexit hook.
 _extracted_files = []
 _extracted_files_lock = threading.Lock()
+
+
+# Patch zipimport.zipimporter hook to accept unicode strings
+def zipimporter_unicode(archivepath):
+  if isinstance(archivepath, unicode):
+    archivepath = archivepath.encode(sys.getfilesystemencoding())
+  return zipimport.zipimporter(archivepath)
+
+
+for i, hook in enumerate(sys.path_hooks):
+  if hook is zipimport.zipimporter:
+    sys.path_hooks[i] = zipimporter_unicode
 
 
 class ZipPackageError(RuntimeError):
@@ -238,7 +250,13 @@ def get_main_script_path():
   """
   # If running from interactive console __file__ is not defined.
   main = sys.modules['__main__']
-  return get_module_zip_archive(main) or getattr(main, '__file__', None)
+  path = get_module_zip_archive(main)
+  if path:
+    return path
+
+  path = getattr(main, '__file__', None)
+  if path:
+    return path.decode(sys.getfilesystemencoding())
 
 
 def _write_temp_data(name, data, temp_dir):
@@ -279,7 +297,8 @@ def extract_resource(package, resource, temp_dir=None):
   # For regular non-zip packages just construct an absolute path.
   if not is_zipped_module(package):
     # Package's __file__ attribute is always an absolute path.
-    path = os.path.join(os.path.dirname(package.__file__),
+    ppath = package.__file__.decode(sys.getfilesystemencoding())
+    path = os.path.join(os.path.dirname(ppath),
         resource.replace('/', os.sep))
     if not os.path.exists(path):
       raise ValueError('No such resource in %s: %s' % (package, resource))

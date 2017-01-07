@@ -1,8 +1,8 @@
 #!/usr/bin/env python
 # coding=utf-8
-# Copyright 2012 The Swarming Authors. All rights reserved.
-# Use of this source code is governed under the Apache License, Version 2.0 that
-# can be found in the LICENSE file.
+# Copyright 2012 The LUCI Authors. All rights reserved.
+# Use of this source code is governed under the Apache License, Version 2.0
+# that can be found in the LICENSE file.
 
 import StringIO
 import logging
@@ -10,11 +10,12 @@ import os
 import sys
 import unittest
 
-BASE_DIR = unicode(os.path.dirname(os.path.abspath(__file__)))
+BASE_DIR = os.path.dirname(os.path.abspath(
+    __file__.decode(sys.getfilesystemencoding())))
 ROOT_DIR = os.path.dirname(BASE_DIR)
 sys.path.insert(0, ROOT_DIR)
 
-FILE_PATH = unicode(os.path.abspath(__file__))
+FILE_PATH = os.path.abspath(__file__.decode(sys.getfilesystemencoding()))
 
 import trace_inputs
 
@@ -121,7 +122,7 @@ if sys.platform != 'win32':
   class StraceInputs(unittest.TestCase):
     # Represents the root process pid (an arbitrary number).
     _ROOT_PID = 27
-    _CHILD_PID = 14
+    _CHILD_PID = 24
     _GRAND_CHILD_PID = 70
 
     @staticmethod
@@ -237,7 +238,8 @@ if sys.platform != 'win32':
             '|CLONE_CHILD_SETTID|SIGCHLD, child_tidptr=0x7f5350f829d0) = %d' %
             self._GRAND_CHILD_PID),
         (self._GRAND_CHILD_PID,
-          'open("%s", O_RDONLY)       = 76' % os.path.basename(str(FILE_PATH))),
+          'open("%s", O_RDONLY)       = 76' % os.path.basename(
+              FILE_PATH.encode('utf-8'))),
       ]
       size = os.stat(FILE_PATH).st_size
       expected = {
@@ -462,6 +464,7 @@ if sys.platform != 'win32':
     def test_futex_missing_in_partial_action_with_no_process(self):
       # That's how futex() calls roll even more (again).
       lines = [
+          (self._ROOT_PID, 'syscall_317(0, 0, 0, 0, 0, 0) = 0'),
           (self._ROOT_PID, 'futex(0x7134840, FUTEX_WAIT_PRIVATE, 2, '
            'NULL <ptrace(SYSCALL):No such process>'),
       ]
@@ -475,7 +478,7 @@ if sys.platform != 'win32':
            'pid': self._ROOT_PID,
          },
        }
-      self.assertContext(lines, ROOT_DIR, expected, True)
+      self.assertContext(lines, ROOT_DIR, expected, False)
 
     def test_getcwd(self):
       lines = [

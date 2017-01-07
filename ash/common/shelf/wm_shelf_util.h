@@ -6,11 +6,12 @@
 #define ASH_COMMON_SHELF_WM_SHELF_UTIL_H_
 
 #include "ash/ash_export.h"
-#include "ash/common/shelf/shelf_types.h"
+#include "ash/public/cpp/shelf_types.h"
 
 namespace ash {
 
 // Returns true if the shelf |alignment| is horizontal.
+// TODO(jamescook): Remove this in favor of WmShelf::IsHorizontalAlignment().
 ASH_EXPORT bool IsHorizontalAlignment(ShelfAlignment alignment);
 
 }  // namespace ash

@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <memory>
+#include <utility>
 
 #include "base/base_switches.h"
 #include "base/command_line.h"
@@ -26,7 +27,6 @@
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/chrome_switches.h"
 #include "components/cloud_devices/common/cloud_devices_switches.h"
-#include "components/network_session_configurator/switches.h"
 #include "components/version_info/version_info.h"
 #include "content/public/common/content_paths.h"
 #include "content/public/common/content_switches.h"
@@ -79,13 +79,13 @@ ServiceProcessRunningState GetServiceProcessRunningState(
   if (service_version_out)
     *service_version_out = version;
 
-  Version service_version(version);
+  base::Version service_version(version);
   // If the version string is invalid, treat it like an older version.
   if (!service_version.IsValid())
     return SERVICE_OLDER_VERSION_RUNNING;
 
   // Get the version of the currently *running* instance of Chrome.
-  Version running_version(version_info::GetVersionNumber());
+  base::Version running_version(version_info::GetVersionNumber());
   if (!running_version.IsValid()) {
     NOTREACHED() << "Failed to parse version info";
     // Our own version is invalid. This is an error case. Pretend that we
@@ -276,7 +276,7 @@ bool ServiceProcessState::CreateSharedData() {
          version_info::GetVersionNumber().c_str(),
          version_info::GetVersionNumber().length());
   shared_data->service_process_pid = base::GetCurrentProcId();
-  shared_mem_service_data_.reset(shared_mem_service_data.release());
+  shared_mem_service_data_ = std::move(shared_mem_service_data);
   return true;
 }
 

@@ -7,7 +7,7 @@
 #include "base/bind.h"
 #include "base/values.h"
 #include "chrome/browser/ui/signin_view_controller.h"
-#include "chrome/browser/ui/webui/signin/get_auth_frame.h"
+#include "chrome/browser/ui/webui/signin/signin_utils.h"
 #include "content/public/browser/web_contents.h"
 
 namespace {
@@ -35,12 +35,10 @@ void SigninViewControllerDelegate::CloseModalSignin() {
 }
 
 void SigninViewControllerDelegate::PerformNavigation() {
-  if (CanGoBack(web_contents_)) {
-    auto auth_web_contents = GetAuthFrameWebContents(web_contents_);
-    auth_web_contents->GetController().GoBack();
-  } else {
+  if (CanGoBack(web_contents_))
+    GetAuthFrameWebContents(web_contents_)->GetController().GoBack();
+  else
     CloseModalSignin();
-  }
 }
 
 bool SigninViewControllerDelegate::HandleContextMenu(
@@ -70,6 +68,6 @@ void SigninViewControllerDelegate::LoadingStateChanged(
 
 bool SigninViewControllerDelegate::CanGoBack(
     content::WebContents* web_ui_web_contents) const {
-  auto auth_web_contents = GetAuthFrameWebContents(web_ui_web_contents);
+  auto* auth_web_contents = GetAuthFrameWebContents(web_ui_web_contents);
   return auth_web_contents && auth_web_contents->GetController().CanGoBack();
 }

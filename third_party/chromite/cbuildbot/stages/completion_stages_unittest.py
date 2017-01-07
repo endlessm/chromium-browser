@@ -133,6 +133,7 @@ class MasterSlaveSyncCompletionStageMockConfigTest(
         build_type=self.build_type,
         master=True,
         manifest_version=True,
+        active_waterfall=constants.WATERFALL_INTERNAL,
     )
     test_config.Add(
         'test1',
@@ -146,6 +147,7 @@ class MasterSlaveSyncCompletionStageMockConfigTest(
         branch=False,
         internal=False,
         master=False,
+        active_waterfall=constants.WATERFALL_INTERNAL,
     )
     test_config.Add(
         'test2',
@@ -159,6 +161,7 @@ class MasterSlaveSyncCompletionStageMockConfigTest(
         branch=False,
         internal=False,
         master=False,
+        active_waterfall=constants.WATERFALL_INTERNAL,
     )
     test_config.Add(
         'test3',
@@ -172,6 +175,7 @@ class MasterSlaveSyncCompletionStageMockConfigTest(
         branch=False,
         internal=True,
         master=False,
+        active_waterfall=constants.WATERFALL_INTERNAL,
     )
     test_config.Add(
         'test4',
@@ -185,6 +189,7 @@ class MasterSlaveSyncCompletionStageMockConfigTest(
         branch=True,
         internal=True,
         master=False,
+        active_waterfall=constants.WATERFALL_INTERNAL,
     )
     test_config.Add(
         'test5',
@@ -198,6 +203,7 @@ class MasterSlaveSyncCompletionStageMockConfigTest(
         branch=False,
         internal=False,
         master=False,
+        active_waterfall=constants.WATERFALL_INTERNAL,
     )
     return test_config
 
@@ -736,7 +742,7 @@ class PublishUprevChangesStageTest(
                      '_ExtractOverlays', return_value=[['foo'], ['bar']])
     self.PatchObject(prebuilts.BinhostConfWriter, 'Perform')
     self.push_mock = self.PatchObject(commands, 'UprevPush')
-    self.build_type = constants.PFQ_TYPE
+    self.build_type = constants.CHROME_PFQ_TYPE
 
     self._Prepare()
 
@@ -753,6 +759,9 @@ class PublishUprevChangesStageTest(
     self.RunStage()
     self.push_mock.assert_called_once_with(self.build_root, ['bar'], False,
                                            staging_branch=None)
+    self.assertTrue(self._run.attrs.metadata.GetValue('UprevvedChrome'))
+    metadata_dict = self._run.attrs.metadata.GetDict()
+    self.assertFalse(metadata_dict.has_key('UprevvedAndroid'))
 
   def testCheckSlaveUploadPrebuiltsTest(self):
     """Tests for CheckSlaveUploadPrebuiltsTest."""
@@ -813,3 +822,20 @@ class PublishUprevChangesStageTest(
     # No stage information for slave_c
     self.assertFalse(stage.CheckSlaveUploadPrebuiltsTest(
         mock_cidb, build_id))
+
+  def testAndroidPush(self):
+    """Test values for PublishUprevChanges with Android PFQ."""
+    self.build_type = constants.ANDROID_PFQ_TYPE
+    self._Prepare(bot_id='master-android-pfq',
+                  extra_config={'build_type': constants.BUILD_FROM_SOURCE_TYPE,
+                                'push_overlays': constants.PUBLIC_OVERLAYS,
+                                'master': True},
+                  extra_cmd_args=['--android_rev',
+                                  constants.ANDROID_REV_LATEST])
+    self._run.options.prebuilts = True
+    self.RunStage()
+    self.push_mock.assert_called_once_with(self.build_root, ['bar'], False,
+                                           staging_branch=None)
+    self.assertTrue(self._run.attrs.metadata.GetValue('UprevvedAndroid'))
+    metadata_dict = self._run.attrs.metadata.GetDict()
+    self.assertFalse(metadata_dict.has_key('UprevvedChrome'))

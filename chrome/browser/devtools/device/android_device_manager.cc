@@ -444,20 +444,16 @@ AndroidDeviceManager::Device::Device(
 }
 
 AndroidDeviceManager::Device::~Device() {
-  std::set<AndroidWebSocket*> sockets_copy(sockets_);
-  for (AndroidWebSocket* socket : sockets_copy)
-    socket->OnSocketClosed();
-
   provider_->AddRef();
   DeviceProvider* raw_ptr = provider_.get();
-  provider_ = NULL;
+  provider_ = nullptr;
   task_runner_->PostTask(FROM_HERE,
                          base::Bind(&ReleaseDeviceAndProvider,
                                     base::Unretained(raw_ptr), serial_));
 }
 
 AndroidDeviceManager::HandlerThread*
-AndroidDeviceManager::HandlerThread::instance_ = NULL;
+AndroidDeviceManager::HandlerThread::instance_ = nullptr;
 
 // static
 scoped_refptr<AndroidDeviceManager::HandlerThread>
@@ -476,24 +472,25 @@ AndroidDeviceManager::HandlerThread::HandlerThread() {
   options.message_loop_type = base::MessageLoop::TYPE_IO;
   if (!thread_->StartWithOptions(options)) {
     delete thread_;
-    thread_ = NULL;
+    thread_ = nullptr;
   }
 }
 
 scoped_refptr<base::SingleThreadTaskRunner>
 AndroidDeviceManager::HandlerThread::message_loop() {
-  return thread_ ? thread_->task_runner() : NULL;
+  return thread_ ? thread_->task_runner() : nullptr;
 }
 
 // static
 void AndroidDeviceManager::HandlerThread::StopThread(
     base::Thread* thread) {
   thread->Stop();
+  delete thread;
 }
 
 AndroidDeviceManager::HandlerThread::~HandlerThread() {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
-  instance_ = NULL;
+  instance_ = nullptr;
   if (!thread_)
     return;
   // Shut down thread on FILE thread to join into IO.
@@ -513,7 +510,7 @@ void AndroidDeviceManager::SetDeviceProviders(
       it != providers_.end(); ++it) {
     (*it)->AddRef();
     DeviceProvider* raw_ptr = it->get();
-    *it = NULL;
+    *it = nullptr;
     handler_thread_->message_loop()->ReleaseSoon(FROM_HERE, raw_ptr);
   }
   providers_ = providers;

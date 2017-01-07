@@ -31,11 +31,9 @@
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/test/base/ui_test_utils.h"
-#include "components/autofill/content/common/autofill_messages.h"
 #include "components/autofill/core/browser/autofill_test_utils.h"
 #include "components/autofill/core/browser/test_autofill_client.h"
 #include "components/autofill/core/common/password_form.h"
-#include "components/network_session_configurator/switches.h"
 #include "components/password_manager/content/browser/content_password_manager_driver.h"
 #include "components/password_manager/content/browser/content_password_manager_driver_factory.h"
 #include "components/password_manager/core/browser/login_model.h"
@@ -52,7 +50,6 @@
 #include "content/public/common/content_switches.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/test_utils.h"
-#include "ipc/ipc_security_test_util.h"
 #include "net/base/filename_util.h"
 #include "net/dns/mock_host_resolver.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
@@ -94,7 +91,7 @@ std::unique_ptr<net::test_server::HttpResponse> HandleTestAuthRequest(
                         base::CompareCase::SENSITIVE))
     return std::unique_ptr<net::test_server::HttpResponse>();
 
-  if (ContainsKey(request.headers, "Authorization")) {
+  if (base::ContainsKey(request.headers, "Authorization")) {
     std::unique_ptr<net::test_server::BasicHttpResponse> http_response(
         new net::test_server::BasicHttpResponse);
     http_response->set_code(net::HTTP_OK);
@@ -203,6 +200,28 @@ IN_PROC_BROWSER_TEST_F(PasswordManagerBrowserTestBase,
   NavigateToFile("/password/failed_input_outside.html");
   TestPromptNotShown("form with input outside", WebContents(),
                      RenderViewHost());
+}
+
+IN_PROC_BROWSER_TEST_F(PasswordManagerBrowserTestBase,
+                       NoPromptIfPasswordFormManagerDestroyed) {
+  NavigateToFile("/password/password_form.html");
+  // Simulate the Credential Manager API essentially destroying all the
+  // PasswordFormManager instances.
+  ChromePasswordManagerClient::FromWebContents(WebContents())
+      ->NotifyStorePasswordCalled();
+
+  // Fill a form and submit through a <input type="submit"> button. The renderer
+  // should not send "PasswordFormsParsed" messages after the page was loaded.
+  NavigationObserver observer(WebContents());
+  std::string fill_and_submit =
+      "document.getElementById('username_field').value = 'temp';"
+      "document.getElementById('password_field').value = 'random';"
+      "document.getElementById('input_submit_button').click()";
+  ASSERT_TRUE(content::ExecuteScript(RenderViewHost(), fill_and_submit));
+  observer.Wait();
+  std::unique_ptr<BubbleObserver> prompt_observer(
+      new BubbleObserver(WebContents()));
+  EXPECT_FALSE(prompt_observer->IsShowingSavePrompt());
 }
 
 IN_PROC_BROWSER_TEST_F(PasswordManagerBrowserTestBase,
@@ -828,7 +847,7 @@ IN_PROC_BROWSER_TEST_F(PasswordManagerBrowserTestBase,
   // Simulate a user click to force an autofill of the form's DOM value, not
   // just the suggested value.
   content::SimulateMouseClick(
-      WebContents(), 0, blink::WebMouseEvent::ButtonLeft);
+      WebContents(), 0, blink::WebMouseEvent::Button::Left);
 
   // The form should be filled with the previously submitted username.
   std::string get_username =
@@ -1069,7 +1088,7 @@ IN_PROC_BROWSER_TEST_F(PasswordManagerBrowserTestBase,
   CheckElementValue("password_field", "");
   // Let the user interact with the page.
   content::SimulateMouseClickAt(
-      WebContents(), 0, blink::WebMouseEvent::ButtonLeft, gfx::Point(1, 1));
+      WebContents(), 0, blink::WebMouseEvent::Button::Left, gfx::Point(1, 1));
   // Wait until that interaction causes the password value to be revealed.
   WaitForElementValue("password_field", "random");
   // And check that after the side-effects of the interaction took place, the
@@ -1269,9 +1288,8 @@ IN_PROC_BROWSER_TEST_F(PasswordManagerBrowserTestBase, NoLastLoadGoodLastLoad) {
   // WebContents, but don't wait for navigation, which only finishes after
   // authentication.
   ui_test_utils::NavigateToURLWithDisposition(
-      browser(),
-      embedded_test_server()->GetURL("/basic_auth"),
-      NEW_FOREGROUND_TAB,
+      browser(), embedded_test_server()->GetURL("/basic_auth"),
+      WindowOpenDisposition::NEW_FOREGROUND_TAB,
       ui_test_utils::BROWSER_TEST_WAIT_FOR_TAB);
 
   content::NavigationController* nav_controller =
@@ -1616,12 +1634,11 @@ IN_PROC_BROWSER_TEST_F(PasswordManagerBrowserTestBase,
       password_manager::ContentPasswordManagerDriverFactory::FromWebContents(
           WebContents());
   ObservingAutofillClient observing_autofill_client;
-  driver_factory->TestingSetDriverForFrame(
-      RenderViewHost()->GetMainFrame(),
-      base::WrapUnique(new password_manager::ContentPasswordManagerDriver(
-          RenderViewHost()->GetMainFrame(),
-          ChromePasswordManagerClient::FromWebContents(WebContents()),
-          &observing_autofill_client)));
+  password_manager::ContentPasswordManagerDriver* driver =
+      driver_factory->GetDriverForFrame(RenderViewHost()->GetMainFrame());
+  DCHECK(driver);
+  driver->GetPasswordAutofillManager()->set_autofill_client(
+      &observing_autofill_client);
 
   NavigateToFile("/password/password_form.html");
 
@@ -1662,7 +1679,7 @@ IN_PROC_BROWSER_TEST_F(PasswordManagerBrowserTestBase,
       &left));
 
   content::SimulateMouseClickAt(
-      WebContents(), 0, blink::WebMouseEvent::ButtonLeft, gfx::Point(left + 1,
+      WebContents(), 0, blink::WebMouseEvent::Button::Left, gfx::Point(left + 1,
                                                                      top + 1));
   // Make sure the popup would be shown.
   observing_autofill_client.Wait();
@@ -1909,7 +1926,7 @@ IN_PROC_BROWSER_TEST_F(PasswordManagerBrowserTestBase,
       &left));
 
   content::SimulateMouseClickAt(
-      WebContents(), 0, blink::WebMouseEvent::ButtonLeft, gfx::Point(left + 1,
+      WebContents(), 0, blink::WebMouseEvent::Button::Left, gfx::Point(left + 1,
                                                                      top + 1));
   // Verify username is not autofilled
   ASSERT_TRUE(content::ExecuteScriptAndExtractString(
@@ -1974,7 +1991,7 @@ IN_PROC_BROWSER_TEST_F(PasswordManagerBrowserTestBase,
       &left));
 
   content::SimulateMouseClickAt(
-      WebContents(), 0, blink::WebMouseEvent::ButtonLeft, gfx::Point(left + 1,
+      WebContents(), 0, blink::WebMouseEvent::Button::Left, gfx::Point(left + 1,
                                                                      top + 1));
   // Verify password has been autofilled
   WaitForElementValue("iframe", "password_field", "pa55w0rd");
@@ -2032,20 +2049,21 @@ IN_PROC_BROWSER_TEST_F(PasswordManagerBrowserTestBase,
   EXPECT_NE(main_site_instance, iframe_site_instance);
   EXPECT_NE(main_frame->GetProcess(), iframe->GetProcess());
 
+  content::RenderProcessHostWatcher iframe_killed(
+      iframe->GetProcess(),
+      content::RenderProcessHostWatcher::WATCH_FOR_PROCESS_EXIT);
+
   // Try to get cross-site passwords from the subframe's process and wait for it
   // to be killed.
   std::vector<autofill::PasswordForm> password_forms;
   password_forms.push_back(autofill::PasswordForm());
   password_forms.back().origin = main_frame_url;
-  AutofillHostMsg_PasswordFormsParsed illegal_forms_parsed(
-      iframe->GetRoutingID(), password_forms);
-
-  content::RenderProcessHostWatcher iframe_killed(
-      iframe->GetProcess(),
-      content::RenderProcessHostWatcher::WATCH_FOR_PROCESS_EXIT);
-
-  IPC::IpcSecurityTestUtil::PwnMessageReceived(
-      iframe->GetProcess()->GetChannel(), illegal_forms_parsed);
+  ContentPasswordManagerDriverFactory* factory =
+      ContentPasswordManagerDriverFactory::FromWebContents(WebContents());
+  EXPECT_TRUE(factory);
+  ContentPasswordManagerDriver* driver = factory->GetDriverForFrame(iframe);
+  EXPECT_TRUE(driver);
+  driver->PasswordFormsParsed(password_forms);
 
   iframe_killed.Wait();
 }
@@ -2278,7 +2296,7 @@ IN_PROC_BROWSER_TEST_F(
   // Let the user interact with the page, so that DOM gets modification events,
   // needed for autofilling fields.
   content::SimulateMouseClickAt(
-      WebContents(), 0, blink::WebMouseEvent::ButtonLeft, gfx::Point(1, 1));
+      WebContents(), 0, blink::WebMouseEvent::Button::Left, gfx::Point(1, 1));
 
   std::string get_username =
       "window.domAutomationController.send("
@@ -2326,7 +2344,7 @@ IN_PROC_BROWSER_TEST_F(
   // Let the user interact with the page, so that DOM gets modification events,
   // needed for autofilling fields.
   content::SimulateMouseClickAt(
-      WebContents(), 0, blink::WebMouseEvent::ButtonLeft, gfx::Point(1, 1));
+      WebContents(), 0, blink::WebMouseEvent::Button::Left, gfx::Point(1, 1));
 
   std::string get_username =
       "window.domAutomationController.send("
@@ -2373,7 +2391,7 @@ IN_PROC_BROWSER_TEST_F(PasswordManagerBrowserTestBase,
   // Let the user interact with the page, so that DOM gets modification events,
   // needed for autofilling fields.
   content::SimulateMouseClickAt(
-      WebContents(), 0, blink::WebMouseEvent::ButtonLeft, gfx::Point(1, 1));
+      WebContents(), 0, blink::WebMouseEvent::Button::Left, gfx::Point(1, 1));
 
   std::string get_username =
       "window.domAutomationController.send("
@@ -2433,7 +2451,7 @@ IN_PROC_BROWSER_TEST_F(
   // Let the user interact with the page, so that DOM gets modification events,
   // needed for autofilling fields.
   content::SimulateMouseClickAt(
-      WebContents(), 0, blink::WebMouseEvent::ButtonLeft, gfx::Point(1, 1));
+      WebContents(), 0, blink::WebMouseEvent::Button::Left, gfx::Point(1, 1));
 
   std::string get_username =
       "window.domAutomationController.send("
@@ -2490,7 +2508,7 @@ IN_PROC_BROWSER_TEST_F(
   // Let the user interact with the page, so that DOM gets modification events,
   // needed for autofilling fields.
   content::SimulateMouseClickAt(
-      WebContents(), 0, blink::WebMouseEvent::ButtonLeft, gfx::Point(1, 1));
+      WebContents(), 0, blink::WebMouseEvent::Button::Left, gfx::Point(1, 1));
 
   std::string get_username =
       "window.domAutomationController.send("
@@ -2565,8 +2583,8 @@ IN_PROC_BROWSER_TEST_F(PasswordManagerBrowserTestBase,
       &WebContents()->GetController();
   WindowedAuthNeededObserver auth_needed_observer(nav_controller);
   ui_test_utils::NavigateToURLWithDisposition(
-      browser(), embedded_test_server()->GetURL("/basic_auth"), CURRENT_TAB,
-      ui_test_utils::BROWSER_TEST_NONE);
+      browser(), embedded_test_server()->GetURL("/basic_auth"),
+      WindowOpenDisposition::CURRENT_TAB, ui_test_utils::BROWSER_TEST_NONE);
   auth_needed_observer.Wait();
 
   // The auth dialog caused a query to PasswordStore, make sure it was
@@ -2608,7 +2626,7 @@ IN_PROC_BROWSER_TEST_F(PasswordManagerBrowserTestBase,
   // Let the user interact with the page, so that DOM gets modification events,
   // needed for autofilling fields.
   content::SimulateMouseClickAt(
-      WebContents(), 0, blink::WebMouseEvent::ButtonLeft, gfx::Point(1, 1));
+      WebContents(), 0, blink::WebMouseEvent::Button::Left, gfx::Point(1, 1));
 
   std::string get_username =
       "window.domAutomationController.send("
@@ -2655,7 +2673,7 @@ IN_PROC_BROWSER_TEST_F(PasswordManagerBrowserTestBase,
   // Let the user interact with the page, so that DOM gets modification events,
   // needed for autofilling fields.
   content::SimulateMouseClickAt(
-      WebContents(), 0, blink::WebMouseEvent::ButtonLeft, gfx::Point(1, 1));
+      WebContents(), 0, blink::WebMouseEvent::Button::Left, gfx::Point(1, 1));
 
   std::string get_username =
       "window.domAutomationController.send("
@@ -2702,7 +2720,7 @@ IN_PROC_BROWSER_TEST_F(PasswordManagerBrowserTestBase,
   // Let the user interact with the page, so that DOM gets modification events,
   // needed for autofilling fields.
   content::SimulateMouseClickAt(
-      WebContents(), 0, blink::WebMouseEvent::ButtonLeft, gfx::Point(1, 1));
+      WebContents(), 0, blink::WebMouseEvent::Button::Left, gfx::Point(1, 1));
 
   std::string get_username =
       "window.domAutomationController.send("
@@ -2721,37 +2739,63 @@ IN_PROC_BROWSER_TEST_F(PasswordManagerBrowserTestBase,
   EXPECT_EQ("mypassword", actual_password);
 }
 
-// Check that the internals page contains logs both from the renderer and the
-// browser.
-IN_PROC_BROWSER_TEST_F(PasswordManagerBrowserTestBase, InternalsPage) {
+// Check that the internals page contains logs from the renderer.
+IN_PROC_BROWSER_TEST_F(PasswordManagerBrowserTestBase, InternalsPage_Renderer) {
+  // Open the internals page.
   ui_test_utils::NavigateToURLWithDisposition(
-      browser(), GURL("chrome://password-manager-internals"), CURRENT_TAB,
+      browser(), GURL("chrome://password-manager-internals"),
+      WindowOpenDisposition::CURRENT_TAB,
+      ui_test_utils::BROWSER_TEST_WAIT_FOR_NAVIGATION);
+  content::WebContents* internals_web_contents = WebContents();
+
+  // Open some page with a HTML form.
+  ui_test_utils::NavigateToURLWithDisposition(
+      browser(), embedded_test_server()->GetURL("/password/password_form.html"),
+      WindowOpenDisposition::NEW_FOREGROUND_TAB,
+      ui_test_utils::BROWSER_TEST_WAIT_FOR_NAVIGATION);
+  content::WebContents* forms_web_contents = WebContents();
+
+  // The renderer queries the availability of logging on start-up. However, it
+  // can take too long to propagate that message from the browser back to the
+  // renderer. The renderer might have attempted logging in the meantime.
+  // Therefore the page with the form is reloaded to increase the likelihood
+  // that the availability query was answered before the logging during page
+  // load.
+  NavigationObserver observer(forms_web_contents);
+  forms_web_contents->ReloadFocusedFrame(false);
+  observer.Wait();
+
+  std::string find_logs =
+      "var text = document.getElementById('log-entries').innerText;"
+      "var logs_found = /PasswordAutofillAgent::/.test(text);"
+      "window.domAutomationController.send(logs_found);";
+  bool logs_found = false;
+  ASSERT_TRUE(content::ExecuteScriptAndExtractBool(
+      internals_web_contents->GetRenderViewHost(), find_logs, &logs_found));
+  EXPECT_TRUE(logs_found);
+}
+
+// Check that the internals page contains logs from the browser.
+IN_PROC_BROWSER_TEST_F(PasswordManagerBrowserTestBase, InternalsPage_Browser) {
+  ui_test_utils::NavigateToURLWithDisposition(
+      browser(), GURL("chrome://password-manager-internals"),
+      WindowOpenDisposition::CURRENT_TAB,
       ui_test_utils::BROWSER_TEST_WAIT_FOR_NAVIGATION);
   content::WebContents* internals_web_contents = WebContents();
 
   ui_test_utils::NavigateToURLWithDisposition(
       browser(), embedded_test_server()->GetURL("/password/password_form.html"),
-      NEW_FOREGROUND_TAB, ui_test_utils::BROWSER_TEST_WAIT_FOR_NAVIGATION);
+      WindowOpenDisposition::NEW_FOREGROUND_TAB,
+      ui_test_utils::BROWSER_TEST_WAIT_FOR_NAVIGATION);
 
-  std::string find_renderer_logs =
-      "var text = document.getElementById('log-entries').innerText;"
-      "var logs_found = /PasswordAutofillAgent::/.test(text);"
-      "window.domAutomationController.send(logs_found);";
-  bool renderer_logs_found;
-  ASSERT_TRUE(content::ExecuteScriptAndExtractBool(
-      internals_web_contents->GetRenderViewHost(), find_renderer_logs,
-      &renderer_logs_found));
-  EXPECT_TRUE(renderer_logs_found);
-
-  std::string find_browser_logs =
+  std::string find_logs =
       "var text = document.getElementById('log-entries').innerText;"
       "var logs_found = /PasswordManager::/.test(text);"
       "window.domAutomationController.send(logs_found);";
-  bool browser_logs_found;
+  bool logs_found = false;
   ASSERT_TRUE(content::ExecuteScriptAndExtractBool(
-      internals_web_contents->GetRenderViewHost(), find_browser_logs,
-      &browser_logs_found));
-  EXPECT_TRUE(browser_logs_found);
+      internals_web_contents->GetRenderViewHost(), find_logs, &logs_found));
+  EXPECT_TRUE(logs_found);
 }
 
 // Tests that submitted credentials are saved on a password form without
@@ -3020,7 +3064,7 @@ IN_PROC_BROWSER_TEST_F(PasswordManagerBrowserTestBase, ReattachWebContents) {
   // frame.
   EXPECT_LT(1u, detached_web_contents->GetAllFrames().size());
 
-  auto tab_strip_model = browser()->tab_strip_model();
+  auto* tab_strip_model = browser()->tab_strip_model();
   // Check that the autofill and password manager driver factories are notified
   // about all frames, not just the main one. The factories should receive
   // messages for non-main frames, in particular

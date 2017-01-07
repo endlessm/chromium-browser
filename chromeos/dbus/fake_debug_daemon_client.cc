@@ -15,9 +15,9 @@
 #include "base/command_line.h"
 #include "base/location.h"
 #include "base/single_thread_task_runner.h"
+#include "base/stl_util.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "chromeos/chromeos_switches.h"
-#include "dbus/file_descriptor.h"
 
 namespace {
 
@@ -39,8 +39,7 @@ void FakeDebugDaemonClient::Init(dbus::Bus* bus) {}
 
 void FakeDebugDaemonClient::DumpDebugLogs(
     bool is_compressed,
-    base::File file,
-    scoped_refptr<base::TaskRunner> task_runner,
+    int file_descriptor,
     const GetDebugLogsCallback& callback) {
   callback.Run(true);
 }
@@ -111,10 +110,8 @@ void FakeDebugDaemonClient::GetNetworkInterfaces(
 void FakeDebugDaemonClient::GetPerfOutput(
     base::TimeDelta duration,
     const std::vector<std::string>& perf_args,
-    dbus::ScopedFileDescriptor file_descriptor,
-    const DBusMethodErrorCallback& error_callback) {
-  // Nothing to do but close the file descriptor, which its dtor will do.
-}
+    int file_descriptor,
+    const DBusMethodErrorCallback& error_callback) {}
 
 void FakeDebugDaemonClient::GetScrubbedLogs(const GetLogsCallback& callback) {
   std::map<std::string, std::string> sample;
@@ -199,6 +196,13 @@ void FakeDebugDaemonClient::WaitForServiceToBeAvailable(
   }
 }
 
+void FakeDebugDaemonClient::SetOomScoreAdj(
+    const std::map<pid_t, int32_t>& pid_to_oom_score_adj,
+    const SetOomScoreAdjCallback& callback) {
+  base::ThreadTaskRunnerHandle::Get()->PostTask(
+      FROM_HERE, base::Bind(callback, false, ""));
+}
+
 void FakeDebugDaemonClient::SetDebuggingFeaturesStatus(int featues_mask) {
   featues_mask_ = featues_mask;
 }
@@ -212,6 +216,30 @@ void FakeDebugDaemonClient::SetServiceIsAvailable(bool is_available) {
   callbacks.swap(pending_wait_for_service_to_be_available_callbacks_);
   for (size_t i = 0; i < callbacks.size(); ++i)
     callbacks[i].Run(is_available);
+}
+
+void FakeDebugDaemonClient::CupsAddPrinter(
+    const std::string& name,
+    const std::string& uri,
+    const std::string& ppd_path,
+    bool ipp_everywhere,
+    const DebugDaemonClient::CupsAddPrinterCallback& callback,
+    const base::Closure& error_callback) {
+  printers_.insert(name);
+  base::ThreadTaskRunnerHandle::Get()->PostTask(FROM_HERE,
+                                                base::Bind(callback, true));
+}
+
+void FakeDebugDaemonClient::CupsRemovePrinter(
+    const std::string& name,
+    const DebugDaemonClient::CupsRemovePrinterCallback& callback,
+    const base::Closure& error_callback) {
+  const bool has_printer = base::ContainsKey(printers_, name);
+  if (has_printer)
+    printers_.erase(name);
+
+  base::ThreadTaskRunnerHandle::Get()->PostTask(
+      FROM_HERE, base::Bind(callback, has_printer));
 }
 
 }  // namespace chromeos

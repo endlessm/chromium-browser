@@ -14,8 +14,8 @@ namespace mus {
 
 int MashContainerToAshShellWindowId(Container container) {
   switch (container) {
-    case Container::USER_BACKGROUND:
-      return kShellWindowId_DesktopBackgroundContainer;
+    case Container::WALLPAPER:
+      return kShellWindowId_WallpaperContainer;
 
     case Container::USER_PRIVATE_SHELF:
       return kShellWindowId_ShelfContainer;
@@ -36,6 +36,9 @@ int MashContainerToAshShellWindowId(Container container) {
 
     case Container::DRAG_AND_TOOLTIPS:
       return kShellWindowId_DragImageAndTooltipContainer;
+
+    case Container::OVERLAY:
+      return kShellWindowId_OverlayContainer;
   }
   return kShellWindowId_Invalid;
 }

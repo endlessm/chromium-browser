@@ -2,10 +2,13 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+import os
+import sys
 import unittest
 
 from telemetry import benchmark
 from telemetry import benchmark_runner
+from telemetry import project_config
 from telemetry.testing import stream
 import mock
 
@@ -29,6 +32,28 @@ class UnusualBenchmark(benchmark.Benchmark):
   @classmethod
   def Name(cls):
     return 'I have a very unusual name'
+
+
+class BenchmarkRunnerIntegrationTests(unittest.TestCase):
+  def setUp(self):
+    top_level_dir = os.path.dirname(__file__)
+    self.config = project_config.ProjectConfig(
+        top_level_dir=top_level_dir,
+        benchmark_dirs=[os.path.join(top_level_dir, 'testdata')])
+
+  @mock.patch('sys.exit')
+  def testIndependentStoryIsIndependent(self, exit_mock):
+    with mock.patch.object(
+        sys, 'argv', ['foo', 'check_independent', 'independent']):
+      benchmark_runner.main(self.config)
+      exit_mock.assert_called_with(0)
+
+  @mock.patch('sys.exit')
+  def testDependentStoryIsDependent(self, exit_mock):
+    with mock.patch.object(
+        sys, 'argv', ['foo', 'check_independent', 'dependent']):
+      benchmark_runner.main(self.config)
+      exit_mock.assert_called_with(1)
 
 
 class BenchmarkRunnerUnittest(unittest.TestCase):
@@ -60,10 +85,11 @@ class BenchmarkRunnerUnittest(unittest.TestCase):
     with mock.patch('telemetry.benchmark_runner.decorators') as mock_module:
       def FakeIsEnabled(benchmark_class, _):
         if benchmark_class is BenchmarkFoo:
-          return True, None
+          return True
         else:
-          return False, 'Only supported BenchmarkFoo'
-      mock_module.IsEnabled = FakeIsEnabled
+          return False
+
+      mock_module.IsBenchmarkEnabled = FakeIsEnabled
       benchmark_runner.PrintBenchmarkList(
         [BenchmarkFoo, BenchmarkBar], self._mock_possible_browser, self._stream)
       self.assertEquals(expected_printed_stream, self._stream.output_data)

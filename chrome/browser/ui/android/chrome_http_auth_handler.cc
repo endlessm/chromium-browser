@@ -12,14 +12,13 @@
 #include "base/logging.h"
 #include "base/strings/string16.h"
 #include "base/strings/utf_string_conversions.h"
-#include "chrome/grit/generated_resources.h"
 #include "jni/ChromeHttpAuthHandler_jni.h"
-#include "ui/base/l10n/l10n_util.h"
 
 using base::android::AttachCurrentThread;
 using base::android::CheckException;
 using base::android::ConvertJavaStringToUTF16;
 using base::android::ConvertUTF16ToJavaString;
+using base::android::JavaParamRef;
 using base::android::ScopedJavaLocalRef;
 
 ChromeHttpAuthHandler::ChromeHttpAuthHandler(const base::string16& authority,
@@ -41,10 +40,8 @@ void ChromeHttpAuthHandler::SetObserver(LoginHandler* observer) {
 
 void ChromeHttpAuthHandler::ShowDialog(jobject window_android) {
   JNIEnv* env = AttachCurrentThread();
-  Java_ChromeHttpAuthHandler_showDialog(
-      env,
-      java_chrome_http_auth_handler_.obj(),
-      window_android);
+  Java_ChromeHttpAuthHandler_showDialog(env, java_chrome_http_auth_handler_,
+                                        window_android);
 }
 
 void ChromeHttpAuthHandler::OnAutofillDataAvailable(
@@ -57,8 +54,7 @@ void ChromeHttpAuthHandler::OnAutofillDataAvailable(
   ScopedJavaLocalRef<jstring> j_password =
       ConvertUTF16ToJavaString(env, password);
   Java_ChromeHttpAuthHandler_onAutofillDataAvailable(
-      env, java_chrome_http_auth_handler_.obj(),
-      j_username.obj(), j_password.obj());
+      env, java_chrome_http_auth_handler_, j_username, j_password);
 }
 
 void ChromeHttpAuthHandler::SetAuth(JNIEnv* env,

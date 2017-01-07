@@ -34,7 +34,7 @@ class MediaPipelineBackendWrapper : public MediaPipelineBackend {
   VideoDecoder* CreateVideoDecoder() override;
   bool Initialize() override;
   bool Start(int64_t start_pts) override;
-  bool Stop() override;
+  void Stop() override;
   bool Pause() override;
   bool Resume() override;
   int64_t GetCurrentPts() override;
@@ -49,6 +49,7 @@ class MediaPipelineBackendWrapper : public MediaPipelineBackend {
   std::unique_ptr<AudioDecoderWrapper> audio_decoder_wrapper_;
   float stream_type_volume_;
   bool is_initialized_;
+  bool have_video_decoder_;
   MediaPipelineBackendManager* const backend_manager_;
 
   DISALLOW_COPY_AND_ASSIGN(MediaPipelineBackendWrapper);

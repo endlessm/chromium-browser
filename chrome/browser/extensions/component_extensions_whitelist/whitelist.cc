@@ -10,8 +10,8 @@
 #include "base/macros.h"
 #include "build/build_config.h"
 #include "chrome/common/extensions/extension_constants.h"
+#include "chrome/grit/browser_resources.h"
 #include "extensions/common/constants.h"
-#include "grit/browser_resources.h"
 
 #if defined(ENABLE_APP_LIST) && defined(OS_CHROMEOS)
 #include "chrome/browser/ui/app_list/google_now_extension.h"
@@ -20,14 +20,14 @@
 #if defined(OS_CHROMEOS)
 #include "chrome/browser/chromeos/input_method/component_extension_ime_manager_impl.h"
 #include "components/chrome_apps/grit/chrome_apps_resources.h"
-#include "grit/keyboard_resources.h"
 #include "ui/file_manager/grit/file_manager_resources.h"
+#include "ui/keyboard/grit/keyboard_resources.h"
 #endif
 
 namespace extensions {
 
 bool IsComponentExtensionWhitelisted(const std::string& extension_id) {
-  const char* allowed[] = {
+  const char* const kAllowed[] = {
     extension_misc::kHotwordSharedModuleId,
     extension_misc::kInAppPaymentsSupportAppId,
 #if defined(ENABLE_MEDIA_ROUTER)
@@ -36,21 +36,23 @@ bool IsComponentExtensionWhitelisted(const std::string& extension_id) {
     extension_misc::kPdfExtensionId,
 #if defined(OS_CHROMEOS)
     extension_misc::kChromeVoxExtensionId,
+    extension_misc::kSelectToSpeakExtensionId,
     extension_misc::kSpeechSynthesisExtensionId,
     extension_misc::kZIPUnpackerExtensionId,
 #endif
   };
 
-  for (size_t i = 0; i < arraysize(allowed); ++i) {
-    if (extension_id == allowed[i])
+  for (size_t i = 0; i < arraysize(kAllowed); ++i) {
+    if (extension_id == kAllowed[i])
       return true;
   }
 
 #if defined(ENABLE_APP_LIST) && defined(OS_CHROMEOS)
   std::string google_now_extension_id;
   if (GetGoogleNowExtensionId(&google_now_extension_id) &&
-      google_now_extension_id == extension_id)
+      google_now_extension_id == extension_id) {
     return true;
+  }
 #endif
 
 #if defined(OS_CHROMEOS)
@@ -66,53 +68,58 @@ bool IsComponentExtensionWhitelisted(const std::string& extension_id) {
 }
 
 bool IsComponentExtensionWhitelisted(int manifest_resource_id) {
-  int allowed[] = {
-    IDR_BOOKMARKS_MANIFEST,
-    IDR_CHROME_APP_MANIFEST,
-    IDR_CLOUDPRINT_MANIFEST,
-    IDR_CONNECTIVITY_DIAGNOSTICS_MANIFEST,
-    IDR_CRYPTOTOKEN_MANIFEST,
-    IDR_FEEDBACK_MANIFEST,
-    IDR_GAIA_AUTH_MANIFEST,
-    IDR_GOOGLE_NOW_MANIFEST,
-    IDR_HANGOUT_SERVICES_MANIFEST,
-    IDR_HOTWORD_AUDIO_VERIFICATION_MANIFEST,
-    IDR_HOTWORD_MANIFEST,
-    IDR_IDENTITY_API_SCOPE_APPROVAL_MANIFEST,
-    IDR_NETWORK_SPEECH_SYNTHESIS_MANIFEST,
-    IDR_SETTINGS_APP_MANIFEST,
-    IDR_WALLPAPERMANAGER_MANIFEST,
-    IDR_WEBSTORE_MANIFEST,
-    IDR_WHISPERNET_PROXY_MANIFEST,
+  switch (manifest_resource_id) {
+    // Please keep the list in alphabetical order.
+    case IDR_BOOKMARKS_MANIFEST:
+#if defined(ENABLE_APP_LIST)
+    case IDR_CHROME_APP_MANIFEST:
+#endif
+    case IDR_CLOUDPRINT_MANIFEST:
+    case IDR_CRYPTOTOKEN_MANIFEST:
+    case IDR_FEEDBACK_MANIFEST:
+    case IDR_GAIA_AUTH_MANIFEST:
+#if defined(ENABLE_GOOGLE_NOW)
+    case IDR_GOOGLE_NOW_MANIFEST:
+#endif
+#if defined(GOOGLE_CHROME_BUILD) || defined(ENABLE_HANGOUT_SERVICES_EXTENSION)
+    case IDR_HANGOUT_SERVICES_MANIFEST:
+#endif
+#if defined(ENABLE_HOTWORDING)
+    case IDR_HOTWORD_AUDIO_VERIFICATION_MANIFEST:
+    case IDR_HOTWORD_MANIFEST:
+#endif
+    case IDR_IDENTITY_API_SCOPE_APPROVAL_MANIFEST:
 #if defined(IMAGE_LOADER_EXTENSION)
-    IDR_IMAGE_LOADER_MANIFEST,
+    case IDR_IMAGE_LOADER_MANIFEST:
 #endif
-#if defined(OS_CHROMEOS)
-    IDR_ARC_SUPPORT_MANIFEST,
-    IDR_AUDIO_PLAYER_MANIFEST,
-    IDR_CHROME_APPS_WEBSTORE_WIDGET_MANIFEST,
-    IDR_CONNECTIVITY_DIAGNOSTICS_LAUNCHER_MANIFEST,
-    IDR_CONNECTIVITY_DIAGNOSTICS_MANIFEST,
-    IDR_CROSH_BUILTIN_MANIFEST,
-    IDR_DEMO_APP_MANIFEST,
-    IDR_EASY_UNLOCK_MANIFEST,
-    IDR_EASY_UNLOCK_MANIFEST_SIGNIN,
-    IDR_ECHO_MANIFEST,
-    IDR_FILEMANAGER_MANIFEST,
-    IDR_FIRST_RUN_DIALOG_MANIFEST,
-    IDR_GALLERY_MANIFEST,
-    IDR_GENIUS_APP_MANIFEST,
-    IDR_HELP_MANIFEST,
-    IDR_KEYBOARD_MANIFEST,
-    IDR_MOBILE_MANIFEST,
-    IDR_QUICKOFFICE_MANIFEST,
-    IDR_VIDEO_PLAYER_MANIFEST,
-    IDR_WALLPAPERMANAGER_MANIFEST,
-#endif
-  };
+    case IDR_NETWORK_SPEECH_SYNTHESIS_MANIFEST:
+    case IDR_WEBSTORE_MANIFEST:
 
-  for (size_t i = 0; i < arraysize(allowed); ++i) {
-    if (manifest_resource_id == allowed[i])
+#if defined(OS_CHROMEOS)
+    // Separate ChromeOS list, as it is quite large.
+    case IDR_ARC_SUPPORT_MANIFEST:
+    case IDR_AUDIO_PLAYER_MANIFEST:
+    case IDR_CHROME_APPS_WEBSTORE_WIDGET_MANIFEST:
+    case IDR_CONNECTIVITY_DIAGNOSTICS_LAUNCHER_MANIFEST:
+    case IDR_CONNECTIVITY_DIAGNOSTICS_MANIFEST:
+    case IDR_CROSH_BUILTIN_MANIFEST:
+    case IDR_DEMO_APP_MANIFEST:
+    case IDR_EASY_UNLOCK_MANIFEST:
+    case IDR_EASY_UNLOCK_MANIFEST_SIGNIN:
+    case IDR_ECHO_MANIFEST:
+    case IDR_FILEMANAGER_MANIFEST:
+    case IDR_FIRST_RUN_DIALOG_MANIFEST:
+    case IDR_GALLERY_MANIFEST:
+    case IDR_KEYBOARD_MANIFEST:
+    case IDR_MOBILE_MANIFEST:
+    case IDR_VIDEO_PLAYER_MANIFEST:
+    case IDR_WALLPAPERMANAGER_MANIFEST:
+#if defined(GOOGLE_CHROME_BUILD)
+    case IDR_GENIUS_APP_MANIFEST:
+    case IDR_HELP_MANIFEST:
+    case IDR_QUICKOFFICE_MANIFEST:
+#endif  // defined(GOOGLE_CHROME_BUILD)
+#endif  // defined(OS_CHROMEOS)
       return true;
   }
 

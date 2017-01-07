@@ -66,6 +66,9 @@ class ChromeBrowserBackend(browser_backend.BrowserBackend):
     return [arg for arg in args if arg.startswith('--proxy-server=')]
 
   def GetBrowserStartupArgs(self):
+    assert not '--no-proxy-server' in self.browser_options.extra_browser_args, (
+        '--no-proxy-server flag is disallowed as Chrome needs to be route to '
+        'ts_proxy_server')
     args = []
     args.extend(self.browser_options.extra_browser_args)
     args.append('--enable-net-benchmarking')
@@ -79,11 +82,6 @@ class ChromeBrowserBackend(browser_backend.BrowserBackend):
     # programmatically inspect a pageset's actions in order to determine if it
     # might eventually scroll.
     args.append('--enable-gpu-benchmarking')
-
-    # Set --no-proxy-server to work around some XP issues unless
-    # some other flag indicates a proxy is needed.
-    if not self._ArgsNeedProxyServer(args):
-      self.browser_options.no_proxy_server = True
 
     if self.browser_options.disable_background_networking:
       args.append('--disable-background-networking')
@@ -105,9 +103,6 @@ class ChromeBrowserBackend(browser_backend.BrowserBackend):
     if len(component_extensions) > 0:
       args.append('--load-component-extension=%s' % component_extension_str)
 
-    if self.browser_options.no_proxy_server:
-      args.append('--no-proxy-server')
-
     if self.browser_options.disable_component_extensions_with_background_pages:
       args.append('--disable-component-extensions-with-background-pages')
 
@@ -126,24 +121,16 @@ class ChromeBrowserBackend(browser_backend.BrowserBackend):
     return args
 
   def GetReplayBrowserStartupArgs(self):
-    network_backend = self.platform_backend.network_controller_backend
-    if not network_backend.is_replay_active:
-      return []
     replay_args = []
+    network_backend = self.platform_backend.network_controller_backend
+    if not network_backend.is_initialized:
+      return []
+    proxy_port = network_backend.forwarder.port_pair.remote_port
+    replay_args.append('--proxy-server=socks://localhost:%s' % proxy_port)
     if not network_backend.is_test_ca_installed:
       # Ignore certificate errors if the platform backend has not created
       # and installed a root certificate.
       replay_args.append('--ignore-certificate-errors')
-    # Force hostnames to resolve to the replay's host_ip.
-    replay_args.append('--host-resolver-rules=MAP * %s,EXCLUDE localhost' %
-                         network_backend.host_ip)
-    # Force the browser to send HTTP/HTTPS requests to fixed ports if they
-    # are not the standard HTTP/HTTPS ports.
-    device_ports = network_backend.wpr_device_ports
-    if device_ports.http != 80:
-      replay_args.append('--testing-fixed-http-port=%s' % device_ports.http)
-    if device_ports.https != 443:
-      replay_args.append('--testing-fixed-https-port=%s' % device_ports.https)
     return replay_args
 
   def HasBrowserFinishedLaunching(self):
@@ -249,8 +236,11 @@ class ChromeBrowserBackend(browser_backend.BrowserBackend):
     """
     return self.devtools_client.StartChromeTracing(trace_options, timeout)
 
-  def StopTracing(self, trace_data_builder):
-    self.devtools_client.StopChromeTracing(trace_data_builder)
+  def StopTracing(self):
+    self.devtools_client.StopChromeTracing()
+
+  def CollectTracingData(self, trace_data_builder):
+    self.devtools_client.CollectChromeTracingData(trace_data_builder)
 
   def GetProcessName(self, cmd_line):
     """Returns a user-friendly name for the process of the given |cmd_line|."""

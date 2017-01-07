@@ -33,7 +33,6 @@ import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.tabmodel.TabModel;
 import org.chromium.chrome.browser.tabmodel.TabModelSelector;
 import org.chromium.chrome.browser.tabmodel.TabModelUtils;
-import org.chromium.content.browser.ContentViewCore;
 import org.chromium.ui.resources.ResourceManager;
 
 import java.util.ArrayList;
@@ -220,42 +219,6 @@ public abstract class Layout implements TabContentManager.ThumbnailChangeListene
     }
 
     /**
-     * TODO(dtrainor): Remove after method is no longer used downstream.
-     * Used to get a list of Android {@link View}s that represent both the normal content as well as
-     * overlays.
-     * @param views A {@link List} that will be populated with {@link View}s that represent all of
-     *                the content in this {@link Layout}.
-     */
-    public void getAllViews(List<View> views) {
-        getAllContentViews(views);
-    }
-
-    /**
-     * Used to get a list of Android {@link View}s that represent both the normal content as well as
-     * overlays.
-     * @param views A {@link List} that will be populated with {@link View}s that represent all of
-     *                the content in this {@link Layout}.
-     */
-    public void getAllContentViews(List<View> views) {
-        Tab tab = mTabModelSelector.getCurrentTab();
-        if (tab == null) return;
-        tab.getAllContentViews(views);
-    }
-
-    /**
-     * Used to get a list of {@link ContentViewCore}s that represent both the normal content as well
-     * as overlays.  These are all {@link ContentViewCore}s currently showing or rendering content
-     * for this {@link Layout}.
-     * @param contents A {@link List} that will be populated with {@link ContentViewCore}s currently
-     *                 rendering content related to this {@link Layout}.
-     */
-    public void getAllContentViewCores(List<ContentViewCore> contents) {
-        Tab tab = mTabModelSelector.getCurrentTab();
-        if (tab == null) return;
-        tab.getAllContentViewCores(contents);
-    }
-
-    /**
      * Get a list of virtual views for accessibility.
      *
      * @param views A List to populate with virtual views.
@@ -362,7 +325,6 @@ public abstract class Layout implements TabContentManager.ThumbnailChangeListene
 
     /**
      * Called when the size of the viewport has changed.
-     * @param availableViewport      The actual viewport this {@link Layout} should be rendering to.
      * @param visibleViewport        The visible viewport that represents the area on the screen
      *                               this {@link Layout} gets to draw to (potentially takes into
      *                               account top controls).
@@ -372,12 +334,11 @@ public abstract class Layout implements TabContentManager.ThumbnailChangeListene
      * @param orientation            The new orientation.  Valid values are defined by
      *                               {@link Orientation}.
      */
-    public final void sizeChanged(RectF availableViewport, RectF visibleViewport,
-            RectF screenViewport, float heightMinusTopControls, int orientation) {
-        // 1. Pull out this Layout's specific width and height properties based on the available
-        // viewport.
-        float width = availableViewport.width();
-        float height = availableViewport.height();
+    public final void sizeChanged(RectF visibleViewport, RectF screenViewport,
+            float heightMinusTopControls, int orientation) {
+        // 1. Pull out this Layout's width and height properties based on the viewport.
+        float width = screenViewport.width();
+        float height = screenViewport.height();
 
         // 2. Check if any Layout-specific properties have changed.
         boolean layoutPropertiesChanged = mWidth != width
@@ -503,6 +464,9 @@ public abstract class Layout implements TabContentManager.ThumbnailChangeListene
             mNextTabId = Tab.INVALID_TAB_ID;
         }
         mUpdateHost.doneHiding();
+        if (mRenderHost != null && mRenderHost.getResourceManager() != null) {
+            mRenderHost.getResourceManager().clearTintedResourceCache();
+        }
     }
 
     /**
@@ -813,6 +777,13 @@ public abstract class Layout implements TabContentManager.ThumbnailChangeListene
     }
 
     /**
+     * Called when a tab is restored (created FROM_RESTORE).
+     * @param time  The current time of the app in ms.
+     * @param tabId The id of the restored tab.
+     */
+    public void onTabRestored(long time, int tabId) { }
+
+    /**
      * Called when the TabModelSelector has been initialized with an accurate tab count.
      */
     public void onTabStateInitialized() {
@@ -935,8 +906,15 @@ public abstract class Layout implements TabContentManager.ThumbnailChangeListene
                 mLayoutAnimations = null;
                 onAnimationFinished();
             }
-            requestUpdate();
         }
+
+        // LayoutTabs may be running their own animations; make sure they are done.
+        for (int i = 0; mLayoutTabs != null && i < mLayoutTabs.length; i++) {
+            finished &= mLayoutTabs[i].onUpdateAnimation(time);
+        }
+
+        if (!finished) requestUpdate();
+
         return finished;
     }
 

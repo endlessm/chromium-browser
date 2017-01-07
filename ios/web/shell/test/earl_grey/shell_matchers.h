@@ -2,44 +2,39 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#import <string>
+#ifndef IOS_WEB_SHELL_TEST_EARL_GREY_SHELL_MATCHERS_H_
+#define IOS_WEB_SHELL_TEST_EARL_GREY_SHELL_MATCHERS_H_
+
+#include <string>
 
 #import <EarlGrey/EarlGrey.h>
 
 namespace web {
 
-// Shorthand for GREYMatchers::matcherForWebViewContainingText.
+// Matcher for WKWebView containing |text|.
 id<GREYMatcher> webViewContainingText(const std::string& text);
 
-// Shorthand for GREYMatchers::matcherForAddressFieldEqualToText.
-id<GREYMatcher> addressFieldText(const std::string& text);
+// Matcher for WKWebView containing an html element which matches |selector|.
+id<GREYMatcher> webViewCssSelector(const std::string& selector);
 
-// Shorthand for GREYMatchers::matcherForBackButton.
+// Matcher for the WKWebView.
+id<GREYMatcher> webView();
+
+// Matcher for WKWebView's scroll view.
+id<GREYMatcher> webViewScrollView();
+
+// Matcher for web shell address field text property equal to |text|.
+id<GREYMatcher> addressFieldText(std::string text);
+
+// Matcher for back button in web shell.
 id<GREYMatcher> backButton();
 
-// Shorthand for GREYMatchers::matcherForForwardButton.
+// Matcher for forward button in web shell.
 id<GREYMatcher> forwardButton();
 
-// Shorthand for GREYMatchers::matcherForAddressField.
+// Matcher for address field in web shell.
 id<GREYMatcher> addressField();
 
 }  // namespace web
 
-@interface GREYMatchers (WebShellAdditions)
-
-// Matcher for WKWebView containing |text|.
-+ (id<GREYMatcher>)matcherForWebViewContainingText:(const std::string&)text;
-
-// Matcher for web shell address field text property equal to |text|.
-+ (id<GREYMatcher>)matcherForAddressFieldEqualToText:(const std::string&)text;
-
-// Matcher for back button in web shell.
-+ (id<GREYMatcher>)matcherForWebShellBackButton;
-
-// Matcher for forward button in web shell.
-+ (id<GREYMatcher>)matcherForWebShellForwardButton;
-
-// Matcher for address field in web shell.
-+ (id<GREYMatcher>)matcherForWebShellAddressField;
-
-@end
+#endif  // IOS_WEB_SHELL_TEST_EARL_GREY_SHELL_MATCHERS_H_

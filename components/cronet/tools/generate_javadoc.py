@@ -7,6 +7,7 @@
 import optparse
 import os
 import sys
+import tempfile
 
 REPOSITORY_ROOT = os.path.abspath(os.path.join(
     os.path.dirname(__file__), '..', '..', '..'))
@@ -30,7 +31,7 @@ class CronetExtension(Extension):
                           CronetPostprocessor(md), '_end')
 
 
-def GenerateJavadoc(options):
+def GenerateJavadoc(options, src_dir):
   output_dir = os.path.abspath(os.path.join(options.output_dir, 'javadoc'))
   working_dir = os.path.join(options.input_dir, 'android/api')
   overview_file = os.path.abspath(options.overview_file)
@@ -38,7 +39,7 @@ def GenerateJavadoc(options):
 
   build_utils.DeleteDirectory(output_dir)
   build_utils.MakeDirectory(output_dir)
-  javadoc_cmd = ['ant', '-Dsource.dir=src', '-Ddoc.dir=' + output_dir,
+  javadoc_cmd = ['ant', '-Dsource.dir=' + src_dir , '-Ddoc.dir=' + output_dir,
              '-Dlib.java.dir=' + lib_java_dir, '-Doverview=' + overview_file,
              'doc']
   stdout = build_utils.CheckOutput(javadoc_cmd, cwd=working_dir)
@@ -52,23 +53,36 @@ def main():
   build_utils.AddDepfileOption(parser)
   parser.add_option('--output-dir', help='Directory to put javadoc')
   parser.add_option('--input-dir', help='Root of cronet source')
+  parser.add_option('--input-src-jar', help='Cronet api source jar')
   parser.add_option('--overview-file', help='Path of the overview page')
   parser.add_option('--readme-file', help='Path of the README.md')
   parser.add_option('--lib-java-dir', help='Directory containing java libs')
+  parser.add_option('--stamp', help='Path to touch on success.')
 
   options, _ = parser.parse_args()
+  # A temporary directory to put the output of cronet api source jar files.
+  unzipped_jar_path = tempfile.mkdtemp(dir=options.output_dir)
+  if os.path.exists(options.input_src_jar):
+    jar_cmd = ['jar', 'xf', os.path.abspath(options.input_src_jar)]
+    build_utils.CheckOutput(jar_cmd, cwd=unzipped_jar_path)
+  else:
+    raise Exception('Jar file does not exist: %s' % options.input_src_jar)
 
   net_docs.ProcessDocs([options.readme_file], options.input_dir,
                        options.output_dir, extensions=[CronetExtension()])
 
-  GenerateJavadoc(options)
+  GenerateJavadoc(options, os.path.abspath(unzipped_jar_path))
 
+  if options.stamp:
+    build_utils.Touch(options.stamp)
   if options.depfile:
-    input_paths = []
+    assert options.stamp
+    deps = []
     for root, _, filenames in os.walk(options.input_dir):
-      input_paths.extend(os.path.join(root, f) for f in filenames)
-    build_utils.WriteDepfile(options.depfile,
-                             input_paths + build_utils.GetPythonDependencies())
+      deps.extend(os.path.join(root, f) for f in filenames)
+    build_utils.WriteDepfile(options.depfile, options.stamp, deps)
+  # Clean up temporary output directory.
+  build_utils.DeleteDirectory(unzipped_jar_path)
 
 if __name__ == '__main__':
   sys.exit(main())

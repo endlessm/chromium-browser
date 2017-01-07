@@ -11,7 +11,6 @@
 #include <vector>
 
 #include "base/macros.h"
-#include "cc/output/compositor_frame_ack.h"
 #include "content/public/browser/android/synchronous_compositor.h"
 #include "content/public/browser/android/synchronous_compositor_client.h"
 
@@ -26,14 +25,15 @@ class CONTENT_EXPORT TestSynchronousCompositor : public SynchronousCompositor {
 
   // SynchronousCompositor overrides.
   SynchronousCompositor::Frame DemandDrawHw(
-      const gfx::Size& surface_size,
-      const gfx::Transform& transform,
-      const gfx::Rect& viewport,
-      const gfx::Rect& clip,
+      const gfx::Size& viewport_size,
       const gfx::Rect& viewport_rect_for_tile_priority,
       const gfx::Transform& transform_for_tile_priority) override;
-  void ReturnResources(uint32_t output_surface_id,
-                       const cc::CompositorFrameAck& frame_ack) override;
+  void DemandDrawHwAsync(
+      const gfx::Size& viewport_size,
+      const gfx::Rect& viewport_rect_for_tile_priority,
+      const gfx::Transform& transform_for_tile_priority) override;
+  void ReturnResources(uint32_t compositor_frame_sink_id,
+                       const cc::ReturnedResourceArray& resources) override;
   bool DemandDrawSw(SkCanvas* canvas) override;
   void SetMemoryPolicy(size_t bytes_limit) override {}
   void DidChangeRootLayerScrollOffset(
@@ -42,7 +42,7 @@ class CONTENT_EXPORT TestSynchronousCompositor : public SynchronousCompositor {
                            const gfx::Point& anchor) override {}
   void OnComputeScroll(base::TimeTicks animate_time) override {}
 
-  void SetHardwareFrame(uint32_t output_surface_id,
+  void SetHardwareFrame(uint32_t compositor_frame_sink_id,
                         std::unique_ptr<cc::CompositorFrame> frame);
 
   struct ReturnedResources {
@@ -50,7 +50,7 @@ class CONTENT_EXPORT TestSynchronousCompositor : public SynchronousCompositor {
     ReturnedResources(const ReturnedResources& other);
     ~ReturnedResources();
 
-    uint32_t output_surface_id;
+    uint32_t compositor_frame_sink_id;
     cc::ReturnedResourceArray resources;
   };
   using FrameAckArray = std::vector<ReturnedResources>;

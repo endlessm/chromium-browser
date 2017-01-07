@@ -50,9 +50,6 @@
 #include "ui/aura/window_tree_host.h"
 #include "ui/views/bubble/bubble_window_targeter.h"
 #include "ui/wm/core/masked_window_targeter.h"
-#if defined(OS_WIN)
-#include "ui/base/win/shell.h"
-#endif
 #if !defined(OS_CHROMEOS)
 #include "ui/views/widget/desktop_aura/desktop_native_widget_aura.h"
 #endif
@@ -73,14 +70,7 @@ const int kArrowOffset = 10;
 
 // Determines whether the current environment supports shadows bubble borders.
 bool SupportsShadow() {
-#if defined(OS_WIN)
-  // Shadows are not supported on Windows without Aero Glass.
-  if (!ui::win::IsAeroGlassEnabled() ||
-      base::CommandLine::ForCurrentProcess()->HasSwitch(
-          ::switches::kDisableDwmComposition)) {
-    return false;
-  }
-#elif defined(OS_LINUX) && !defined(OS_CHROMEOS)
+#if defined(OS_LINUX) && !defined(OS_CHROMEOS)
   // Shadows are not supported on (non-ChromeOS) Linux.
   return false;
 #endif
@@ -212,28 +202,14 @@ AppListView::AppListView(AppListViewDelegate* delegate)
       animation_observer_(new HideViewAnimationObserver()) {
   CHECK(delegate);
 
-  delegate_->AddObserver(this);
   delegate_->GetSpeechUI()->AddObserver(this);
 }
 
 AppListView::~AppListView() {
   delegate_->GetSpeechUI()->RemoveObserver(this);
-  delegate_->RemoveObserver(this);
   animation_observer_.reset();
   // Remove child views first to ensure no remaining dependencies on delegate_.
   RemoveAllChildViews(true);
-}
-
-void AppListView::InitAsBubbleAttachedToAnchor(
-    gfx::NativeView parent,
-    int initial_apps_page,
-    views::View* anchor,
-    const gfx::Vector2d& anchor_offset,
-    views::BubbleBorder::Arrow arrow,
-    bool border_accepts_events) {
-  SetAnchorView(anchor);
-  InitAsBubbleInternal(
-      parent, initial_apps_page, arrow, border_accepts_events, anchor_offset);
 }
 
 void AppListView::InitAsBubbleAtFixedLocation(
@@ -242,8 +218,8 @@ void AppListView::InitAsBubbleAtFixedLocation(
     const gfx::Point& anchor_point_in_screen,
     views::BubbleBorder::Arrow arrow,
     bool border_accepts_events) {
-  SetAnchorView(NULL);
   SetAnchorRect(gfx::Rect(anchor_point_in_screen, gfx::Size()));
+  // TODO(mgiuca): Inline InitAsBubbleInternal, since there is only one caller.
   InitAsBubbleInternal(
       parent, initial_apps_page, arrow, border_accepts_events, gfx::Vector2d());
 }
@@ -338,10 +314,6 @@ void AppListView::SetAppListOverlayVisible(bool visible) {
   }
 }
 
-bool AppListView::ShouldCenterWindow() const {
-  return delegate_->ShouldCenterWindow();
-}
-
 gfx::Size AppListView::GetPreferredSize() const {
   return app_list_main_view_->GetPreferredSize();
 }
@@ -352,12 +324,6 @@ void AppListView::OnPaint(gfx::Canvas* canvas) {
     next_paint_callback_.Run();
     next_paint_callback_.Reset();
   }
-}
-
-void AppListView::OnThemeChanged() {
-#if defined(OS_WIN)
-  GetWidget()->Close();
-#endif
 }
 
 bool AppListView::ShouldHandleSystemCommands() const {
@@ -380,19 +346,6 @@ bool AppListView::ShouldDescendIntoChildForEventHandling(
       ShouldDescendIntoChildForEventHandling(child, location);
 }
 
-void AppListView::Prerender() {
-  app_list_main_view_->Prerender();
-}
-
-void AppListView::OnProfilesChanged() {
-  app_list_main_view_->search_box_view()->InvalidateMenu();
-}
-
-void AppListView::OnShutdown() {
-  // Nothing to do on views - the widget will soon be closed, which will tear
-  // everything down.
-}
-
 void AppListView::SetProfileByPath(const base::FilePath& profile_path) {
   delegate_->SetProfileByPath(profile_path);
   app_list_main_view_->ModelChanged();
@@ -405,19 +358,6 @@ void AppListView::AddObserver(AppListViewObserver* observer) {
 void AppListView::RemoveObserver(AppListViewObserver* observer) {
   observers_.RemoveObserver(observer);
 }
-
-// static
-void AppListView::SetNextPaintCallback(const base::Closure& callback) {
-  next_paint_callback_ = callback;
-}
-
-#if defined(OS_WIN)
-HWND AppListView::GetHWND() const {
-  gfx::NativeWindow window =
-      GetWidget()->GetTopLevelWidget()->GetNativeWindow();
-  return window->GetHost()->GetAcceleratedWidget();
-}
-#endif
 
 PaginationModel* AppListView::GetAppsPaginationModel() {
   return app_list_main_view_->contents_view()
@@ -469,8 +409,6 @@ void AppListView::InitContents(gfx::NativeView parent, int initial_apps_page) {
     speech_view_->layer()->SetOpacity(0.0f);
     AddChildView(speech_view_);
   }
-
-  OnProfilesChanged();
 }
 
 void AppListView::InitChildWidgets() {
@@ -600,13 +538,7 @@ void AppListView::OnBeforeBubbleWidgetInit(
   if (!params->native_widget && delegate_ && delegate_->ForceNativeDesktop())
     params->native_widget = new views::DesktopNativeWidgetAura(widget);
 #endif
-#if defined(OS_WIN)
-  // Windows 7 and higher offer pinning to the taskbar, but we need presence
-  // on the taskbar for the user to be able to pin us. So, show the window on
-  // the taskbar for these versions of Windows.
-  if (base::win::GetVersion() >= base::win::VERSION_WIN7)
-    params->force_show_in_taskbar = true;
-#elif defined(OS_LINUX)
+#if defined(OS_LINUX)
   // Set up a custom WM_CLASS for the app launcher window. This allows task
   // switchers in X11 environments to distinguish it from main browser windows.
   params->wm_class_name = kAppListWMClass;
@@ -638,26 +570,14 @@ void AppListView::GetWidgetHitTestMask(gfx::Path* mask) const {
 
 bool AppListView::AcceleratorPressed(const ui::Accelerator& accelerator) {
   DCHECK_EQ(ui::VKEY_ESCAPE, accelerator.key_code());
-  if (switches::IsExperimentalAppListEnabled()) {
-    // If the ContentsView does not handle the back action, then this is the
-    // top level, so we close the app list.
-    if (!app_list_main_view_->contents_view()->Back()) {
-      GetWidget()->Deactivate();
-      CloseAppList();
-    }
-  } else if (app_list_main_view_->search_box_view()->HasSearch()) {
-    app_list_main_view_->search_box_view()->ClearSearch();
-  } else if (app_list_main_view_->contents_view()
-                 ->apps_container_view()
-                 ->IsInFolderView()) {
-    app_list_main_view_->contents_view()
-        ->apps_container_view()
-        ->app_list_folder_view()
-        ->CloseFolderPage();
-  } else {
+
+  // If the ContentsView does not handle the back action, then this is the
+  // top level, so we close the app list.
+  if (!app_list_main_view_->contents_view()->Back()) {
     GetWidget()->Deactivate();
     CloseAppList();
   }
+
   // Don't let DialogClientView handle the accelerator.
   return true;
 }

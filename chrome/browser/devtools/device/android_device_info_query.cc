@@ -262,11 +262,15 @@ std::string GetUserName(const std::string& unix_user,
 
 AndroidDeviceManager::BrowserInfo::Type
 GetBrowserType(const std::string& socket) {
-  if (socket.find(kChromeDefaultSocket) == 0)
+  if (base::StartsWith(socket, kChromeDefaultSocket,
+                       base::CompareCase::SENSITIVE)) {
     return AndroidDeviceManager::BrowserInfo::kTypeChrome;
+  }
 
-  if (socket.find(kWebViewSocketPrefix) == 0)
+  if (base::StartsWith(socket, kWebViewSocketPrefix,
+                       base::CompareCase::SENSITIVE)) {
     return AndroidDeviceManager::BrowserInfo::kTypeWebView;
+  }
 
   return AndroidDeviceManager::BrowserInfo::kTypeOther;
 }
@@ -279,8 +283,8 @@ void ReceivedResponse(const AndroidDeviceManager::DeviceInfoCallback& callback,
     callback.Run(device_info);
     return;
   }
-  std::vector<std::string> outputs;
-  base::SplitStringUsingSubstr(response, kSeparator, &outputs);
+  std::vector<std::string> outputs = base::SplitStringUsingSubstr(
+      response, kSeparator, base::TRIM_WHITESPACE, base::SPLIT_WANT_ALL);
   if (outputs.size() != 5) {
     callback.Run(device_info);
     return;

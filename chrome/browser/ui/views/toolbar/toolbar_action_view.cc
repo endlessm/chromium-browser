@@ -14,11 +14,8 @@
 #include "chrome/browser/ui/toolbar/toolbar_action_view_controller.h"
 #include "chrome/browser/ui/toolbar/toolbar_actions_bar.h"
 #include "chrome/browser/ui/view_ids.h"
-#include "chrome/grit/generated_resources.h"
 #include "content/public/browser/notification_source.h"
-#include "grit/theme_resources.h"
 #include "ui/accessibility/ax_view_state.h"
-#include "ui/base/material_design/material_design_controller.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/base/theme_provider.h"
 #include "ui/compositor/paint_recorder.h"
@@ -26,13 +23,11 @@
 #include "ui/gfx/image/image_skia.h"
 #include "ui/gfx/image/image_skia_operations.h"
 #include "ui/gfx/image/image_skia_source.h"
-#include "ui/resources/grit/ui_resources.h"
 #include "ui/views/controls/button/label_button_border.h"
 #include "ui/views/controls/menu/menu_controller.h"
 #include "ui/views/controls/menu/menu_model_adapter.h"
 #include "ui/views/controls/menu/menu_runner.h"
 #include "ui/views/mouse_constants.h"
-#include "ui/views/resources/grit/views_resources.h"
 
 using views::LabelButtonBorder;
 
@@ -42,10 +37,6 @@ namespace {
 // the edge of the view's area. Other badding (such as centering the icon) is
 // handled directly by the Image.
 const int kBorderInset = 0;
-
-// The callback to call directly before showing the context menu.
-ToolbarActionView::ContextMenuCallback* context_menu_callback_for_test =
-    nullptr;
 
 }  // namespace
 
@@ -62,10 +53,8 @@ ToolbarActionView::ToolbarActionView(
       wants_to_run_(false),
       menu_(nullptr),
       weak_factory_(this) {
-  if (ui::MaterialDesignController::IsModeMaterial()) {
-    SetHasInkDrop(true);
-    SetFocusPainter(nullptr);
-  }
+  SetInkDropMode(InkDropMode::ON);
+  SetFocusPainter(nullptr);
   set_has_ink_drop_action_on_click(true);
   set_id(VIEW_ID_BROWSER_ACTION);
   view_controller_->SetDelegate(this);
@@ -109,7 +98,7 @@ bool ToolbarActionView::IsTriggerableEvent(const ui::Event& event) {
 SkColor ToolbarActionView::GetInkDropBaseColor() const {
   if (delegate_->ShownInsideMenu()) {
     return GetNativeTheme()->GetSystemColor(
-        ui::NativeTheme::kColorId_HoverMenuItemBackgroundColor);
+        ui::NativeTheme::kColorId_FocusedMenuItemBackgroundColor);
   }
 
   return GetThemeProvider()->GetColor(
@@ -167,6 +156,10 @@ void ToolbarActionView::OnMenuButtonClicked(views::MenuButton* sender,
   }
 }
 
+bool ToolbarActionView::IsMenuRunningForTesting() const {
+  return IsMenuRunning();
+}
+
 void ToolbarActionView::OnMenuClosed() {
   menu_runner_.reset();
   menu_ = nullptr;
@@ -176,11 +169,6 @@ void ToolbarActionView::OnMenuClosed() {
 
 gfx::ImageSkia ToolbarActionView::GetIconForTest() {
   return GetImage(views::Button::STATE_NORMAL);
-}
-
-void ToolbarActionView::set_context_menu_callback_for_testing(
-    base::Callback<void(ToolbarActionView*)>* callback) {
-  context_menu_callback_for_test = callback;
 }
 
 gfx::Size ToolbarActionView::GetPreferredSize() const {
@@ -302,8 +290,6 @@ void ToolbarActionView::DoShowContextMenu(
   menu_ = menu_adapter_->CreateMenu();
   menu_runner_.reset(new views::MenuRunner(menu_, run_types));
 
-  if (context_menu_callback_for_test)
-    context_menu_callback_for_test->Run(this);
   ignore_result(
       menu_runner_->RunMenuAt(parent, this, gfx::Rect(screen_loc, size()),
                               views::MENU_ANCHOR_TOPLEFT, source_type));

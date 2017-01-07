@@ -23,28 +23,25 @@ namespace {
 
 class EchoServiceImpl : public test::EchoService {
  public:
-  EchoServiceImpl(InterfaceRequest<EchoService> request,
-                  const base::Closure& quit_closure);
+  explicit EchoServiceImpl(const base::Closure& quit_closure);
   ~EchoServiceImpl() override;
 
   // |EchoService| methods:
-  void Echo(const mojo::String& test_data,
+  void Echo(const std::string& test_data,
             const EchoCallback& callback) override;
 
  private:
-  const StrongBinding<EchoService> binding_;
   const base::Closure quit_closure_;
 };
 
-EchoServiceImpl::EchoServiceImpl(InterfaceRequest<EchoService> request,
-                                 const base::Closure& quit_closure)
-    : binding_(this, std::move(request)), quit_closure_(quit_closure) {}
+EchoServiceImpl::EchoServiceImpl(const base::Closure& quit_closure)
+    : quit_closure_(quit_closure) {}
 
 EchoServiceImpl::~EchoServiceImpl() {
   quit_closure_.Run();
 }
 
-void EchoServiceImpl::Echo(const mojo::String& test_data,
+void EchoServiceImpl::Echo(const std::string& test_data,
                            const EchoCallback& callback) {
   callback.Run(test_data);
 }
@@ -57,10 +54,10 @@ class PingPongTest {
 
  private:
   void DoPing();
-  void OnPingDone(mojo::String reply);
+  void OnPingDone(const std::string& reply);
 
   test::EchoServicePtr service_;
-  const base::Callback<void(mojo::String)> ping_done_callback_;
+  const base::Callback<void(const std::string&)> ping_done_callback_;
 
   int iterations_;
   int batch_size_;
@@ -106,7 +103,7 @@ void PingPongTest::DoPing() {
   }
 }
 
-void PingPongTest::OnPingDone(mojo::String reply) {
+void PingPongTest::OnPingDone(const std::string& reply) {
   DCHECK_GT(calls_outstanding_, 0);
   calls_outstanding_--;
 
@@ -163,7 +160,7 @@ class MojoE2EPerftest : public edk::test::MojoTestBase {
 
 void CreateAndRunService(InterfaceRequest<test::EchoService> request,
                          const base::Closure& cb) {
-  new EchoServiceImpl(std::move(request), cb);
+  MakeStrongBinding(base::MakeUnique<EchoServiceImpl>(cb), std::move(request));
 }
 
 DEFINE_TEST_CLIENT_TEST_WITH_PIPE(PingService, MojoE2EPerftest, mp) {

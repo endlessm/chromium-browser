@@ -8,7 +8,7 @@
 #include "base/bind_helpers.h"
 #include "base/callback.h"
 #include "base/logging.h"
-#include "base/metrics/histogram.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/timer/elapsed_timer.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/browser_process_platform_part.h"
@@ -24,9 +24,11 @@
 #include "chromeos/dbus/dbus_method_call_status.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
 #include "components/pairing/controller_pairing_controller.h"
+#include "components/policy/core/common/cloud/cloud_policy_constants.h"
 #include "google_apis/gaia/gaia_auth_util.h"
 
 using namespace pairing_chromeos;
+using policy::EnrollmentConfig;
 
 // Do not change the UMA histogram parameters without renaming the histograms!
 #define UMA_ENROLLMENT_TIME(histogram_name, elapsed_timer) \
@@ -61,11 +63,8 @@ EnrollmentScreen* EnrollmentScreen::Get(ScreenManager* manager) {
 EnrollmentScreen::EnrollmentScreen(BaseScreenDelegate* base_screen_delegate,
                                    EnrollmentScreenActor* actor)
     : BaseScreen(base_screen_delegate),
-      shark_controller_(NULL),
       actor_(actor),
-      enrollment_failed_once_(false),
-      weak_ptr_factory_(this) {
-}
+      weak_ptr_factory_(this) {}
 
 EnrollmentScreen::~EnrollmentScreen() {
   DCHECK(!enrollment_helper_ || g_browser_process->IsShuttingDown());
@@ -75,14 +74,54 @@ void EnrollmentScreen::SetParameters(
     const policy::EnrollmentConfig& enrollment_config,
     pairing_chromeos::ControllerPairingController* shark_controller) {
   enrollment_config_ = enrollment_config;
+  switch (enrollment_config_.auth_mechanism) {
+    case EnrollmentConfig::AUTH_MECHANISM_INTERACTIVE:
+      current_auth_ = AUTH_OAUTH;
+      last_auth_ = AUTH_OAUTH;
+      break;
+    case EnrollmentConfig::AUTH_MECHANISM_ATTESTATION:
+      current_auth_ = AUTH_ATTESTATION;
+      last_auth_ = AUTH_ATTESTATION;
+      break;
+    case EnrollmentConfig::AUTH_MECHANISM_BEST_AVAILABLE:
+      current_auth_ = AUTH_ATTESTATION;
+      last_auth_ = enrollment_config_.should_enroll_interactively()
+                       ? AUTH_OAUTH
+                       : AUTH_ATTESTATION;
+      break;
+    default:
+      NOTREACHED();
+      break;
+  }
   shark_controller_ = shark_controller;
-  actor_->SetParameters(this, enrollment_config_);
+  SetConfig();
+}
+
+void EnrollmentScreen::SetConfig() {
+  config_ = enrollment_config_;
+  if (current_auth_ == AUTH_ATTESTATION) {
+    config_.mode = enrollment_config_.is_attestation_forced()
+                       ? policy::EnrollmentConfig::MODE_ATTESTATION_FORCED
+                       : policy::EnrollmentConfig::MODE_ATTESTATION;
+  }
+  actor_->SetParameters(this, config_);
+  enrollment_helper_ = nullptr;
+}
+
+bool EnrollmentScreen::AdvanceToNextAuth() {
+  if (current_auth_ != last_auth_ && current_auth_ == AUTH_ATTESTATION) {
+    current_auth_ = AUTH_OAUTH;
+    SetConfig();
+    return true;
+  }
+  return false;
 }
 
 void EnrollmentScreen::CreateEnrollmentHelper() {
-  DCHECK(!enrollment_helper_);
-  enrollment_helper_ = EnterpriseEnrollmentHelper::Create(
-      this, enrollment_config_, enrolling_user_domain_);
+  if (!enrollment_helper_) {
+    enrollment_helper_ = EnterpriseEnrollmentHelper::Create(
+        this, config_, enrolling_user_domain_);
+  }
 }
 
 void EnrollmentScreen::ClearAuth(const base::Closure& callback) {
@@ -96,7 +135,7 @@ void EnrollmentScreen::ClearAuth(const base::Closure& callback) {
 }
 
 void EnrollmentScreen::OnAuthCleared(const base::Closure& callback) {
-  enrollment_helper_.reset();
+  enrollment_helper_ = nullptr;
   callback.Run();
 }
 
@@ -106,6 +145,20 @@ void EnrollmentScreen::PrepareToShow() {
 
 void EnrollmentScreen::Show() {
   UMA(policy::kMetricEnrollmentTriggered);
+  switch (current_auth_) {
+    case AUTH_OAUTH:
+      ShowInteractiveScreen();
+      break;
+    case AUTH_ATTESTATION:
+      AuthenticateUsingAttestation();
+      break;
+    default:
+      NOTREACHED();
+      break;
+  }
+}
+
+void EnrollmentScreen::ShowInteractiveScreen() {
   ClearAuth(base::Bind(&EnrollmentScreen::ShowSigninScreen,
                        weak_ptr_factory_.GetWeakPtr()));
 }
@@ -117,6 +170,15 @@ void EnrollmentScreen::Hide() {
 
 std::string EnrollmentScreen::GetName() const {
   return WizardController::kEnrollmentScreenName;
+}
+
+void EnrollmentScreen::AuthenticateUsingAttestation() {
+  VLOG(1) << "Authenticating using attestation.";
+  elapsed_timer_.reset(new base::ElapsedTimer());
+  actor_->Show();
+  actor_->ShowEnrollmentSpinnerScreen();
+  CreateEnrollmentHelper();
+  enrollment_helper_->EnrollUsingAttestation();
 }
 
 void EnrollmentScreen::OnLoginDone(const std::string& user,
@@ -131,23 +193,26 @@ void EnrollmentScreen::OnLoginDone(const std::string& user,
   actor_->ShowEnrollmentSpinnerScreen();
   CreateEnrollmentHelper();
   enrollment_helper_->EnrollUsingAuthCode(
-      auth_code, shark_controller_ != NULL /* fetch_additional_token */);
+      auth_code, shark_controller_ != nullptr /* fetch_additional_token */);
 }
 
 void EnrollmentScreen::OnRetry() {
-  ClearAuth(base::Bind(&EnrollmentScreen::ShowSigninScreen,
-                       weak_ptr_factory_.GetWeakPtr()));
+  Show();
 }
 
 void EnrollmentScreen::OnCancel() {
+  if (AdvanceToNextAuth()) {
+    Show();
+    return;
+  }
+
   UMA(policy::kMetricEnrollmentCancelled);
   if (elapsed_timer_)
     UMA_ENROLLMENT_TIME(kMetricEnrollmentTimeCancel, elapsed_timer_);
 
   const BaseScreenDelegate::ExitCodes exit_code =
-      enrollment_config_.is_forced()
-          ? BaseScreenDelegate::ENTERPRISE_ENROLLMENT_BACK
-          : BaseScreenDelegate::ENTERPRISE_ENROLLMENT_COMPLETED;
+      config_.is_forced() ? BaseScreenDelegate::ENTERPRISE_ENROLLMENT_BACK
+                          : BaseScreenDelegate::ENTERPRISE_ENROLLMENT_COMPLETED;
   ClearAuth(
       base::Bind(&EnrollmentScreen::Finish, base::Unretained(this), exit_code));
 }
@@ -158,7 +223,7 @@ void EnrollmentScreen::OnConfirmationClosed() {
 }
 
 void EnrollmentScreen::OnAuthError(const GoogleServiceAuthError& error) {
-  OnAnyEnrollmentError();
+  RecordEnrollmentErrorMetrics();
   actor_->ShowAuthError(error);
 }
 
@@ -167,13 +232,20 @@ void EnrollmentScreen::OnEnrollmentError(policy::EnrollmentStatus status) {
   LOG(WARNING) << "Enrollment error occured: status=" << status.status()
                << " http status=" << status.http_status()
                << " DM status=" << status.client_status();
-  OnAnyEnrollmentError();
-  actor_->ShowEnrollmentStatus(status);
+  RecordEnrollmentErrorMetrics();
+  // If the DM server does not have a device pre-provisioned for attestation-
+  // based enrollment and we have a fallback authentication, show it.
+  if (status.status() == policy::EnrollmentStatus::STATUS_REGISTRATION_FAILED &&
+      status.client_status() == policy::DM_STATUS_SERVICE_DEVICE_NOT_FOUND &&
+      current_auth_ == AUTH_ATTESTATION && AdvanceToNextAuth())
+    Show();
+  else
+    actor_->ShowEnrollmentStatus(status);
 }
 
 void EnrollmentScreen::OnOtherError(
     EnterpriseEnrollmentHelper::OtherError error) {
-  OnAnyEnrollmentError();
+  RecordEnrollmentErrorMetrics();
   actor_->ShowOtherError(error);
 }
 
@@ -252,7 +324,7 @@ void EnrollmentScreen::ShowEnrollmentStatusOnSuccess() {
 }
 
 void EnrollmentScreen::UMA(policy::MetricEnrollment sample) {
-  EnrollmentUMA(sample, enrollment_config_.mode);
+  EnrollmentUMA(sample, config_.mode);
 }
 
 void EnrollmentScreen::ShowSigninScreen() {
@@ -260,8 +332,9 @@ void EnrollmentScreen::ShowSigninScreen() {
   actor_->ShowSigninScreen();
 }
 
-void EnrollmentScreen::OnAnyEnrollmentError() {
+void EnrollmentScreen::RecordEnrollmentErrorMetrics() {
   enrollment_failed_once_ = true;
+  //  TODO(drcrash): Maybe create multiple metrics (http://crbug.com/640313)?
   if (elapsed_timer_)
     UMA_ENROLLMENT_TIME(kMetricEnrollmentTimeFailure, elapsed_timer_);
 }

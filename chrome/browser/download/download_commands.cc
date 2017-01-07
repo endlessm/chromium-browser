@@ -25,19 +25,20 @@
 #include "chrome/common/safe_browsing/csd.pb.h"
 #include "chrome/common/safe_browsing/file_type_policies.h"
 #include "chrome/common/url_constants.h"
-#include "chrome/grit/generated_resources.h"
+#include "chrome/grit/theme_resources.h"
 #include "components/google/core/browser/google_util.h"
-#include "components/mime_util/mime_util.h"
-#include "grit/theme_resources.h"
 #include "net/base/url_util.h"
 #include "ui/base/clipboard/scoped_clipboard_writer.h"
-#include "ui/base/l10n/l10n_util.h"
 #include "ui/base/resource/resource_bundle.h"
 
 #if defined(OS_WIN)
 #include "chrome/browser/download/download_target_determiner.h"
 #include "chrome/browser/ui/pdf/adobe_reader_info_win.h"
 #endif
+
+#if defined(OS_CHROMEOS)
+#include "chrome/browser/chromeos/note_taking_app_utils.h"
+#endif  // defined(OS_CHROMEOS)
 
 namespace {
 
@@ -143,6 +144,8 @@ int DownloadCommands::GetCommandIconId(Command command) const {
       return IDR_NOTIFICATION_WELCOME_LEARN_MORE;
     case COPY_TO_CLIPBOARD:
       return IDR_DOWNLOAD_NOTIFICATION_MENU_COPY_TO_CLIPBOARD;
+    case ANNOTATE:
+      return IDR_DOWNLOAD_NOTIFICATION_MENU_ANNOTATE;
     case OPEN_WHEN_COMPLETE:
     case ALWAYS_OPEN_TYPE:
     case PLATFORM_OPEN:
@@ -196,6 +199,8 @@ bool DownloadCommands::IsCommandEnabled(Command command) const {
     case COPY_TO_CLIPBOARD:
       return (download_item_->GetState() == content::DownloadItem::COMPLETE &&
               download_item_->GetReceivedBytes() <= kMaxImageClipboardSize);
+    case ANNOTATE:
+      return download_item_->GetState() == content::DownloadItem::COMPLETE;
     case DISCARD:
     case KEEP:
     case LEARN_MORE_SCANNING:
@@ -231,6 +236,7 @@ bool DownloadCommands::IsCommandChecked(Command command) const {
     case LEARN_MORE_SCANNING:
     case LEARN_MORE_INTERRUPTED:
     case COPY_TO_CLIPBOARD:
+    case ANNOTATE:
       return false;
   }
   return false;
@@ -336,7 +342,8 @@ void DownloadCommands::ExecuteCommand(Command command) {
     case LEARN_MORE_INTERRUPTED:
       GetBrowser()->OpenURL(content::OpenURLParams(
           GetLearnMoreURLForInterruptedDownload(), content::Referrer(),
-          NEW_FOREGROUND_TAB, ui::PAGE_TRANSITION_LINK, false));
+          WindowOpenDisposition::NEW_FOREGROUND_TAB, ui::PAGE_TRANSITION_LINK,
+          false));
       break;
     case PAUSE:
       download_item_->Pause();
@@ -346,6 +353,15 @@ void DownloadCommands::ExecuteCommand(Command command) {
       break;
     case COPY_TO_CLIPBOARD:
       CopyFileAsImageToClipboard();
+      break;
+    case ANNOTATE:
+#if defined(OS_CHROMEOS)
+      if (DownloadItemModel(download_item_).HasSupportedImageMimeType()) {
+        chromeos::LaunchNoteTakingAppForNewNote(
+            Profile::FromBrowserContext(download_item_->GetBrowserContext()),
+            download_item_->GetTargetFilePath());
+      }
+#endif  // defined(OS_CHROMEOS)
       break;
   }
 }
@@ -383,23 +399,11 @@ bool DownloadCommands::CanOpenPdfInSystemViewer() const {
 void DownloadCommands::CopyFileAsImageToClipboard() const {
   if (download_item_->GetState() != content::DownloadItem::COMPLETE ||
       download_item_->GetReceivedBytes() > kMaxImageClipboardSize) {
-      return;
+    return;
   }
 
-  // TODO(yoshiki): Refine the code by combining the common logic with the
-  // preview in DownloadItemNotification.
-  std::string mime = download_item_->GetMimeType();
-  if (!mime_util::IsSupportedImageMimeType(mime)) {
-    base::FilePath::StringType extension_with_dot =
-        download_item_->GetTargetFilePath().FinalExtension();
-    if (extension_with_dot.empty() ||
-        !net::GetWellKnownMimeTypeFromExtension(extension_with_dot.substr(1),
-                                                &mime) ||
-        !mime_util::IsSupportedImageMimeType(mime)) {
-      // It seems a non-image file.
-      return;
-    }
-  }
+  if (!DownloadItemModel(download_item_).HasSupportedImageMimeType())
+    return;
 
   base::FilePath file_path = download_item_->GetFullPath();
   ImageClipboardCopyManager::Start(file_path);

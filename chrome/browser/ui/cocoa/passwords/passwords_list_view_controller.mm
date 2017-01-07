@@ -16,7 +16,7 @@
 #import "chrome/browser/ui/cocoa/passwords/passwords_bubble_utils.h"
 #include "chrome/browser/ui/passwords/manage_passwords_bubble_model.h"
 #include "chrome/browser/ui/passwords/manage_passwords_view_utils.h"
-#include "grit/generated_resources.h"
+#include "chrome/grit/generated_resources.h"
 #include "skia/ext/skia_utils_mac.h"
 #import "ui/base/cocoa/controls/hyperlink_button_cell.h"
 #import "ui/base/cocoa/hover_image_button.h"
@@ -384,19 +384,34 @@ NSTextField* FederationLabel(const base::string16& text) {
 @synthesize firstColumnMaxWidth = firstColumnMaxWidth_;
 @synthesize secondColumnMaxWidth = secondColumnMaxWidth_;
 
-- (id)initWithModel:(ManagePasswordsBubbleModel*)model
-              forms:(const PasswordFormsVector&)password_forms {
+- (id)initWithModelAndForms:(ManagePasswordsBubbleModel*)model
+                      forms:(const PasswordFormsVector*)password_forms {
   if ((self = [super initWithNibName:nil bundle:nil])) {
     base::scoped_nsobject<NSMutableArray> items(
-        [[NSMutableArray arrayWithCapacity:password_forms.size()] retain]);
+        [[NSMutableArray arrayWithCapacity:password_forms->size()] retain]);
     model_ = model;
     // Create the controllers.
-    for (const autofill::PasswordForm* form : password_forms) {
+    for (const auto& form : *password_forms) {
       base::scoped_nsobject<ManagePasswordItemViewController> item(
           [[ManagePasswordItemViewController alloc] initWithDelegate:self
-                                                        passwordForm:form]);
+                                                        passwordForm:&form]);
       [items addObject:item.get()];
     }
+    itemViews_.reset(items.release());
+  }
+  return self;
+}
+
+- (id)initWithModelAndForm:(ManagePasswordsBubbleModel*)model
+                      form:(const autofill::PasswordForm*)form {
+  if ((self = [super initWithNibName:nil bundle:nil])) {
+    base::scoped_nsobject<NSMutableArray> items(
+        [[NSMutableArray arrayWithCapacity:1] retain]);
+    model_ = model;
+    base::scoped_nsobject<ManagePasswordItemViewController> item(
+        [[ManagePasswordItemViewController alloc] initWithDelegate:self
+                                                      passwordForm:form]);
+    [items addObject:item.get()];
     itemViews_.reset(items.release());
   }
   return self;

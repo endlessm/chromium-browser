@@ -13,6 +13,7 @@
 #include "base/command_line.h"
 #include "base/logging.h"
 #include "base/macros.h"
+#include "base/memory/ptr_util.h"
 #include "base/metrics/field_trial.h"
 #include "base/sequenced_task_runner.h"
 #include "base/stl_util.h"
@@ -22,9 +23,9 @@
 #include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chrome_notification_types.h"
-#include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/custom_handlers/protocol_handler_registry.h"
 #include "chrome/browser/custom_handlers/protocol_handler_registry_factory.h"
+#include "chrome/browser/data_use_measurement/chrome_data_use_ascriber.h"
 #include "chrome/browser/io_thread.h"
 #include "chrome/browser/net/chrome_network_delegate.h"
 #include "chrome/browser/net/http_server_properties_manager_factory.h"
@@ -34,6 +35,8 @@
 #include "chrome/browser/net/spdyproxy/data_reduction_proxy_chrome_io_data.h"
 #include "chrome/browser/net/spdyproxy/data_reduction_proxy_chrome_settings.h"
 #include "chrome/browser/net/spdyproxy/data_reduction_proxy_chrome_settings_factory.h"
+#include "chrome/browser/previews/previews_service.h"
+#include "chrome/browser/previews/previews_service_factory.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/chrome_switches.h"
@@ -49,6 +52,8 @@
 #include "components/prefs/pref_filter.h"
 #include "components/prefs/pref_member.h"
 #include "components/prefs/pref_service.h"
+#include "components/previews/core/previews_io_data.h"
+#include "components/previews/core/previews_ui_service.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/cookie_store_factory.h"
 #include "content/public/browser/notification_service.h"
@@ -68,6 +73,10 @@
 #include "net/url_request/url_request_intercepting_job_factory.h"
 #include "net/url_request/url_request_job_factory_impl.h"
 #include "storage/browser/quota/special_storage_policy.h"
+
+#if defined(OS_ANDROID)
+#include "chrome/browser/android/offline_pages/offline_page_request_interceptor.h"
+#endif  // defined(OS_ANDROID)
 
 namespace {
 
@@ -119,12 +128,6 @@ ProfileImplIOData::Handle::~Handle() {
   if (io_data_->predictor_ != NULL) {
     // io_data_->predictor_ might be NULL if Init() was never called
     // (i.e. we shut down before ProfileImpl::DoFinalInit() got called).
-    bool save_prefs = true;
-#if defined(OS_CHROMEOS)
-    save_prefs = !chromeos::ProfileHelper::IsSigninProfile(profile_);
-#endif
-    if (save_prefs)
-      io_data_->predictor_->SaveStateForNextStartup();
     io_data_->predictor_->ShutdownOnUIThread();
   }
 
@@ -187,8 +190,8 @@ void ProfileImplIOData::Handle::Init(
   io_data_->set_data_reduction_proxy_io_data(
       CreateDataReductionProxyChromeIOData(
           g_browser_process->io_thread()->net_log(), profile_->GetPrefs(),
-          BrowserThread::GetMessageLoopProxyForThread(BrowserThread::IO),
-          BrowserThread::GetMessageLoopProxyForThread(BrowserThread::UI)));
+          BrowserThread::GetTaskRunnerForThread(BrowserThread::IO),
+          BrowserThread::GetTaskRunnerForThread(BrowserThread::UI)));
 
   base::SequencedWorkerPool* pool = BrowserThread::GetBlockingPool();
   scoped_refptr<base::SequencedTaskRunner> db_task_runner =
@@ -201,8 +204,16 @@ void ProfileImplIOData::Handle::Init(
       ->InitDataReductionProxySettings(
           io_data_->data_reduction_proxy_io_data(), profile_->GetPrefs(),
           profile_->GetRequestContext(), std::move(store),
-          BrowserThread::GetMessageLoopProxyForThread(BrowserThread::UI),
+          BrowserThread::GetTaskRunnerForThread(BrowserThread::UI),
           db_task_runner);
+
+  io_data_->previews_io_data_ = base::MakeUnique<previews::PreviewsIOData>(
+      BrowserThread::GetTaskRunnerForThread(BrowserThread::UI),
+      BrowserThread::GetTaskRunnerForThread(BrowserThread::IO));
+  PreviewsServiceFactory::GetForProfile(profile_)->set_previews_ui_service(
+      base::MakeUnique<previews::PreviewsUIService>(
+          io_data_->previews_io_data_.get(),
+          BrowserThread::GetTaskRunnerForThread(BrowserThread::IO), nullptr));
 }
 
 content::ResourceContext*
@@ -370,11 +381,11 @@ void ProfileImplIOData::Handle::LazyInitialize() const {
   io_data_->session_startup_pref()->Init(
       prefs::kRestoreOnStartup, pref_service);
   io_data_->session_startup_pref()->MoveToThread(
-      BrowserThread::GetMessageLoopProxyForThread(BrowserThread::IO));
+      BrowserThread::GetTaskRunnerForThread(BrowserThread::IO));
   io_data_->safe_browsing_enabled()->Init(prefs::kSafeBrowsingEnabled,
       pref_service);
   io_data_->safe_browsing_enabled()->MoveToThread(
-      BrowserThread::GetMessageLoopProxyForThread(BrowserThread::IO));
+      BrowserThread::GetTaskRunnerForThread(BrowserThread::IO));
   io_data_->InitializeOnUIThread(profile_);
 }
 
@@ -467,7 +478,9 @@ void ProfileImplIOData::InitializeInternal(
   main_context->set_net_log(io_thread->net_log());
 
   network_delegate_ = data_reduction_proxy_io_data()->CreateNetworkDelegate(
-      std::move(chrome_network_delegate), true);
+      io_thread_globals->data_use_ascriber->CreateNetworkDelegate(
+          std::move(chrome_network_delegate)),
+      true);
 
   main_context->set_network_delegate(network_delegate_.get());
 
@@ -480,8 +493,6 @@ void ProfileImplIOData::InitializeInternal(
       io_thread_globals->http_auth_handler_factory.get());
 
   main_context->set_proxy_service(proxy_service());
-  main_context->set_backoff_manager(
-      io_thread_globals->url_request_backoff_manager.get());
 
   net::ChannelIDService* channel_id_service = nullptr;
 
@@ -520,7 +531,7 @@ void ProfileImplIOData::InitializeInternal(
       new net::HttpCache::DefaultBackend(
           net::DISK_CACHE, ChooseCacheBackendType(), lazy_params_->cache_path,
           lazy_params_->cache_max_size,
-          BrowserThread::GetMessageLoopProxyForThread(BrowserThread::CACHE)));
+          BrowserThread::GetTaskRunnerForThread(BrowserThread::CACHE)));
   http_network_session_ = CreateHttpNetworkSession(*profile_params);
   main_http_factory_ = CreateMainHttpFactory(http_network_session_.get(),
                                              std::move(main_backend));
@@ -534,6 +545,13 @@ void ProfileImplIOData::InitializeInternal(
   std::unique_ptr<net::URLRequestJobFactoryImpl> main_job_factory(
       new net::URLRequestJobFactoryImpl());
   InstallProtocolHandlers(main_job_factory.get(), protocol_handlers);
+
+  // Install the Offline Page Interceptor.
+#if defined(OS_ANDROID)
+  request_interceptors.push_back(std::unique_ptr<net::URLRequestInterceptor>(
+      new offline_pages::OfflinePageRequestInterceptor(
+          previews_io_data_.get())));
+#endif
 
   // The data reduction proxy interceptor should be as close to the network
   // as possible.
@@ -607,8 +625,6 @@ void ProfileImplIOData::
       std::unique_ptr<ProtocolHandlerRegistry::JobInterceptorFactory>(), NULL,
       ftp_factory_.get());
   extensions_context->set_job_factory(extensions_job_factory_.get());
-  extensions_context->set_backoff_manager(
-      io_thread_globals->url_request_backoff_manager.get());
 }
 
 net::URLRequestContext* ProfileImplIOData::InitializeAppRequestContext(
@@ -635,11 +651,9 @@ net::URLRequestContext* ProfileImplIOData::InitializeAppRequestContext(
     app_backend = net::HttpCache::DefaultBackend::InMemory(0);
   } else {
     app_backend.reset(new net::HttpCache::DefaultBackend(
-        net::DISK_CACHE,
-        ChooseCacheBackendType(),
-        cache_path,
+        net::DISK_CACHE, ChooseCacheBackendType(), cache_path,
         app_cache_max_size_,
-        BrowserThread::GetMessageLoopProxyForThread(BrowserThread::CACHE)));
+        BrowserThread::GetTaskRunnerForThread(BrowserThread::CACHE)));
   }
 
   std::unique_ptr<net::CookieStore> cookie_store;
@@ -736,7 +750,7 @@ ProfileImplIOData::InitializeMediaRequestContext(
       new net::HttpCache::DefaultBackend(
           net::MEDIA_CACHE, ChooseCacheBackendType(), cache_path,
           cache_max_size,
-          BrowserThread::GetMessageLoopProxyForThread(BrowserThread::CACHE)));
+          BrowserThread::GetTaskRunnerForThread(BrowserThread::CACHE)));
   std::unique_ptr<net::HttpCache> media_http_cache =
       CreateHttpFactory(http_network_session_.get(), std::move(media_backend));
 

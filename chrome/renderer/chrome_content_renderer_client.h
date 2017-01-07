@@ -20,6 +20,10 @@
 #include "ipc/ipc_channel_proxy.h"
 #include "v8/include/v8.h"
 
+#if defined (OS_CHROMEOS)
+#include "chrome/renderer/leak_detector/leak_detector_remote_client.h"
+#endif
+
 class ChromeRenderThreadObserver;
 #if defined(ENABLE_PRINT_PREVIEW)
 class ChromePDFPrintClient;
@@ -58,10 +62,6 @@ namespace subresource_filter {
 class RulesetDealer;
 }
 
-namespace visitedlink {
-class VisitedLinkSlave;
-}
-
 namespace web_cache {
 class WebCacheImpl;
 }
@@ -73,6 +73,26 @@ class WebSecurityOrigin;
 #if defined(ENABLE_WEBRTC)
 class WebRtcLoggingMessageFilter;
 #endif
+
+namespace internal {
+
+extern const char kFlashYouTubeRewriteUMA[];
+
+// Used for UMA. Values should not be reorderer or reused.
+// SUCCESS refers to an embed properly rewritten. SUCCESS_PARAMS_REWRITE refers
+// to an embed rewritten with the params fixed. SUCCESS_ENABLEJSAPI refers to
+// a rewritten embed even though the JS API was enabled (Chrome Android only).
+// FAILURE_ENABLEJSAPI indicates the embed was not rewritten because the
+// JS API was enabled.
+enum YouTubeRewriteStatus {
+  SUCCESS = 0,
+  SUCCESS_PARAMS_REWRITE = 1,
+  SUCCESS_ENABLEJSAPI = 2,
+  FAILURE_ENABLEJSAPI = 3,
+  NUM_PLUGIN_ERROR  // should be kept last
+};
+
+}  // namespace internal
 
 class ChromeContentRendererClient : public content::ContentRendererClient {
  public:
@@ -116,6 +136,8 @@ class ChromeContentRendererClient : public content::ContentRendererClient {
                        const GURL& url,
                        const GURL& first_party_for_cookies,
                        GURL* new_url) override;
+  bool IsPrefetchOnly(content::RenderFrame* render_frame,
+                      const blink::WebURLRequest& request) override;
   unsigned long long VisitedLinkHash(const char* canonical_url,
                                      size_t length) override;
   bool IsLinkVisited(unsigned long long link_hash) override;
@@ -162,6 +184,7 @@ class ChromeContentRendererClient : public content::ContentRendererClient {
       int embedded_worker_id,
       const GURL& url) override;
   bool ShouldEnforceWebRTCRoutingPreferences() override;
+  GURL OverrideFlashEmbedWithHTML(const GURL& url) override;
 
 #if defined(ENABLE_SPELLCHECK)
   // Sets a new |spellcheck|. Used for testing only.
@@ -213,7 +236,6 @@ class ChromeContentRendererClient : public content::ContentRendererClient {
 #if defined(ENABLE_SPELLCHECK)
   std::unique_ptr<SpellCheck> spellcheck_;
 #endif
-  std::unique_ptr<visitedlink::VisitedLinkSlave> visited_link_slave_;
   std::unique_ptr<safe_browsing::PhishingClassifierFilter> phishing_classifier_;
   std::unique_ptr<subresource_filter::RulesetDealer>
       subresource_filter_ruleset_dealer_;
@@ -227,6 +249,10 @@ class ChromeContentRendererClient : public content::ContentRendererClient {
 #if defined(ENABLE_PLUGINS)
   std::set<std::string> allowed_camera_device_origins_;
   std::set<std::string> allowed_compositor_origins_;
+#endif
+
+#if defined(OS_CHROMEOS)
+  std::unique_ptr<LeakDetectorRemoteClient> leak_detector_remote_client_;
 #endif
 };
 

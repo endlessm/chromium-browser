@@ -56,6 +56,15 @@ public class CustomTabIntentDataProvider {
     public static final String EXTRA_IS_OPENED_BY_CHROME =
             "org.chromium.chrome.browser.customtabs.IS_OPENED_BY_CHROME";
 
+    /** Indicates that the Custom Tab should style itself as a media viewer. */
+    public static final String EXTRA_IS_MEDIA_VIEWER =
+            "org.chromium.chrome.browser.customtabs.IS_MEDIA_VIEWER";
+
+    //TODO(yusufo): Move this to CustomTabsIntent.
+    /** Signals custom tabs to favor sending initial urls to external handler apps if possible. */
+    public static final String EXTRA_SEND_TO_EXTERNAL_DEFAULT_HANDLER =
+            "android.support.customtabs.extra.SEND_TO_EXTERNAL_HANDLER";
+
     private static final int MAX_CUSTOM_MENU_ITEMS = 5;
     private static final String ANIMATION_BUNDLE_PREFIX =
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ? "android:activity." : "android:";
@@ -64,9 +73,12 @@ public class CustomTabIntentDataProvider {
             ANIMATION_BUNDLE_PREFIX + "animEnterRes";
     private static final String BUNDLE_EXIT_ANIMATION_RESOURCE =
             ANIMATION_BUNDLE_PREFIX + "animExitRes";
+
     private final CustomTabsSessionToken mSession;
     private final Intent mKeepAliveServiceIntent;
     private final int mTitleVisibilityState;
+    private final boolean mIsMediaViewer;
+
     private int mToolbarColor;
     private int mBottomBarColor;
     private boolean mEnableUrlBarHiding;
@@ -140,6 +152,8 @@ public class CustomTabIntentDataProvider {
                 CustomTabsIntent.EXTRA_REMOTEVIEWS_VIEW_IDS);
         mRemoteViewsPendingIntent = IntentUtils.safeGetParcelableExtra(intent,
                 CustomTabsIntent.EXTRA_REMOTEVIEWS_PENDINGINTENT);
+        mIsMediaViewer = IntentHandler.isIntentChromeOrFirstParty(intent, context)
+                && IntentUtils.safeGetBooleanExtra(intent, EXTRA_IS_MEDIA_VIEWER, false);
     }
 
     /**
@@ -335,8 +349,11 @@ public class CustomTabIntentDataProvider {
         Intent addedIntent = new Intent();
         addedIntent.setData(Uri.parse(url));
         try {
+            // Media viewers pass in PendingIntents that contain CHOOSER Intents.  Setting the data
+            // in these cases prevents the Intent from firing correctly.
             PendingIntent pendingIntent = mMenuEntries.get(menuIndex).second;
-            pendingIntent.send(activity, 0, addedIntent, mOnFinished, null);
+            pendingIntent.send(
+                    activity, 0, isMediaViewer() ? null : addedIntent, mOnFinished, null);
         } catch (CanceledException e) {
             Log.e(TAG, "Custom tab in Chrome failed to send pending intent.");
         }
@@ -416,6 +433,13 @@ public class CustomTabIntentDataProvider {
     }
 
     /**
+     * @return See {@link #EXTRA_IS_MEDIA_VIEWER}.
+     */
+    boolean isMediaViewer() {
+        return mIsMediaViewer;
+    }
+
+    /**
      * Parses out extras specifically added for Herb.
      *
      * @param intent Intent fired to open the CustomTabActivity.
@@ -427,7 +451,6 @@ public class CustomTabIntentDataProvider {
                 || TextUtils.equals(ChromeSwitches.HERB_FLAVOR_DISABLED, herbFlavor)) {
             return;
         }
-        if (!IntentHandler.isIntentChromeOrFirstParty(intent, context)) return;
 
         mIsOpenedByChrome = IntentUtils.safeGetBooleanExtra(
                 intent, EXTRA_IS_OPENED_BY_CHROME, false);

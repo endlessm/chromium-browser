@@ -474,6 +474,7 @@ function SlideMode(container, content, topToolbar, bottomToolbar, prompt,
 SlideMode.EDITOR_MODES = [
   new ImageEditor.Mode.InstantAutofix(),
   new ImageEditor.Mode.Crop(),
+  new ImageEditor.Mode.Resize(),
   new ImageEditor.Mode.Exposure(),
   new ImageEditor.Mode.OneClick(
       'rotate_left', 'GALLERY_ROTATE_LEFT', new Command.Rotate(-1)),
@@ -927,6 +928,9 @@ SlideMode.prototype.getNextSelectedIndex_ = function(direction) {
  * @param {string} keyID Key of the KeyboardEvent.
  */
 SlideMode.prototype.advanceWithKeyboard = function(keyID) {
+  if (this.getItemCount_() === 0)
+    return;
+
   var prev = (keyID === 'ArrowUp' ||
               keyID === 'ArrowLeft' ||
               keyID === 'MediaTrackPrevious');
@@ -1697,6 +1701,7 @@ SlideMode.prototype.setOverwriteBubbleCount_ = function(value) {
  * @private
  */
 SlideMode.prototype.print_ = function() {
+  this.stopEditing_();
   cr.dispatchSimpleEvent(this, 'useraction');
   window.print();
 };

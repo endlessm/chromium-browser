@@ -1,7 +1,7 @@
 #!/usr/bin/env python
-# Copyright 2015 The Swarming Authors. All rights reserved.
-# Use of this source code is governed under the Apache License, Version 2.0 that
-# can be found in the LICENSE file.
+# Copyright 2015 The LUCI Authors. All rights reserved.
+# Use of this source code is governed under the Apache License, Version 2.0
+# that can be found in the LICENSE file.
 
 """Calculate statistics about tasks.
 
@@ -19,7 +19,8 @@ import sys
 import urllib
 
 
-CLIENT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+CLIENT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(
+    __file__.decode(sys.getfilesystemencoding()))))
 
 _EPOCH = datetime.datetime.utcfromtimestamp(0)
 

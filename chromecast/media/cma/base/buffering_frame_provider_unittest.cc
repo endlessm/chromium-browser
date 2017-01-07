@@ -14,6 +14,8 @@
 #include "base/bind.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
+#include "base/run_loop.h"
+#include "base/single_thread_task_runner.h"
 #include "base/threading/thread.h"
 #include "base/time/time.h"
 #include "chromecast/media/cma/test/frame_generator_for_test.h"
@@ -73,7 +75,7 @@ void BufferingFrameProviderTest::Configure(
     frame_specs[k].size = 512;
     frame_specs[k].has_decrypt_config = ((k % 3) == 0);
   }
-  frame_specs[frame_specs.size() - 1].is_eos = true;
+  frame_specs.back().is_eos = true;
 
   std::unique_ptr<FrameGeneratorForTest> frame_generator_provider(
       new FrameGeneratorForTest(frame_specs));
@@ -127,11 +129,11 @@ TEST_F(BufferingFrameProviderTest, FastProviderSlowConsumer) {
           consumer_delayed_pattern + arraysize(consumer_delayed_pattern)));
 
   std::unique_ptr<base::MessageLoop> message_loop(new base::MessageLoop());
-  message_loop->PostTask(
+  message_loop->task_runner()->PostTask(
       FROM_HERE,
       base::Bind(&BufferingFrameProviderTest::Start, base::Unretained(this)));
-  message_loop->Run();
-};
+  base::RunLoop().Run();
+}
 
 TEST_F(BufferingFrameProviderTest, SlowProviderFastConsumer) {
   bool provider_delayed_pattern[] = { true };
@@ -148,11 +150,11 @@ TEST_F(BufferingFrameProviderTest, SlowProviderFastConsumer) {
           consumer_delayed_pattern + arraysize(consumer_delayed_pattern)));
 
   std::unique_ptr<base::MessageLoop> message_loop(new base::MessageLoop());
-  message_loop->PostTask(
+  message_loop->task_runner()->PostTask(
       FROM_HERE,
       base::Bind(&BufferingFrameProviderTest::Start, base::Unretained(this)));
-  message_loop->Run();
-};
+  base::RunLoop().Run();
+}
 
 TEST_F(BufferingFrameProviderTest, SlowFastProducerConsumer) {
   // Lengths are prime between each other so we can test a lot of combinations.
@@ -176,11 +178,11 @@ TEST_F(BufferingFrameProviderTest, SlowFastProducerConsumer) {
           consumer_delayed_pattern + arraysize(consumer_delayed_pattern)));
 
   std::unique_ptr<base::MessageLoop> message_loop(new base::MessageLoop());
-  message_loop->PostTask(
+  message_loop->task_runner()->PostTask(
       FROM_HERE,
       base::Bind(&BufferingFrameProviderTest::Start, base::Unretained(this)));
-  message_loop->Run();
-};
+  base::RunLoop().Run();
+}
 
 }  // namespace media
 }  // namespace chromecast

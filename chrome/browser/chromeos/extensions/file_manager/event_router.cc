@@ -105,8 +105,8 @@ void BroadcastEvent(Profile* profile,
                     const std::string& event_name,
                     std::unique_ptr<base::ListValue> event_args) {
   extensions::EventRouter::Get(profile)->BroadcastEvent(
-      base::WrapUnique(new extensions::Event(histogram_value, event_name,
-                                             std::move(event_args))));
+      base::MakeUnique<extensions::Event>(histogram_value, event_name,
+                                          std::move(event_args)));
 }
 
 // Sends an event named |event_name| with arguments |event_args| to an extension
@@ -118,8 +118,8 @@ void DispatchEventToExtension(
     const std::string& event_name,
     std::unique_ptr<base::ListValue> event_args) {
   extensions::EventRouter::Get(profile)->DispatchEventToExtension(
-      extension_id, base::WrapUnique(new extensions::Event(
-                        histogram_value, event_name, std::move(event_args))));
+      extension_id, base::MakeUnique<extensions::Event>(
+                        histogram_value, event_name, std::move(event_args)));
 }
 
 file_manager_private::MountCompletedStatus
@@ -289,6 +289,17 @@ bool ShouldShowNotificationForVolume(
     return false;
   }
 
+  // We suppress notifications about HP Elite USB-C Dock's internal storage.
+  // chrome-os-partner:58309.
+  // TODO(fukino): Remove this workaround when the root cause is fixed.
+  if (volume.type() == VOLUME_TYPE_REMOVABLE_DISK_PARTITION) {
+    const DiskMountManager::Disk* disk =
+        DiskMountManager::GetInstance()->FindDiskBySourcePath(
+            volume.source_path().AsUTF8Unsafe());
+    if (disk && disk->vendor_id() == "0ea0" && disk->product_id() == "2272")
+      return false;
+  }
+
   return true;
 }
 
@@ -342,7 +353,7 @@ class JobEventRouterImpl : public JobEventRouter {
 
     std::set<std::string> extension_ids;
 
-    for (const auto listener : listeners) {
+    for (const auto& listener : listeners) {
       extension_ids.insert(listener->extension_id());
     }
 
@@ -397,7 +408,7 @@ void EventRouter::Shutdown() {
   DLOG_IF(WARNING, !file_watchers_.empty())
       << "Not all file watchers are "
       << "removed. This can happen when Files.app is open during shutdown.";
-  STLDeleteValues(&file_watchers_);
+  base::STLDeleteValues(&file_watchers_);
   if (!profile_) {
     NOTREACHED();
     return;

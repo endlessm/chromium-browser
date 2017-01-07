@@ -60,9 +60,9 @@ import logging
 
 from google.appengine.ext import ndb
 
-from dashboard import datastore_hooks
 from dashboard import layered_cache
-from dashboard import utils
+from dashboard.common import datastore_hooks
+from dashboard.common import utils
 from dashboard.models import anomaly
 from dashboard.models import anomaly_config
 from dashboard.models import internal_only_model
@@ -118,6 +118,12 @@ class TestMetadata(internal_only_model.CreateHookInternalOnlyModel):
   NOTE: If you remove any properties from TestMetadata, they should be added to
   the TEST_EXCLUDE_PROPERTIES list in migrate_test_names.py.
   """
+  # Our access patterns don't generally involve the same TestMetadata being
+  # accessed again and again across multiple requests. Don't put them into
+  # memcache when accessed by default. For more info, see:
+  # https://cloud.google.com/appengine/docs/python/ndb/cache
+  _use_memcache = False
+
   internal_only = ndb.BooleanProperty(default=False, indexed=True)
 
   # Sheriff rotation for this test. Rotations are specified by regular
@@ -244,6 +250,13 @@ class TestMetadata(internal_only_model.CreateHookInternalOnlyModel):
       return ''
     return parts[6]
 
+  @ndb.ComputedProperty
+  def test_part5_name(self):
+    parts = self.key.id().split('/')
+    if len(parts) < 8:
+      return ''
+    return parts[7]
+
   @classmethod
   def _GetMasterBotSuite(cls, key):
     if not key:
@@ -333,6 +346,11 @@ class LastAddedRevision(ndb.Model):
   contention issues (Frequent update of entity within the same group).  This
   property is updated very frequent in /add_point.
   """
+  # Our access patterns don't generally involve the same LastAddedRevision being
+  # accessed again and again across multiple requests. Don't put them into
+  # memcache when accessed by default. For more info, see:
+  # https://cloud.google.com/appengine/docs/python/ndb/cache
+  _use_memcache = False
   revision = ndb.IntegerProperty(indexed=False)
 
 
@@ -351,6 +369,12 @@ class Row(internal_only_model.InternalOnlyModel, ndb.Expando):
         characters, '0-9' and '.'.
     a_: Annotation such as a_chrome_bugid or a_gasp_anomaly. StringProperty.
   """
+  # Our access patterns don't generally involve the same Row being
+  # accessed again and again across multiple requests. Don't put them into
+  # memcache when accessed by default. For more info, see:
+  # https://cloud.google.com/appengine/docs/python/ndb/cache
+  _use_memcache = False
+
   # Don't index by default (only explicitly indexed properties are indexed).
   _default_indexed = False
   internal_only = ndb.BooleanProperty(default=False, indexed=True)

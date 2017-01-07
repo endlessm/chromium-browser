@@ -639,6 +639,7 @@ class SuggestionView extends ViewGroup {
             }
         };
 
+        // TODO(crbug.com/635567): Fix this properly.
         @SuppressLint("InlinedApi")
         SuggestionContentsContainer(Context context, Drawable backgroundDrawable) {
             super(context);
@@ -789,7 +790,7 @@ class SuggestionView extends ViewGroup {
                 // of the top of the text which includes some whitespace.
                 if (child == mAnswerImage) {
                     verticalOffset += getResources().getDimensionPixelOffset(
-                            R.dimen.omnibox_suggestion_answer_line2_vertical_spacing);
+                            R.dimen.omnibox_suggestion_answer_image_vertical_spacing);
                 }
 
                 if (child != mTextLine1 && verticalOffset + line2Height > height) {
@@ -976,6 +977,8 @@ class SuggestionView extends ViewGroup {
             return drawableState;
         }
 
+        // TODO(crbug.com/635567): Fix this properly.
+        @SuppressLint("SwitchIntDef")
         private void setSuggestionIcon(@SuggestionIcon int type, boolean invalidateCurrentIcon) {
             if (mSuggestionIconType == type && !invalidateCurrentIcon) return;
             assert type != SUGGESTION_ICON_UNDEFINED;

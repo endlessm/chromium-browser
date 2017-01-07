@@ -179,9 +179,6 @@ CountingPolicy::CountingPolicy(Profile* profile)
 CountingPolicy::~CountingPolicy() {}
 
 bool CountingPolicy::InitDatabase(sql::Connection* db) {
-  if (!Util::DropObsoleteTables(db))
-    return false;
-
   if (!string_table_.Initialize(db))
     return false;
   if (!url_table_.Initialize(db))
@@ -289,7 +286,7 @@ bool CountingPolicy::FlushDatabase(sql::Connection* db) {
   insert_str += ")";
 
   for (ActionQueue::iterator i = queue.begin(); i != queue.end(); ++i) {
-    const Action& action = *i->first.get();
+    const Action& action = *i->first;
     int count = i->second;
 
     base::Time day_start = action.time().LocalMidnight();

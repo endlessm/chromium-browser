@@ -8,11 +8,9 @@
 #include <memory>
 #include <string>
 
-#include "ash/shell_delegate.h"
+#include "ash/common/shell_delegate.h"
 #include "base/macros.h"
-#include "base/observer_list.h"
 #include "build/build_config.h"
-#include "chrome/browser/ui/ash/metrics/chrome_user_metrics_recorder.h"
 #include "content/public/browser/notification_observer.h"
 #include "content/public/browser/notification_registrar.h"
 
@@ -33,6 +31,7 @@ class ChromeShellDelegate : public ash::ShellDelegate,
   ~ChromeShellDelegate() override;
 
   // ash::ShellDelegate overrides;
+  shell::Connector* GetShellConnector() const override;
   bool IsFirstRunAfterBoot() const override;
   bool IsMultiProfilesEnabled() const override;
   bool IsIncognitoAllowed() const override;
@@ -43,22 +42,16 @@ class ChromeShellDelegate : public ash::ShellDelegate,
   void PreShutdown() override;
   void Exit() override;
   keyboard::KeyboardUI* CreateKeyboardUI() override;
-  void VirtualKeyboardActivated(bool activated) override;
-  void AddVirtualKeyboardStateObserver(
-      ash::VirtualKeyboardStateObserver* observer) override;
-  void RemoveVirtualKeyboardStateObserver(
-      ash::VirtualKeyboardStateObserver* observer) override;
   void OpenUrlFromArc(const GURL& url) override;
   app_list::AppListPresenter* GetAppListPresenter() override;
   ash::ShelfDelegate* CreateShelfDelegate(ash::ShelfModel* model) override;
   ash::SystemTrayDelegate* CreateSystemTrayDelegate() override;
-  ash::UserWallpaperDelegate* CreateUserWallpaperDelegate() override;
+  std::unique_ptr<ash::WallpaperDelegate> CreateWallpaperDelegate() override;
   ash::SessionStateDelegate* CreateSessionStateDelegate() override;
   ash::AccessibilityDelegate* CreateAccessibilityDelegate() override;
   ash::NewWindowDelegate* CreateNewWindowDelegate() override;
   ash::MediaDelegate* CreateMediaDelegate() override;
-  std::unique_ptr<ash::PointerWatcherDelegate> CreatePointerWatcherDelegate()
-      override;
+  std::unique_ptr<ash::PaletteDelegate> CreatePaletteDelegate() override;
   ui::MenuModel* CreateContextMenu(ash::WmShelf* wm_shelf,
                                    const ash::ShelfItem* item) override;
   ash::GPUSupport* CreateGPUSupport() override;
@@ -79,12 +72,6 @@ class ChromeShellDelegate : public ash::ShellDelegate,
   content::NotificationRegistrar registrar_;
 
   ChromeLauncherControllerImpl* shelf_delegate_;
-
-  base::ObserverList<ash::VirtualKeyboardStateObserver>
-      keyboard_state_observer_list_;
-
-  // Proxies events from chrome/browser to ash::UserMetricsRecorder.
-  std::unique_ptr<ChromeUserMetricsRecorder> chrome_user_metrics_recorder_;
 
   std::unique_ptr<chromeos::DisplayConfigurationObserver>
       display_configuration_observer_;

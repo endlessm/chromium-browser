@@ -5,7 +5,7 @@
 #ifndef IOS_CHROME_BROWSER_SYNC_GLUE_SYNC_START_UTIL_H_
 #define IOS_CHROME_BROWSER_SYNC_GLUE_SYNC_START_UTIL_H_
 
-#include "sync/api/syncable_service.h"
+#include "components/sync/api/syncable_service.h"
 
 namespace base {
 class FilePath;
@@ -17,7 +17,7 @@ namespace ios {
 namespace sync_start_util {
 
 // Creates a StartSyncFlare that a SyncableService can use to tell
-// sync_driver::SyncService it needs sync to start ASAP.  Typically this would
+// syncer::SyncService it needs sync to start ASAP.  Typically this would
 // be given to the SyncableService on construction.
 //
 // The flare built by this function is designed to be Run()able from any thread

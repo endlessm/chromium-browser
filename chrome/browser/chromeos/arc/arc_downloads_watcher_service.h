@@ -15,12 +15,13 @@
 #include "components/arc/instance_holder.h"
 
 namespace base {
-
 class FilePath;
-
-}  // namespace base
+}
 
 namespace arc {
+
+// Returns true if the file path has a media extension supported by Android.
+bool HasAndroidSupportedMediaExtension(const base::FilePath& path);
 
 // Watches Downloads directory and registers newly created media files to
 // Android MediaProvider.

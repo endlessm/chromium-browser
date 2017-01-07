@@ -33,6 +33,10 @@
 #include "ui/compositor/compositor.h"
 #include "ui/gfx/geometry/rect.h"
 
+#if defined(OS_ANDROID)
+#include "content/browser/renderer_host/context_provider_factory_impl_android.h"
+#endif
+
 namespace content {
 
 void InitNavigateParams(FrameHostMsg_DidCommitProvisionalLoad_Params* params,
@@ -51,7 +55,6 @@ void InitNavigateParams(FrameHostMsg_DidCommitProvisionalLoad_Params* params,
   params->searchable_form_url = GURL();
   params->searchable_form_encoding = std::string();
   params->did_create_new_entry = did_create_new_entry;
-  params->security_info = std::string();
   params->gesture = NavigationGestureUser;
   params->was_within_same_page = false;
   params->method = "GET";
@@ -64,17 +67,33 @@ TestRenderWidgetHostView::TestRenderWidgetHostView(RenderWidgetHost* rwh)
       is_occluded_(false),
       did_swap_compositor_frame_(false) {
 #if defined(OS_ANDROID)
-    surface_id_allocator_ = CreateSurfaceIdAllocator();
+  // Not all tests initialize or need a context provider factory.
+  if (ContextProviderFactoryImpl::GetInstance()) {
+    frame_sink_id_ = AllocateFrameSinkId();
+    GetSurfaceManager()->RegisterFrameSinkId(frame_sink_id_);
+  }
 #else
   // Not all tests initialize or need an image transport factory.
-  if (ImageTransportFactory::GetInstance())
-    surface_id_allocator_ = CreateSurfaceIdAllocator();
+  if (ImageTransportFactory::GetInstance()) {
+    frame_sink_id_ = AllocateFrameSinkId();
+    GetSurfaceManager()->RegisterFrameSinkId(frame_sink_id_);
+  }
 #endif
 
   rwh_->SetView(this);
 }
 
 TestRenderWidgetHostView::~TestRenderWidgetHostView() {
+  cc::SurfaceManager* manager = nullptr;
+#if defined(OS_ANDROID)
+  if (ContextProviderFactoryImpl::GetInstance())
+    manager = GetSurfaceManager();
+#else
+  manager = GetSurfaceManager();
+#endif
+  if (manager) {
+    manager->InvalidateFrameSinkId(frame_sink_id_);
+  }
 }
 
 RenderWidgetHost* TestRenderWidgetHostView::GetRenderWidgetHost() const {
@@ -193,7 +212,7 @@ gfx::Rect TestRenderWidgetHostView::GetBoundsInRootWindow() {
 }
 
 void TestRenderWidgetHostView::OnSwapCompositorFrame(
-    uint32_t output_surface_id,
+    uint32_t compositor_frame_sink_id,
     cc::CompositorFrame frame) {
   did_swap_compositor_frame_ = true;
 }
@@ -205,11 +224,8 @@ bool TestRenderWidgetHostView::LockMouse() {
 void TestRenderWidgetHostView::UnlockMouse() {
 }
 
-uint32_t TestRenderWidgetHostView::GetSurfaceIdNamespace() {
-  // See constructor.  If a test needs this, its harness needs to construct an
-  // ImageTransportFactory.
-  DCHECK(surface_id_allocator_);
-  return surface_id_allocator_->id_namespace();
+cc::FrameSinkId TestRenderWidgetHostView::GetFrameSinkId() {
+  return frame_sink_id_;
 }
 
 TestRenderViewHost::TestRenderViewHost(

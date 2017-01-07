@@ -139,7 +139,7 @@ public class ResourceManager implements ResourceLoaderCallback {
     @SuppressWarnings("cast")
     @Override
     public void onResourceLoaded(int resType, int resId, Resource resource) {
-        if (resource == null) return;
+        if (resource == null || resource.getBitmap() == null) return;
 
         if (resType != AndroidResourceType.CRUSHED_SPRITE) {
             saveMetadataForLoadedResource(resType, resId, resource);
@@ -165,6 +165,14 @@ public class ResourceManager implements ResourceLoaderCallback {
         nativeOnResourceReady(mNativeResourceManagerPtr, resType, resId, resource.getBitmap(),
                 padding.left, padding.top, padding.right, padding.bottom,
                 aperture.left, aperture.top, aperture.right, aperture.bottom);
+    }
+
+    /**
+     * Clear the cache of tinted assets that the native manager holds.
+     */
+    public void clearTintedResourceCache() {
+        if (mNativeResourceManagerPtr == 0) return;
+        nativeClearTintedResourceCache(mNativeResourceManagerPtr);
     }
 
     private void saveMetadataForLoadedResource(int resType, int resId, Resource resource) {
@@ -226,5 +234,6 @@ public class ResourceManager implements ResourceLoaderCallback {
             int unscaledSpriteHeight, float scaledSpriteWidth, float scaledSpriteHeight);
     private native void nativeOnCrushedSpriteResourceReloaded(long nativeResourceManagerImpl,
             int bitmapResId, Bitmap bitmap);
+    private native void nativeClearTintedResourceCache(long nativeResourceManagerImpl);
 
 }

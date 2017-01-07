@@ -5,12 +5,6 @@
 #ifndef ASH_MUS_WINDOW_OBSERVER_H_
 #define ASH_MUS_WINDOW_OBSERVER_H_
 
-#include <stdint.h>
-
-namespace ui {
-class Event;
-}
-
 namespace ash {
 namespace mus {
 
@@ -22,11 +16,7 @@ class WindowManagerObserver {
   // about to be destroyed.
   virtual void OnWindowTreeClientDestroyed() {}
 
-  virtual void OnAccelerator(uint32_t id, const ui::Event& event) {}
-
   virtual void OnRootWindowControllerAdded(RootWindowController* controller) {}
-  virtual void OnWillDestroyRootWindowController(
-      RootWindowController* controller) {}
 
  protected:
   virtual ~WindowManagerObserver() {}

@@ -5,7 +5,7 @@
 #include "chrome/browser/ui/ash/launcher/extension_launcher_context_menu.h"
 
 #include "ash/common/shelf/shelf_item_delegate.h"
-#include "ash/shell.h"
+#include "ash/common/wm_shell.h"
 #include "base/bind.h"
 #include "chrome/browser/extensions/context_menu_matcher.h"
 #include "chrome/browser/extensions/extension_util.h"
@@ -17,7 +17,6 @@
 #include "chrome/common/extensions/extension_constants.h"
 #include "chrome/grit/generated_resources.h"
 #include "content/public/common/context_menu_params.h"
-#include "grit/ash_strings.h"
 #include "ui/base/l10n/l10n_util.h"
 
 namespace {
@@ -82,7 +81,7 @@ void ExtensionLauncherContextMenu::Init() {
                           IDS_APP_LIST_NEW_INCOGNITO_WINDOW);
     }
     if (!BrowserShortcutLauncherItemController(
-             controller(), ash::Shell::GetInstance()->shelf_model())
+             controller(), ash::WmShell::Get()->shelf_model())
              .IsListOfActiveBrowserEmpty()) {
       AddItem(MENU_CLOSE,
               l10n_util::GetStringUTF16(IDS_LAUNCHER_CONTEXT_MENU_CLOSE));

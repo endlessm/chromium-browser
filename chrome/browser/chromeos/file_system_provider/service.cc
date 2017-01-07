@@ -6,6 +6,8 @@
 
 #include <stddef.h>
 
+#include <utility>
+
 #include "base/files/file_path.h"
 #include "base/memory/ptr_util.h"
 #include "base/stl_util.h"
@@ -41,7 +43,7 @@ ProvidedFileSystemInterface* CreateProvidedFileSystem(
     const ProvidedFileSystemInfo& file_system_info) {
   DCHECK(profile);
   return new ThrottledFileSystem(
-      base::WrapUnique(new ProvidedFileSystem(profile, file_system_info)));
+      base::MakeUnique<ProvidedFileSystem>(profile, file_system_info));
 }
 
 }  // namespace
@@ -82,7 +84,7 @@ Service::~Service() {
   }
 
   DCHECK_EQ(0u, file_system_map_.size());
-  STLDeleteValues(&file_system_map_);
+  base::STLDeleteValues(&file_system_map_);
 }
 
 // static
@@ -109,7 +111,7 @@ void Service::SetFileSystemFactoryForTesting(
 void Service::SetRegistryForTesting(
     std::unique_ptr<RegistryInterface> registry) {
   DCHECK(registry);
-  registry_.reset(registry.release());
+  registry_ = std::move(registry);
 }
 
 base::File::Error Service::MountFileSystem(const std::string& extension_id,
@@ -284,10 +286,10 @@ bool Service::RequestMount(const std::string& extension_id) {
 
   event_router->DispatchEventToExtension(
       extension_id,
-      base::WrapUnique(new extensions::Event(
+      base::MakeUnique<extensions::Event>(
           extensions::events::FILE_SYSTEM_PROVIDER_ON_MOUNT_REQUESTED,
           extensions::api::file_system_provider::OnMountRequested::kEventName,
-          std::unique_ptr<base::ListValue>(new base::ListValue()))));
+          std::unique_ptr<base::ListValue>(new base::ListValue())));
 
   return true;
 }

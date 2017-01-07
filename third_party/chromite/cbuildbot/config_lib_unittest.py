@@ -100,18 +100,11 @@ class BuildConfigClassTest(cros_test_lib.TestCase):
   """BuildConfig tests."""
 
   def setUp(self):
-    self.fooConfig = config_lib.BuildConfig(name='foo', value=1)
-    self.barConfig = config_lib.BuildConfig(name='bar', value=2)
+    self.fooConfig = config_lib.BuildConfig(name='foo', foo=1)
+    self.barConfig = config_lib.BuildConfig(name='bar', bar=2)
     self.deepConfig = config_lib.BuildConfig(
-        name='deep', nested=[1, 2, 3], value=3,
+        name='deep', nested=[1, 2, 3], deep=3,
         child_configs=[self.fooConfig, self.barConfig])
-
-    self.config = {
-        'foo': self.fooConfig,
-        'bar': self.barConfig,
-        'deep': self.deepConfig,
-    }
-
 
   def testMockSiteConfig(self):
     """Make sure Mock generator fucntion doesn't crash."""
@@ -127,27 +120,65 @@ class BuildConfigClassTest(cros_test_lib.TestCase):
 
     self.assertRaises(AttributeError, getattr, self.fooConfig, 'foobar')
 
+  def testApplyEmpty(self):
+    orig = self.fooConfig.deepcopy()
+
+    # Do nothing.
+    self.fooConfig.apply()
+    self.assertEqual(self.fooConfig, orig)
+
+  def testApplyValues(self):
+    # Apply simple values..
+    self.fooConfig.apply(a=1, b=2)
+    self.assertEqual(self.fooConfig, dict(name='foo', foo=1, a=1, b=2))
+
+  def testApplyBuildConfig(self):
+    # Apply a BuildConfig.
+    self.fooConfig.apply(self.barConfig)
+    self.assertEqual(self.fooConfig, dict(name='bar', foo=1, bar=2))
+
+  def testApplyMixed(self):
+    # Apply simple values..
+    config = config_lib.BuildConfig()
+    config.apply(self.fooConfig, self.barConfig, a=1, b=2, bar=3)
+    self.assertEqual(config, dict(name='bar', foo=1, bar=3, a=1, b=2))
+
+  def testDeriveMixed(self):
+    config = config_lib.BuildConfig()
+    result = config.derive(self.fooConfig, self.barConfig, a=1, b=2, bar=3)
+
+    self.assertIsNot(config, result)
+    self.assertEqual(config, dict())
+    self.assertEqual(result, dict(name='bar', foo=1, bar=3, a=1, b=2))
+
   def testDeleteKey(self):
-    base_config = config_lib.BuildConfig(foo='bar')
-    inherited_config = base_config.derive(
-        foo=config_lib.BuildConfig.delete_key())
-    self.assertTrue('foo' in base_config)
-    self.assertFalse('foo' in inherited_config)
+    base = config_lib.BuildConfig(foo='bar')
+
+    # We should be able to add to the override as an argument value.
+    override = config_lib.BuildConfig(foo=config_lib.BuildConfig.delete_key())
+    self.assertIn('foo', override)
+
+    # But remove it from base as a config value.
+    base.apply(override)
+    self.assertFalse('foo' in base)
 
   def testDeleteKeys(self):
     base_config = config_lib.BuildConfig(foo='bar', baz='bak')
-    inherited_config_1 = base_config.derive(qzr='flp')
-    inherited_config_2 = inherited_config_1.derive(
-        config_lib.BuildConfig.delete_keys(base_config))
-    self.assertEqual(inherited_config_2, {'qzr': 'flp'})
+    test_config = base_config.derive(qzr='flp')
+    test_config.apply(config_lib.BuildConfig.delete_keys(base_config))
+    self.assertEqual(test_config, {'qzr': 'flp'})
 
   def testCallableOverrides(self):
     append_foo = lambda x: x + 'foo' if x else 'foo'
-    base_config = config_lib.BuildConfig()
-    inherited_config_1 = base_config.derive(foo=append_foo)
-    inherited_config_2 = inherited_config_1.derive(foo=append_foo)
-    self.assertEqual(inherited_config_1, {'foo': 'foo'})
-    self.assertEqual(inherited_config_2, {'foo': 'foofoo'})
+    base = config_lib.BuildConfig()
+    override = config_lib.BuildConfig(foo=append_foo)
+    self.assertIn('foo', override)
+
+    base.apply(override)
+    self.assertEqual(base, {'foo': 'foo'})
+
+    base.apply(override)
+    self.assertEqual(base, {'foo': 'foofoo'})
 
   def AssertDeepCopy(self, obj1, obj2, obj3):
     """Assert that |obj3| is a deep copy of |obj1|.
@@ -256,9 +287,11 @@ class SiteConfigClassTest(cros_test_lib.TestCase):
                     value='override')
 
     site_config.Add('default_with_mixin',
+                    None,
                     mixin)
 
     site_config.Add('mixin_with_override',
+                    None,
                     mixin,
                     value='override')
 
@@ -345,6 +378,21 @@ class SiteConfigClassTest(cros_test_lib.TestCase):
     with self.assertRaises(AssertionError):
       site_config.Add('bar', fake_template)
 
+  def testTemplateAttr(self):
+    """Test the SiteConfig.templates.name behavior."""
+
+    site_config = config_lib.SiteConfig()
+    template1 = site_config.AddTemplate('template1', value='template')
+    template2 = site_config.AddTemplate('template2', value='template')
+
+    self.assertIs(template1, site_config.templates.template1)
+    self.assertIs(template2, site_config.templates.template2)
+
+    # Try to fetch a non-existent template.
+    with self.assertRaises(AttributeError):
+      _ = site_config.templates.no_such_template
+
+
   def testSaveLoadEmpty(self):
     config = config_lib.SiteConfig(defaults={}, site_params={})
     config_str = config.SaveConfigToString()
@@ -383,6 +431,9 @@ class SiteConfigClassTest(cros_test_lib.TestCase):
     "_templates": {
        "build": {
             "baz": true
+       },
+       "unused": {
+            "description": "No build uses this template."
        }
     },
     "diff_build": {
@@ -403,7 +454,7 @@ class SiteConfigClassTest(cros_test_lib.TestCase):
                 "bar": false,
                 "name": "child_build",
                 "hw_tests": [
-                    "{\\n    \\"async\\": true,\\n    \\"blocking\\": false,\\n    \\"critical\\": false,\\n    \\"file_bugs\\": true,\\n    \\"max_retries\\": null,\\n    \\"minimum_duts\\": 4,\\n    \\"num\\": 2,\\n    \\"offload_failures_only\\": false,\\n    \\"pool\\": \\"bvt\\",\\n    \\"priority\\": \\"PostBuild\\",\\n    \\"retry\\": false,\\n    \\"suite\\": \\"bvt-perbuild\\",\\n    \\"suite_min_duts\\": 1,\\n    \\"timeout\\": 5400,\\n    \\"warn_only\\": false\\n}"
+                    "{\\n    \\"async\\": true,\\n    \\"blocking\\": false,\\n    \\"critical\\": false,\\n    \\"file_bugs\\": true,\\n    \\"max_retries\\": null,\\n    \\"minimum_duts\\": 4,\\n    \\"num\\": 2,\\n    \\"offload_failures_only\\": false,\\n    \\"pool\\": \\"bvt\\",\\n    \\"priority\\": \\"PostBuild\\",\\n    \\"retry\\": false,\\n    \\"suite\\": \\"bvt-perbuild\\",\\n    \\"suite_min_duts\\": 1,\\n    \\"timeout\\": 10800,\\n    \\"warn_only\\": false\\n}"
                 ]
             }
         ],
@@ -450,10 +501,17 @@ class SiteConfigClassTest(cros_test_lib.TestCase):
     self.assertTrue(config.params.site_foo)
     self.assertFalse(config.params.site_bar)
 
+    # Ensure that all templates are present.
+    self.assertItemsEqual(config.templates.keys(), ['build', 'unused'])
+
     # Load an save again, just to make sure there are no changes.
     loaded = config_lib.LoadConfigFromString(config.SaveConfigToString())
 
+    # This tests that build configs match, except that unused templates
+    # are stripped out.
     self.assertEqual(config, loaded)
+    self.assertEqual(config._site_params, loaded._site_params)
+    self.assertItemsEqual(loaded.templates.keys(), ['build'])
 
     # Make sure we can dump debug content without crashing.
     self.assertNotEqual(config.DumpExpandedConfigToString(), '')
@@ -485,6 +543,31 @@ class SiteConfigClassTest(cros_test_lib.TestCase):
     # This confirms they are exactly the same.
     self.assertDictEqual(new, src)
 
+  def testUnusedTemplates(self):
+    config = config_lib.SiteConfig()
+    config.AddTemplate('base', foo=True)
+    config.AddTemplate('unused', bar=True)
+    config.Add('build1', config.templates.base, var=1)
+    config.Add('build2', var=2)
+    config.Add('build3', config.templates.base, var=3)
+
+    self.assertItemsEqual(
+        config.templates,
+        {
+            'base': {'_template': 'base', 'foo': True},
+            'unused': {'_template': 'unused', 'bar': True},
+        }
+    )
+
+    results = config._UsedTemplates()
+
+    self.assertItemsEqual(
+        results,
+        {
+            'base': {'_template': 'base', 'foo': True},
+        }
+    )
+
 
 class SiteConfigFindTest(cros_test_lib.TestCase):
   """Tests related to Find helpers on SiteConfig."""
@@ -497,10 +580,9 @@ class SiteConfigFindTest(cros_test_lib.TestCase):
 
   def testGetBoardsComplexConfig(self):
     site_config = MockSiteConfig()
-    site_config.Add('build_a', config_lib.BuildConfig(), boards=['foo_board'])
-    site_config.Add('build_b', config_lib.BuildConfig(), boards=['bar_board'])
-    site_config.Add('build_c', config_lib.BuildConfig(),
-                    boards=['foo_board', 'car_board'])
+    site_config.Add('build_a', boards=['foo_board'])
+    site_config.Add('build_b', boards=['bar_board'])
+    site_config.Add('build_c', boards=['foo_board', 'car_board'])
 
     self.assertEqual(
         site_config.GetBoards(),

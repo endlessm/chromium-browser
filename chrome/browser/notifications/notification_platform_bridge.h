@@ -9,6 +9,7 @@
 #include <string>
 
 #include "base/macros.h"
+#include "chrome/browser/notifications/notification_common.h"
 
 class Notification;
 
@@ -23,7 +24,8 @@ class NotificationPlatformBridge {
   virtual ~NotificationPlatformBridge() {}
 
   // Shows a toast on screen using the data passed in |notification|.
-  virtual void Display(const std::string& notification_id,
+  virtual void Display(NotificationCommon::Type notification_type,
+                       const std::string& notification_id,
                        const std::string& profile_id,
                        bool is_incognito,
                        const Notification& notification) = 0;
@@ -41,12 +43,6 @@ class NotificationPlatformBridge {
   virtual bool GetDisplayed(const std::string& profile_id,
                             bool incognito,
                             std::set<std::string>* notification_ids) const = 0;
-
-  // Temporary method while the refactor is finished. It denotes whether
-  // the notifications will be shown by chrome itself or by the OS.
-  // It is needed while migrating MacOSX and Windows to their respective
-  // notification centers since the decision is made at runtime via flags.
-  virtual bool SupportsNotificationCenter() const = 0;
 
  protected:
   NotificationPlatformBridge() {}

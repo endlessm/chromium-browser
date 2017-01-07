@@ -4,6 +4,9 @@
 
 #include "ash/common/system/tray/system_tray_delegate.h"
 
+#include "ash/common/system/tray/ime_info.h"
+#include "ash/common/system/tray/system_tray_item.h"
+
 namespace ash {
 
 NetworkIconInfo::NetworkIconInfo()
@@ -19,18 +22,8 @@ BluetoothDeviceInfo::BluetoothDeviceInfo()
 
 BluetoothDeviceInfo::~BluetoothDeviceInfo() {}
 
-IMEInfo::IMEInfo() : selected(false), third_party(false) {}
-
-IMEInfo::IMEInfo(const IMEInfo& other) = default;
-
-IMEInfo::~IMEInfo() {}
-
-IMEPropertyInfo::IMEPropertyInfo() : selected(false) {}
-
-IMEPropertyInfo::~IMEPropertyInfo() {}
-
 UpdateInfo::UpdateInfo()
-    : severity(UPDATE_NORMAL),
+    : severity(UPDATE_NONE),
       update_required(false),
       factory_reset_required(false) {}
 
@@ -42,15 +35,9 @@ SystemTrayDelegate::~SystemTrayDelegate() {}
 
 void SystemTrayDelegate::Initialize() {}
 
-bool SystemTrayDelegate::GetTrayVisibilityOnStartup() {
-  return false;
-}
-
 LoginStatus SystemTrayDelegate::GetUserLoginStatus() const {
   return LoginStatus::NOT_LOGGED_IN;
 }
-
-void SystemTrayDelegate::ChangeProfilePicture() {}
 
 std::string SystemTrayDelegate::GetEnterpriseDomain() const {
   return std::string();
@@ -81,56 +68,26 @@ bool SystemTrayDelegate::IsUserChild() const {
 }
 
 void SystemTrayDelegate::GetSystemUpdateInfo(UpdateInfo* info) const {
-  info->severity = UpdateInfo::UPDATE_NORMAL;
+  info->severity = UpdateInfo::UPDATE_NONE;
   info->update_required = false;
   info->factory_reset_required = false;
 }
-
-base::HourClockType SystemTrayDelegate::GetHourClockType() const {
-  return base::k24HourClock;
-}
-
-void SystemTrayDelegate::ShowSettings() {}
 
 bool SystemTrayDelegate::ShouldShowSettings() {
   return false;
 }
 
-void SystemTrayDelegate::ShowDateSettings() {}
-
 void SystemTrayDelegate::ShowSetTimeDialog() {}
-
-void SystemTrayDelegate::ShowNetworkSettingsForGuid(const std::string& guid) {}
-
-void SystemTrayDelegate::ShowDisplaySettings() {}
-
-void SystemTrayDelegate::ShowPowerSettings() {}
-
-void SystemTrayDelegate::ShowChromeSlow() {}
 
 bool SystemTrayDelegate::ShouldShowDisplayNotification() {
   return false;
 }
 
-void SystemTrayDelegate::ShowIMESettings() {}
-
-void SystemTrayDelegate::ShowHelp() {}
-
-void SystemTrayDelegate::ShowAccessibilityHelp() {}
-
-void SystemTrayDelegate::ShowAccessibilitySettings() {}
-
-void SystemTrayDelegate::ShowPublicAccountInfo() {}
-
 void SystemTrayDelegate::ShowEnterpriseInfo() {}
-
-void SystemTrayDelegate::ShowSupervisedUserInfo() {}
 
 void SystemTrayDelegate::ShowUserLogin() {}
 
 void SystemTrayDelegate::SignOut() {}
-
-void SystemTrayDelegate::RequestLockScreen() {}
 
 void SystemTrayDelegate::RequestRestartForUpdate() {}
 
@@ -176,8 +133,6 @@ bool SystemTrayDelegate::GetBluetoothEnabled() {
 bool SystemTrayDelegate::GetBluetoothDiscovering() {
   return false;
 }
-
-void SystemTrayDelegate::ChangeProxySettings() {}
 
 CastConfigDelegate* SystemTrayDelegate::GetCastConfigDelegate() {
   return nullptr;
@@ -231,6 +186,11 @@ void SystemTrayDelegate::ShouldRebootOnShutdown(
     const RebootOnShutdownCallback& callback) {}
 
 VPNDelegate* SystemTrayDelegate::GetVPNDelegate() const {
+  return nullptr;
+}
+
+std::unique_ptr<SystemTrayItem> SystemTrayDelegate::CreateRotationLockTrayItem(
+    SystemTray* tray) {
   return nullptr;
 }
 

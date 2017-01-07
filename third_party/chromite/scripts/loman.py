@@ -2,16 +2,15 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-"""This module allows adding and deleting of projects to the local manifest."""
+"""Manage projects in the local manifest."""
 
 from __future__ import print_function
 
 import platform
-import optparse  # pylint: disable=deprecated-module
 import os
-import sys
 import xml.etree.ElementTree as ElementTree
 
+from chromite.lib import commandline
 from chromite.lib import cros_build_lib
 from chromite.lib import cros_logging as logging
 from chromite.lib import git
@@ -144,21 +143,36 @@ def _UpgradeMinilayout(options):
   logging.info("Converted the checkout to manifest groups based minilayout.")
 
 
+def GetParser():
+  """Return a command line parser."""
+  parser = commandline.ArgumentParser(description=__doc__)
+
+  subparsers = parser.add_subparsers(dest='command')
+
+  subparser = subparsers.add_parser(
+      'add',
+      help='Add projects to the manifest.')
+  subparser.add_argument('-w', '--workon', action='store_true',
+                         default=False, help='Is this a workon package?')
+  subparser.add_argument('-r', '--remote',
+                         help='Remote project name (for non-workon packages).')
+  subparser.add_argument('-v', '--revision',
+                         help='Use to override the manifest defined default '
+                              'revision used for a given project.')
+  subparser.add_argument('project', help='Name of project in the manifest.')
+  subparser.add_argument('path', nargs='?', help='Local path to the project.')
+
+  subparser = subparsers.add_parser(
+      'upgrade-minilayout',
+      help='Upgrade a minilayout checkout into a full.xml checkout utilizing '
+           'manifest groups.')
+
+  return parser
+
+
 def main(argv):
-  parser = optparse.OptionParser(usage='usage: %prog add [options] <name> '
-                                       '<--workon | <path> --remote <remote> >')
-  parser.add_option('-w', '--workon', action='store_true', dest='workon',
-                    default=False, help='Is this a workon package?')
-  parser.add_option('-r', '--remote', dest='remote',
-                    default=None)
-  parser.add_option('-v', '--revision', dest='revision',
-                    default=None,
-                    help="Use to override the manifest defined default "
-                    "revision used for a given project.")
-  parser.add_option('--upgrade-minilayout', default=False, action='store_true',
-                    help="Upgrade a minilayout checkout into a full.xml "
-                    "checkout utilizing manifest groups.")
-  (options, args) = parser.parse_args(argv)
+  parser = GetParser()
+  options = parser.parse_args(argv)
 
   repo_dir = git.FindRepoDir(os.getcwd())
   if not repo_dir:
@@ -177,9 +191,7 @@ def main(argv):
   active_manifest = os.path.basename(os.readlink(options.manifest_sym_path))
   upgrade_required = active_manifest == 'minilayout.xml'
 
-  if options.upgrade_minilayout:
-    if args:
-      parser.error("--upgrade-minilayout takes no arguments.")
+  if options.command == 'upgrade-minilayout':
     if not upgrade_required:
       print("This repository checkout isn't using minilayout.xml; "
             "nothing to do")
@@ -190,26 +202,20 @@ def main(argv):
     logging.warning(
         "Your repository checkout is using the old minilayout.xml workflow; "
         "auto-upgrading it.")
-    cros_build_lib.RunCommand(
-        [sys.argv[0], '--upgrade-minilayout'], cwd=os.getcwd(), print_cmd=False)
+    main(['upgrade-minilayout'])
 
-  if not args:
-    parser.error("No command specified.")
-  elif args[0] != 'add':
-    parser.error("Only supported subcommand is add right now.")
-  elif options.workon:
-    if len(args) != 2:
-      parser.error(
-          "Argument count is wrong for --workon; must be add <project>")
-    name, path = args[1], None
+  # For now, we only support the add command.
+  assert options.command == 'add'
+  if options.workon:
+    if options.path is not None:
+      parser.error('Adding workon projects do not set project.')
   else:
     if options.remote is None:
       parser.error('Adding non-workon projects requires a remote.')
-    elif len(args) != 3:
-      parser.error(
-          "Argument count is wrong for non-workon mode; "
-          "must be add <project> <path> --remote <remote-arg>")
-    name, path = args[1:]
+    if options.path is None:
+      parser.error('Adding non-workon projects requires a path.')
+  name = options.project
+  path = options.path
 
   revision = options.revision
   if revision is not None:

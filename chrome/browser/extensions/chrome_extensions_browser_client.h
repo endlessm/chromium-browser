@@ -14,8 +14,8 @@
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "build/build_config.h"
-#include "chrome/browser/extensions/chrome_notification_observer.h"
 #include "extensions/browser/extensions_browser_client.h"
+#include "extensions/browser/kiosk/kiosk_delegate.h"
 
 namespace base {
 class CommandLine;
@@ -122,12 +122,10 @@ class ChromeExtensionsBrowserClient : public ExtensionsBrowserClient {
       content::RenderFrameHost* frame,
       const content::BluetoothChooser::EventHandler& event_handler) override;
   bool IsActivityLoggingEnabled(content::BrowserContext* context) override;
+  KioskDelegate* GetKioskDelegate() override;
 
  private:
   friend struct base::DefaultLazyInstanceTraits<ChromeExtensionsBrowserClient>;
-
-  // Observer for Chrome-specific notifications.
-  ChromeNotificationObserver notification_observer_;
 
   // Support for ProcessManager.
   std::unique_ptr<ChromeProcessManagerDelegate> process_manager_delegate_;
@@ -138,6 +136,8 @@ class ChromeExtensionsBrowserClient : public ExtensionsBrowserClient {
   std::unique_ptr<ChromeComponentExtensionResourceManager> resource_manager_;
 
   std::unique_ptr<ExtensionCache> extension_cache_;
+
+  std::unique_ptr<KioskDelegate> kiosk_delegate_;
 
   DISALLOW_COPY_AND_ASSIGN(ChromeExtensionsBrowserClient);
 };

@@ -172,6 +172,7 @@ setParentClass(es3fFboColorbufferTests.FboColorClearCase, es3fFboColorbufferTest
 
 es3fFboColorbufferTests.FboColorClearCase.prototype.preCheck = function() {
         this.checkFormatSupport(this.m_format);
+        return true; // No exception thrown
     };
 
 es3fFboColorbufferTests.FboColorClearCase.prototype.render = function(dst) {
@@ -226,7 +227,6 @@ es3fFboColorbufferTests.FboColorClearCase.prototype.render = function(dst) {
             var color = es3fFboColorbufferTests.randomVector(rnd, fmtInfo.valueMin, fmtInfo.valueMax);
 
             ctx.scissor(x, y, w, h);
-            ctx.clearBufferfv(gl.COLOR, 0, color);
 
             switch (fmtClass) {
                 case tcuTexture.TextureChannelClass.FLOATING_POINT:
@@ -276,6 +276,7 @@ setParentClass(es3fFboColorbufferTests.FboColorMultiTex2DCase, es3fFboColorbuffe
 es3fFboColorbufferTests.FboColorMultiTex2DCase.prototype.preCheck = function() {
         this.checkFormatSupport(this.m_tex0Fmt);
         this.checkFormatSupport(this.m_tex1Fmt);
+        return true; // No exception thrown
     };
 
 es3fFboColorbufferTests.FboColorMultiTex2DCase.prototype.render = function(dst) {
@@ -397,6 +398,7 @@ setParentClass(es3fFboColorbufferTests.FboColorTexCubeCase, es3fFboColorbufferTe
 
 es3fFboColorbufferTests.FboColorTexCubeCase.prototype.preCheck = function() {
         this.checkFormatSupport(this.m_format);
+        return true; // No exception thrown
     };
 
 es3fFboColorbufferTests.FboColorTexCubeCase.prototype.render = function(dst) {
@@ -543,6 +545,7 @@ setParentClass(es3fFboColorbufferTests.FboColorTex2DArrayCase, es3fFboColorbuffe
 
 es3fFboColorbufferTests.FboColorTex2DArrayCase.prototype.preCheck = function() {
         this.checkFormatSupport(this.m_format);
+        return true; // No exception thrown
     };
 
     es3fFboColorbufferTests.FboColorTex2DArrayCase.prototype.render = function(dst) {
@@ -668,6 +671,7 @@ setParentClass(es3fFboColorbufferTests.FboColorTex3DCase, es3fFboColorbufferTest
 
 es3fFboColorbufferTests.FboColorTex3DCase.prototype.preCheck = function() {
         this.checkFormatSupport(this.m_format);
+        return true; // No exception thrown
     };
 
     es3fFboColorbufferTests.FboColorTex3DCase.prototype.render = function(dst) {
@@ -804,6 +808,7 @@ setParentClass(es3fFboColorbufferTests.FboBlendCase, es3fFboColorbufferTests.Fbo
 
 es3fFboColorbufferTests.FboBlendCase.prototype.preCheck = function() {
         this.checkFormatSupport(this.m_format);
+        return true; // No exception thrown
     }
 
     es3fFboColorbufferTests.FboBlendCase.prototype.render = function(dst) {

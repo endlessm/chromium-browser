@@ -111,7 +111,7 @@ def main():
   SetReadelfPath(options.readelf)
   SetLibraryDirs(options.libraries_dir.split(','))
 
-  libraries = build_utils.ParseGypList(options.input_libraries)
+  libraries = build_utils.ParseGnList(options.input_libraries)
   if len(libraries):
     libraries = GetSortedTransitiveDependenciesForBinaries(libraries)
 
@@ -133,9 +133,7 @@ def main():
     build_utils.Touch(options.stamp)
 
   if options.depfile:
-    build_utils.WriteDepfile(
-        options.depfile,
-        libraries + build_utils.GetPythonDependencies())
+    build_utils.WriteDepfile(options.depfile, options.output, libraries)
 
 
 if __name__ == '__main__':

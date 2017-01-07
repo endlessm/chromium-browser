@@ -70,6 +70,9 @@ SUBMITTED_WAIT_TIMEOUT = 3 * 60 # Time in seconds.
 
 MAX_PLAN_RECURSION = 150
 
+# Default sleep time (second) in the apply_patch loop
+DEFAULT_APPLY_PATCH_SLEEP_TIME = 1
+
 
 class TreeIsClosedException(Exception):
   """Raised when the tree is closed and we wanted to submit changes."""
@@ -1691,7 +1694,7 @@ class ValidationPool(object):
     # By filtering the candidates before any calls to Apply, we can make sure
     # that repeated calls to Apply always consider the same list of candidates.
     fail_streak = self._GetFailStreak()
-    test_pool_size = max(1, len(self.candidates) / (2**fail_streak))
+    test_pool_size = max(1, int(len(self.candidates) / (1.5**fail_streak)))
     random.shuffle(self.candidates)
     self.candidates = self.candidates[:test_pool_size]
 
@@ -1774,6 +1777,8 @@ class ValidationPool(object):
           raise
         else:
           applied.append(change)
+        finally:
+          time.sleep(DEFAULT_APPLY_PATCH_SLEEP_TIME)
 
     self.RecordPatchesInMetadataAndDatabase(applied)
     self.PrintLinksToChanges(applied)

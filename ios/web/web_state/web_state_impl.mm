@@ -7,6 +7,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "base/metrics/histogram_macros.h"
 #include "base/strings/sys_string_conversions.h"
 #include "ios/web/interstitials/web_interstitial_impl.h"
 #import "ios/web/navigation/crw_session_controller.h"
@@ -344,10 +345,6 @@ WebInterstitial* WebStateImpl::GetWebInterstitial() const {
   return interstitial_;
 }
 
-int WebStateImpl::GetCertGroupId() const {
-  return request_tracker_->identifier();
-}
-
 net::HttpResponseHeaders* WebStateImpl::GetHttpResponseHeaders() const {
   return http_response_headers_.get();
 }
@@ -541,7 +538,7 @@ int WebStateImpl::DownloadImage(
 
 shell::InterfaceRegistry* WebStateImpl::GetMojoInterfaceRegistry() {
   if (!mojo_interface_registry_) {
-    mojo_interface_registry_.reset(new shell::InterfaceRegistry(nullptr));
+    mojo_interface_registry_.reset(new shell::InterfaceRegistry);
   }
   return mojo_interface_registry_.get();
 }
@@ -637,7 +634,12 @@ const GURL& WebStateImpl::GetLastCommittedURL() const {
 }
 
 GURL WebStateImpl::GetCurrentURL(URLVerificationTrustLevel* trust_level) const {
-  return [web_controller_ currentURLWithTrustLevel:trust_level];
+  GURL URL = [web_controller_ currentURLWithTrustLevel:trust_level];
+  bool equalURLs = web::GURLByRemovingRefFromGURL(URL) ==
+                   web::GURLByRemovingRefFromGURL(GetLastCommittedURL());
+  DCHECK(equalURLs);
+  UMA_HISTOGRAM_BOOLEAN("Web.CurrentURLEqualsLastCommittedURL", equalURLs);
+  return URL;
 }
 
 void WebStateImpl::AddScriptCommandCallback(

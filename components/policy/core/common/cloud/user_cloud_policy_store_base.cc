@@ -9,7 +9,7 @@
 #include "components/policy/core/common/cloud/cloud_external_data_manager.h"
 #include "components/policy/core/common/cloud/cloud_policy_constants.h"
 #include "components/policy/core/common/policy_map.h"
-#include "policy/proto/cloud_policy.pb.h"
+#include "components/policy/proto/cloud_policy.pb.h"
 
 namespace policy {
 
@@ -37,7 +37,8 @@ UserCloudPolicyStoreBase::CreateValidator(
   validator->ValidateAgainstCurrentPolicy(
       policy_.get(),
       timestamp_option,
-      CloudPolicyValidatorBase::DM_TOKEN_REQUIRED);
+      CloudPolicyValidatorBase::DM_TOKEN_REQUIRED,
+      CloudPolicyValidatorBase::DEVICE_ID_REQUIRED);
   validator->ValidatePayload();
   return std::unique_ptr<UserCloudPolicyValidator>(validator);
 }

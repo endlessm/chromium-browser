@@ -8,6 +8,8 @@
 #include "base/values.h"
 #include "net/cert/cert_verifier.h"
 #include "net/http/http_network_session.h"
+#include "net/log/net_log.h"
+#include "net/log/net_log_with_source.h"
 #include "net/proxy/proxy_config.h"
 #include "net/proxy/proxy_config_service_fixed.h"
 #include "net/url_request/url_request_context.h"
@@ -16,7 +18,7 @@
 
 namespace cronet {
 
-TEST(URLRequestContextConfigTest, SetQuicExperimentalOptions) {
+TEST(URLRequestContextConfigTest, TestExperimentalOptionPassing) {
   URLRequestContextConfig config(
       // Enable QUIC.
       true,
@@ -40,14 +42,15 @@ TEST(URLRequestContextConfigTest, SetQuicExperimentalOptions) {
       // JSON encoded experimental options.
       "{\"QUIC\":{\"max_server_configs_stored_in_properties\":2,"
       "\"delay_tcp_race\":true,"
-      "\"max_number_of_lossy_connections\":10,"
       "\"prefer_aes\":true,"
       "\"user_agent_id\":\"Custom QUIC UAID\","
-      "\"packet_loss_threshold\":0.5,"
       "\"idle_connection_timeout_seconds\":300,"
       "\"close_sessions_on_ip_change\":true,"
+      "\"race_cert_verification\":true,"
       "\"connection_options\":\"TIME,TBBR,REJ\"},"
-      "\"AsyncDNS\":{\"enable\":true}}",
+      "\"AsyncDNS\":{\"enable\":true},"
+      "\"HostResolverRules\":{\"host_resolver_rules\":"
+      "\"MAP * 127.0.0.1\"}}",
       // Data reduction proxy key.
       "",
       // Data reduction proxy.
@@ -59,14 +62,19 @@ TEST(URLRequestContextConfigTest, SetQuicExperimentalOptions) {
       // MockCertVerifier to use for testing purposes.
       std::unique_ptr<net::CertVerifier>(),
       // Enable network quality estimator.
-      false);
+      false,
+      // Enable Public Key Pinning bypass for local trust anchors.
+      true,
+      // Certificate verifier cache data.
+      "");
 
   net::URLRequestContextBuilder builder;
   net::NetLog net_log;
   config.ConfigureURLRequestContextBuilder(&builder, &net_log, nullptr);
   // Set a ProxyConfigService to avoid DCHECK failure when building.
-  builder.set_proxy_config_service(base::WrapUnique(
-      new net::ProxyConfigServiceFixed(net::ProxyConfig::CreateDirect())));
+  builder.set_proxy_config_service(
+      base::MakeUnique<net::ProxyConfigServiceFixed>(
+          net::ProxyConfig::CreateDirect()));
   std::unique_ptr<net::URLRequestContext> context(builder.Build());
   const net::HttpNetworkSession::Params* params =
       context->GetNetworkSessionParams();
@@ -89,18 +97,22 @@ TEST(URLRequestContextConfigTest, SetQuicExperimentalOptions) {
   // Check prefer_aes.
   EXPECT_TRUE(params->quic_prefer_aes);
 
-  // Check max_number_of_lossy_connections and packet_loss_threshold.
-  EXPECT_EQ(10, params->quic_max_number_of_lossy_connections);
-  EXPECT_FLOAT_EQ(0.5f, params->quic_packet_loss_threshold);
-
   // Check idle_connection_timeout_seconds.
   EXPECT_EQ(300, params->quic_idle_connection_timeout_seconds);
 
   EXPECT_TRUE(params->quic_close_sessions_on_ip_change);
   EXPECT_FALSE(params->quic_migrate_sessions_on_network_change);
 
+  // Check race_cert_verification.
+  EXPECT_TRUE(params->quic_race_cert_verification);
+
   // Check AsyncDNS resolver is enabled.
   EXPECT_TRUE(context->host_resolver()->GetDnsConfigAsValue());
+
+  net::HostResolver::RequestInfo info(net::HostPortPair("abcde", 80));
+  net::AddressList addresses;
+  EXPECT_EQ(net::OK, context->host_resolver()->ResolveFromCache(
+                         info, &addresses, net::NetLogWithSource()));
 }
 
 TEST(URLRequestContextConfigTest, SetQuicConnectionMigrationOptions) {
@@ -138,14 +150,19 @@ TEST(URLRequestContextConfigTest, SetQuicConnectionMigrationOptions) {
       // MockCertVerifier to use for testing purposes.
       std::unique_ptr<net::CertVerifier>(),
       // Enable network quality estimator.
-      false);
+      false,
+      // Enable Public Key Pinning bypass for local trust anchors.
+      true,
+      // Certificate verifier cache data.
+      "");
 
   net::URLRequestContextBuilder builder;
   net::NetLog net_log;
   config.ConfigureURLRequestContextBuilder(&builder, &net_log, nullptr);
   // Set a ProxyConfigService to avoid DCHECK failure when building.
-  builder.set_proxy_config_service(base::WrapUnique(
-      new net::ProxyConfigServiceFixed(net::ProxyConfig::CreateDirect())));
+  builder.set_proxy_config_service(
+      base::MakeUnique<net::ProxyConfigServiceFixed>(
+          net::ProxyConfig::CreateDirect()));
   std::unique_ptr<net::URLRequestContext> context(builder.Build());
   const net::HttpNetworkSession::Params* params =
       context->GetNetworkSessionParams();
@@ -154,5 +171,7 @@ TEST(URLRequestContextConfigTest, SetQuicConnectionMigrationOptions) {
   EXPECT_TRUE(params->quic_migrate_sessions_on_network_change);
   EXPECT_TRUE(params->quic_migrate_sessions_early);
 }
+
+// See stale_host_resolver_unittest.cc for test of StaleDNS options.
 
 }  // namespace cronet

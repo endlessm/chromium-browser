@@ -18,6 +18,7 @@
 #include "extensions/common/extension.h"
 #include "extensions/common/manifest_handlers/icons_handler.h"
 #include "ui/display/display.h"
+#include "ui/display/display_finder.h"
 #include "ui/display/screen.h"
 #include "ui/gfx/image/image.h"
 
@@ -71,7 +72,8 @@ ImeWindow::ImeWindow(Profile* profile,
   }
   web_contents_.reset(content::WebContents::Create(create_params));
   web_contents_->SetDelegate(this);
-  content::OpenURLParams params(gurl, content::Referrer(), SINGLETON_TAB,
+  content::OpenURLParams params(gurl, content::Referrer(),
+                                WindowOpenDisposition::SINGLETON_TAB,
                                 ui::PAGE_TRANSITION_LINK, false);
   web_contents_->OpenURL(params);
 
@@ -100,10 +102,12 @@ void ImeWindow::FollowCursor(const gfx::Rect& cursor_bounds) {
     return;
 
   gfx::Rect screen_bounds =
-      display::Screen::GetScreen()->GetPrimaryDisplay().bounds();
+      display::FindDisplayNearestPoint(
+          display::Screen::GetScreen()->GetAllDisplays(),
+          gfx::Point(cursor_bounds.x(), cursor_bounds.y()))->bounds();
   gfx::Rect window_bounds = native_window_->GetBounds();
-  int screen_width = screen_bounds.width();
-  int screen_height = screen_bounds.height();
+  int screen_width = screen_bounds.x() + screen_bounds.width();
+  int screen_height = screen_bounds.y() + screen_bounds.height();
   int width = window_bounds.width();
   int height = window_bounds.height();
   // By default, aligns the left of the window client area to the left of the

@@ -10,6 +10,7 @@ import android.content.SharedPreferences;
 import android.graphics.Bitmap;
 import android.os.AsyncTask;
 
+import org.chromium.base.ContextUtils;
 import org.chromium.base.ThreadUtils;
 import org.chromium.base.VisibleForTesting;
 import org.chromium.blink_public.platform.WebDisplayMode;
@@ -44,6 +45,20 @@ public class WebappDataStorage {
     static final String KEY_ACTION = "action";
     static final String KEY_IS_ICON_GENERATED = "is_icon_generated";
     static final String KEY_VERSION = "version";
+    static final String KEY_WEBAPK_PACKAGE_NAME = "webapk_package_name";
+
+    // The last time that Chrome checked for Web Manifest updates for a WebAPK.
+    static final String KEY_LAST_CHECK_WEB_MANIFEST_UPDATE_TIME =
+            "last_check_web_manifest_update_time";
+
+    // The last time that the WebAPK update request completed (successfully or
+    // unsuccessfully).
+    static final String KEY_LAST_WEBAPK_UPDATE_REQUEST_COMPLETE_TIME =
+            "last_webapk_update_request_complete_time";
+
+    // Whether the last WebAPK update request succeeded.
+    static final String KEY_DID_LAST_WEBAPK_UPDATE_REQUEST_SUCCEED =
+            "did_last_webapk_update_request_succeed";
 
     // Unset/invalid constants for last used times and URLs. 0 is used as the null last
     // used time as WebappRegistry assumes that this is always a valid timestamp.
@@ -66,11 +81,10 @@ public class WebappDataStorage {
     /**
      * Opens an instance of WebappDataStorage for the web app specified. Must not be run on the UI
      * thread.
-     * @param context  The context to open the SharedPreferences.
      * @param webappId The ID of the web app which is being opened.
      */
-    static WebappDataStorage open(final Context context, final String webappId) {
-        final WebappDataStorage storage = sFactory.create(context, webappId);
+    static WebappDataStorage open(final String webappId) {
+        final WebappDataStorage storage = sFactory.create(webappId);
         if (storage.getLastUsedTime() == LAST_USED_INVALID) {
             // If the last used time is invalid then ensure that there is no data in the
             // WebappDataStorage which needs to be cleaned up.
@@ -82,18 +96,15 @@ public class WebappDataStorage {
     /**
      * Asynchronously retrieves the time which this WebappDataStorage was last opened. Used in
      * testing.
-     * @param context  The context to read the SharedPreferences file.
      * @param webappId The ID of the web app the used time is being read for.
      * @param callback Called when the last used time has been retrieved.
      */
     @VisibleForTesting
-    public static void getLastUsedTime(final Context context, final String webappId,
-            final FetchCallback<Long> callback) {
+    public static void getLastUsedTime(final String webappId, final FetchCallback<Long> callback) {
         new AsyncTask<Void, Void, Long>() {
             @Override
             protected final Long doInBackground(Void... nothing) {
-                long lastUsed = new WebappDataStorage(context.getApplicationContext(), webappId)
-                        .getLastUsedTime();
+                long lastUsed = new WebappDataStorage(webappId).getLastUsedTime();
                 assert lastUsed != LAST_USED_INVALID;
                 return lastUsed;
             }
@@ -109,17 +120,15 @@ public class WebappDataStorage {
     /**
      * Asynchronously retrieves the scope stored in this WebappDataStorage. The scope is the URL
      * over which the web app data is applied to. Used in testing.
-     * @param context  The context to read the SharedPreferences file.
      * @param webappId The ID of the web app the used time is being read for.
      * @param callback Called when the scope has been retrieved.
      */
     @VisibleForTesting
-    public static void getScope(final Context context, final String webappId,
-            final FetchCallback<String> callback) {
+    public static void getScope(final String webappId, final FetchCallback<String> callback) {
         new AsyncTask<Void, Void, String>() {
             @Override
             protected final String doInBackground(Void... nothing) {
-                return new WebappDataStorage(context.getApplicationContext(), webappId).getScope();
+                return new WebappDataStorage(webappId).getScope();
             }
 
             @Override
@@ -132,17 +141,15 @@ public class WebappDataStorage {
 
     /**
      * Asynchronously retrieves the URL stored in this WebappDataStorage. Used in testing.
-     * @param context  The context to read the SharedPreferences file.
      * @param webappId The ID of the web app the used time is being read for.
      * @param callback Called when the URL has been retrieved.
      */
     @VisibleForTesting
-    public static void getUrl(final Context context, final String webappId,
-            final FetchCallback<String> callback) {
+    public static void getUrl(final String webappId, final FetchCallback<String> callback) {
         new AsyncTask<Void, Void, String>() {
             @Override
             protected final String doInBackground(Void... nothing) {
-                return new WebappDataStorage(context.getApplicationContext(), webappId).getUrl();
+                return new WebappDataStorage(webappId).getUrl();
             }
 
             @Override
@@ -156,23 +163,21 @@ public class WebappDataStorage {
     /**
      * Deletes the data for a web app by clearing all the information inside the SharedPreferences
      * file. This does NOT delete the file itself but the file is left empty.
-     * @param context  The context to read the SharedPreferences file.
      * @param webappId The ID of the web app being deleted.
      */
-    static void deleteDataForWebapp(final Context context, final String webappId) {
+    static void deleteDataForWebapp(final String webappId) {
         assert !ThreadUtils.runningOnUiThread();
-        openSharedPreferences(context, webappId).edit().clear().apply();
+        openSharedPreferences(webappId).edit().clear().apply();
     }
 
     /**
-     * Deletes the URL and scope, and sets last used time to 0 in SharedPreferences.
+     * Deletes the URL and scope, and sets all timestamps to 0 in SharedPreferences.
      * This does not remove the stored splash screen image (if any) for the app.
-     * @param context  The context to read the SharedPreferences file.
      * @param webappId The ID of the web app for which history is being cleared.
      */
-    static void clearHistory(final Context context, final String webappId) {
+    static void clearHistory(final String webappId) {
         assert !ThreadUtils.runningOnUiThread();
-        SharedPreferences.Editor editor = openSharedPreferences(context, webappId).edit();
+        SharedPreferences.Editor editor = openSharedPreferences(webappId).edit();
 
         // The last used time is set to 0 to ensure that a valid value is always present.
         // If the web app is not launched prior to the next cleanup, then its remaining data will be
@@ -180,6 +185,9 @@ public class WebappDataStorage {
         editor.putLong(KEY_LAST_USED, LAST_USED_UNSET);
         editor.remove(KEY_URL);
         editor.remove(KEY_SCOPE);
+        editor.remove(KEY_LAST_CHECK_WEB_MANIFEST_UPDATE_TIME);
+        editor.remove(KEY_LAST_WEBAPK_UPDATE_REQUEST_COMPLETE_TIME);
+        editor.remove(KEY_DID_LAST_WEBAPK_UPDATE_REQUEST_SUCCEED);
         editor.apply();
     }
 
@@ -199,14 +207,14 @@ public class WebappDataStorage {
         sFactory = factory;
     }
 
-    private static SharedPreferences openSharedPreferences(Context context, String webappId) {
-        return context.getApplicationContext().getSharedPreferences(
+    private static SharedPreferences openSharedPreferences(String webappId) {
+        return ContextUtils.getApplicationContext().getSharedPreferences(
                 SHARED_PREFS_FILE_PREFIX + webappId, Context.MODE_PRIVATE);
     }
 
-    protected WebappDataStorage(Context context, String webappId) {
+    protected WebappDataStorage(String webappId) {
         mId = webappId;
-        mPreferences = openSharedPreferences(context, webappId);
+        mPreferences = openSharedPreferences(webappId);
     }
 
     /**
@@ -245,6 +253,16 @@ public class WebappDataStorage {
                 return null;
             }
         }.execute();
+    }
+
+    /**
+     * Update the information associated with the web app with the specified data. Used for testing.
+     * @param splashScreenImage The image encoded as a string which should be shown on the splash
+     *                          screen of the web app.
+     */
+    @VisibleForTesting
+    void updateSplashScreenImageForTests(String splashScreenImage) {
+        mPreferences.edit().putString(KEY_SPLASH_ICON, splashScreenImage).apply();
     }
 
     /**
@@ -340,6 +358,8 @@ public class WebappDataStorage {
             editor.putInt(KEY_SOURCE, IntentUtils.safeGetIntExtra(
                         shortcutIntent, ShortcutHelper.EXTRA_SOURCE,
                         ShortcutSource.UNKNOWN));
+            editor.putString(KEY_WEBAPK_PACKAGE_NAME, IntentUtils.safeGetStringExtra(
+                    shortcutIntent, ShortcutHelper.EXTRA_WEBAPK_PACKAGE_NAME));
             updated = true;
         }
         if (updated) editor.apply();
@@ -374,6 +394,65 @@ public class WebappDataStorage {
     }
 
     /**
+     * Returns the package name if the data is for a WebAPK, null otherwise.
+     */
+    String getWebApkPackageName() {
+        return mPreferences.getString(KEY_WEBAPK_PACKAGE_NAME, null);
+    }
+
+    /**
+     *  Updates the time of the last check for whether the WebAPK's Web Manifest was updated.
+     */
+    void updateTimeOfLastCheckForUpdatedWebManifest() {
+        mPreferences.edit()
+                .putLong(KEY_LAST_CHECK_WEB_MANIFEST_UPDATE_TIME, sClock.currentTimeMillis())
+                .apply();
+    }
+
+    /**
+     * Returns the time of the last check for whether the WebAPK's Web Manifest was updated.
+     * This time needs to be set when the WebAPK was registered.
+     */
+    long getLastCheckForWebManifestUpdateTime() {
+        return mPreferences.getLong(KEY_LAST_CHECK_WEB_MANIFEST_UPDATE_TIME, LAST_USED_INVALID);
+    }
+
+    /**
+     * Updates the time that the last WebAPK update request completed (successfully or
+     * unsuccessfully).
+     */
+    void updateTimeOfLastWebApkUpdateRequestCompletion() {
+        mPreferences.edit()
+                .putLong(KEY_LAST_WEBAPK_UPDATE_REQUEST_COMPLETE_TIME, sClock.currentTimeMillis())
+                .apply();
+    }
+
+    /**
+     * Returns the time that the last WebAPK update request completed (successfully or
+     * unsuccessfully). This time needs to be set when the WebAPK was registered.
+     */
+    long getLastWebApkUpdateRequestCompletionTime() {
+        return mPreferences.getLong(
+                KEY_LAST_WEBAPK_UPDATE_REQUEST_COMPLETE_TIME, LAST_USED_INVALID);
+    }
+
+    /**
+     * Updates the result of whether the last update request to WebAPK Server succeeded.
+     */
+    void updateDidLastWebApkUpdateRequestSucceed(boolean sucess) {
+        mPreferences.edit()
+                .putBoolean(KEY_DID_LAST_WEBAPK_UPDATE_REQUEST_SUCCEED, sucess)
+                .apply();
+    }
+
+    /**
+     * Returns whether the last update request to WebAPK Server succeeded.
+     */
+    boolean getDidLastWebApkUpdateRequestSucceed() {
+        return mPreferences.getBoolean(KEY_DID_LAST_WEBAPK_UPDATE_REQUEST_SUCCEED, false);
+    }
+
+    /**
      * Returns true if this web app has been launched from home screen recently (within
      * WEBAPP_LAST_OPEN_MAX_TIME milliseconds).
      */
@@ -403,8 +482,8 @@ public class WebappDataStorage {
         /**
          * Generates a WebappDataStorage class for a specified web app.
          */
-        public WebappDataStorage create(final Context context, final String webappId) {
-            return new WebappDataStorage(context, webappId);
+        public WebappDataStorage create(final String webappId) {
+            return new WebappDataStorage(webappId);
         }
     }
 

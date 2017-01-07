@@ -9,9 +9,9 @@
 #include "base/path_service.h"
 #include "build/build_config.h"
 #include "chrome/common/chrome_paths.h"
-#include "grit/chrome_unscaled_resources.h"
-#include "grit/component_extension_resources_map.h"
-#include "grit/theme_resources.h"
+#include "chrome/grit/chrome_unscaled_resources.h"
+#include "chrome/grit/component_extension_resources_map.h"
+#include "chrome/grit/theme_resources.h"
 
 #if defined(OS_CHROMEOS)
 #include "components/chrome_apps/chrome_apps_resource_util.h"
@@ -35,12 +35,6 @@ ChromeComponentExtensionResourceManager() {
     {"webstore_widget/app/icons/icon_16.png", IDR_WEBSTORE_ICON_16},
     {"webstore_widget/app/icons/icon_32.png", IDR_WEBSTORE_ICON_32},
     {"webstore_widget/app/icons/icon_128.png", IDR_WEBSTORE_ICON},
-#endif
-#if defined(ENABLE_SETTINGS_APP)
-    {"settings_app/settings_app_icon_128.png", IDR_SETTINGS_APP_ICON_128},
-    {"settings_app/settings_app_icon_16.png", IDR_SETTINGS_APP_ICON_16},
-    {"settings_app/settings_app_icon_32.png", IDR_SETTINGS_APP_ICON_32},
-    {"settings_app/settings_app_icon_48.png", IDR_SETTINGS_APP_ICON_48},
 #endif
   };
 

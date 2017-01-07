@@ -16,17 +16,6 @@
 
 namespace autofill {
 
-const SkColor AutofillPopupBaseView::kBorderColor =
-    SkColorSetRGB(0xC7, 0xCA, 0xCE);
-const SkColor AutofillPopupBaseView::kHoveredBackgroundColor =
-    SkColorSetRGB(0xCD, 0xCD, 0xCD);
-const SkColor AutofillPopupBaseView::kItemTextColor =
-    SkColorSetRGB(0x64, 0x64, 0x64);
-const SkColor AutofillPopupBaseView::kPopupBackground = SK_ColorWHITE;
-const SkColor AutofillPopupBaseView::kValueTextColor = SK_ColorBLACK;
-const SkColor AutofillPopupBaseView::kWarningTextColor =
-    SkColorSetRGB(0x64, 0x64, 0x64);
-
 AutofillPopupBaseView::AutofillPopupBaseView(
     AutofillPopupViewDelegate* delegate,
     views::Widget* parent_widget)
@@ -64,7 +53,6 @@ void AutofillPopupBaseView::DoShow() {
     params.delegate = this;
     params.parent = parent_widget_->GetNativeView();
     widget->Init(params);
-    widget->SetContentsView(this);
 
     // No animation for popup appearance (too distracting).
     widget->SetVisibilityAnimationTransition(views::Widget::ANIMATE_HIDE);

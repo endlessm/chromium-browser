@@ -5,14 +5,16 @@
 import json
 import unittest
 
+import mock
 import webapp2
 import webtest
 
 from google.appengine.api import users
 
 from dashboard import edit_anomalies
-from dashboard import testing_common
-from dashboard import xsrf
+from dashboard.common import testing_common
+from dashboard.common import utils
+from dashboard.common import xsrf
 from dashboard.models import anomaly
 
 
@@ -55,6 +57,7 @@ class EditAnomaliesTest(testing_common.TestCase):
     }, status=403)
     self.assertIsNone(anomaly_keys[0].get().bug_id)
 
+  @mock.patch.object(utils, 'IsGroupMember', mock.MagicMock(return_value=False))
   def testPost_LoggedIntoInvalidDomain_DoesNotModifyAnomaly(self):
     anomaly_keys = self._AddAnomaliesToDataStore()
     self.SetCurrentUser('foo@bar.com')

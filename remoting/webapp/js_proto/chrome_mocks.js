@@ -113,7 +113,7 @@ chromeMocks.runtime.connectNative = function(application) {
   return port;
 };
 
-/** @const {Object<!chromeMocks.runtime.Port>} */
+/** @type {Object<!chromeMocks.runtime.Port>} */
 var nativePorts = null;
 
 /** @type {string} */
@@ -248,6 +248,11 @@ chromeMocks.identity;
 
 /** @constructor */
 chromeMocks.MetricsPrivate = function() {};
+
+chromeMocks.MetricsPrivate.prototype.MetricTypeType = {
+  HISTOGRAM_LOG: 'histogram-log',
+  HISTOGRAM_LINEAR: 'histogram-linear',
+};
 
 chromeMocks.MetricsPrivate.prototype.recordValue = function() {};
 

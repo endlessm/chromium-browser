@@ -10,6 +10,7 @@
 #include "base/macros.h"
 #include "base/strings/sys_string_conversions.h"
 #include "base/strings/utf_string_conversions.h"
+#include "chrome/browser/permissions/permission_request.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_finder.h"
 #include "chrome/browser/ui/browser_window.h"
@@ -28,16 +29,15 @@
 #include "chrome/browser/ui/exclusive_access/exclusive_access_context.h"
 #include "chrome/browser/ui/exclusive_access/exclusive_access_manager.h"
 #include "chrome/browser/ui/exclusive_access/fullscreen_controller.h"
-#include "chrome/browser/ui/website_settings/permission_bubble_request.h"
-#include "chrome/browser/ui/website_settings/permission_bubble_view.h"
 #include "chrome/browser/ui/website_settings/permission_menu_model.h"
+#include "chrome/browser/ui/website_settings/permission_prompt.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/grit/generated_resources.h"
 #include "components/prefs/pref_service.h"
+#include "components/strings/grit/components_strings.h"
 #include "components/url_formatter/elide_url.h"
 #include "content/public/browser/native_web_keyboard_event.h"
 #include "content/public/browser/user_metrics.h"
-#include "grit/components_strings.h"
 #include "skia/ext/skia_utils_mac.h"
 #include "ui/base/cocoa/cocoa_base_utils.h"
 #import "ui/base/cocoa/controls/hyperlink_text_view.h"
@@ -45,6 +45,9 @@
 #include "ui/base/cocoa/window_size_constants.h"
 #include "ui/base/l10n/l10n_util_mac.h"
 #include "ui/base/models/simple_menu_model.h"
+#include "ui/gfx/color_palette.h"
+#include "ui/gfx/image/image_skia_util_mac.h"
+#include "ui/gfx/paint_vector_icon.h"
 #include "url/gurl.h"
 
 using base::UserMetricsAction;
@@ -65,6 +68,8 @@ const CGFloat kTitlePaddingX = 50.0f;
 const CGFloat kBubbleMinWidth = 315.0f;
 const NSSize kPermissionIconSize = {18, 18};
 
+const NSInteger kFullscreenLeftOffset = 40;
+
 }  // namespace
 
 // NSPopUpButton with a menu containing two items: allow and block.
@@ -79,7 +84,8 @@ const NSSize kPermissionIconSize = {18, 18};
 - (id)initForURL:(const GURL&)url
          allowed:(BOOL)allow
            index:(int)index
-        delegate:(PermissionBubbleView::Delegate*)delegate;
+        delegate:(PermissionPrompt::Delegate*)delegate
+         profile:(Profile*)profile;
 
 // Returns the maximum width of its possible titles.
 - (CGFloat)maximumTitleWidth;
@@ -90,14 +96,15 @@ const NSSize kPermissionIconSize = {18, 18};
 - (id)initForURL:(const GURL&)url
          allowed:(BOOL)allow
            index:(int)index
-        delegate:(PermissionBubbleView::Delegate*)delegate {
+        delegate:(PermissionPrompt::Delegate*)delegate
+         profile:(Profile*)profile {
   if (self = [super initWithFrame:NSZeroRect pullsDown:NO]) {
     ContentSetting setting =
         allow ? CONTENT_SETTING_ALLOW : CONTENT_SETTING_BLOCK;
     [self setFont:[NSFont systemFontOfSize:[NSFont smallSystemFontSize]]];
     [self setBordered:NO];
 
-    __block PermissionBubbleView::Delegate* blockDelegate = delegate;
+    __block PermissionPrompt::Delegate* blockDelegate = delegate;
     __block AllowBlockMenuButton* blockSelf = self;
     PermissionMenuModel::ChangeCallback changeCallback =
         base::BindBlock(^(const WebsiteSettingsUI::PermissionInfo& permission) {
@@ -108,7 +115,8 @@ const NSSize kPermissionIconSize = {18, 18};
                                                   [blockSelf title])];
         });
 
-    menuModel_.reset(new PermissionMenuModel(url, setting, changeCallback));
+    menuModel_.reset(
+        new PermissionMenuModel(profile, url, setting, changeCallback));
     menuController_.reset([[MenuController alloc] initWithModel:menuModel_.get()
                                          useWithPopUpButtonCell:NO]);
     [self setMenu:[menuController_ menu]];
@@ -174,7 +182,7 @@ const NSSize kPermissionIconSize = {18, 18};
 - (NSWindow*)getExpectedParentWindow;
 
 // Returns an autoreleased NSView displaying the icon and label for |request|.
-- (NSView*)labelForRequest:(PermissionBubbleRequest*)request;
+- (NSView*)labelForRequest:(PermissionRequest*)request;
 
 // Returns an autoreleased NSView displaying the title for the bubble
 // requesting settings for |host|.
@@ -182,7 +190,7 @@ const NSSize kPermissionIconSize = {18, 18};
 
 // Returns an autoreleased NSView displaying a menu for |request|.  The
 // menu will be initialized as 'allow' if |allow| is YES.
-- (NSView*)menuForRequest:(PermissionBubbleRequest*)request
+- (NSView*)menuForRequest:(PermissionRequest*)request
                   atIndex:(int)index
                     allow:(BOOL)allow;
 
@@ -207,6 +215,10 @@ const NSSize kPermissionIconSize = {18, 18};
 
 // Called when the 'close' button is pressed.
 - (void)onClose:(id)sender;
+
+// Returns the constant offset from the left to use for fullscreen permission
+// bubbles. Only used in tests.
++ (NSInteger)getFullscreenLeftOffset;
 
 // Sets the width of both |viewA| and |viewB| to be the larger of the
 // two views' widths.  Does not change either view's origin or height.
@@ -256,9 +268,11 @@ const NSSize kPermissionIconSize = {18, 18};
         [[parentWindow windowController] locationBarBridge];
     anchor = location_bar->GetPageInfoBubblePoint();
   } else {
-    // Center the bubble if there's no location bar.
+    // Position the bubble on the left of the screen if there is no page info
+    // button to point at.
     NSRect contentFrame = [[parentWindow contentView] frame];
-    anchor = NSMakePoint(NSMidX(contentFrame), NSMaxY(contentFrame));
+    anchor = NSMakePoint(NSMinX(contentFrame) + kFullscreenLeftOffset,
+                         NSMaxY(contentFrame));
   }
 
   return ui::ConvertPointFromWindowToScreen(parentWindow, anchor);
@@ -300,8 +314,9 @@ const NSSize kPermissionIconSize = {18, 18};
 }
 
 - (void)parentWindowDidResize:(NSNotification*)notification {
-  DCHECK(bridge_);
-  [self updateAnchorPosition];
+  // Override the base class implementation, which sets the anchor point. But
+  // it's not necessary since BrowserWindowController will notify the
+  // PermissionRequestManager to update the anchor position on a resize.
 }
 
 - (void)parentWindowDidMove:(NSNotification*)notification {
@@ -309,8 +324,8 @@ const NSSize kPermissionIconSize = {18, 18};
   [self setAnchorPoint:[self getExpectedAnchorPoint]];
 }
 
-- (void)showWithDelegate:(PermissionBubbleView::Delegate*)delegate
-             forRequests:(const std::vector<PermissionBubbleRequest*>&)requests
+- (void)showWithDelegate:(PermissionPrompt::Delegate*)delegate
+             forRequests:(const std::vector<PermissionRequest*>&)requests
             acceptStates:(const std::vector<bool>&)acceptStates {
   DCHECK(!requests.empty());
   DCHECK(delegate);
@@ -483,8 +498,7 @@ const NSSize kPermissionIconSize = {18, 18};
 }
 
 - (info_bubble::BubbleArrowLocation)getExpectedArrowLocation {
-  return [self hasVisibleLocationBar] ? info_bubble::kTopLeft
-                                      : info_bubble::kNoArrow;
+  return info_bubble::kTopLeft;
 }
 
 - (NSWindow*)getExpectedParentWindow {
@@ -492,14 +506,15 @@ const NSSize kPermissionIconSize = {18, 18};
   return browser_->window()->GetNativeWindow();
 }
 
-- (NSView*)labelForRequest:(PermissionBubbleRequest*)request {
+- (NSView*)labelForRequest:(PermissionRequest*)request {
   DCHECK(request);
   base::scoped_nsobject<NSView> permissionView(
       [[NSView alloc] initWithFrame:NSZeroRect]);
   base::scoped_nsobject<NSImageView> permissionIcon(
       [[NSImageView alloc] initWithFrame:NSZeroRect]);
-  [permissionIcon setImage:ui::ResourceBundle::GetSharedInstance().
-      GetNativeImageNamed(request->GetIconId()).ToNSImage()];
+  [permissionIcon
+      setImage:NSImageFromImageSkia(gfx::CreateVectorIcon(
+                   request->GetIconId(), 18, gfx::kChromeIconGrey))];
   [permissionIcon setFrameSize:kPermissionIconSize];
   [permissionView addSubview:permissionIcon];
 
@@ -558,7 +573,7 @@ const NSSize kPermissionIconSize = {18, 18};
   return titleView.autorelease();
 }
 
-- (NSView*)menuForRequest:(PermissionBubbleRequest*)request
+- (NSView*)menuForRequest:(PermissionRequest*)request
                   atIndex:(int)index
                     allow:(BOOL)allow {
   DCHECK(request);
@@ -567,7 +582,8 @@ const NSSize kPermissionIconSize = {18, 18};
       [[AllowBlockMenuButton alloc] initForURL:request->GetOrigin()
                                        allowed:allow
                                          index:index
-                                      delegate:delegate_]);
+                                      delegate:delegate_
+                                       profile:browser_->profile()]);
   return button.autorelease();
 }
 
@@ -619,11 +635,15 @@ const NSSize kPermissionIconSize = {18, 18};
   delegate_->Closing();
 }
 
++ (NSInteger)getFullscreenLeftOffset {
+  return kFullscreenLeftOffset;
+}
+
 - (void)activateTabWithContents:(content::WebContents*)newContents
                previousContents:(content::WebContents*)oldContents
                         atIndex:(NSInteger)index
                          reason:(int)reason {
-  // The show/hide of this bubble is handled by the PermissionBubbleManager.
+  // The show/hide of this bubble is handled by the PermissionRequestManager.
   // So bypass the base class, which would close the bubble here.
 }
 

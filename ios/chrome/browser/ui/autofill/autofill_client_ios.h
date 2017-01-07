@@ -6,6 +6,7 @@
 #define IOS_CHROME_BROWSER_UI_AUTOFILL_AUTOFILL_CLIENT_IOS_H_
 
 #include <memory>
+#include <string>
 #include <vector>
 
 #include "base/compiler_specific.h"
@@ -28,7 +29,7 @@ namespace password_manager {
 class PasswordGenerationManager;
 }
 
-namespace sync_driver {
+namespace syncer {
 class SyncService;
 }
 
@@ -52,7 +53,7 @@ class AutofillClientIOS : public AutofillClient {
   // AutofillClient implementation.
   PersonalDataManager* GetPersonalDataManager() override;
   PrefService* GetPrefs() override;
-  sync_driver::SyncService* GetSyncService() override;
+  syncer::SyncService* GetSyncService() override;
   IdentityProvider* GetIdentityProvider() override;
   rappor::RapporService* GetRapporService() override;
   void ShowAutofillSettings() override;
@@ -66,6 +67,8 @@ class AutofillClientIOS : public AutofillClient {
       const CreditCard& card,
       std::unique_ptr<base::DictionaryValue> legal_message,
       const base::Closure& callback) override;
+  void ConfirmCreditCardFillAssist(const CreditCard& card,
+                                   const base::Closure& callback) override;
   void LoadRiskData(
       const base::Callback<void(const std::string&)>& callback) override;
   bool HasCreditCardScanFeature() override;
@@ -88,6 +91,8 @@ class AutofillClientIOS : public AutofillClient {
   void OnFirstUserGestureObserved() override;
   scoped_refptr<AutofillWebDataService> GetDatabase() override;
   bool IsContextSecure(const GURL& form_origin) override;
+  bool ShouldShowSigninPromo() override;
+  void StartSigninFlow() override;
 
  private:
   ios::ChromeBrowserState* browser_state_;

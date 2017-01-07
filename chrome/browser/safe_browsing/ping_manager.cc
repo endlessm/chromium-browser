@@ -6,18 +6,24 @@
 
 #include <utility>
 
+#include "base/base64.h"
 #include "base/logging.h"
-#include "base/stl_util.h"
+#include "base/memory/ptr_util.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
+#include "base/values.h"
+#include "chrome/browser/safe_browsing/permission_reporter.h"
 #include "components/certificate_reporting/error_reporter.h"
+#include "components/data_use_measurement/core/data_use_user_data.h"
 #include "content/public/browser/browser_thread.h"
 #include "google_apis/google_api_keys.h"
 #include "net/base/escape.h"
 #include "net/base/load_flags.h"
+#include "net/log/net_log_source_type.h"
 #include "net/ssl/ssl_info.h"
 #include "net/url_request/report_sender.h"
 #include "net/url_request/url_fetcher.h"
+#include "net/url_request/url_request_context.h"
 #include "net/url_request/url_request_context_getter.h"
 #include "net/url_request/url_request_status.h"
 #include "url/gurl.h"
@@ -25,14 +31,42 @@
 using content::BrowserThread;
 
 namespace {
-// URLs to upload invalid certificate chain reports. The HTTP URL is
-// preferred since a client seeing an invalid cert might not be able to
+// URL to upload invalid certificate chain reports. An HTTP URL is
+// used because a client seeing an invalid cert might not be able to
 // make an HTTPS connection to report it.
 const char kExtendedReportingUploadUrlInsecure[] =
     "http://safebrowsing.googleusercontent.com/safebrowsing/clientreport/"
     "chrome-certs";
-const char kExtendedReportingUploadUrlSecure[] =
-    "https://sb-ssl.google.com/safebrowsing/clientreport/chrome-certs";
+
+// Returns a dictionary with "url"=|url-spec| and "data"=|payload| for
+// netlogging the start phase of a ping.
+std::unique_ptr<base::Value> NetLogPingStartCallback(
+    const net::NetLogWithSource& net_log,
+    const GURL& url,
+    const std::string& payload,
+    net::NetLogCaptureMode) {
+  std::unique_ptr<base::DictionaryValue> event_params(
+      new base::DictionaryValue());
+  event_params->SetString("url", url.spec());
+  event_params->SetString("payload", payload);
+  net_log.source().AddToEventParameters(event_params.get());
+  return std::move(event_params);
+}
+
+// Returns a dictionary with "url"=|url-spec|, "status"=|status| and
+// "error"=|error| for netlogging the end phase of a ping.
+std::unique_ptr<base::Value> NetLogPingEndCallback(
+    const net::NetLogWithSource& net_log,
+    const net::URLRequestStatus& status,
+    net::NetLogCaptureMode) {
+  std::unique_ptr<base::DictionaryValue> event_params(
+      new base::DictionaryValue());
+  event_params->SetInteger("status", status.status());
+  event_params->SetInteger("error", status.error());
+  net_log.source().AddToEventParameters(event_params.get());
+  return std::move(event_params);
+}
+
 }  // namespace
 
 namespace safe_browsing {
@@ -40,11 +74,12 @@ namespace safe_browsing {
 // SafeBrowsingPingManager implementation ----------------------------------
 
 // static
-SafeBrowsingPingManager* SafeBrowsingPingManager::Create(
+std::unique_ptr<SafeBrowsingPingManager> SafeBrowsingPingManager::Create(
     net::URLRequestContextGetter* request_context_getter,
     const SafeBrowsingProtocolConfig& config) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
-  return new SafeBrowsingPingManager(request_context_getter, config);
+  return base::WrapUnique(
+      new SafeBrowsingPingManager(request_context_getter, config));
 }
 
 SafeBrowsingPingManager::SafeBrowsingPingManager(
@@ -56,33 +91,27 @@ SafeBrowsingPingManager::SafeBrowsingPingManager(
   DCHECK(!url_prefix_.empty());
 
   if (request_context_getter) {
-    // Set the upload URL and whether or not to send cookies with
-    // certificate reports sent to Safe Browsing servers.
-    bool use_insecure_certificate_upload_url =
-        certificate_reporting::ErrorReporter::IsHttpUploadUrlSupported();
-
     net::ReportSender::CookiesPreference cookies_preference;
     GURL certificate_upload_url;
-    if (use_insecure_certificate_upload_url) {
-      cookies_preference = net::ReportSender::DO_NOT_SEND_COOKIES;
-      certificate_upload_url = GURL(kExtendedReportingUploadUrlInsecure);
-    } else {
-      cookies_preference = net::ReportSender::SEND_COOKIES;
-      certificate_upload_url = GURL(kExtendedReportingUploadUrlSecure);
-    }
+    cookies_preference = net::ReportSender::DO_NOT_SEND_COOKIES;
+    certificate_upload_url = GURL(kExtendedReportingUploadUrlInsecure);
 
     certificate_error_reporter_.reset(new certificate_reporting::ErrorReporter(
         request_context_getter->GetURLRequestContext(), certificate_upload_url,
         cookies_preference));
+
+    permission_reporter_.reset(
+        new PermissionReporter(request_context_getter->GetURLRequestContext()));
+
+    net_log_ = net::NetLogWithSource::Make(
+        request_context_getter->GetURLRequestContext()->net_log(),
+        net::NetLogSourceType::SAFE_BROWSING);
   }
 
   version_ = SafeBrowsingProtocolManagerHelper::Version();
 }
 
 SafeBrowsingPingManager::~SafeBrowsingPingManager() {
-  // Delete in-progress safebrowsing reports (hits and details).
-  STLDeleteContainerPointers(safebrowsing_reports_.begin(),
-                             safebrowsing_reports_.end());
 }
 
 // net::URLFetcherDelegate implementation ----------------------------------
@@ -90,43 +119,68 @@ SafeBrowsingPingManager::~SafeBrowsingPingManager() {
 // All SafeBrowsing request responses are handled here.
 void SafeBrowsingPingManager::OnURLFetchComplete(
     const net::URLFetcher* source) {
-  Reports::iterator sit = safebrowsing_reports_.find(source);
-  DCHECK(sit != safebrowsing_reports_.end());
-  delete *sit;
-  safebrowsing_reports_.erase(sit);
+  net_log_.EndEvent(
+      net::NetLogEventType::SAFE_BROWSING_PING,
+      base::Bind(&NetLogPingEndCallback, net_log_, source->GetStatus()));
+  auto it =
+      std::find_if(safebrowsing_reports_.begin(), safebrowsing_reports_.end(),
+                   [source](const std::unique_ptr<net::URLFetcher>& ptr) {
+                     return ptr.get() == source;
+                   });
+  DCHECK(it != safebrowsing_reports_.end());
+  safebrowsing_reports_.erase(it);
 }
 
 // Sends a SafeBrowsing "hit" report.
 void SafeBrowsingPingManager::ReportSafeBrowsingHit(
     const safe_browsing::HitReport& hit_report) {
   GURL report_url = SafeBrowsingHitUrl(hit_report);
-  net::URLFetcher* report =
-      net::URLFetcher::Create(report_url, hit_report.post_data.empty()
-                                              ? net::URLFetcher::GET
-                                              : net::URLFetcher::POST,
-                              this)
-          .release();
-  report->SetLoadFlags(net::LOAD_DISABLE_CACHE);
-  report->SetRequestContext(request_context_getter_.get());
-  if (!hit_report.post_data.empty())
-    report->SetUploadData("text/plain", hit_report.post_data);
-  safebrowsing_reports_.insert(report);
+  std::unique_ptr<net::URLFetcher> report_ptr = net::URLFetcher::Create(
+      report_url, hit_report.post_data.empty() ? net::URLFetcher::GET
+                                               : net::URLFetcher::POST,
+      this);
+  net::URLFetcher* report = report_ptr.get();
+  data_use_measurement::DataUseUserData::AttachToFetcher(
+      report, data_use_measurement::DataUseUserData::SAFE_BROWSING);
+  report_ptr->SetLoadFlags(net::LOAD_DISABLE_CACHE);
+  report_ptr->SetRequestContext(request_context_getter_.get());
+  std::string post_data_base64;
+  if (!hit_report.post_data.empty()) {
+    report_ptr->SetUploadData("text/plain", hit_report.post_data);
+    base::Base64Encode(hit_report.post_data, &post_data_base64);
+  }
+
+  net_log_.BeginEvent(
+      net::NetLogEventType::SAFE_BROWSING_PING,
+      base::Bind(&NetLogPingStartCallback, net_log_,
+                 report_ptr->GetOriginalURL(), post_data_base64));
+
   report->Start();
+  safebrowsing_reports_.insert(std::move(report_ptr));
 }
 
 // Sends threat details for users who opt-in.
 void SafeBrowsingPingManager::ReportThreatDetails(const std::string& report) {
   GURL report_url = ThreatDetailsUrl();
-  net::URLFetcher* fetcher =
-      net::URLFetcher::Create(report_url, net::URLFetcher::POST, this)
-          .release();
+  std::unique_ptr<net::URLFetcher> fetcher =
+      net::URLFetcher::Create(report_url, net::URLFetcher::POST, this);
+  data_use_measurement::DataUseUserData::AttachToFetcher(
+      fetcher.get(), data_use_measurement::DataUseUserData::SAFE_BROWSING);
   fetcher->SetLoadFlags(net::LOAD_DISABLE_CACHE);
   fetcher->SetRequestContext(request_context_getter_.get());
   fetcher->SetUploadData("application/octet-stream", report);
   // Don't try too hard to send reports on failures.
   fetcher->SetAutomaticallyRetryOn5xx(false);
+
+  std::string report_base64;
+  base::Base64Encode(report, &report_base64);
+  net_log_.BeginEvent(
+      net::NetLogEventType::SAFE_BROWSING_PING,
+      base::Bind(&NetLogPingStartCallback, net_log_, fetcher->GetOriginalURL(),
+                 report_base64));
+
   fetcher->Start();
-  safebrowsing_reports_.insert(fetcher);
+  safebrowsing_reports_.insert(std::move(fetcher));
 }
 
 void SafeBrowsingPingManager::ReportInvalidCertificateChain(
@@ -139,6 +193,11 @@ void SafeBrowsingPingManager::SetCertificateErrorReporterForTesting(
     std::unique_ptr<certificate_reporting::ErrorReporter>
         certificate_error_reporter) {
   certificate_error_reporter_ = std::move(certificate_error_reporter);
+}
+
+void SafeBrowsingPingManager::ReportPermissionAction(
+    const PermissionReportInfo& report_info) {
+  permission_reporter_->SendReport(report_info);
 }
 
 GURL SafeBrowsingPingManager::SafeBrowsingHitUrl(

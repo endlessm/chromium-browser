@@ -21,9 +21,12 @@ import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.chrome.browser.ChromeSwitches;
 import org.chromium.chrome.browser.IntentHandler;
 import org.chromium.chrome.browser.UrlConstants;
+import org.chromium.chrome.browser.instantapps.InstantAppsHandler;
 import org.chromium.chrome.browser.tab.Tab;
+import org.chromium.chrome.browser.tab.TabRedirectHandler;
 import org.chromium.chrome.browser.util.IntentUtils;
 import org.chromium.chrome.browser.util.UrlUtilities;
+import org.chromium.chrome.browser.webapps.ChromeWebApkHost;
 import org.chromium.ui.base.PageTransition;
 
 import java.net.URI;
@@ -44,6 +47,9 @@ public class ExternalNavigationHandler {
 
     @VisibleForTesting
     static final String EXTRA_BROWSER_FALLBACK_URL = "browser_fallback_url";
+
+    // Supervisor package name
+    private static final Object SUPERVISOR_PKG = "com.google.android.instantapps.supervisor";
 
     // An extra that may be specified on an intent:// URL that contains an encoded value for the
     // referrer field passed to the market:// URL in the case where the app is not present.
@@ -200,15 +206,6 @@ public class ExternalNavigationHandler {
             return OverrideUrlLoadingResult.OVERRIDE_WITH_ASYNC_ACTION;
         }
 
-        // http://crbug/331571 : Do not override a navigation started from user typing.
-        // http://crbug/424029 : Need to stay in Chrome for an intent heading explicitly to Chrome.
-        if (params.getRedirectHandler() != null) {
-            if (params.getRedirectHandler().shouldStayInChrome(isExternalProtocol)
-                    || params.getRedirectHandler().shouldNotOverrideUrlLoading()) {
-                return OverrideUrlLoadingResult.NO_OVERRIDE;
-            }
-        }
-
         // http://crbug.com/149218: We want to show the intent picker for ordinary links, providing
         // the link is not an incoming intent from another application, unless it's a redirect (see
         // below).
@@ -221,6 +218,31 @@ public class ExternalNavigationHandler {
         // another app that 30x redirects to a YouTube/Google Maps/Play Store/Google+ URL etc.
         boolean incomingIntentRedirect = (isLink && isFromIntent && params.isRedirect())
                 || isOnEffectiveIntentRedirect;
+
+
+        // http://crbug/331571 : Do not override a navigation started from user typing.
+        // http://crbug/424029 : Need to stay in Chrome for an intent heading explicitly to Chrome.
+        if (params.getRedirectHandler() != null) {
+            TabRedirectHandler handler = params.getRedirectHandler();
+            if (handler.shouldStayInChrome(isExternalProtocol)
+                    || handler.shouldNotOverrideUrlLoading()) {
+                // http://crbug.com/659301: Handle redirects to Instant Apps out of Custom Tabs.
+                if (handler.isFromCustomTabIntent()
+                        && !isExternalProtocol
+                        && incomingIntentRedirect
+                        && !handler.shouldNavigationTypeStayInChrome()
+                        && mDelegate.maybeLaunchInstantApp(params.getTab(), params.getUrl(),
+                                params.getReferrerUrl(), true)) {
+                    return OverrideUrlLoadingResult.OVERRIDE_WITH_EXTERNAL_INTENT;
+                }
+                return OverrideUrlLoadingResult.NO_OVERRIDE;
+            }
+        }
+
+        // http://crbug.com/647569 : Stay in a PWA window for a URL within the same scope.
+        if (mDelegate.isWithinCurrentWebappScope(params.getUrl())) {
+            return OverrideUrlLoadingResult.NO_OVERRIDE;
+        }
 
         // http://crbug.com/181186: We need to show the intent picker when we receive a redirect
         // following a form submit.
@@ -250,9 +272,11 @@ public class ExternalNavigationHandler {
             // number=string(phone-number)
             mDelegate.startActivity(new Intent(Intent.ACTION_VIEW,
                     Uri.parse(WebView.SCHEME_TEL
-                            + params.getUrl().substring(SCHEME_WTAI_MC.length()))));
+                            + params.getUrl().substring(SCHEME_WTAI_MC.length()))), false);
             return OverrideUrlLoadingResult.OVERRIDE_WITH_EXTERNAL_INTENT;
-        } else if (params.getUrl().startsWith(SCHEME_WTAI)) {
+        }
+
+        if (params.getUrl().startsWith(SCHEME_WTAI)) {
             // TODO: handle other WTAI schemes.
             return OverrideUrlLoadingResult.NO_OVERRIDE;
         }
@@ -303,6 +327,7 @@ public class ExternalNavigationHandler {
             if (hasBrowserFallbackUrl) {
                 return clobberCurrentTabWithFallbackUrl(browserFallbackUrl, params);
             }
+
             String packagename = intent.getPackage();
             if (packagename != null) {
                 String marketReferrer =
@@ -321,16 +346,19 @@ public class ExternalNavigationHandler {
                     intent.addCategory(Intent.CATEGORY_BROWSABLE);
                     intent.setPackage("com.android.vending");
                     intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                    mDelegate.startActivity(intent);
+                    if (params.getReferrerUrl() != null) {
+                        intent.putExtra(Intent.EXTRA_REFERRER, Uri.parse(params.getReferrerUrl()));
+                    }
+                    mDelegate.startActivity(intent, false);
                     return OverrideUrlLoadingResult.OVERRIDE_WITH_EXTERNAL_INTENT;
                 } catch (ActivityNotFoundException ex) {
                     // ignore the error on devices that does not have
                     // play market installed.
                     return OverrideUrlLoadingResult.NO_OVERRIDE;
                 }
-            } else {
-                return OverrideUrlLoadingResult.NO_OVERRIDE;
             }
+
+            return OverrideUrlLoadingResult.NO_OVERRIDE;
         }
 
         if (hasBrowserFallbackUrl) {
@@ -357,6 +385,16 @@ public class ExternalNavigationHandler {
             IntentHandler.setPendingReferrer(intent, params.getReferrerUrl());
         }
 
+        if (params.isIncognito()) {
+            // In incognito mode, links that can be handled within the browser should just do so,
+            // without asking the user.
+            if (!isExternalProtocol) {
+                return OverrideUrlLoadingResult.NO_OVERRIDE;
+            }
+
+            IntentHandler.setPendingIncognitoUrl(intent);
+        }
+
         // Make sure webkit can handle it internally before checking for specialized
         // handlers. If webkit can't handle it internally, we need to call
         // startActivityIfNeeded or startActivity.
@@ -364,11 +402,23 @@ public class ExternalNavigationHandler {
             if (!mDelegate.isSpecializedHandlerAvailable(resolvingInfos)) {
                 if (params.webApkPackageName() != null) {
                     intent.setPackage(mDelegate.getPackageName());
-                    mDelegate.startActivity(intent);
+                    mDelegate.startActivity(intent, false);
                     return OverrideUrlLoadingResult.OVERRIDE_WITH_EXTERNAL_INTENT;
                 }
+
+                if (incomingIntentRedirect && mDelegate.maybeLaunchInstantApp(
+                        params.getTab(), params.getUrl(), params.getReferrerUrl(), true)) {
+                    return OverrideUrlLoadingResult.OVERRIDE_WITH_EXTERNAL_INTENT;
+                } else if (linkNotFromIntent && !params.isIncognito()
+                        && mDelegate.maybeLaunchInstantApp(params.getTab(), params.getUrl(),
+                                params.getReferrerUrl(), false)) {
+                    return OverrideUrlLoadingResult.OVERRIDE_WITH_EXTERNAL_INTENT;
+                }
+
                 return OverrideUrlLoadingResult.NO_OVERRIDE;
-            } else if (params.getReferrerUrl() != null && (isLink || isFormSubmit)) {
+            }
+
+            if (params.getReferrerUrl() != null && (isLink || isFormSubmit)) {
                 // Current URL has at least one specialized handler available. For navigations
                 // within the same host, keep the navigation inside the browser unless the set of
                 // available apps to handle the new navigation is different. http://crbug.com/463138
@@ -401,49 +451,78 @@ public class ExternalNavigationHandler {
             }
         }
 
+        boolean isDirectInstantAppsIntent = isExternalProtocol
+                && SUPERVISOR_PKG.equals(intent.getPackage());
+        boolean shouldProxyForInstantApps = isDirectInstantAppsIntent
+                && mDelegate.isSerpReferrer(params.getReferrerUrl(), params.getTab());
+        if (shouldProxyForInstantApps) {
+            intent.putExtra(InstantAppsHandler.IS_GOOGLE_SEARCH_REFERRER, true);
+        } else if (isDirectInstantAppsIntent) {
+            // For security reasons, we disable all intent:// URLs to Instant Apps that are
+            // not coming from SERP.
+            return OverrideUrlLoadingResult.NO_OVERRIDE;
+        } else {
+            // Make sure this extra is not sent unless we've done the verification.
+            intent.removeExtra(InstantAppsHandler.IS_GOOGLE_SEARCH_REFERRER);
+        }
+
         try {
             if (params.isIncognito() && !mDelegate.willChromeHandleIntent(intent)) {
                 // This intent may leave Chrome.  Warn the user that incognito does not carry over
                 // to apps out side of Chrome.
                 mDelegate.startIncognitoIntent(intent, params.getReferrerUrl(),
                         hasBrowserFallbackUrl ? browserFallbackUrl : null, params.getTab(),
-                        params.shouldCloseContentsOnOverrideUrlLoadingAndLaunchIntent());
+                        params.shouldCloseContentsOnOverrideUrlLoadingAndLaunchIntent(),
+                        shouldProxyForInstantApps);
                 return OverrideUrlLoadingResult.OVERRIDE_WITH_ASYNC_ACTION;
-            } else {
+            }
 
-                // Some third-party app launched Chrome with an intent, and the URL got redirected.
-                // The user has explicitly chosen Chrome over other intent handlers, so stay in
-                // Chrome unless there was a new intent handler after redirection or Chrome cannot
-                // handle it any more.
-                if (params.getRedirectHandler() != null && incomingIntentRedirect) {
-                    if (!isExternalProtocol
-                            && !params.getRedirectHandler().hasNewResolver(intent)) {
-                        return OverrideUrlLoadingResult.NO_OVERRIDE;
-                    }
-                }
-                // The intent can be used to launch Chrome itself, record the user
-                // gesture here so that it can be used later.
-                if (params.hasUserGesture()) {
-                    IntentWithGesturesHandler.getInstance().onNewIntentWithGesture(intent);
-                }
-
-                if (CommandLine.getInstance().hasSwitch(ChromeSwitches.ENABLE_WEBAPK)) {
-                    // If the only specialized intent handler is a WebAPK, set the intent's package
-                    // to launch the WebAPK without showing the intent picker.
-                    String targetWebApkPackageName =
-                            mDelegate.findValidWebApkPackageName(resolvingInfos);
-                    if (targetWebApkPackageName != null
-                            && mDelegate.countSpecializedHandlers(resolvingInfos) == 1) {
-                        intent.setPackage(targetWebApkPackageName);
-                    }
-                }
-
-                if (mDelegate.startActivityIfNeeded(intent)) {
-                    return OverrideUrlLoadingResult.OVERRIDE_WITH_EXTERNAL_INTENT;
-                } else {
+            // Some third-party app launched Chrome with an intent, and the URL got redirected. The
+            // user has explicitly chosen Chrome over other intent handlers, so stay in Chrome
+            // unless there was a new intent handler after redirection or Chrome cannot handle it
+            // any more.
+            // Custom tabs are an exception to this rule, since at no point, the user sees an intent
+            // picker and "picking Chrome" is handled inside the support library.
+            if (params.getRedirectHandler() != null && incomingIntentRedirect) {
+                if (!isExternalProtocol && !params.getRedirectHandler().isFromCustomTabIntent()
+                        && !params.getRedirectHandler().hasNewResolver(intent)) {
                     return OverrideUrlLoadingResult.NO_OVERRIDE;
                 }
             }
+
+            // The intent can be used to launch Chrome itself, record the user
+            // gesture here so that it can be used later.
+            if (params.hasUserGesture()) {
+                IntentWithGesturesHandler.getInstance().onNewIntentWithGesture(intent);
+            }
+
+            if (ChromeWebApkHost.isEnabled()) {
+                // If the only specialized intent handler is a WebAPK, set the intent's package to
+                // launch the WebAPK without showing the intent picker.
+                String targetWebApkPackageName = mDelegate.findWebApkPackageName(resolvingInfos);
+
+                // We can't rely on this falling through to startActivityIfNeeded and behaving
+                // correctly for WebAPKs. This is because the target of the intent is the WebApk's
+                // main activity but that's just a bouncer which will redirect to WebApkActivity in
+                // chrome. To avoid bouncing indefinitely, don't override the navigation if we are
+                // currently showing the WebApk |params.webApkPackageName()| that we will redirect
+                // to.
+                if (targetWebApkPackageName != null
+                        && targetWebApkPackageName.equals(params.webApkPackageName())) {
+                    return OverrideUrlLoadingResult.NO_OVERRIDE;
+                }
+
+                if (targetWebApkPackageName != null
+                        && mDelegate.countSpecializedHandlers(resolvingInfos) == 1) {
+                    intent.setPackage(targetWebApkPackageName);
+                }
+            }
+
+            if (mDelegate.startActivityIfNeeded(intent, shouldProxyForInstantApps)) {
+                return OverrideUrlLoadingResult.OVERRIDE_WITH_EXTERNAL_INTENT;
+            }
+
+            return OverrideUrlLoadingResult.NO_OVERRIDE;
         } catch (ActivityNotFoundException ex) {
             // Ignore the error. If no application can handle the URL,
             // assume the browser can handle it.

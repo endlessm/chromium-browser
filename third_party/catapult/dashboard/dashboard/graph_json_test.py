@@ -12,8 +12,8 @@ import webtest
 from google.appengine.ext import ndb
 
 from dashboard import graph_json
-from dashboard import testing_common
-from dashboard import utils
+from dashboard.common import testing_common
+from dashboard.common import utils
 from dashboard.models import anomaly
 from dashboard.models import graph_data
 
@@ -577,7 +577,8 @@ class GraphJsonTest(testing_common.TestCase):
             'path': 'ChromiumGPU/win7/dromaeo/dom',
             'units': 'ms',
             'better': 'Higher',
-            'description': 'About this test'
+            'description': 'About this test',
+            'can_bisect': True,
         }
     }, annotations['series'])
 

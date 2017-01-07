@@ -2,11 +2,16 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "chrome/browser/ui/webui/signin/login_ui_test_utils.h"
+
+#include "base/run_loop.h"
+#include "base/threading/thread_task_runner_handle.h"
 #include "chrome/browser/signin/signin_promo.h"
 #include "chrome/browser/signin/signin_tracker_factory.h"
 #include "chrome/browser/ui/browser.h"
+#include "chrome/browser/ui/signin_view_controller_delegate.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
-#include "chrome/browser/ui/webui/signin/get_auth_frame.h"
+#include "chrome/browser/ui/webui/signin/signin_utils.h"
 #include "chrome/test/base/ui_test_utils.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/notification_types.h"
@@ -94,6 +99,13 @@ class SignInObserver : public SigninTracker::Observer {
   bool wait_for_account_cookies_;
   scoped_refptr<MessageLoopRunner> message_loop_runner_;
 };
+
+void RunLoopFor(base::TimeDelta duration) {
+  base::RunLoop run_loop;
+  base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+      FROM_HERE, run_loop.QuitClosure(), duration);
+  run_loop.Run();
+}
 
 }  // anonymous namespace
 
@@ -220,10 +232,8 @@ bool SignInWithUI(Browser* browser,
   // we use NEW_FOREGROUND_TAB rather than the CURRENT_TAB used by default in
   // ui_test_utils::NavigateToURL().
   ui_test_utils::NavigateToURLWithDisposition(
-        browser,
-        signin_url,
-        NEW_FOREGROUND_TAB,
-        ui_test_utils::BROWSER_TEST_WAIT_FOR_NAVIGATION);
+      browser, signin_url, WindowOpenDisposition::NEW_FOREGROUND_TAB,
+      ui_test_utils::BROWSER_TEST_WAIT_FOR_NAVIGATION);
 
   DVLOG(1) << "Wait for login UI to be ready.";
   WaitUntilUIReady(browser);
@@ -240,6 +250,39 @@ bool SignInWithUI(Browser* browser,
                       false /* wait_for_account_cookies */,
                       signin_metrics::AccessPoint::ACCESS_POINT_START_PAGE,
                       signin_metrics::Reason::REASON_SIGNIN_PRIMARY_ACCOUNT);
+}
+
+bool TryDismissSyncConfirmationDialog(Browser* browser) {
+  SigninViewController* signin_view_controller =
+      browser->signin_view_controller();
+  DCHECK_NE(signin_view_controller, nullptr);
+  SigninViewControllerDelegate* delegate = signin_view_controller->delegate();
+  if (delegate == nullptr)
+    return false;
+  content::WebContents* dialog_web_contents =
+      delegate->web_contents_for_testing();
+  DCHECK_NE(dialog_web_contents, nullptr);
+  std::string message;
+  std::string js =
+      "if (document.getElementById('confirmButton') == null) {"
+      "  window.domAutomationController.send('NotFound');"
+      "} else {"
+      "  document.getElementById('confirmButton').click();"
+      "  window.domAutomationController.send('Ok');"
+      "}";
+  EXPECT_TRUE(content::ExecuteScriptAndExtractString(dialog_web_contents, js,
+                                                     &message));
+  return message == "Ok";
+}
+
+bool DismissSyncConfirmationDialog(Browser* browser, base::TimeDelta timeout) {
+  const base::Time expire_time = base::Time::Now() + timeout;
+  while (base::Time::Now() <= expire_time) {
+    if (TryDismissSyncConfirmationDialog(browser))
+      return true;
+    RunLoopFor(base::TimeDelta::FromMilliseconds(1000));
+  }
+  return false;
 }
 
 }  // namespace login_ui_test_utils

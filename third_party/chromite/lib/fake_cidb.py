@@ -51,7 +51,7 @@ class FakeCIDBConnection(object):
   def InsertBuild(self, builder_name, waterfall, build_number,
                   build_config, bot_hostname, master_build_id=None,
                   timeout_seconds=None, status=constants.BUILDER_STATUS_PASSED,
-                  important=None):
+                  important=None, buildbucket_id=None):
     """Insert a build row.
 
     Note this API slightly differs from cidb as we pass status to avoid having
@@ -75,7 +75,8 @@ class FakeCIDBConnection(object):
            'deadline': deadline,
            'status': status,
            'finish_time': datetime.datetime.now(),
-           'important': important}
+           'important': important,
+           'buildbucket_id': buildbucket_id}
     self.buildTable.append(row)
     return build_id
 
@@ -114,14 +115,19 @@ class FakeCIDBConnection(object):
       change_source = cl_action.change_source
       action = cl_action.action
       reason = cl_action.reason
+      buildbucket_id = cl_action.buildbucket_id
+
+      timestamp = cl_action.timestamp or timestamp or datetime.datetime.now()
+
       rows.append({
           'build_id' : build_id,
           'change_source' : change_source,
           'change_number': change_number,
           'patch_number' : patch_number,
           'action' : action,
-          'timestamp': timestamp or datetime.datetime.now(),
-          'reason' : reason})
+          'timestamp': timestamp,
+          'reason' : reason,
+          'buildbucket_id': buildbucket_id})
 
     self.clActionTable.extend(rows)
     return len(rows)
@@ -206,7 +212,8 @@ class FakeCIDBConnection(object):
           item['change_number'],
           item['patch_number'],
           item['change_source'],
-          item['timestamp'])
+          item['timestamp'],
+          item['buildbucket_id'])
       values.append(row)
 
     return clactions.CLActionHistory(clactions.CLAction(*row) for row in values)

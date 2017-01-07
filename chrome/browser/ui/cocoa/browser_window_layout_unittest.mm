@@ -45,9 +45,9 @@ class BrowserWindowLayoutTest : public testing::Test {
     // Content view has same size as window in AppKit Fullscreen.
     [layout setContentViewSize:NSMakeSize(600, 622)];
     [layout setInAnyFullscreen:YES];
-    [layout setFullscreenSlidingStyle:fullscreen_mac::OMNIBOX_TABS_PRESENT];
+    [layout setSlidingStyle:FullscreenSlidingStyle::OMNIBOX_TABS_PRESENT];
     [layout setFullscreenMenubarOffset:0];
-    [layout setFullscreenToolbarFraction:0];
+    [layout setFullscreenToolbarFraction:1];
     [layout setFullscreenButtonFrame:NSZeroRect];
   }
 
@@ -85,7 +85,6 @@ TEST_F(BrowserWindowLayoutTest, TestAllViewsFullscreen) {
   EXPECT_NSEQ(NSMakeRect(0, 527, 600, 26), output.bookmarkFrame);
   EXPECT_NSEQ(NSMakeRect(0, 527, 600, 95), output.fullscreenBackingBarFrame);
   EXPECT_EQ(527, output.findBarMaxY);
-  EXPECT_EQ(527, output.fullscreenExitButtonMaxY);
   EXPECT_NSEQ(NSMakeRect(0, 455, 600, 111), output.infoBarFrame);
   EXPECT_NSEQ(NSMakeRect(0, 0, 600, 44), output.downloadShelfFrame);
   EXPECT_NSEQ(NSMakeRect(0, 44, 600, 411), output.contentAreaFrame);
@@ -118,7 +117,6 @@ TEST_F(BrowserWindowLayoutTest, TestAllViewsFullscreenMenuBarShowing) {
   EXPECT_NSEQ(NSMakeRect(0, 517, 600, 26), output.bookmarkFrame);
   EXPECT_NSEQ(NSMakeRect(0, 517, 600, 95), output.fullscreenBackingBarFrame);
   EXPECT_EQ(517, output.findBarMaxY);
-  EXPECT_EQ(517, output.fullscreenExitButtonMaxY);
   EXPECT_NSEQ(NSMakeRect(0, 445, 600, 111), output.infoBarFrame);
   EXPECT_NSEQ(NSMakeRect(0, 0, 600, 44), output.downloadShelfFrame);
   EXPECT_NSEQ(NSMakeRect(0, 44, 600, 411), output.contentAreaFrame);

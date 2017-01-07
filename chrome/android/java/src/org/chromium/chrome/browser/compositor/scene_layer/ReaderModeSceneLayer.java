@@ -7,15 +7,14 @@ package org.chromium.chrome.browser.compositor.scene_layer;
 import org.chromium.base.annotations.JNINamespace;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.compositor.bottombar.OverlayPanel;
-import org.chromium.content.browser.ContentViewCore;
+import org.chromium.content_public.browser.WebContents;
 import org.chromium.ui.resources.ResourceManager;
 
 /**
  * A SceneLayer to render layers for Reader Mode.
  */
-@JNINamespace("chrome::android")
+@JNINamespace("android")
 public class ReaderModeSceneLayer extends SceneOverlayLayer {
-
     /** Pointer to native ReaderModeSceneLayer. */
     private long mNativePtr;
 
@@ -57,11 +56,14 @@ public class ReaderModeSceneLayer extends SceneOverlayLayer {
             mIsInitialized = true;
         }
 
+        WebContents panelWebContents = panel.getContentViewCore() != null
+                ? panel.getContentViewCore().getWebContents() : null;
+
         nativeUpdate(mNativePtr,
                 mDpToPx,
                 panel.getBasePageBrightness(),
                 panel.getBasePageY() * mDpToPx,
-                panel.getContentViewCore(),
+                panelWebContents,
                 panel.getOffsetX() * mDpToPx,
                 panel.getOffsetY() * mDpToPx,
                 panel.getWidth() * mDpToPx,
@@ -127,7 +129,7 @@ public class ReaderModeSceneLayer extends SceneOverlayLayer {
             float dpToPx,
             float basePageBrightness,
             float basePageYOffset,
-            ContentViewCore contentViewCore,
+            WebContents webContents,
             float panelX,
             float panelY,
             float panelWidth,

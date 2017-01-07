@@ -29,7 +29,7 @@ using content::BrowserThread;
 namespace {
 
 // Don't send a notification more than once per 3 seconds (chosen arbitrarily).
-const int kMinNotificiationDelayInSeconds = 3;
+const int kMinNotificationDelayInSeconds = 3;
 
 class ShutdownNotifierFactory
     : public BrowserContextKeyedServiceShutdownNotifierFactory {
@@ -109,7 +109,7 @@ void GalleryWatchManager::FileWatchManager::AddFileWatch(
 
   // This can occur if the GalleryWatchManager attempts to watch the same path
   // again before recieving the callback. It's benign.
-  if (ContainsKey(watchers_, path)) {
+  if (base::ContainsKey(watchers_, path)) {
     BrowserThread::PostTask(
         BrowserThread::UI, FROM_HERE, base::Bind(callback, false));
     return;
@@ -196,7 +196,7 @@ void GalleryWatchManager::AddObserver(BrowserContext* browser_context,
                                       GalleryWatchManagerObserver* observer) {
   DCHECK(browser_context);
   DCHECK(observer);
-  DCHECK(!ContainsKey(observers_, browser_context));
+  DCHECK(!base::ContainsKey(observers_, browser_context));
   observers_[browser_context] = observer;
 }
 
@@ -241,7 +241,7 @@ void GalleryWatchManager::AddWatch(BrowserContext* browser_context,
   DCHECK(extension);
 
   WatchOwner owner(browser_context, extension->id(), gallery_id);
-  if (ContainsKey(watches_, owner)) {
+  if (base::ContainsKey(watches_, owner)) {
     callback.Run(std::string());
     return;
   }
@@ -250,14 +250,14 @@ void GalleryWatchManager::AddWatch(BrowserContext* browser_context,
       g_browser_process->media_file_system_registry()->GetPreferences(
           Profile::FromBrowserContext(browser_context));
 
-  if (!ContainsKey(preferences->known_galleries(), gallery_id)) {
+  if (!base::ContainsKey(preferences->known_galleries(), gallery_id)) {
     callback.Run(kInvalidGalleryIDError);
     return;
   }
 
   MediaGalleryPrefIdSet permitted =
       preferences->GalleriesForExtension(*extension);
-  if (!ContainsKey(permitted, gallery_id)) {
+  if (!base::ContainsKey(permitted, gallery_id)) {
     callback.Run(kNoPermissionError);
     return;
   }
@@ -271,7 +271,7 @@ void GalleryWatchManager::AddWatch(BrowserContext* browser_context,
   }
 
   // Observe the preferences if we haven't already.
-  if (!ContainsKey(observed_preferences_, preferences)) {
+  if (!base::ContainsKey(observed_preferences_, preferences)) {
     observed_preferences_.insert(preferences);
     preferences->AddGalleryChangeObserver(this);
   }
@@ -280,7 +280,7 @@ void GalleryWatchManager::AddWatch(BrowserContext* browser_context,
   EnsureBrowserContextSubscription(owner.browser_context);
 
   // Start the FilePathWatcher on |gallery_path| if necessary.
-  if (ContainsKey(watched_paths_, path)) {
+  if (base::ContainsKey(watched_paths_, path)) {
     OnFileWatchActivated(owner, path, callback, true);
   } else {
     base::Callback<void(bool)> on_watch_added =
@@ -405,7 +405,7 @@ void GalleryWatchManager::OnFilePathChanged(const base::FilePath& path,
          ++it) {
       Profile* profile = Profile::FromBrowserContext(it->browser_context);
       RemoveWatch(it->browser_context, it->extension_id, it->gallery_id);
-      if (ContainsKey(observers_, profile))
+      if (base::ContainsKey(observers_, profile))
         observers_[profile]->OnGalleryWatchDropped(it->extension_id,
                                                    it->gallery_id);
     }
@@ -416,12 +416,12 @@ void GalleryWatchManager::OnFilePathChanged(const base::FilePath& path,
   base::TimeDelta time_since_last_notify =
       base::Time::Now() - notification_info->second.last_notify_time;
   if (time_since_last_notify <
-      base::TimeDelta::FromSeconds(kMinNotificiationDelayInSeconds)) {
+      base::TimeDelta::FromSeconds(kMinNotificationDelayInSeconds)) {
     if (!notification_info->second.delayed_notification_pending) {
       notification_info->second.delayed_notification_pending = true;
       base::TimeDelta delay_to_next_valid_time =
           notification_info->second.last_notify_time +
-          base::TimeDelta::FromSeconds(kMinNotificiationDelayInSeconds) -
+          base::TimeDelta::FromSeconds(kMinNotificationDelayInSeconds) -
           base::Time::Now();
       BrowserThread::PostDelayedTask(
           BrowserThread::UI,
@@ -441,8 +441,8 @@ void GalleryWatchManager::OnFilePathChanged(const base::FilePath& path,
   for (it = notification_info->second.owners.begin();
        it != notification_info->second.owners.end();
        ++it) {
-    DCHECK(ContainsKey(watches_, *it));
-    if (ContainsKey(observers_, it->browser_context)) {
+    DCHECK(base::ContainsKey(watches_, *it));
+    if (base::ContainsKey(observers_, it->browser_context)) {
       observers_[it->browser_context]->OnGalleryChanged(it->extension_id,
                                                         it->gallery_id);
     }
@@ -453,7 +453,7 @@ void GalleryWatchManager::OnPermissionRemoved(MediaGalleriesPreferences* pref,
                                               const std::string& extension_id,
                                               MediaGalleryPrefId pref_id) {
   RemoveWatch(pref->profile(), extension_id, pref_id);
-  if (ContainsKey(observers_, pref->profile()))
+  if (base::ContainsKey(observers_, pref->profile()))
     observers_[pref->profile()]->OnGalleryWatchDropped(extension_id, pref_id);
 }
 
@@ -473,7 +473,7 @@ void GalleryWatchManager::OnGalleryRemoved(MediaGalleriesPreferences* pref,
        it != extension_ids.end();
        ++it) {
     RemoveWatch(pref->profile(), *it, pref_id);
-    if (ContainsKey(observers_, pref->profile()))
+    if (base::ContainsKey(observers_, pref->profile()))
       observers_[pref->profile()]->OnGalleryWatchDropped(*it, pref_id);
   }
 }
@@ -488,7 +488,7 @@ void GalleryWatchManager::OnRemovableStorageDetached(
     MediaGalleryPrefIdSet detached_ids =
         preferences->LookUpGalleriesByDeviceId(info.device_id());
 
-    if (ContainsKey(detached_ids, it->first.gallery_id)) {
+    if (base::ContainsKey(detached_ids, it->first.gallery_id)) {
       WatchOwner owner = it->first;
       DeactivateFileWatch(owner, it->second);
       // Post increment moves iterator to next element while deleting current.

@@ -8,6 +8,7 @@
 
 #include "base/i18n/rtl.h"
 #include "base/logging.h"
+#include "base/strings/string_util.h"
 #include "build/build_config.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/profiles/profile.h"
@@ -143,8 +144,10 @@ void FindBarController::Observe(int type,
         const base::string16& last_search =
             find_tab_helper->previous_find_text();
         const base::string16& current_search = find_tab_helper->find_text();
-        if (last_search.find(current_search) != 0)
+        if (base::StartsWith(last_search, current_search,
+                             base::CompareCase::SENSITIVE)) {
           find_bar_->AudibleAlert();
+        }
       }
     }
   } else if (type == content::NOTIFICATION_NAV_ENTRY_COMMITTED) {
@@ -156,7 +159,7 @@ void FindBarController::Observe(int type,
       ui::PageTransition transition_type =
           commit_details->entry->GetTransitionType();
       // Hide the find bar on reload or navigation.
-      if (find_bar_->IsFindBarVisible() &&
+      if (find_bar_->IsFindBarVisible() && commit_details->is_main_frame &&
           (ui::PageTransitionCoreTypeIs(transition_type,
                                         ui::PAGE_TRANSITION_RELOAD) ||
            commit_details->is_navigation_to_different_page()))

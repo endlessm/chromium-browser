@@ -20,10 +20,13 @@ struct ResolvedSearchTerm {
                      const std::string& search_term,
                      const std::string& display_text,
                      const std::string& alternate_term,
+                     const std::string& mid,
                      bool prevent_preload,
                      int selection_start_adjust,
                      int selection_end_adjust,
-                     const std::string& context_language);
+                     const std::string& context_language,
+                     const std::string& thumbnail_url,
+                     const std::string& caption);
   ~ResolvedSearchTerm();
 
   const bool is_invalid;
@@ -32,10 +35,13 @@ struct ResolvedSearchTerm {
   const std::string search_term;
   const std::string display_text;
   const std::string alternate_term;
+  const std::string mid;  // Mid (entity ID), or empty.
   const bool prevent_preload;
   const int selection_start_adjust;
   const int selection_end_adjust;
   const std::string context_language;
+  const std::string thumbnail_url;
+  const std::string caption;
 
   DISALLOW_COPY_AND_ASSIGN(ResolvedSearchTerm);
 };

@@ -58,27 +58,29 @@ final class JavaCronetEngine extends CronetEngine {
     @Override
     public UrlRequest createRequest(String url, UrlRequest.Callback callback, Executor executor,
             int priority, Collection<Object> connectionAnnotations, boolean disableCache,
-            boolean disableConnectionMigration) {
-        return new JavaUrlRequest(callback, mExecutorService, executor, url, mUserAgent);
+            boolean disableConnectionMigration, boolean allowDirectExecutor) {
+        return new JavaUrlRequest(
+                callback, mExecutorService, executor, url, mUserAgent, allowDirectExecutor);
     }
 
     @Override
-    BidirectionalStream createBidirectionalStream(String url, BidirectionalStream.Callback callback,
-            Executor executor, String httpMethod, List<Map.Entry<String, String>> requestHeaders,
-            @BidirectionalStream.Builder.StreamPriority int priority, boolean disableAutoFlush,
-            boolean delayRequestHeadersUntilFirstFlush) {
+    public BidirectionalStream createBidirectionalStream(String url,
+            BidirectionalStream.Callback callback, Executor executor, String httpMethod,
+            List<Map.Entry<String, String>> requestHeaders,
+            @BidirectionalStream.Builder.StreamPriority int priority,
+            boolean delayRequestHeadersUntilFirstFlush, Collection<Object> connectionAnnotations) {
         throw new UnsupportedOperationException(
                 "Can't create a bidi stream - httpurlconnection doesn't have those APIs");
     }
 
     @Override
-    boolean isEnabled() {
+    public boolean isEnabled() {
         return true;
     }
 
     @Override
     public String getVersionString() {
-        return "CronetHttpURLConnection/" + Version.getVersion();
+        return "CronetHttpURLConnection/" + ApiVersion.getVersion();
     }
 
     @Override
@@ -90,7 +92,15 @@ final class JavaCronetEngine extends CronetEngine {
     public void startNetLogToFile(String fileName, boolean logAll) {}
 
     @Override
+    public void startNetLogToDisk(String dirPath, boolean logAll, int maxSize) {}
+
+    @Override
     public void stopNetLog() {}
+
+    @Override
+    public String getCertVerifierData(long timeout) {
+        return "";
+    }
 
     @Override
     public byte[] getGlobalMetricsDeltas() {
@@ -98,13 +108,12 @@ final class JavaCronetEngine extends CronetEngine {
     }
 
     @Override
-    public void setRequestFinishedListenerExecutor(Executor executor) {}
+    public int getEffectiveConnectionType() {
+        return EffectiveConnectionType.TYPE_UNKNOWN;
+    }
 
     @Override
-    public void enableNetworkQualityEstimator(Executor executor) {}
-
-    @Override
-    void configureNetworkQualityEstimatorForTesting(
+    public void configureNetworkQualityEstimatorForTesting(
             boolean useLocalHostRequests, boolean useSmallerResponses) {}
 
     @Override
@@ -120,10 +129,10 @@ final class JavaCronetEngine extends CronetEngine {
     public void removeThroughputListener(NetworkQualityThroughputListener listener) {}
 
     @Override
-    public void addRequestFinishedListener(RequestFinishedListener listener) {}
+    public void addRequestFinishedListener(RequestFinishedInfo.Listener listener) {}
 
     @Override
-    public void removeRequestFinishedListener(RequestFinishedListener listener) {}
+    public void removeRequestFinishedListener(RequestFinishedInfo.Listener listener) {}
 
     @Override
     public URLConnection openConnection(URL url) throws IOException {

@@ -5,12 +5,13 @@
 #include "ios/chrome/browser/autocomplete/autocomplete_provider_client_impl.h"
 
 #include "base/strings/utf_string_conversions.h"
-#include "components/browser_sync/browser/profile_sync_service.h"
+#include "components/browser_sync/profile_sync_service.h"
 #include "components/history/core/browser/history_service.h"
 #include "components/keyed_service/core/service_access_type.h"
 #include "components/omnibox/browser/autocomplete_classifier.h"
 #include "components/prefs/pref_service.h"
-#include "components/sync_driver/sync_service_utils.h"
+#include "components/sync/driver/sync_service_utils.h"
+#include "ios/chrome/browser/application_context.h"
 #include "ios/chrome/browser/autocomplete/autocomplete_classifier_factory.h"
 #include "ios/chrome/browser/autocomplete/in_memory_url_index_factory.h"
 #include "ios/chrome/browser/autocomplete/shortcuts_backend_factory.h"
@@ -103,6 +104,11 @@ AutocompleteProviderClientImpl::GetKeywordExtensionsDelegate(
   return nullptr;
 }
 
+PhysicalWebDataSource*
+AutocompleteProviderClientImpl::GetPhysicalWebDataSource() {
+  return GetApplicationContext()->GetPhysicalWebDataSource();
+}
+
 std::string AutocompleteProviderClientImpl::GetAcceptLanguages() const {
   return browser_state_->GetPrefs()->GetString(prefs::kAcceptLanguages);
 }
@@ -132,7 +138,7 @@ bool AutocompleteProviderClientImpl::SearchSuggestEnabled() const {
 }
 
 bool AutocompleteProviderClientImpl::TabSyncEnabledAndUnencrypted() const {
-  return sync_driver::IsTabSyncEnabledAndUnencrypted(
+  return syncer::IsTabSyncEnabledAndUnencrypted(
       IOSChromeProfileSyncServiceFactory::GetForBrowserState(browser_state_),
       browser_state_->GetPrefs());
 }

@@ -302,12 +302,12 @@ class MockUsbDeviceHandle : public UsbDeviceHandle {
                       std::string());
         local_sockets_.set(
             current_message_->arg0,
-            base::WrapUnique(new MockLocalSocket(
+            base::MakeUnique<MockLocalSocket>(
                 base::Bind(&MockUsbDeviceHandle::WriteResponse,
                            base::Unretained(this), last_local_socket_,
                            current_message_->arg0),
                 kDeviceSerial, current_message_->body.substr(
-                                   0, current_message_->body.size() - 1))));
+                                   0, current_message_->body.size() - 1)));
         return;
       }
       default: {
@@ -504,7 +504,8 @@ class AndroidUsbDiscoveryTest : public InProcessBrowserTest {
         DevToolsAndroidBridge::Factory::GetForProfile(browser()->profile());
     DCHECK(adb_bridge_);
     adb_bridge_->set_task_scheduler_for_test(base::Bind(
-        &AndroidUsbDiscoveryTest::ScheduleDeviceCountRequest, this));
+        &AndroidUsbDiscoveryTest::ScheduleDeviceCountRequest,
+        base::Unretained(this)));
 
     scoped_refptr<UsbDeviceProvider> provider =
         new UsbDeviceProvider(browser()->profile());
@@ -547,7 +548,7 @@ class AndroidUsbCountTest : public AndroidUsbDiscoveryTest {
 class AndroidUsbTraitsTest : public AndroidUsbDiscoveryTest {
  protected:
   std::unique_ptr<MockUsbService> CreateMockService() override {
-    return base::WrapUnique(new MockUsbServiceForCheckingTraits());
+    return base::MakeUnique<MockUsbServiceForCheckingTraits>();
   }
 };
 

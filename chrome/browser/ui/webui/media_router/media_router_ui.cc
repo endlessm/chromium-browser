@@ -6,10 +6,10 @@
 
 #include <algorithm>
 #include <string>
+#include <unordered_map>
 #include <utility>
 
 #include "base/guid.h"
-#include "base/i18n/string_compare.h"
 #include "base/macros.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
@@ -149,7 +149,7 @@ void MediaRouterUI::UIMediaRoutesObserver::OnRoutesUpdated(
         }
       }
 #endif
-      if (ContainsValue(joinable_route_ids, route.media_route_id())) {
+      if (base::ContainsValue(joinable_route_ids, route.media_route_id())) {
         joinable_route_ids_for_display.push_back(route.media_route_id());
       }
 
@@ -183,7 +183,7 @@ MediaRouterUI::MediaRouterUI(content::WebUI* web_ui)
   // Allows UI to load extensionview.
   // TODO(haibinlu): limit object-src to current extension once crbug/514866
   // is fixed.
-  html_source->OverrideContentSecurityPolicyObjectSrc("object-src *;");
+  html_source->OverrideContentSecurityPolicyObjectSrc("object-src chrome:;");
 
   AddLocalizedStrings(html_source.get());
   AddMediaRouterUIResources(html_source.get());
@@ -207,7 +207,7 @@ MediaRouterUI::~MediaRouterUI() {
   if (create_session_request_) {
     bool presentation_sinks_available = std::any_of(
         sinks_.begin(), sinks_.end(), [](const MediaSinkWithCastModes& sink) {
-          return ContainsValue(sink.cast_modes, MediaCastMode::DEFAULT);
+          return base::ContainsValue(sink.cast_modes, MediaCastMode::DEFAULT);
         });
     if (presentation_sinks_available) {
       create_session_request_->InvokeErrorCallback(content::PresentationError(
@@ -284,14 +284,14 @@ void MediaRouterUI::InitCommon(content::WebContents* initiator) {
   GURL origin(chrome::kChromeUIMediaRouterURL);
 
   // Desktop mirror mode is always available.
-  query_result_manager_->StartSinksQuery(MediaCastMode::DESKTOP_MIRROR,
-                                         MediaSourceForDesktop(), origin);
+  query_result_manager_->SetSourcesForCastMode(
+      MediaCastMode::DESKTOP_MIRROR, {MediaSourceForDesktop()}, origin);
   initiator_ = initiator;
   SessionID::id_type tab_id = SessionTabHelper::IdForTab(initiator);
   if (tab_id != -1) {
     MediaSource mirroring_source(MediaSourceForTab(tab_id));
-    query_result_manager_->StartSinksQuery(MediaCastMode::TAB_MIRROR,
-                                           mirroring_source, origin);
+    query_result_manager_->SetSourcesForCastMode(MediaCastMode::TAB_MIRROR,
+                                                 {mirroring_source}, origin);
   }
   UpdateCastModes();
 }
@@ -314,14 +314,15 @@ void MediaRouterUI::InitForTest(
 
 void MediaRouterUI::OnDefaultPresentationChanged(
     const PresentationRequest& presentation_request) {
-  MediaSource source = presentation_request.GetMediaSource();
+  std::vector<MediaSource> sources = presentation_request.GetMediaSources();
   presentation_request_.reset(new PresentationRequest(presentation_request));
-  query_result_manager_->StartSinksQuery(
-      MediaCastMode::DEFAULT, source,
+  query_result_manager_->SetSourcesForCastMode(
+      MediaCastMode::DEFAULT, sources,
       presentation_request_->frame_url().GetOrigin());
   // Register for MediaRoute updates.
+  // TODO(crbug.com/627655): Use multiple URLs.
   routes_observer_.reset(new UIMediaRoutesObserver(
-      router_, source.id(),
+      router_, sources[0].id(),
       base::Bind(&MediaRouterUI::OnRoutesUpdated, base::Unretained(this))));
 
   UpdateCastModes();
@@ -329,7 +330,7 @@ void MediaRouterUI::OnDefaultPresentationChanged(
 
 void MediaRouterUI::OnDefaultPresentationRemoved() {
   presentation_request_.reset();
-  query_result_manager_->StopSinksQuery(MediaCastMode::DEFAULT);
+  query_result_manager_->RemoveSourcesForCastMode(MediaCastMode::DEFAULT);
   // Register for MediaRoute updates without a media source.
   routes_observer_.reset(new UIMediaRoutesObserver(
       router_, MediaSource::Id(),
@@ -339,7 +340,7 @@ void MediaRouterUI::OnDefaultPresentationRemoved() {
 
 void MediaRouterUI::UpdateCastModes() {
   // Gets updated cast modes from |query_result_manager_| and forwards it to UI.
-  query_result_manager_->GetSupportedCastModes(&cast_modes_);
+  cast_modes_ = query_result_manager_->GetSupportedCastModes();
   if (ui_initialized_) {
     handler_->UpdateCastModes(cast_modes_, GetPresentationRequestSourceName());
   }
@@ -369,15 +370,14 @@ bool MediaRouterUI::CreateRoute(const MediaSink::Id& sink_id,
   GURL origin;
   std::vector<MediaRouteResponseCallback> route_response_callbacks;
   base::TimeDelta timeout;
-  bool off_the_record;
+  bool incognito;
   if (!SetRouteParameters(sink_id, cast_mode, &source_id, &origin,
-                          &route_response_callbacks, &timeout,
-                          &off_the_record)) {
+                          &route_response_callbacks, &timeout, &incognito)) {
     SendIssueForUnableToCast(cast_mode);
     return false;
   }
   router_->CreateRoute(source_id, sink_id, origin, initiator_,
-                       route_response_callbacks, timeout, off_the_record);
+                       route_response_callbacks, timeout, incognito);
   return true;
 }
 
@@ -388,7 +388,7 @@ bool MediaRouterUI::SetRouteParameters(
     GURL* origin,
     std::vector<MediaRouteResponseCallback>* route_response_callbacks,
     base::TimeDelta* timeout,
-    bool* off_the_record) {
+    bool* incognito) {
   DCHECK(query_result_manager_.get());
   DCHECK(initiator_);
 
@@ -398,13 +398,14 @@ bool MediaRouterUI::SetRouteParameters(
   // called. However, since the user does not have visibility into the
   // MediaSource, and that it occurs very rarely in practice, we leave it as-is
   // for now.
-  MediaSource source = query_result_manager_->GetSourceForCastMode(cast_mode);
-  if (source.Empty()) {
+  std::unique_ptr<MediaSource> source =
+      query_result_manager_->GetSourceForCastModeAndSink(cast_mode, sink_id);
+  if (!source) {
     LOG(ERROR) << "No corresponding MediaSource for cast mode "
-               << static_cast<int>(cast_mode);
+               << static_cast<int>(cast_mode) << " and sink " << sink_id;
     return false;
   }
-  *source_id = source.id();
+  *source_id = source->id();
 
   bool for_default_source = cast_mode == MediaCastMode::DEFAULT;
   if (for_default_source && !presentation_request_) {
@@ -455,7 +456,7 @@ bool MediaRouterUI::SetRouteParameters(
   }
 
   *timeout = GetRouteRequestTimeout(cast_mode);
-  *off_the_record = Profile::FromWebUI(web_ui())->IsOffTheRecord();
+  *incognito = Profile::FromWebUI(web_ui())->IsOffTheRecord();
 
   return true;
 }
@@ -466,16 +467,14 @@ bool MediaRouterUI::ConnectRoute(const MediaSink::Id& sink_id,
   GURL origin;
   std::vector<MediaRouteResponseCallback> route_response_callbacks;
   base::TimeDelta timeout;
-  bool off_the_record;
+  bool incognito;
   if (!SetRouteParameters(sink_id, MediaCastMode::DEFAULT, &source_id, &origin,
-                          &route_response_callbacks, &timeout,
-                          &off_the_record)) {
+                          &route_response_callbacks, &timeout, &incognito)) {
     SendIssueForUnableToCast(MediaCastMode::DEFAULT);
     return false;
   }
   router_->ConnectRouteByRouteId(source_id, route_id, origin, initiator_,
-                                 route_response_callbacks, timeout,
-                                 off_the_record);
+                                 route_response_callbacks, timeout, incognito);
   return true;
 }
 
@@ -494,7 +493,10 @@ void MediaRouterUI::SearchSinksAndCreateRoute(
     const std::string& search_criteria,
     const std::string& domain,
     MediaCastMode cast_mode) {
-  auto source_id = query_result_manager_->GetSourceForCastMode(cast_mode).id();
+  std::unique_ptr<MediaSource> source =
+      query_result_manager_->GetSourceForCastModeAndSink(cast_mode, sink_id);
+  const std::string source_id = source ? source->id() : "";
+
   // The CreateRoute() part of the function is accomplished in the callback
   // OnSearchSinkResponseReceived().
   router_->SearchSinks(
@@ -508,27 +510,11 @@ void MediaRouterUI::OnResultsUpdated(
   sinks_ = sinks;
 
   const icu::Collator* collator_ptr = collator_.get();
-  std::sort(
-      sinks_.begin(), sinks_.end(),
-      [collator_ptr](const MediaSinkWithCastModes& sink1,
-                     const MediaSinkWithCastModes& sink2) {
-        if (collator_ptr) {
-          base::string16 sink1_name = base::UTF8ToUTF16(sink1.sink.name());
-          base::string16 sink2_name = base::UTF8ToUTF16(sink2.sink.name());
-          UCollationResult result = base::i18n::CompareString16WithCollator(
-              *collator_ptr, sink1_name, sink2_name);
-          if (result != UCOL_EQUAL)
-            return result == UCOL_LESS;
-        } else {
-          // Fall back to simple string comparison if collator is not
-          // available.
-          int val = sink1.sink.name().compare(sink2.sink.name());
-          if (val)
-            return val < 0;
-        }
-
-        return sink1.sink.id() < sink2.sink.id();
-      });
+  std::sort(sinks_.begin(), sinks_.end(),
+            [collator_ptr](const MediaSinkWithCastModes& sink1,
+                           const MediaSinkWithCastModes& sink2) {
+              return sink1.sink.CompareUsingCollator(sink2.sink, collator_ptr);
+            });
 
   if (ui_initialized_) handler_->UpdateSinks(sinks_);
 }
@@ -545,9 +531,10 @@ void MediaRouterUI::OnRoutesUpdated(
 
   std::unordered_map<MediaSource::Id, MediaCastMode> available_source_map;
   for (const auto& cast_mode : cast_modes_) {
-    available_source_map.insert(std::make_pair(
-        query_result_manager_->GetSourceForCastMode(cast_mode).id(),
-        cast_mode));
+    for (const auto& source :
+         query_result_manager_->GetSourcesForCastMode(cast_mode)) {
+      available_source_map.insert(std::make_pair(source.id(), cast_mode));
+    }
   }
 
   current_cast_modes_.clear();
@@ -601,15 +588,14 @@ void MediaRouterUI::OnSearchSinkResponseReceived(
   GURL origin;
   std::vector<MediaRouteResponseCallback> route_response_callbacks;
   base::TimeDelta timeout;
-  bool off_the_record;
+  bool incognito;
   if (!SetRouteParameters(found_sink_id, cast_mode, &source_id, &origin,
-                          &route_response_callbacks, &timeout,
-                          &off_the_record)) {
+                          &route_response_callbacks, &timeout, &incognito)) {
     SendIssueForUnableToCast(cast_mode);
     return;
   }
   router_->CreateRoute(source_id, found_sink_id, origin, initiator_,
-                       route_response_callbacks, timeout, off_the_record);
+                       route_response_callbacks, timeout, incognito);
 }
 
 void MediaRouterUI::SendIssueForRouteTimeout(

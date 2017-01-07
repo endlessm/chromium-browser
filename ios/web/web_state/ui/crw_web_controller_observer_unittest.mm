@@ -51,33 +51,12 @@ TEST_F(CRWWebControllerObserverTest, HandleCommand) {
   command.SetString("command", "test.testMessage");
   std::string message;
   base::JSONWriter::Write(command, &message);
-  EvaluateJavaScriptAsString([NSString
+  ExecuteJavaScript([NSString
       stringWithFormat:@"__gCrWeb.message.invokeOnHost(%s)", message.c_str()]);
   WaitForBackgroundTasks();
   ASSERT_EQ(1U, [fake_web_controller_observer_ commandsReceived].size());
   EXPECT_TRUE(
       [fake_web_controller_observer_ commandsReceived][0]->Equals(&command));
-}
-
-// Tests that web controller receives an immediate JS message from the page.
-TEST_F(CRWWebControllerObserverTest, HandleImmediateCommand) {
-  LoadHtml(@"<p></p>");
-  ASSERT_NSNE(@"http://testimmediate#target",
-              [web_controller() externalRequestWindowName]);
-  // The only valid immediate commands are window.unload and externalRequest.
-  base::DictionaryValue command;
-  command.SetString("command", "externalRequest");
-  command.SetString("href", "http://testimmediate");
-  command.SetString("target", "target");
-  command.SetString("referrerPolicy", "referrerPolicy");
-  std::string message;
-  base::JSONWriter::Write(command, &message);
-  EvaluateJavaScriptAsString(
-      [NSString stringWithFormat:@"__gCrWeb.message.invokeOnHostImmediate(%s)",
-                                 message.c_str()]);
-  WaitForBackgroundTasks();
-  ASSERT_NSEQ(@"http://testimmediate#target",
-              [web_controller() externalRequestWindowName]);
 }
 
 // Send a large number of commands and check each one is immediately received.
@@ -92,7 +71,7 @@ TEST_F(CRWWebControllerObserverTest, HandleMultipleCommands) {
     command.SetInteger("number", count);
     base::JSONWriter::Write(command, &message);
     ASSERT_EQ(0U, [fake_web_controller_observer_ commandsReceived].size());
-    EvaluateJavaScriptAsString(
+    ExecuteJavaScript(
         [NSString stringWithFormat:@"__gCrWeb.message.invokeOnHost(%s)",
                                    message.c_str()]);
     WaitForBackgroundTasks();

@@ -5,6 +5,8 @@
 #include "base/logging.h"
 #include "base/macros.h"
 #include "base/message_loop/message_loop.h"
+#include "base/single_thread_task_runner.h"
+#include "base/threading/thread_task_runner_handle.h"
 #include "ui/aura/test/ui_controls_factory_aura.h"
 #include "ui/aura/window.h"
 #include "ui/aura/window_tree_host.h"
@@ -76,7 +78,8 @@ class UIControlsWin : public UIControlsAura {
   void RunClosureAfterAllPendingUIEvents(
       const base::Closure& closure) override {
     // On windows, posting UI events is synchronous so just post the closure.
-    base::MessageLoopForUI::current()->PostTask(FROM_HERE, closure);
+    DCHECK(base::MessageLoopForUI::IsCurrent());
+    base::ThreadTaskRunnerHandle::Get()->PostTask(FROM_HERE, closure);
   }
 
  private:

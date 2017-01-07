@@ -8,6 +8,7 @@
 #include <memory>
 
 #include "base/macros.h"
+#include "chrome/browser/ui/android/tab_model/android_live_tab_context.h"
 #include "components/sessions/core/session_id.h"
 #include "components/sync_sessions/synced_window_delegate.h"
 #include "components/toolbar/toolbar_model.h"
@@ -16,12 +17,15 @@
 #include "content/public/browser/notification_registrar.h"
 
 namespace browser_sync {
-class SyncedWindowDelegate;
 class SyncedWindowDelegateAndroid;
 }
 
 namespace content {
 class WebContents;
+}
+
+namespace sync_sessions {
+class SyncedWindowDelegate;
 }
 
 class Profile;
@@ -34,8 +38,10 @@ class TabModel : public content::NotificationObserver {
  public:
   virtual Profile* GetProfile() const;
   virtual bool IsOffTheRecord() const;
-  virtual browser_sync::SyncedWindowDelegate* GetSyncedWindowDelegate() const;
+  virtual sync_sessions::SyncedWindowDelegate* GetSyncedWindowDelegate() const;
   virtual SessionID::id_type GetSessionId() const;
+  virtual const SessionID& SessionId() const;
+  virtual sessions::LiveTabContext* GetLiveTabContext() const;
 
   virtual int GetTabCount() const = 0;
   virtual int GetActiveIndex() const = 0;
@@ -77,6 +83,10 @@ class TabModel : public content::NotificationObserver {
 
   // The profile associated with this TabModel.
   Profile* profile_;
+
+  // The LiveTabContext associated with TabModel.
+  // Used to restore closed tabs through the TabRestoreService.
+  std::unique_ptr<AndroidLiveTabContext> live_tab_context_;
 
   // Describes if this TabModel contains an off-the-record profile.
   bool is_off_the_record_;

@@ -6,6 +6,8 @@ package org.chromium.chrome.browser.offlinepages;
 
 import org.chromium.components.bookmarks.BookmarkId;
 
+import java.util.UUID;
+
 /**
  * Object to hold a client identifier for an offline page.
  */
@@ -48,5 +50,15 @@ public class ClientId {
     public static ClientId createClientIdForBookmarkId(BookmarkId id) {
         if (id == null) return null;
         return new ClientId(OfflinePageBridge.BOOKMARK_NAMESPACE, id.toString());
+    }
+
+    /**
+     * Create a client id for a namespace.
+     * @param namespace The namespace for the client id.
+     * @return A {@link ClientId} for this namespace with generated UUID.
+     */
+    public static ClientId createGuidClientIdForNamespace(String namespace) {
+        String uuid = UUID.randomUUID().toString();
+        return new ClientId(namespace, uuid);
     }
 }

@@ -11,13 +11,17 @@ import android.test.suitebuilder.annotation.SmallTest;
 import android.text.TextUtils;
 
 import org.chromium.base.ApiCompatibilityUtils;
+import org.chromium.base.ObserverList.RewindableIterator;
 import org.chromium.base.SysUtils;
 import org.chromium.base.ThreadUtils;
 import org.chromium.base.test.util.Feature;
 import org.chromium.base.test.util.Restriction;
+import org.chromium.base.test.util.RetryOnFailure;
 import org.chromium.base.test.util.UrlUtils;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.ChromeActivity;
+import org.chromium.chrome.browser.tab.Tab;
+import org.chromium.chrome.browser.tab.TabObserver;
 import org.chromium.chrome.browser.util.ColorUtils;
 import org.chromium.chrome.test.ChromeActivityTestCaseBase;
 import org.chromium.chrome.test.util.ChromeRestriction;
@@ -31,6 +35,7 @@ import java.util.concurrent.Callable;
 /**
  * Contains tests for the brand color feature.
  */
+@RetryOnFailure
 public class BrandColorTest extends ChromeActivityTestCaseBase<ChromeActivity> {
 
     public BrandColorTest() {
@@ -135,6 +140,28 @@ public class BrandColorTest extends ChromeActivityTestCaseBase<ChromeActivity> {
     }
 
     /**
+     * Test for immediately setting the brand color.
+     */
+    @SmallTest
+    @Restriction(ChromeRestriction.RESTRICTION_TYPE_PHONE)
+    @Feature({"Omnibox"})
+    public void testImmediateColorChange() throws InterruptedException {
+        startMainActivityWithURL(getUrlWithBrandColor(BRAND_COLOR_1));
+        checkForBrandColor(Color.parseColor(BRAND_COLOR_1));
+
+        ThreadUtils.runOnUiThreadBlocking(new Runnable() {
+            @Override
+            public void run() {
+                getActivity().getToolbarManager().updatePrimaryColor(mDefaultColor, false);
+                // Since the color should change instantly, there is no need to use the criteria
+                // helper.
+                assertEquals(mToolbarDataProvider.getPrimaryColor(),
+                        mToolbar.getBackgroundDrawable().getColor());
+            }
+        });
+    }
+
+    /**
      * Test to make sure onLoadStarted doesn't reset the brand color.
      */
     @SmallTest
@@ -145,8 +172,11 @@ public class BrandColorTest extends ChromeActivityTestCaseBase<ChromeActivity> {
         ThreadUtils.postOnUiThread(new Runnable() {
             @Override
             public void run() {
-                getActivity().getActivityTab()
-                        .getTabWebContentsDelegateAndroid().onLoadStarted(true);
+                Tab tab = getActivity().getActivityTab();
+                RewindableIterator<TabObserver> observers = tab.getTabObservers();
+                while (observers.hasNext()) {
+                    observers.next().onLoadStarted(tab, true);
+                }
             }
         });
         checkForBrandColor(Color.parseColor(BRAND_COLOR_1));

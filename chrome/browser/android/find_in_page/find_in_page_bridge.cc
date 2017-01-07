@@ -10,10 +10,13 @@
 #include "jni/FindInPageBridge_jni.h"
 
 using base::android::ConvertUTF16ToJavaString;
+using base::android::JavaParamRef;
+using base::android::JavaRef;
+using base::android::ScopedJavaLocalRef;
 
 FindInPageBridge::FindInPageBridge(JNIEnv* env,
-                                   jobject obj,
-                                   jobject j_web_contents)
+                                   const JavaRef<jobject>& obj,
+                                   const JavaRef<jobject>& j_web_contents)
     : weak_java_ref_(env, obj) {
   web_contents_ = content::WebContents::FromJavaWebContents(j_web_contents);
 }

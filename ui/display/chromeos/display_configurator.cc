@@ -155,7 +155,7 @@ std::vector<DisplayState>
 DisplayConfigurator::DisplayLayoutManagerImpl::ParseDisplays(
     const std::vector<DisplaySnapshot*>& snapshots) const {
   std::vector<DisplayState> cached_displays;
-  for (auto snapshot : snapshots) {
+  for (auto* snapshot : snapshots) {
     DisplayState display_state;
     display_state.display = snapshot;
     display_state.selected_mode = GetUserSelectedMode(*snapshot);
@@ -1123,16 +1123,16 @@ void DisplayConfigurator::NotifyPowerStateObservers() {
       Observer, observers_, OnPowerStateChanged(current_power_state_));
 }
 
-int64_t DisplayConfigurator::AddVirtualDisplay(gfx::Size display_size) {
+int64_t DisplayConfigurator::AddVirtualDisplay(const gfx::Size& display_size) {
   if (last_virtual_display_id_ == 0xff) {
     LOG(WARNING) << "Exceeded virtual display id limit";
     return display::Display::kInvalidDisplayID;
   }
 
-  DisplaySnapshotVirtual* virtual_snapshot =
-      new DisplaySnapshotVirtual(GenerateDisplayID(kReservedManufacturerID, 0x0,
-                                                   ++last_virtual_display_id_),
-                                 display_size);
+  DisplaySnapshotVirtual* virtual_snapshot = new DisplaySnapshotVirtual(
+      display::GenerateDisplayID(kReservedManufacturerID, 0x0,
+                                 ++last_virtual_display_id_),
+      display_size);
   virtual_display_snapshots_.push_back(virtual_snapshot);
   ConfigureDisplays();
 
@@ -1155,7 +1155,7 @@ bool DisplayConfigurator::RemoveVirtualDisplay(int64_t display_id) {
     return false;
 
   int64_t max_display_id = 0;
-  for (const auto& display : virtual_display_snapshots_)
+  for (auto* display : virtual_display_snapshots_)
     max_display_id = std::max(max_display_id, display->display_id());
   last_virtual_display_id_ = max_display_id & 0xff;
 

@@ -9,10 +9,10 @@ import webapp2
 import webtest
 
 from dashboard import bisect_fyi
-from dashboard import namespaced_stored_object
-from dashboard import start_try_job
-from dashboard import stored_object
-from dashboard import testing_common
+from dashboard.common import testing_common
+from dashboard.common import utils
+from dashboard.common import stored_object
+from dashboard.services import issue_tracker_service
 
 TEST_FYI_CONFIGS = {
     'positive_culprit': {
@@ -59,6 +59,8 @@ TEST_FYI_CONFIGS = {
 }
 
 
+@mock.patch('apiclient.discovery.build', mock.MagicMock())
+@mock.patch.object(utils, 'ServiceAccountHttp', mock.MagicMock())
 class BisectFYITest(testing_common.TestCase):
 
   def setUp(self):
@@ -70,28 +72,25 @@ class BisectFYITest(testing_common.TestCase):
         bisect_fyi._BISECT_FYI_CONFIGS_KEY, TEST_FYI_CONFIGS)
     testing_common.SetIsInternalUser('internal@chromium.org', True)
     self.SetCurrentUser('internal@chromium.org')
-    namespaced_stored_object.Set(
-        start_try_job._TESTER_DIRECTOR_MAP_KEY,
-        {
-            'ChromiumPerf': {
-                'linux_perf_bisect': 'linux_perf_bisector',
-                'win_x64_perf_bisect': 'win_x64_perf_bisect',
-            }
-        })
 
+  @mock.patch.object(
+      issue_tracker_service.IssueTrackerService, 'AddBugComment')
   @mock.patch.object(bisect_fyi.start_try_job, '_PerformBuildbucketBisect')
-  def testPost_FailedJobs_BisectFYI(self, mock_perform_bisect):
+  def testPost_FailedJobs_BisectFYI(self, mock_perform_bisect, _):
     mock_perform_bisect.return_value = {'error': 'PerformBisect Failed'}
     self.testapp.post('/bisect_fyi')
     messages = self.mail_stub.get_sent_messages()
     self.assertEqual(1, len(messages))
 
+  @mock.patch.object(
+      issue_tracker_service.IssueTrackerService, 'AddBugComment')
   @mock.patch.object(bisect_fyi.start_try_job, '_PerformBuildbucketBisect')
-  def testPost_SuccessJobs_BisectFYI(self, mock_perform_bisect):
+  def testPost_SuccessJobs_BisectFYI(self, mock_perform_bisect, mock_comment):
     mock_perform_bisect.return_value = {'issue_id': 'http://fake'}
     self.testapp.post('/bisect_fyi')
     messages = self.mail_stub.get_sent_messages()
     self.assertEqual(0, len(messages))
+    mock_comment.assert_called_with(222, mock.ANY, send_email=False)
 
 
 if __name__ == '__main__':

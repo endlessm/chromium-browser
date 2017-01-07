@@ -6,10 +6,9 @@
 
 #include <utility>
 
-#include "ash/common/shelf/shelf_item_delegate_manager.h"
+#include "ash/aura/wm_window_aura.h"
 #include "ash/common/shelf/shelf_model.h"
-#include "ash/shelf/shelf_util.h"
-#include "ash/shell.h"
+#include "ash/common/wm_window_property.h"
 #include "ash/test/test_shelf_item_delegate.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
@@ -36,7 +35,9 @@ void TestShelfDelegate::AddShelfItem(aura::Window* window) {
 void TestShelfDelegate::AddShelfItem(aura::Window* window,
                                      const std::string& app_id) {
   AddShelfItem(window, STATUS_CLOSED);
-  AddShelfIDToAppIDMapping(GetShelfIDForWindow(window), app_id);
+  WmWindow* wm_window = WmWindowAura::Get(window);
+  ShelfID shelf_id = wm_window->GetIntProperty(WmWindowProperty::SHELF_ID);
+  AddShelfIDToAppIDMapping(shelf_id, app_id);
 }
 
 void TestShelfDelegate::AddShelfItem(aura::Window* window,
@@ -51,17 +52,15 @@ void TestShelfDelegate::AddShelfItem(aura::Window* window,
   model_->Add(item);
   window->AddObserver(this);
 
-  ShelfItemDelegateManager* manager =
-      Shell::GetInstance()->shelf_item_delegate_manager();
-  // |manager| owns TestShelfItemDelegate.
   std::unique_ptr<ShelfItemDelegate> delegate(
       new TestShelfItemDelegate(window));
-  manager->SetShelfItemDelegate(id, std::move(delegate));
-  SetShelfIDForWindow(id, window);
+  model_->SetShelfItemDelegate(id, std::move(delegate));
+  WmWindowAura::Get(window)->SetIntProperty(WmWindowProperty::SHELF_ID, id);
 }
 
 void TestShelfDelegate::RemoveShelfItemForWindow(aura::Window* window) {
-  ShelfID shelf_id = GetShelfIDForWindow(window);
+  WmWindow* wm_window = WmWindowAura::Get(window);
+  ShelfID shelf_id = wm_window->GetIntProperty(WmWindowProperty::SHELF_ID);
   if (shelf_id == 0)
     return;
   int index = model_->ItemIndexByID(shelf_id);
@@ -90,17 +89,17 @@ void TestShelfDelegate::OnWindowHierarchyChanging(
     RemoveShelfItemForWindow(params.target);
 }
 
-void TestShelfDelegate::OnShelfCreated(Shelf* shelf) {}
+void TestShelfDelegate::OnShelfCreated(WmShelf* shelf) {}
 
-void TestShelfDelegate::OnShelfDestroyed(Shelf* shelf) {}
+void TestShelfDelegate::OnShelfDestroyed(WmShelf* shelf) {}
 
-void TestShelfDelegate::OnShelfAlignmentChanged(Shelf* shelf) {}
+void TestShelfDelegate::OnShelfAlignmentChanged(WmShelf* shelf) {}
 
-void TestShelfDelegate::OnShelfAutoHideBehaviorChanged(Shelf* shelf) {}
+void TestShelfDelegate::OnShelfAutoHideBehaviorChanged(WmShelf* shelf) {}
 
-void TestShelfDelegate::OnShelfAutoHideStateChanged(Shelf* shelf) {}
+void TestShelfDelegate::OnShelfAutoHideStateChanged(WmShelf* shelf) {}
 
-void TestShelfDelegate::OnShelfVisibilityStateChanged(Shelf* shelf) {}
+void TestShelfDelegate::OnShelfVisibilityStateChanged(WmShelf* shelf) {}
 
 ShelfID TestShelfDelegate::GetShelfIDForAppID(const std::string& app_id) {
   for (auto const& iter : shelf_id_to_app_id_map_) {
@@ -108,6 +107,12 @@ ShelfID TestShelfDelegate::GetShelfIDForAppID(const std::string& app_id) {
       return iter.first;
   }
   return 0;
+}
+
+ShelfID TestShelfDelegate::GetShelfIDForAppIDAndLaunchID(
+    const std::string& app_id,
+    const std::string& launch_id) {
+  return GetShelfIDForAppID(app_id);
 }
 
 bool TestShelfDelegate::HasShelfIDToAppIDMapping(ShelfID id) const {

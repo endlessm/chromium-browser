@@ -95,7 +95,7 @@ public class OverlayPanelEventFilterTest extends InstrumentationTestCase {
 
     private final class StubbedContentViewCore extends ContentViewCore {
         public StubbedContentViewCore(Context context) {
-            super(context);
+            super(context, "");
         }
 
         @Override
@@ -165,6 +165,9 @@ public class OverlayPanelEventFilterTest extends InstrumentationTestCase {
             return mContentViewCore;
         }
 
+        @Override
+        protected void resizePanelContentViewCore(float width, float height) {}
+
         public boolean getWasTapDetected() {
             return mWasTapDetectedOnPanel;
         }
@@ -223,7 +226,7 @@ public class OverlayPanelEventFilterTest extends InstrumentationTestCase {
 
         // NOTE(pedrosimonetti): This should be called after calling the method
         // setIsFullWidthSizePanelForTesting(), otherwise it will crash the test.
-        mPanel.onSizeChanged(LAYOUT_WIDTH_DP, LAYOUT_HEIGHT_DP);
+        mPanel.onSizeChanged(LAYOUT_WIDTH_DP, LAYOUT_HEIGHT_DP, 0, 0);
 
         setContentViewVerticalScroll(0);
 

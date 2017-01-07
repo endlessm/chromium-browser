@@ -1,18 +1,20 @@
-# Copyright 2014 The Swarming Authors. All rights reserved.
-# Use of this source code is governed under the Apache License, Version 2.0 that
-# can be found in the LICENSE file.
+# Copyright 2014 The LUCI Authors. All rights reserved.
+# Use of this source code is governed under the Apache License, Version 2.0
+# that can be found in the LICENSE file.
 
 """Toolset to run multiple Swarming tasks in parallel."""
 
 import getpass
 import json
 import os
+import optparse
 import subprocess
 import sys
 import tempfile
 import time
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+BASE_DIR = os.path.dirname(os.path.abspath(
+    __file__.decode(sys.getfilesystemencoding())))
 ROOT_DIR = os.path.dirname(BASE_DIR)
 
 sys.path.insert(0, ROOT_DIR)
@@ -155,7 +157,7 @@ def run_swarming_tasks_parallel(
 class OptionParser(logging_utils.OptionParserWithLogging):
   def __init__(self, **kwargs):
     logging_utils.OptionParserWithLogging.__init__(self, **kwargs)
-    self.server_group = tools.optparse.OptionGroup(self, 'Server')
+    self.server_group = optparse.OptionGroup(self, 'Server')
     self.server_group.add_option(
         '-S', '--swarming',
         metavar='URL', default=os.environ.get('SWARMING_SERVER', ''),
@@ -184,7 +186,7 @@ class OptionParser(logging_utils.OptionParserWithLogging):
     if not options.swarming:
       self.error('--swarming is required.')
     auth.process_auth_options(self, options)
-    isolateserver.process_isolate_server_options(self, options, False)
+    isolateserver.process_isolate_server_options(self, options, False, True)
     options.dimensions = dict(options.dimensions)
     return options, args
 

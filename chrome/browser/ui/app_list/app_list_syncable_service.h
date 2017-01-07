@@ -16,12 +16,12 @@
 #include "chrome/browser/apps/drive/drive_app_uninstall_sync_service.h"
 #include "chrome/browser/sync/glue/sync_start_util.h"
 #include "components/keyed_service/core/keyed_service.h"
-#include "sync/api/string_ordinal.h"
-#include "sync/api/sync_change.h"
-#include "sync/api/sync_change_processor.h"
-#include "sync/api/sync_error_factory.h"
-#include "sync/api/syncable_service.h"
-#include "sync/protocol/app_list_specifics.pb.h"
+#include "components/sync/api/string_ordinal.h"
+#include "components/sync/api/sync_change.h"
+#include "components/sync/api/sync_change_processor.h"
+#include "components/sync/api/sync_error_factory.h"
+#include "components/sync/api/syncable_service.h"
+#include "components/sync/protocol/app_list_specifics.pb.h"
 
 #if defined(OS_CHROMEOS)
 class ArcAppModelBuilder;
@@ -74,7 +74,7 @@ class AppListSyncableService : public syncer::SyncableService,
     virtual ~Observer() = default;
   };
 
-  using SyncItemMap = std::map<std::string, SyncItem*>;
+  using SyncItemMap = std::map<std::string, std::unique_ptr<SyncItem>>;
 
   // Populates the model when |extension_system| is ready.
   AppListSyncableService(Profile* profile,
@@ -173,7 +173,7 @@ class AppListSyncableService : public syncer::SyncableService,
   bool RemoveDefaultApp(AppListItem* item, SyncItem* sync_item);
 
   // Deletes a sync item from |sync_items_| and sends a DELETE action.
-  void DeleteSyncItem(SyncItem* sync_item);
+  void DeleteSyncItem(const std::string& item_id);
 
   // Updates existing entry in |sync_items_| from |app_item|.
   void UpdateSyncItem(AppListItem* app_item);

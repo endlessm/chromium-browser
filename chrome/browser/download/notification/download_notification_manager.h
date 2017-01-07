@@ -5,6 +5,7 @@
 #ifndef CHROME_BROWSER_DOWNLOAD_NOTIFICATION_DOWNLOAD_NOTIFICATION_MANAGER_H_
 #define CHROME_BROWSER_DOWNLOAD_NOTIFICATION_DOWNLOAD_NOTIFICATION_MANAGER_H_
 
+#include <memory>
 #include <set>
 
 #include "chrome/browser/download/download_ui_controller.h"
@@ -16,8 +17,6 @@ class DownloadNotificationManagerForProfile;
 
 class DownloadNotificationManager : public DownloadUIController::Delegate {
  public:
-  static bool IsEnabled();
-
   explicit DownloadNotificationManager(Profile* profile);
   ~DownloadNotificationManager() override;
 
@@ -31,11 +30,8 @@ class DownloadNotificationManager : public DownloadUIController::Delegate {
   friend class test::DownloadItemNotificationTest;
 
   Profile* main_profile_ = nullptr;
-  std::map<Profile*, DownloadNotificationManagerForProfile*>
+  std::map<Profile*, std::unique_ptr<DownloadNotificationManagerForProfile>>
       manager_for_profile_;
-
-  STLValueDeleter<std::map<Profile*, DownloadNotificationManagerForProfile*>>
-      items_deleter_;
 };
 
 class DownloadNotificationManagerForProfile
@@ -66,13 +62,11 @@ class DownloadNotificationManagerForProfile
   Profile* profile_ = nullptr;
   DownloadNotificationManager* parent_manager_;  // weak
   std::set<content::DownloadItem*> downloading_items_;
-  std::map<content::DownloadItem*, DownloadItemNotification*> items_;
+  std::map<content::DownloadItem*, std::unique_ptr<DownloadItemNotification>>
+      items_;
 
   // Pointer to the message center instance.
   message_center::MessageCenter* message_center_;
-
-  STLValueDeleter<std::map<content::DownloadItem*, DownloadItemNotification*>>
-      items_deleter_;
 };
 
 #endif  // CHROME_BROWSER_DOWNLOAD_NOTIFICATION_DOWNLOAD_NOTIFICATION_MANAGER_H_

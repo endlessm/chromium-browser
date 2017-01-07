@@ -51,7 +51,7 @@ PipelineIntegrationTestBase::PipelineIntegrationTestBase()
       pipeline_status_(PIPELINE_OK),
       last_video_frame_format_(PIXEL_FORMAT_UNKNOWN),
       last_video_frame_color_space_(COLOR_SPACE_UNSPECIFIED) {
-  base::MD5Init(&md5_context_);
+  ResetVideoHash();
 }
 
 PipelineIntegrationTestBase::~PipelineIntegrationTestBase() {
@@ -192,8 +192,8 @@ PipelineStatus PipelineIntegrationTestBase::Start(const std::string& filename,
 PipelineStatus PipelineIntegrationTestBase::Start(const uint8_t* data,
                                                   size_t size,
                                                   uint8_t test_type) {
-  return StartInternal(base::WrapUnique(new MemoryDataSource(data, size)),
-                       nullptr, test_type);
+  return StartInternal(base::MakeUnique<MemoryDataSource>(data, size), nullptr,
+                       test_type);
 }
 
 void PipelineIntegrationTestBase::Play() {
@@ -212,6 +212,7 @@ bool PipelineIntegrationTestBase::Seek(base::TimeDelta seek_time) {
   pipeline_->Seek(seek_time, base::Bind(&PipelineIntegrationTestBase::OnSeeked,
                                         base::Unretained(this), seek_time));
   base::RunLoop().Run();
+  EXPECT_CALL(*this, OnBufferingStateChange(_)).Times(AnyNumber());
   return (pipeline_status_ == PIPELINE_OK);
 }
 
@@ -372,7 +373,13 @@ void PipelineIntegrationTestBase::OnVideoFramePaint(
   if (!hashing_enabled_ || last_frame_ == frame)
     return;
   last_frame_ = frame;
+  DVLOG(3) << __FUNCTION__ << " pts=" << frame->timestamp().InSecondsF();
   VideoFrame::HashFrameForTesting(&md5_context_, frame);
+}
+
+void PipelineIntegrationTestBase::ResetVideoHash() {
+  DVLOG(1) << __FUNCTION__;
+  base::MD5Init(&md5_context_);
 }
 
 std::string PipelineIntegrationTestBase::GetVideoHash() {

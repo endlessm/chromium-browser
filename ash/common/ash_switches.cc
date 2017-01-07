@@ -27,6 +27,9 @@ const char kAshCopyHostBackgroundAtBoot[] = "ash-copy-host-background-at-boot";
 // Enable keyboard shortcuts useful for debugging.
 const char kAshDebugShortcuts[] = "ash-debug-shortcuts";
 
+// Enable keyboard shortcuts used by developers only.
+const char kAshDeveloperShortcuts[] = "ash-dev-shortcuts";
+
 // Disables the window backdrops normally used in maximize mode (TouchView).
 const char kAshDisableMaximizeModeWindowBackdrop[] =
     "ash-disable-maximize-mode-window-backdrop";
@@ -51,49 +54,30 @@ const char kAshEnableFullscreenAppList[] = "ash-enable-fullscreen-app-list";
 const char kAshEnableMagnifierKeyScroller[] =
     "ash-enable-magnifier-key-scroller";
 
-// Enables unified desktop mode.
-const char kAshEnableUnifiedDesktop[] = "ash-enable-unified-desktop";
+// Enables the palette next to the status area.
+const char kAshEnablePalette[] = "ash-enable-palette";
+
+// Enables the palette on every display, instead of only the internal one.
+const char kAshEnablePaletteOnAllDisplays[] =
+    "ash-enable-palette-on-all-displays";
+
+#endif
 
 // Enables the observation of accelerometer events to enter touch-view mode.
 const char kAshEnableTouchView[] = "enable-touchview";
-#endif
 
 // Enables mirrored screen.
 const char kAshEnableMirroredScreen[] = "ash-enable-mirrored-screen";
 
-// Enables / disables a stable order between overview sessions, independent of
-// the MRU order which attempts to preserve relative window positions.
-const char kAshDisableStableOverviewOrder[] =
-    "ash-disable-stable-overview-order";
-const char kAshEnableStableOverviewOrder[] = "ash-enable-stable-overview-order";
-
-// Enables software based mirroring.
-const char kAshEnableSoftwareMirroring[] = "ash-enable-software-mirroring";
-
 // Enables touch view testing.
-// TODO(skuhne): Remove TOGGLE_TOUCH_VIEW_TESTING accelerator once this
-// flag is removed.
+// TODO(skuhne): Remove DEBUG_TOGGLE_TOUCH_VIEW accelerator once this flag is
+// removed.
 const char kAshEnableTouchViewTesting[] = "ash-enable-touch-view-testing";
-
-// When this flag is set, system sounds will not be played.
-const char kAshDisableSystemSounds[] = "ash-disable-system-sounds";
-
-// When this flag is set, system sounds will be played whether the
-// ChromeVox is enabled or not.
-const char kAshEnableSystemSounds[] = "ash-enable-system-sounds";
 
 // Hides notifications that are irrelevant to Chrome OS device factory testing,
 // such as battery level updates.
 const char kAshHideNotificationsForFactory[] =
     "ash-hide-notifications-for-factory";
-
-// Sets a window size, optional position, and optional scale factor.
-// "1024x768" creates a window of size 1024x768.
-// "100+200-1024x768" positions the window at 100,200.
-// "1024x768*2" sets the scale factor to 2 for a high DPI display.
-// "800,0+800-800x800" for two displays at 800x800 resolution.
-// "800,0+800-800x800,0+1600-800x800" for three displays at 800x800 resolution.
-const char kAshHostWindowBounds[] = "ash-host-window-bounds";
 
 // Specifies if Material Design elements in Chrome OS system UI are enabled.
 // Can be disabled / enabled / experimental allowing to launch incrementally.
@@ -102,42 +86,14 @@ const char kAshMaterialDesignDisabled[] = "disabled";
 const char kAshMaterialDesignEnabled[] = "enabled";
 const char kAshMaterialDesignExperimental[] = "experimental";
 
-// Specifies a maximum number of preview windows in overview mode that still
-// allows using mask layers to hide the original window header and use rounded
-// corners.
-const char kAshMaxWindowsToUseMaskInOverview[] = "ash-max-previews-to-use-mask";
-
-// Specifies a maximum number of preview windows in overview mode that still
-// allows using alpha shapes to hide the original window header.
-const char kAshMaxWindowsToUseShapeInOverview[] =
-    "ash-max-previews-to-use-shape";
-
-// Specifies the layout mode and offsets for the secondary display for
-// testing. The format is "<t|r|b|l>,<offset>" where t=TOP, r=RIGHT,
-// b=BOTTOM and L=LEFT. For example, 'r,-100' means the secondary display
-// is positioned on the right with -100 offset. (above than primary)
-const char kAshSecondaryDisplayLayout[] = "ash-secondary-display-layout";
-
 // Enables the heads-up display for tracking touch points.
 const char kAshTouchHud[] = "ash-touch-hud";
-
-// Uses the 1st display in --ash-host-window-bounds as internal display.
-// This is for debugging on linux desktop.
-const char kAshUseFirstDisplayAsInternal[] =
-    "ash-use-first-display-as-internal";
 
 // (Most) Chrome OS hardware reports ACPI power button releases correctly.
 // Standard hardware reports releases immediately after presses.  If set, we
 // lock the screen or shutdown the system immediately in response to a press
 // instead of displaying an interactive animation.
 const char kAuraLegacyPowerButton[] = "aura-legacy-power-button";
-
-#if defined(OS_WIN)
-// Force Ash to open its root window on the desktop, even on Windows 8 where
-// it would normally end up in metro.
-const char kForceAshToDesktop[] = "ash-force-desktop";
-
-#endif
 
 #if defined(OS_CHROMEOS)
 // Constrains the pointer movement within a root window on desktop.

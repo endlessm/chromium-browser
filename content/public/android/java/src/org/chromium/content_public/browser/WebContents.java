@@ -109,11 +109,6 @@ public interface WebContents extends Parcelable {
     void unselect();
 
     /**
-     * Inserts css into main frame's document.
-     */
-    void insertCSS(String css);
-
-    /**
      * To be called when the ContentView is hidden.
      */
     void onHide();
@@ -336,24 +331,6 @@ public interface WebContents extends Parcelable {
      */
     @VisibleForTesting
     ObserverList.RewindableIterator<WebContentsObserver> getObserversForTesting();
-
-    /**
-     * Called when context menu gets opened.
-     */
-    void onContextMenuOpened();
-
-    /**
-     * Called when context menu gets closed. Note that closing context menu that is
-     * not triggered by WebContents will still call this. However, it will have no effect
-     * if onContextMenuOpened() isn't called in advance.
-     */
-    void onContextMenuClosed();
-
-    /**
-     * @return The character encoding for the current visible page.
-     */
-    @VisibleForTesting
-    String getEncoding();
 
     public void getContentBitmapAsync(Bitmap.Config config, float scale, Rect srcRect,
             ContentBitmapCallback callback);

@@ -6,6 +6,7 @@
 #define CHROME_BROWSER_UI_AUTOFILL_CHROME_AUTOFILL_CLIENT_H_
 
 #include <memory>
+#include <string>
 #include <vector>
 
 #include "base/callback.h"
@@ -44,7 +45,7 @@ class ChromeAutofillClient
   PersonalDataManager* GetPersonalDataManager() override;
   scoped_refptr<AutofillWebDataService> GetDatabase() override;
   PrefService* GetPrefs() override;
-  sync_driver::SyncService* GetSyncService() override;
+  syncer::SyncService* GetSyncService() override;
   IdentityProvider* GetIdentityProvider() override;
   rappor::RapporService* GetRapporService() override;
   void ShowAutofillSettings() override;
@@ -58,6 +59,8 @@ class ChromeAutofillClient
       const CreditCard& card,
       std::unique_ptr<base::DictionaryValue> legal_message,
       const base::Closure& callback) override;
+  void ConfirmCreditCardFillAssist(const CreditCard& card,
+                                   const base::Closure& callback) override;
   void LoadRiskData(
       const base::Callback<void(const std::string&)>& callback) override;
   bool HasCreditCardScanFeature() override;
@@ -79,6 +82,8 @@ class ChromeAutofillClient
                              const base::string16& profile_full_name) override;
   void OnFirstUserGestureObserved() override;
   bool IsContextSecure(const GURL& form_origin) override;
+  bool ShouldShowSigninPromo() override;
+  void StartSigninFlow() override;
 
   // content::WebContentsObserver implementation.
   void MainFrameWasResized(bool width_changed) override;

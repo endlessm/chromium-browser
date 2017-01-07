@@ -12,9 +12,10 @@
 #include "base/command_line.h"
 #include "base/memory/singleton.h"
 #include "base/metrics/field_trial.h"
-#include "base/metrics/histogram.h"
+#include "base/metrics/histogram_macros.h"
 #include "build/build_config.h"
 #include "chrome/browser/browsing_data/browsing_data_helper.h"
+#include "chrome/browser/metrics/chrome_metrics_service_accessor.h"
 #include "chrome/browser/password_manager/password_store_factory.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/signin/signin_manager_factory.h"
@@ -30,7 +31,7 @@
 #include "components/autofill/content/common/autofill_messages.h"
 #include "components/autofill/core/browser/password_generator.h"
 #include "components/autofill/core/common/password_form.h"
-#include "components/browser_sync/browser/profile_sync_service.h"
+#include "components/browser_sync/profile_sync_service.h"
 #include "components/password_manager/content/browser/content_password_manager_driver.h"
 #include "components/password_manager/content/browser/password_manager_internals_service_factory.h"
 #include "components/password_manager/core/browser/browser_save_password_progress_logger.h"
@@ -47,10 +48,12 @@
 #include "components/password_manager/core/common/password_manager_pref_names.h"
 #include "components/password_manager/sync/browser/password_sync_util.h"
 #include "components/prefs/pref_service.h"
+#include "components/sessions/content/content_record_password_state.h"
 #include "components/signin/core/browser/signin_manager.h"
 #include "components/version_info/version_info.h"
 #include "content/public/browser/navigation_entry.h"
 #include "content/public/browser/render_view_host.h"
+#include "content/public/browser/ssl_status.h"
 #include "content/public/browser/web_contents.h"
 #include "google_apis/gaia/gaia_urls.h"
 #include "net/base/url_util.h"
@@ -68,6 +71,7 @@
 
 using password_manager::ContentPasswordManagerDriverFactory;
 using password_manager::PasswordManagerInternalsService;
+using sessions::SerializedNavigationEntry;
 
 // Shorten the name to spare line breaks. The code provides enough context
 // already.
@@ -77,7 +81,7 @@ DEFINE_WEB_CONTENTS_USER_DATA_KEY(ChromePasswordManagerClient);
 
 namespace {
 
-const sync_driver::SyncService* GetSyncService(Profile* profile) {
+const syncer::SyncService* GetSyncService(Profile* profile) {
   if (ProfileSyncServiceFactory::HasProfileSyncService(profile))
     return ProfileSyncServiceFactory::GetForProfile(profile);
   return nullptr;
@@ -254,19 +258,23 @@ bool ChromePasswordManagerClient::PromptUserToChooseCredentials(
   CredentialsCallback intercept =
       base::Bind(&ChromePasswordManagerClient::OnCredentialsChosen,
                  base::Unretained(this), callback, local_forms.size() == 1);
+  std::vector<std::unique_ptr<autofill::PasswordForm>> locals =
+      password_manager_util::ConvertScopedVector(std::move(local_forms));
+  std::vector<std::unique_ptr<autofill::PasswordForm>> federations =
+      password_manager_util::ConvertScopedVector(std::move(federated_forms));
 #if defined(OS_ANDROID)
   // Deletes itself on the event from Java counterpart, when user interacts with
   // dialog.
   AccountChooserDialogAndroid* acccount_chooser_dialog =
-      new AccountChooserDialogAndroid(web_contents(), std::move(local_forms),
-                                      std::move(federated_forms), origin,
+      new AccountChooserDialogAndroid(web_contents(), std::move(locals),
+                                      std::move(federations), origin,
                                       intercept);
   acccount_chooser_dialog->ShowDialog();
   return true;
 #else
   return PasswordsClientUIDelegateFromWebContents(web_contents())
-      ->OnChooseCredentials(std::move(local_forms), std::move(federated_forms),
-                            origin, intercept);
+      ->OnChooseCredentials(std::move(locals), std::move(federations), origin,
+                            intercept);
 #endif
 }
 
@@ -302,11 +310,13 @@ void ChromePasswordManagerClient::NotifyUserAutoSignin(
   // If a site gets back a credential some navigations are likely to occur. They
   // shouldn't trigger the autofill password manager.
   password_manager_.DropFormManagers();
+  std::vector<std::unique_ptr<autofill::PasswordForm>> forms =
+      password_manager_util::ConvertScopedVector(std::move(local_forms));
 #if BUILDFLAG(ANDROID_JAVA_UI)
-  ShowAutoSigninPrompt(web_contents(), local_forms[0]->username_value);
+  ShowAutoSigninPrompt(web_contents(), forms[0]->username_value);
 #else
   PasswordsClientUIDelegateFromWebContents(web_contents())
-      ->OnAutoSignin(std::move(local_forms), origin);
+      ->OnAutoSignin(std::move(forms), origin);
 #endif
 }
 
@@ -347,10 +357,9 @@ void ChromePasswordManagerClient::AutomaticPasswordSave(
 }
 
 void ChromePasswordManagerClient::PasswordWasAutofilled(
-    const autofill::PasswordFormMap& best_matches,
+    const std::map<base::string16, const autofill::PasswordForm*>& best_matches,
     const GURL& origin,
-    const std::vector<std::unique_ptr<autofill::PasswordForm>>*
-        federated_matches) const {
+    const std::vector<const autofill::PasswordForm*>* federated_matches) const {
 #if !BUILDFLAG(ANDROID_JAVA_UI)
   PasswordsClientUIDelegate* manage_passwords_ui_controller =
       PasswordsClientUIDelegateFromWebContents(web_contents());
@@ -380,7 +389,7 @@ ChromePasswordManagerClient::GetPasswordStore() const {
 
 password_manager::PasswordSyncState
 ChromePasswordManagerClient::GetPasswordSyncState() const {
-  const ProfileSyncService* sync_service =
+  const browser_sync::ProfileSyncService* sync_service =
       ProfileSyncServiceFactory::GetForProfile(profile_);
   return password_manager_util::GetPasswordSyncState(sync_service);
 }
@@ -550,12 +559,7 @@ void ChromePasswordManagerClient::GenerationAvailableForForm(
 }
 
 bool ChromePasswordManagerClient::IsUpdatePasswordUIEnabled() const {
-#if BUILDFLAG(ANDROID_JAVA_UI)
-  return base::FeatureList::IsEnabled(
-      password_manager::features::kEnablePasswordChangeSupport);
-#else
   return true;
-#endif
 }
 
 const GURL& ChromePasswordManagerClient::GetMainFrameURL() const {
@@ -570,6 +574,46 @@ const GURL& ChromePasswordManagerClient::GetLastCommittedEntryURL() const {
     return GURL::EmptyGURL();
 
   return entry->GetURL();
+}
+
+// static
+bool ChromePasswordManagerClient::ShouldAnnotateNavigationEntries(
+    Profile* profile) {
+  // Only annotate PasswordState onto the navigation entry if user is
+  // opted into UMA and they're not syncing w/ a custom passphrase.
+  if (!ChromeMetricsServiceAccessor::IsMetricsAndCrashReportingEnabled())
+    return false;
+
+  browser_sync::ProfileSyncService* profile_sync_service =
+      ProfileSyncServiceFactory::GetForProfile(profile);
+  if (!profile_sync_service || !profile_sync_service->IsSyncActive() ||
+      profile_sync_service->IsUsingSecondaryPassphrase()) {
+    return false;
+  }
+
+  return true;
+}
+
+void ChromePasswordManagerClient::AnnotateNavigationEntry(
+    bool has_password_field) {
+  if (!ShouldAnnotateNavigationEntries(profile_))
+    return;
+
+  content::NavigationEntry* entry =
+      web_contents()->GetController().GetLastCommittedEntry();
+  if (!entry)
+    return;
+
+  SerializedNavigationEntry::PasswordState old_state =
+      sessions::GetPasswordStateFromNavigation(*entry);
+
+  SerializedNavigationEntry::PasswordState new_state =
+      (has_password_field ? SerializedNavigationEntry::HAS_PASSWORD_FIELD
+                          : SerializedNavigationEntry::NO_PASSWORD_FIELD);
+
+  if (new_state > old_state) {
+    SetPasswordStateInNavigation(new_state, entry);
+  }
 }
 
 const password_manager::CredentialsFilter*
@@ -592,6 +636,12 @@ void ChromePasswordManagerClient::BindCredentialManager(
 
   ChromePasswordManagerClient* instance =
       ChromePasswordManagerClient::FromWebContents(web_contents);
-  DCHECK(instance);
+
+  // Try to bind to the driver, but if driver is not available for this render
+  // frame host, the request will be just dropped. This will cause the message
+  // pipe to be closed, which will raise a connection error on the peer side.
+  if (!instance)
+    return;
+
   instance->credential_manager_impl_.BindRequest(std::move(request));
 }

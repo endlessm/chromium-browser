@@ -8,7 +8,6 @@
 
 #include <algorithm>
 
-#include "ash/shell.h"
 #include "base/logging.h"
 #include "chrome/browser/chromeos/ui/focus_ring_layer.h"
 
@@ -89,6 +88,11 @@ void AccessibilityFocusRingController::SetFocusRing(
   UpdateFocusRingsFromFocusRects();
 }
 
+void AccessibilityFocusRingController::HideFocusRing() {
+  focus_rects_.clear();
+  UpdateFocusRingsFromFocusRects();
+}
+
 void AccessibilityFocusRingController::UpdateFocusRingsFromFocusRects() {
   previous_focus_rings_.swap(focus_rings_);
   focus_rings_.clear();
@@ -134,6 +138,10 @@ void AccessibilityFocusRingController::SetCursorRing(
   OnLayerChange(&cursor_animation_info_);
 }
 
+void AccessibilityFocusRingController::HideCursorRing() {
+  cursor_layer_.reset();
+}
+
 void AccessibilityFocusRingController::SetCaretRing(
     const gfx::Point& location) {
   caret_location_ = location;
@@ -145,6 +153,10 @@ void AccessibilityFocusRingController::SetCaretRing(
 
   caret_layer_->Set(location);
   OnLayerChange(&caret_animation_info_);
+}
+
+void AccessibilityFocusRingController::HideCaretRing() {
+  caret_layer_.reset();
 }
 
 void AccessibilityFocusRingController::SetNoFadeForTesting() {

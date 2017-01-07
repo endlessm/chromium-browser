@@ -80,7 +80,9 @@ base::Time GetTestTime(int year, int month, int day, int hour, int minute,
   exploded.minute = minute;
   exploded.second = second;
   exploded.millisecond = millisecond;
-  return base::Time::FromUTCExploded(exploded);
+  base::Time out_time;
+  EXPECT_TRUE(base::Time::FromUTCExploded(exploded, &out_time));
+  return out_time;
 }
 
 }  // namespace
@@ -115,8 +117,7 @@ TEST(ExtensionFromWebApp, Basic) {
   }
 
   scoped_refptr<Extension> extension = ConvertWebAppToExtension(
-      web_app, GetTestTime(1978, 12, 11, 0, 0, 0, 0),
-      extensions_dir.path());
+      web_app, GetTestTime(1978, 12, 11, 0, 0, 0, 0), extensions_dir.GetPath());
   ASSERT_TRUE(extension.get());
 
   base::ScopedTempDir extension_dir;
@@ -161,8 +162,7 @@ TEST(ExtensionFromWebApp, Minimal) {
   web_app.app_url = GURL("http://aaronboodman.com/gearpad/");
 
   scoped_refptr<Extension> extension = ConvertWebAppToExtension(
-      web_app, GetTestTime(1978, 12, 11, 0, 0, 0, 0),
-      extensions_dir.path());
+      web_app, GetTestTime(1978, 12, 11, 0, 0, 0, 0), extensions_dir.GetPath());
   ASSERT_TRUE(extension.get());
 
   base::ScopedTempDir extension_dir;

@@ -14,11 +14,11 @@
 #include "ash/common/accessibility_delegate.h"
 #include "ash/common/accessibility_types.h"
 #include "ash/common/session/session_state_delegate.h"
+#include "ash/common/wallpaper/wallpaper_delegate.h"
 #include "ash/common/wm/mru_window_tracker.h"
 #include "ash/common/wm/window_state.h"
 #include "ash/common/wm_shell.h"
 #include "ash/content/gpu_support_impl.h"
-#include "ash/pointer_watcher_delegate_aura.h"
 #include "ash/shell.h"
 #include "ash/wm/window_util.h"
 #include "base/command_line.h"
@@ -29,12 +29,13 @@
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/chromeos/accessibility/accessibility_manager.h"
 #include "chrome/browser/chromeos/accessibility/magnification_manager.h"
-#include "chrome/browser/chromeos/background/ash_user_wallpaper_delegate.h"
+#include "chrome/browser/chromeos/background/ash_wallpaper_delegate.h"
 #include "chrome/browser/chromeos/display/display_configuration_observer.h"
 #include "chrome/browser/chromeos/display/display_preferences.h"
 #include "chrome/browser/chromeos/policy/display_rotation_default_handler.h"
 #include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/chromeos/system/input_device_settings.h"
+#include "chrome/browser/chromeos/ui/accessibility_focus_ring_controller.h"
 #include "chrome/browser/lifetime/application_lifetime.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
@@ -50,6 +51,7 @@
 #include "chrome/browser/ui/ash/launcher/launcher_context_menu.h"
 #include "chrome/browser/ui/ash/media_delegate_chromeos.h"
 #include "chrome/browser/ui/ash/multi_user/multi_user_util.h"
+#include "chrome/browser/ui/ash/palette_delegate_chromeos.h"
 #include "chrome/browser/ui/ash/session_state_delegate_chromeos.h"
 #include "chrome/browser/ui/ash/session_util.h"
 #include "chrome/browser/ui/ash/system_tray_delegate_chromeos.h"
@@ -65,18 +67,21 @@
 #include "chrome/common/pref_names.h"
 #include "chrome/grit/chromium_strings.h"
 #include "chrome/grit/generated_resources.h"
+#include "chrome/grit/theme_resources.h"
 #include "chromeos/chromeos_switches.h"
 #include "components/prefs/pref_service.h"
 #include "components/user_manager/user.h"
 #include "components/user_manager/user_manager.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/user_metrics.h"
-#include "grit/theme_resources.h"
+#include "content/public/common/service_manager_connection.h"
 #include "ui/app_list/presenter/app_list_presenter.h"
 #include "ui/aura/window.h"
 #include "ui/base/ime/chromeos/input_method_manager.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/resource/resource_bundle.h"
+
+using chromeos::AccessibilityManager;
 
 namespace {
 
@@ -103,34 +108,32 @@ void InitAfterFirstSessionStart() {
 class AccessibilityDelegateImpl : public ash::AccessibilityDelegate {
  public:
   AccessibilityDelegateImpl() {
-    ash::WmShell::Get()->AddShellObserver(
-        chromeos::AccessibilityManager::Get());
+    ash::WmShell::Get()->AddShellObserver(AccessibilityManager::Get());
   }
   ~AccessibilityDelegateImpl() override {
-    ash::WmShell::Get()->RemoveShellObserver(
-        chromeos::AccessibilityManager::Get());
+    ash::WmShell::Get()->RemoveShellObserver(AccessibilityManager::Get());
   }
 
   void ToggleHighContrast() override {
-    DCHECK(chromeos::AccessibilityManager::Get());
-    chromeos::AccessibilityManager::Get()->EnableHighContrast(
-        !chromeos::AccessibilityManager::Get()->IsHighContrastEnabled());
+    DCHECK(AccessibilityManager::Get());
+    AccessibilityManager::Get()->EnableHighContrast(
+        !AccessibilityManager::Get()->IsHighContrastEnabled());
   }
 
   bool IsSpokenFeedbackEnabled() const override {
-    DCHECK(chromeos::AccessibilityManager::Get());
-    return chromeos::AccessibilityManager::Get()->IsSpokenFeedbackEnabled();
+    DCHECK(AccessibilityManager::Get());
+    return AccessibilityManager::Get()->IsSpokenFeedbackEnabled();
   }
 
   void ToggleSpokenFeedback(
       ash::AccessibilityNotificationVisibility notify) override {
-    DCHECK(chromeos::AccessibilityManager::Get());
-    chromeos::AccessibilityManager::Get()->ToggleSpokenFeedback(notify);
+    DCHECK(AccessibilityManager::Get());
+    AccessibilityManager::Get()->ToggleSpokenFeedback(notify);
   }
 
   bool IsHighContrastEnabled() const override {
-    DCHECK(chromeos::AccessibilityManager::Get());
-    return chromeos::AccessibilityManager::Get()->IsHighContrastEnabled();
+    DCHECK(AccessibilityManager::Get());
+    return AccessibilityManager::Get()->IsHighContrastEnabled();
   }
 
   void SetMagnifierEnabled(bool enabled) override {
@@ -154,108 +157,113 @@ class AccessibilityDelegateImpl : public ash::AccessibilityDelegate {
   }
 
   void SetLargeCursorEnabled(bool enabled) override {
-    DCHECK(chromeos::AccessibilityManager::Get());
-    return chromeos::AccessibilityManager::Get()->EnableLargeCursor(enabled);
+    DCHECK(AccessibilityManager::Get());
+    return AccessibilityManager::Get()->EnableLargeCursor(enabled);
   }
 
   bool IsLargeCursorEnabled() const override {
-    DCHECK(chromeos::AccessibilityManager::Get());
-    return chromeos::AccessibilityManager::Get()->IsLargeCursorEnabled();
+    DCHECK(AccessibilityManager::Get());
+    return AccessibilityManager::Get()->IsLargeCursorEnabled();
   }
 
   void SetAutoclickEnabled(bool enabled) override {
-    DCHECK(chromeos::AccessibilityManager::Get());
-    return chromeos::AccessibilityManager::Get()->EnableAutoclick(enabled);
+    DCHECK(AccessibilityManager::Get());
+    return AccessibilityManager::Get()->EnableAutoclick(enabled);
   }
 
   bool IsAutoclickEnabled() const override {
-    DCHECK(chromeos::AccessibilityManager::Get());
-    return chromeos::AccessibilityManager::Get()->IsAutoclickEnabled();
+    DCHECK(AccessibilityManager::Get());
+    return AccessibilityManager::Get()->IsAutoclickEnabled();
   }
 
   void SetVirtualKeyboardEnabled(bool enabled) override {
-    DCHECK(chromeos::AccessibilityManager::Get());
-    return chromeos::AccessibilityManager::Get()->EnableVirtualKeyboard(
-        enabled);
+    DCHECK(AccessibilityManager::Get());
+    return AccessibilityManager::Get()->EnableVirtualKeyboard(enabled);
   }
 
   bool IsVirtualKeyboardEnabled() const override {
-    DCHECK(chromeos::AccessibilityManager::Get());
-    return chromeos::AccessibilityManager::Get()->IsVirtualKeyboardEnabled();
+    DCHECK(AccessibilityManager::Get());
+    return AccessibilityManager::Get()->IsVirtualKeyboardEnabled();
   }
 
   void SetMonoAudioEnabled(bool enabled) override {
-    DCHECK(chromeos::AccessibilityManager::Get());
-    return chromeos::AccessibilityManager::Get()->EnableMonoAudio(enabled);
+    DCHECK(AccessibilityManager::Get());
+    return AccessibilityManager::Get()->EnableMonoAudio(enabled);
   }
 
   bool IsMonoAudioEnabled() const override {
-    DCHECK(chromeos::AccessibilityManager::Get());
-    return chromeos::AccessibilityManager::Get()->IsMonoAudioEnabled();
+    DCHECK(AccessibilityManager::Get());
+    return AccessibilityManager::Get()->IsMonoAudioEnabled();
   }
 
   void SetCaretHighlightEnabled(bool enabled) override {
-    DCHECK(chromeos::AccessibilityManager::Get());
-    chromeos::AccessibilityManager::Get()->SetCaretHighlightEnabled(enabled);
+    DCHECK(AccessibilityManager::Get());
+    AccessibilityManager::Get()->SetCaretHighlightEnabled(enabled);
   }
 
   bool IsCaretHighlightEnabled() const override {
-    DCHECK(chromeos::AccessibilityManager::Get());
-    return chromeos::AccessibilityManager::Get()->IsCaretHighlightEnabled();
+    DCHECK(AccessibilityManager::Get());
+    return AccessibilityManager::Get()->IsCaretHighlightEnabled();
   }
 
   void SetCursorHighlightEnabled(bool enabled) override {
-    DCHECK(chromeos::AccessibilityManager::Get());
-    chromeos::AccessibilityManager::Get()->SetCursorHighlightEnabled(enabled);
+    DCHECK(AccessibilityManager::Get());
+    AccessibilityManager::Get()->SetCursorHighlightEnabled(enabled);
   }
 
   bool IsCursorHighlightEnabled() const override {
-    DCHECK(chromeos::AccessibilityManager::Get());
-    return chromeos::AccessibilityManager::Get()->IsCursorHighlightEnabled();
+    DCHECK(AccessibilityManager::Get());
+    return AccessibilityManager::Get()->IsCursorHighlightEnabled();
   }
 
   void SetFocusHighlightEnabled(bool enabled) override {
-    DCHECK(chromeos::AccessibilityManager::Get());
-    chromeos::AccessibilityManager::Get()->SetFocusHighlightEnabled(enabled);
+    DCHECK(AccessibilityManager::Get());
+    AccessibilityManager::Get()->SetFocusHighlightEnabled(enabled);
   }
 
   bool IsFocusHighlightEnabled() const override {
-    DCHECK(chromeos::AccessibilityManager::Get());
-    return chromeos::AccessibilityManager::Get()->IsFocusHighlightEnabled();
+    DCHECK(AccessibilityManager::Get());
+    return AccessibilityManager::Get()->IsFocusHighlightEnabled();
   }
 
   void SetSelectToSpeakEnabled(bool enabled) override {
-    DCHECK(chromeos::AccessibilityManager::Get());
-    chromeos::AccessibilityManager::Get()->SetSelectToSpeakEnabled(enabled);
+    DCHECK(AccessibilityManager::Get());
+    AccessibilityManager::Get()->SetSelectToSpeakEnabled(enabled);
   }
 
   bool IsSelectToSpeakEnabled() const override {
-    DCHECK(chromeos::AccessibilityManager::Get());
-    return chromeos::AccessibilityManager::Get()->IsSelectToSpeakEnabled();
+    DCHECK(AccessibilityManager::Get());
+    return AccessibilityManager::Get()->IsSelectToSpeakEnabled();
   }
 
   void SetSwitchAccessEnabled(bool enabled) override {
-    DCHECK(chromeos::AccessibilityManager::Get());
-    chromeos::AccessibilityManager::Get()->SetSwitchAccessEnabled(enabled);
+    DCHECK(AccessibilityManager::Get());
+    AccessibilityManager::Get()->SetSwitchAccessEnabled(enabled);
   }
 
   bool IsSwitchAccessEnabled() const override {
-    DCHECK(chromeos::AccessibilityManager::Get());
-    return chromeos::AccessibilityManager::Get()->IsSwitchAccessEnabled();
+    DCHECK(AccessibilityManager::Get());
+    return AccessibilityManager::Get()->IsSwitchAccessEnabled();
   }
 
   bool ShouldShowAccessibilityMenu() const override {
-    DCHECK(chromeos::AccessibilityManager::Get());
-    return chromeos::AccessibilityManager::Get()->ShouldShowAccessibilityMenu();
+    DCHECK(AccessibilityManager::Get());
+    return AccessibilityManager::Get()->ShouldShowAccessibilityMenu();
   }
 
   bool IsBrailleDisplayConnected() const override {
-    DCHECK(chromeos::AccessibilityManager::Get());
-    return chromeos::AccessibilityManager::Get()->IsBrailleDisplayConnected();
+    DCHECK(AccessibilityManager::Get());
+    return AccessibilityManager::Get()->IsBrailleDisplayConnected();
   }
 
   void SilenceSpokenFeedback() const override {
     TtsController::GetInstance()->Stop();
+  }
+
+  void ClearFocusHighlight() const override {
+    chromeos::AccessibilityFocusRingController::GetInstance()->SetFocusRing(
+        std::vector<gfx::Rect>(),
+        chromeos::AccessibilityFocusRingController::PERSIST_FOCUS_RING);
   }
 
   void SaveScreenMagnifierScale(double scale) override {
@@ -297,16 +305,17 @@ class AccessibilityDelegateImpl : public ash::AccessibilityDelegate {
   }
 
   void PlayEarcon(int sound_key) override {
-    DCHECK(chromeos::AccessibilityManager::Get());
-    return chromeos::AccessibilityManager::Get()->PlayEarcon(sound_key);
+    DCHECK(AccessibilityManager::Get());
+    AccessibilityManager::Get()->PlayEarcon(
+        sound_key, chromeos::PlaySoundOption::SPOKEN_FEEDBACK_ENABLED);
   }
 
   base::TimeDelta PlayShutdownSound() const override {
-    return chromeos::AccessibilityManager::Get()->PlayShutdownSound();
+    return AccessibilityManager::Get()->PlayShutdownSound();
   }
 
   void HandleAccessibilityGesture(ui::AXGesture gesture) override {
-    chromeos::AccessibilityManager::Get()->HandleAccessibilityGesture(gesture);
+    AccessibilityManager::Get()->HandleAccessibilityGesture(gesture);
   }
 
  private:
@@ -321,6 +330,10 @@ ChromeShellDelegate::ChromeShellDelegate()
 }
 
 ChromeShellDelegate::~ChromeShellDelegate() {
+}
+
+shell::Connector* ChromeShellDelegate::GetShellConnector() const {
+  return content::ServiceManagerConnection::GetForProcess()->GetConnector();
 }
 
 bool ChromeShellDelegate::IsFirstRunAfterBoot() const {
@@ -354,7 +367,7 @@ bool ChromeShellDelegate::IsMultiProfilesEnabled() const {
 }
 
 bool ChromeShellDelegate::IsIncognitoAllowed() const {
-  return chromeos::AccessibilityManager::Get()->IsIncognitoAllowed();
+  return AccessibilityManager::Get()->IsIncognitoAllowed();
 }
 
 bool ChromeShellDelegate::IsRunningInForcedAppMode() const {
@@ -386,14 +399,10 @@ void ChromeShellDelegate::PreInit() {
   // in Shell::Init.
   display_configuration_observer_.reset(
       new chromeos::DisplayConfigurationObserver());
-
-  chrome_user_metrics_recorder_.reset(new ChromeUserMetricsRecorder);
 }
 
 void ChromeShellDelegate::PreShutdown() {
   display_configuration_observer_.reset();
-
-  chrome_user_metrics_recorder_.reset();
 }
 
 void ChromeShellDelegate::Exit() {
@@ -432,11 +441,6 @@ ash::ShelfDelegate* ChromeShellDelegate::CreateShelfDelegate(
   return shelf_delegate_;
 }
 
-std::unique_ptr<ash::PointerWatcherDelegate>
-ChromeShellDelegate::CreatePointerWatcherDelegate() {
-  return base::WrapUnique(new ash::PointerWatcherDelegateAura);
-}
-
 ui::MenuModel* ChromeShellDelegate::CreateContextMenu(
     ash::WmShelf* wm_shelf,
     const ash::ShelfItem* item) {
@@ -470,7 +474,7 @@ void ChromeShellDelegate::OpenKeyboardShortcutHelpPage() const {
 
   chrome::NavigateParams params(browser, GURL(kKeyboardShortcutHelpPageUrl),
                                 ui::PAGE_TRANSITION_AUTO_BOOKMARK);
-  params.disposition = SINGLETON_TAB;
+  params.disposition = WindowOpenDisposition::SINGLETON_TAB;
   chrome::Navigate(&params);
 }
 
@@ -491,22 +495,6 @@ keyboard::KeyboardUI* ChromeShellDelegate::CreateKeyboardUI() {
   return new ChromeKeyboardUI(ProfileManager::GetActiveUserProfile());
 }
 
-void ChromeShellDelegate::VirtualKeyboardActivated(bool activated) {
-  FOR_EACH_OBSERVER(ash::VirtualKeyboardStateObserver,
-                    keyboard_state_observer_list_,
-                    OnVirtualKeyboardStateChanged(activated));
-}
-
-void ChromeShellDelegate::AddVirtualKeyboardStateObserver(
-    ash::VirtualKeyboardStateObserver* observer) {
-  keyboard_state_observer_list_.AddObserver(observer);
-}
-
-void ChromeShellDelegate::RemoveVirtualKeyboardStateObserver(
-    ash::VirtualKeyboardStateObserver* observer) {
-  keyboard_state_observer_list_.RemoveObserver(observer);
-}
-
 ash::SessionStateDelegate* ChromeShellDelegate::CreateSessionStateDelegate() {
   return new SessionStateDelegateChromeos;
 }
@@ -523,12 +511,18 @@ ash::MediaDelegate* ChromeShellDelegate::CreateMediaDelegate() {
   return new MediaDelegateChromeOS;
 }
 
+std::unique_ptr<ash::PaletteDelegate>
+ChromeShellDelegate::CreatePaletteDelegate() {
+  return chromeos::PaletteDelegateChromeOS::Create();
+}
+
 ash::SystemTrayDelegate* ChromeShellDelegate::CreateSystemTrayDelegate() {
   return chromeos::CreateSystemTrayDelegate();
 }
 
-ash::UserWallpaperDelegate* ChromeShellDelegate::CreateUserWallpaperDelegate() {
-  return chromeos::CreateUserWallpaperDelegate();
+std::unique_ptr<ash::WallpaperDelegate>
+ChromeShellDelegate::CreateWallpaperDelegate() {
+  return base::WrapUnique(chromeos::CreateWallpaperDelegate());
 }
 
 void ChromeShellDelegate::Observe(int type,

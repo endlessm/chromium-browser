@@ -27,6 +27,8 @@
 #include <sys/unistd.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#elif (DE_OS == DE_OS_ANDROID)
+#include <sys/stat.h>
 #endif
 
 tcu::Platform *createPlatform();
@@ -42,15 +44,15 @@ tcu::TestContext *g_testCtx = nullptr;
 tcu::TestPackageRoot *g_root = nullptr;
 tcu::RandomOrderExecutor *g_executor = nullptr;
 
-const char *g_dEQPDataSearchDirs[] =
-{
+const char *g_dEQPDataSearchDirs[] = {
     "data",
     "third_party/deqp/data",
     "../third_party/deqp/src/data",
     "deqp_support/data",
     "third_party/deqp/src/data",
     "../../third_party/deqp/src/data",
-    "../../../third_party/deqp/src/data"
+    "../../../third_party/deqp/src/data",
+    "../../sdcard/chromium_tests_root/third_party/deqp/src/data",
 };
 
 // TODO(jmadill): upstream to dEQP?
@@ -68,7 +70,7 @@ deBool deIsDir(const char *filename)
 
     return false;
 }
-#elif (DE_OS == DE_OS_UNIX) || (DE_OS == DE_OS_OSX)
+#elif (DE_OS == DE_OS_UNIX) || (DE_OS == DE_OS_OSX) || (DE_OS == DE_OS_ANDROID)
 deBool deIsDir(const char *filename)
 {
     struct stat st;
@@ -79,25 +81,40 @@ deBool deIsDir(const char *filename)
 #error TODO(jmadill): support other platforms
 #endif
 
-bool FindDataDir(std::string *dataDir)
+bool FindDataDir(std::string *dataDirOut)
 {
     for (auto searchDir : g_dEQPDataSearchDirs)
     {
-        if (deIsDir(searchDir))
+        if (deIsDir((std::string(searchDir) + "/gles2").c_str()))
         {
-            *dataDir = searchDir;
+            *dataDirOut = searchDir;
             return true;
         }
 
-        std::string directory = angle::GetExecutableDirectory() + "/" + searchDir;
-        if (deIsDir(directory.c_str()))
+        std::stringstream dirStream;
+        dirStream << angle::GetExecutableDirectory() << "/" << searchDir;
+        std::string dataDir = dirStream.str();
+        dirStream << "/gles2";
+        std::string searchPath = dirStream.str();
+
+        if (deIsDir(searchPath.c_str()))
         {
-            *dataDir = directory;
+            *dataDirOut = dataDir;
             return true;
         }
     }
 
     return false;
+}
+
+std::string GetLogFileName(std::string deqpDataDir)
+{
+#if (DE_OS == DE_OS_ANDROID)
+    // On Android executable dir is not writable, so use data dir instead
+    return deqpDataDir + "/" + g_cmdLine->getLogFileName();
+#else
+    return g_cmdLine->getLogFileName();
+#endif
 }
 
 bool InitPlatform(int argc, const char *argv[])
@@ -125,7 +142,7 @@ bool InitPlatform(int argc, const char *argv[])
 
         g_cmdLine = new tcu::CommandLine(argc, argv);
         g_archive = new tcu::DirArchive(deqpDataDir.c_str());
-        g_log = new tcu::TestLog(g_cmdLine->getLogFileName(), g_cmdLine->getLogFlags());
+        g_log     = new tcu::TestLog(GetLogFileName(deqpDataDir).c_str(), g_cmdLine->getLogFlags());
         g_testCtx = new tcu::TestContext(*g_platform, *g_archive, *g_log, *g_cmdLine, DE_NULL);
         g_root = new tcu::TestPackageRoot(*g_testCtx, tcu::TestPackageRegistry::getSingleton());
         g_executor = new tcu::RandomOrderExecutor(*g_root, *g_testCtx);

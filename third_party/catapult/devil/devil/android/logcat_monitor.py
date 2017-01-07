@@ -18,6 +18,8 @@ from devil.android import device_errors
 from devil.android.sdk import adb_wrapper
 from devil.utils import reraiser_thread
 
+logger = logging.getLogger(__name__)
+
 
 class LogcatMonitor(object):
 
@@ -89,7 +91,7 @@ class LogcatMonitor(object):
     if isinstance(failure_regex, basestring):
       failure_regex = re.compile(failure_regex)
 
-    logging.debug('Waiting %d seconds for "%s"', timeout, success_regex.pattern)
+    logger.debug('Waiting %d seconds for "%s"', timeout, success_regex.pattern)
 
     # NOTE This will continue looping until:
     #  - success_regex matches a line, in which case the match object is
@@ -232,9 +234,13 @@ class LogcatMonitor(object):
     """Closes logcat recording file in case |Close| was never called."""
     with self._record_file_lock:
       if self._record_file:
-        logging.warning(
+        logger.warning(
             'Need to call |Close| on the logcat monitor when done!')
         self._record_file.close()
+
+  @property
+  def adb(self):
+    return self._adb
 
 
 class LogcatMonitorCommandError(device_errors.CommandFailedError):

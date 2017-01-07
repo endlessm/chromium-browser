@@ -62,7 +62,7 @@ class ExternalCacheTest : public testing::Test,
   // testing::Test overrides:
   void SetUp() override {
     request_context_getter_ = new net::TestURLRequestContextGetter(
-        content::BrowserThread::GetMessageLoopProxyForThread(
+        content::BrowserThread::GetTaskRunnerForThread(
             content::BrowserThread::IO));
     fetcher_factory_.reset(new net::TestURLFetcherFactory());
 
@@ -86,13 +86,13 @@ class ExternalCacheTest : public testing::Test,
   base::FilePath CreateCacheDir(bool initialized) {
     EXPECT_TRUE(cache_dir_.CreateUniqueTempDir());
     if (initialized)
-      CreateFlagFile(cache_dir_.path());
-    return cache_dir_.path();
+      CreateFlagFile(cache_dir_.GetPath());
+    return cache_dir_.GetPath();
   }
 
   base::FilePath CreateTempDir() {
     EXPECT_TRUE(temp_dir_.CreateUniqueTempDir());
-    return temp_dir_.path();
+    return temp_dir_.GetPath();
   }
 
   void CreateFlagFile(const base::FilePath& dir) {

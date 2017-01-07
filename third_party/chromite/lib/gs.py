@@ -10,10 +10,12 @@ import collections
 import contextlib
 import datetime
 import errno
+import fnmatch
 import getpass
 import hashlib
 import os
 import re
+import shutil
 import tempfile
 import urlparse
 
@@ -58,6 +60,10 @@ LS_LA_RE = re.compile(
     r')?\s*$')
 LS_RE = re.compile(r'^\s*(?P<content_length>)(?P<creation_time>)(?P<url>.*)'
                    r'(?P<generation>)(?P<metageneration>)\s*$')
+
+# Format used by ContainsWildCard, which is duplicated from
+# https://github.com/GoogleCloudPlatform/gsutil/blob/v4.21/gslib/storage_url.py#L307.
+WILDCARD_REGEX = re.compile(r'[*?\[\]]')
 
 
 def PathIsGs(path):
@@ -282,6 +288,7 @@ class GSContext(object):
         ref = tar_cache.Lookup(key)
         ref.SetDefault(cls.GSUTIL_URL)
         cls.DEFAULT_GSUTIL_BIN = os.path.join(ref.path, 'gsutil', 'gsutil')
+        cls._CompileCrcmod(ref.path)
       else:
         # Check if the default gsutil path for builders exists. If
         # not, try locating gsutil. If none exists, simply use 'gsutil'.
@@ -293,6 +300,69 @@ class GSContext(object):
         cls.DEFAULT_GSUTIL_BIN = gsutil_bin
 
     return cls.DEFAULT_GSUTIL_BIN
+
+  @classmethod
+  def _CompileCrcmod(cls, path):
+    """Try to setup a compiled crcmod for gsutil.
+
+    The native crcmod code is much faster than the python implementation, and
+    enables some more features (otherwise gsutil internally disables them).
+    Try to compile the module on demand in the crcmod tree bundled with gsutil.
+
+    For more details, see:
+    https://cloud.google.com/storage/docs/gsutil/addlhelp/CRC32CandInstallingcrcmod
+    """
+    src_root = os.path.join(path, 'gsutil', 'third_party', 'crcmod')
+
+    # Try to build it once.
+    flag = os.path.join(src_root, '.chromite.tried.build')
+    if os.path.exists(flag):
+      return False
+    # Flag things now regardless of how the attempt below works out.
+    try:
+      osutils.Touch(flag)
+    except IOError as e:
+      # If the gsutil dir was cached previously as root, but now we're
+      # non-root, just flag it and return.
+      if e.errno == errno.EACCES:
+        logging.debug('Skipping gsutil crcmod compile due to permissions')
+        cros_build_lib.SudoRunCommand(['touch', flag],
+                                      debug_level=logging.DEBUG)
+        return False
+      else:
+        raise
+
+    # See if the system includes one in which case we're done.
+    try:
+      import crcmod
+      if (getattr(crcmod, 'crcmod', None) and
+          getattr(crcmod.crcmod, '_usingExtension', None)):
+        return True
+    except ImportError:
+      pass
+
+    # See if the local copy has one.
+    mod_path = os.path.join(src_root, 'python2', 'crcmod', '_crcfunext.so')
+    if os.path.exists(mod_path):
+      return True
+
+    logging.debug('Attempting to compile local crcmod for gsutil')
+    with osutils.TempDir(prefix='chromite.gsutil.crcmod') as tempdir:
+      result = cros_build_lib.RunCommand(
+          ['python', './setup.py', 'build', '--build-base', tempdir,
+           '--build-platlib', tempdir],
+          cwd=src_root, capture_output=True, error_code_ok=True,
+          debug_level=logging.DEBUG)
+      if result.returncode:
+        return False
+
+      # Locate the module in the build dir.
+      temp_mod_path = os.path.join(tempdir, 'crcmod', '_crcfunext.so')
+      try:
+        shutil.copy2(temp_mod_path, mod_path)
+        return True
+      except shutil.Error:
+        return False
 
   def __init__(self, boto_file=None, cache_dir=None, acl=None,
                dry_run=False, gsutil_bin=None, init_boto=False, retries=None,
@@ -522,6 +592,10 @@ class GSContext(object):
 
     error = e.result.error
     if error:
+      # TODO: Do not log warning for GSContextPreconditionFailed and
+      # GSNoSuchKey after crbug.com/642986 is resolved.
+      logging.warning('GS_ERROR: %s (Temp log for crbug.com/642986)', error)
+
       # gsutil usually prints PreconditionException when a precondition fails.
       # It may also print "ResumableUploadAbortException: 412 Precondition
       # Failed", so the logic needs to be a little more general.
@@ -536,8 +610,6 @@ class GSContext(object):
           'NotFoundException:' in error or
           'One or more URLs matched no objects' in error):
         raise GSNoSuchKey(e)
-
-      logging.warning('GS_ERROR: %s', error)
 
       # TODO: Below is a list of known flaky errors that we should
       # retry. The list needs to be extended.
@@ -726,7 +798,7 @@ class GSContext(object):
 
         # Now we parse the output for the current generation number.  Example:
         #   Created: gs://chromeos-throw-away-bucket/foo#1360630664537000.1
-        m = re.search(r'Created: .*#(\d+)([.](\d+))?$', result.error)
+        m = re.search(r'Created: .*#(\d+)([.](\d+))?\n', result.error)
         if m:
           return int(m.group(1))
         else:
@@ -1057,6 +1129,75 @@ class GSContext(object):
 
     timeout_util.WaitForSuccess(_Retry, _CheckForExistence,
                                 timeout=timeout, period=period)
+
+  def ContainsWildcard(self, url):
+    """Checks whether url_string contains a wildcard.
+
+    Args:
+      url: URL string to check.
+
+    Returns:
+      True if |url| contains a wildcard.
+    """
+    return bool(WILDCARD_REGEX.search(url))
+
+  def GetGsNamesWithWait(self, pattern, url, timeout=600, period=10,
+                         is_regex_pattern=False):
+    """Returns the google storage names specified by the given pattern.
+
+    This method polls Google Storage until the target files specified by the
+    pattern is available or until the timeout occurs. Because we may not know
+    the exact name of the target files, the method accepts a filename pattern,
+    to identify whether a file whose name matches the pattern exists
+    (e.g. use pattern '*_full_*' to search for the full payload
+    'chromeos_R17-1413.0.0-a1_x86-mario_full_dev.bin'). Returns the name only
+    if found before the timeout.
+
+    Warning: GS listing are not perfect, and are eventually consistent. Doing a
+    search for file existence is a 'best effort'. Calling code should be aware
+    and ready to handle that.
+
+    Args:
+      pattern: a path pattern (glob or regex) identifying the files we need.
+      url: URL of the Google Storage bucket.
+      timeout: how many seconds are we allowed to keep trying.
+      period: how many seconds to wait between attempts.
+      is_regex_pattern: Whether the pattern is a regex (otherwise a glob).
+
+    Returns:
+      The list of files matching the pattern in Google Storage bucket or None
+      if the files are not found and hit the timeout_util.TimeoutError.
+    """
+    def _GetGsName():
+      uploaded_list = [os.path.basename(p.url) for p in self.List(url)]
+
+      if is_regex_pattern:
+        filter_re = re.compile(pattern)
+        matching_names = [f for f in uploaded_list
+                          if filter_re.search(f) is not None]
+      else:
+        matching_names = fnmatch.filter(uploaded_list, pattern)
+
+      return matching_names
+
+    try:
+      matching_names = None
+      if not (is_regex_pattern or self.ContainsWildcard(pattern)):
+        try:
+          self.WaitForGsPaths(['%s/%s' % (url, pattern)], timeout)
+          return [os.path.basename(pattern)]
+        except GSCommandError:
+          pass
+
+      if not matching_names:
+        matching_names = timeout_util.WaitForSuccess(
+            lambda x: not x, _GetGsName, timeout=timeout, period=period)
+
+      logging.debug('matching_names=%s, is_regex_pattern=%r',
+                    matching_names, is_regex_pattern)
+      return matching_names
+    except timeout_util.TimeoutError:
+      return None
 
 
 @contextlib.contextmanager

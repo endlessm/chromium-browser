@@ -209,9 +209,17 @@ AutomationUtil.getDirection = function(nodeA, nodeB) {
   var divA = ancestorsA[divergence];
   var divB = ancestorsB[divergence];
 
-  // One of the nodes is an ancestor of the other. Don't distinguish and just
-  // consider it Dir.FORWARD.
-  if (!divA || !divB || divA.parent === nodeB || divB.parent === nodeA)
+  // One of the nodes is an ancestor of the other. Order this relationship in
+  // the same way dfs would. nodeA <= nodeB if nodeA is a descendant of
+  // nodeB. nodeA > nodeB if nodeB is a descendant of nodeA.
+
+  if (!divA)
+    return Dir.FORWARD;
+  if (!divB)
+    return Dir.BACKWARD;
+  if (divA.parent === nodeB)
+    return Dir.BACKWARD;
+  if (divB.parent === nodeA)
     return Dir.FORWARD;
 
   return divA.indexInParent <= divB.indexInParent ? Dir.FORWARD : Dir.BACKWARD;
@@ -230,27 +238,6 @@ AutomationUtil.isInSameTree = function(a, b) {
   // Given two non-desktop roots, consider them in the "same" tree.
   return a.root === b.root ||
       (a.root.role == b.root.role && a.root.role == RoleType.rootWebArea);
-};
-
-/**
- * Determines whether the two given nodes come from the same webpage.
- * @param {AutomationNode} a
- * @param {AutomationNode} b
- * @return {boolean}
- */
-AutomationUtil.isInSameWebpage = function(a, b) {
-  if (!a || !b)
-    return false;
-
-  a = a.root;
-  while (a && a.parent && AutomationUtil.isInSameTree(a.parent, a))
-    a = a.parent.root;
-
-  b = b.root;
-  while (b && b.parent && AutomationUtil.isInSameTree(b.parent, b))
-    b = b.parent.root;
-
-  return a == b;
 };
 
 /**

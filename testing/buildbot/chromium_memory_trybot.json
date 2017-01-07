@@ -105,6 +105,12 @@
       "swarming": {
         "can_use_on_swarming_builders": true
       },
+      "test": "media_mojo_unittests"
+    },
+    {
+      "swarming": {
+        "can_use_on_swarming_builders": true
+      },
       "test": "midi_unittests"
     },
     {
@@ -125,7 +131,6 @@
     },
     "skia_unittests",
     "sql_unittests",
-    "sync_unit_tests",
     "ui_base_unittests",
     {
       "swarming": {

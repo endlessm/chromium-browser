@@ -28,8 +28,8 @@
 #include "chrome/browser/ui/browser_list_observer.h"
 #include "components/keyed_service/core/keyed_service.h"
 #include "components/prefs/pref_change_registrar.h"
-#include "components/sync_driver/sync_service_observer.h"
-#include "components/sync_driver/sync_type_preference_provider.h"
+#include "components/sync/driver/sync_service_observer.h"
+#include "components/sync/driver/sync_type_preference_provider.h"
 #include "net/url_request/url_request_context_getter.h"
 
 #if defined(ENABLE_EXTENSIONS)
@@ -61,7 +61,7 @@ namespace extensions {
 class ExtensionRegistry;
 }
 
-namespace sync_driver {
+namespace syncer {
 class SyncSetupInProgressHandle;
 }
 
@@ -77,9 +77,9 @@ class SupervisedUserService : public KeyedService,
                               public extensions::ExtensionRegistryObserver,
                               public extensions::ManagementPolicy::Provider,
 #endif
-                              public SyncTypePreferenceProvider,
+                              public syncer::SyncTypePreferenceProvider,
 #if !defined(OS_ANDROID)
-                              public sync_driver::SyncServiceObserver,
+                              public syncer::SyncServiceObserver,
                               public chrome::BrowserListObserver,
 #endif
                               public SupervisedUserURLFilter::Observer {
@@ -213,7 +213,7 @@ class SupervisedUserService : public KeyedService,
   syncer::ModelTypeSet GetPreferredDataTypes() const override;
 
 #if !defined(OS_ANDROID)
-  // sync_driver::SyncServiceObserver implementation:
+  // syncer::SyncServiceObserver implementation:
   void OnStateChanged() override;
 
   // chrome::BrowserListObserver implementation:
@@ -471,7 +471,7 @@ class SupervisedUserService : public KeyedService,
   base::ObserverList<SupervisedUserServiceObserver> observer_list_;
 
   // Prevents Sync from running until configuration is complete.
-  std::unique_ptr<sync_driver::SyncSetupInProgressHandle> sync_blocker_;
+  std::unique_ptr<syncer::SyncSetupInProgressHandle> sync_blocker_;
 
   base::WeakPtrFactory<SupervisedUserService> weak_ptr_factory_;
 };

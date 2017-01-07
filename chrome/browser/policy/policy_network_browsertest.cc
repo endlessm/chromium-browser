@@ -11,17 +11,16 @@
 #include "chrome/browser/browser_process.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/test/base/in_process_browser_test.h"
-#include "components/network_session_configurator/switches.h"
 #include "components/policy/core/browser/browser_policy_connector.h"
 #include "components/policy/core/common/mock_configuration_policy_provider.h"
 #include "components/policy/core/common/policy_map.h"
 #include "components/policy/core/common/policy_types.h"
+#include "components/policy/policy_constants.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/test/browser_test.h"
 #include "net/http/http_transaction_factory.h"
 #include "net/url_request/url_request_context.h"
 #include "net/url_request/url_request_context_getter.h"
-#include "policy/policy_constants.h"
 
 namespace {
 
@@ -86,7 +85,7 @@ class QuicAllowedPolicyIsFalse: public QuicAllowedPolicyTestBase {
   void GetQuicAllowedPolicy(PolicyMap* values) override {
     values->Set(key::kQuicAllowed, POLICY_LEVEL_MANDATORY, POLICY_SCOPE_MACHINE,
                 POLICY_SOURCE_CLOUD,
-                base::WrapUnique(new base::FundamentalValue(false)), nullptr);
+                base::MakeUnique<base::FundamentalValue>(false), nullptr);
   }
 
  private:
@@ -106,7 +105,7 @@ class QuicAllowedPolicyIsTrue: public QuicAllowedPolicyTestBase {
   void GetQuicAllowedPolicy(PolicyMap* values) override {
     values->Set(key::kQuicAllowed, POLICY_LEVEL_MANDATORY, POLICY_SCOPE_MACHINE,
                 POLICY_SOURCE_CLOUD,
-                base::WrapUnique(new base::FundamentalValue(true)), nullptr);
+                base::MakeUnique<base::FundamentalValue>(true), nullptr);
   }
 
  private:

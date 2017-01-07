@@ -1,11 +1,14 @@
-# Copyright (c) 2015 The Chromium Authors. All rights reserved.
+# Copyright 2015 The Chromium Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+import optparse
 import os
 import py_utils
 
+from systrace import trace_result
 from systrace import tracing_agents
+
 
 class FtraceAgentIo(object):
   @staticmethod
@@ -85,9 +88,9 @@ all_categories = {
 }
 
 
-def try_create_agent(options):
-  if options.target != 'linux':
-    return False
+def try_create_agent(config):
+  if config.target != 'linux':
+    return None
   return FtraceAgent(FtraceAgentIo)
 
 
@@ -96,25 +99,46 @@ def list_categories(_):
   agent._print_avail_categories()
 
 
+class FtraceConfig(tracing_agents.TracingConfig):
+  def __init__(self, ftrace_categories, target, trace_buf_size):
+    tracing_agents.TracingConfig.__init__(self)
+    self.ftrace_categories = ftrace_categories
+    self.target = target
+    self.trace_buf_size = trace_buf_size
+
+
+def add_options(parser):
+  options = optparse.OptionGroup(parser, 'Ftrace options')
+  options.add_option('--ftrace-categories', dest='ftrace_categories',
+                     help='Select ftrace categories with a comma-delimited '
+                     'list, e.g. --ftrace-categories=cat1,cat2,cat3')
+  return options
+
+
+def get_config(options):
+  return FtraceConfig(options.ftrace_categories, options.target,
+                      options.trace_buf_size)
+
+
 class FtraceAgent(tracing_agents.TracingAgent):
 
   def __init__(self, fio=FtraceAgentIo):
     """Initialize a systrace agent.
 
     Args:
-      options: The command-line options.
+      config: The command-line config.
       categories: The trace categories to capture.
     """
     super(FtraceAgent, self).__init__()
     self._fio = fio
-    self._options = None
+    self._config = None
     self._categories = None
 
   def _get_trace_buffer_size(self):
     buffer_size = 4096
-    if ((self._options.trace_buf_size is not None)
-        and (self._options.trace_buf_size > 0)):
-      buffer_size = self._options.trace_buf_size
+    if ((self._config.trace_buf_size is not None)
+        and (self._config.trace_buf_size > 0)):
+      buffer_size = self._config.trace_buf_size
     return buffer_size
 
   def _fix_categories(self, categories):
@@ -130,11 +154,11 @@ class FtraceAgent(tracing_agents.TracingAgent):
             if self._is_category_available(x)]
 
   @py_utils.Timeout(tracing_agents.START_STOP_TIMEOUT)
-  def StartAgentTracing(self, options, categories, timeout=None):
+  def StartAgentTracing(self, config, timeout=None):
     """Start tracing.
     """
-    self._options = options
-    categories = self._fix_categories(categories)
+    self._config = config
+    categories = self._fix_categories(config.ftrace_categories)
     self._fio.writeFile(FT_BUFFER_SIZE,
                         str(self._get_trace_buffer_size()))
     self._fio.writeFile(FT_CLOCK, 'global')
@@ -166,12 +190,6 @@ class FtraceAgent(tracing_agents.TracingAgent):
     self._fio.writeFile(FT_TRACE_ON, '0')
     for category in self._categories:
       self._category_disable(category)
-    if self._options.fix_threads:
-      print "WARN: thread name fixing is not yet supported."
-    if self._options.fix_tgids:
-      print "WARN: tgid fixing is not yet supported."
-    if self._options.fix_circular:
-      print "WARN: circular buffer fixups are not yet supported."
     return True
 
   @py_utils.Timeout(tracing_agents.GET_RESULTS_TIMEOUT)
@@ -179,7 +197,7 @@ class FtraceAgent(tracing_agents.TracingAgent):
     # get the output
     d = self._fio.readFile(FT_TRACE)
     self._fio.writeFile(FT_BUFFER_SIZE, "1")
-    return tracing_agents.TraceResult('trace-data', d)
+    return trace_result.TraceResult('trace-data', d)
 
   def SupportsExplicitClockSync(self):
     return False
@@ -210,7 +228,7 @@ class FtraceAgent(tracing_agents.TracingAgent):
   def _print_avail_categories(self):
     avail = self._avail_categories()
     if len(avail):
-      print "tracing options:"
+      print "tracing config:"
       for category in self._avail_categories():
         desc = all_categories[category]["desc"]
         print "{0: <16}".format(category), ": ", desc

@@ -48,7 +48,6 @@
 #import "chrome/browser/ui/cocoa/website_settings/website_settings_bubble_controller.h"
 #include "chrome/browser/ui/exclusive_access/exclusive_access_context.h"
 #include "chrome/browser/ui/profile_chooser_constants.h"
-#include "chrome/browser/ui/search/search_model.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/browser/web_applications/web_app.h"
 #include "chrome/common/chrome_switches.h"
@@ -57,6 +56,7 @@
 #include "chrome/grit/generated_resources.h"
 #include "components/bookmarks/common/bookmark_pref_names.h"
 #include "components/prefs/pref_service.h"
+#include "components/strings/grit/components_strings.h"
 #include "components/translate/core/browser/language_state.h"
 #include "content/public/browser/native_web_keyboard_event.h"
 #include "content/public/browser/notification_details.h"
@@ -66,7 +66,6 @@
 #include "extensions/browser/extension_registry.h"
 #include "extensions/browser/extension_system.h"
 #include "extensions/common/constants.h"
-#include "grit/components_strings.h"
 #include "ui/base/l10n/l10n_util_mac.h"
 #include "ui/events/keycodes/keyboard_codes.h"
 #include "ui/gfx/geometry/rect.h"
@@ -141,12 +140,9 @@ BrowserWindowCocoa::BrowserWindowCocoa(Browser* browser,
   chrome::GetSavedWindowBoundsAndShowState(browser_,
                                            &bounds,
                                            &initial_show_state_);
-
-  browser_->search_model()->AddObserver(this);
 }
 
 BrowserWindowCocoa::~BrowserWindowCocoa() {
-  browser_->search_model()->RemoveObserver(this);
 }
 
 void BrowserWindowCocoa::Show() {
@@ -376,6 +372,10 @@ gfx::Rect BrowserWindowCocoa::GetRestoredBounds() const {
 
 std::string BrowserWindowCocoa::GetWorkspace() const {
   return std::string();
+}
+
+bool BrowserWindowCocoa::IsVisibleOnAllWorkspaces() const {
+  return false;
 }
 
 ui::WindowShowState BrowserWindowCocoa::GetRestoredState() const {
@@ -752,8 +752,8 @@ WindowOpenDisposition BrowserWindowCocoa::GetDispositionForPopupBounds(
     const gfx::Rect& bounds) {
   // When using Cocoa's System Fullscreen mode, convert popups into tabs.
   if ([controller_ isInAppKitFullscreen])
-    return NEW_FOREGROUND_TAB;
-  return NEW_POPUP;
+    return WindowOpenDisposition::NEW_FOREGROUND_TAB;
+  return WindowOpenDisposition::NEW_POPUP;
 }
 
 FindBar* BrowserWindowCocoa::CreateFindBar() {
@@ -785,10 +785,6 @@ extensions::ActiveTabPermissionGranter*
   extensions::TabHelper* tab_helper =
       extensions::TabHelper::FromWebContents(web_contents);
   return tab_helper ? tab_helper->active_tab_permission_granter() : NULL;
-}
-
-void BrowserWindowCocoa::ModelChanged(const SearchModel::State& old_state,
-                                      const SearchModel::State& new_state) {
 }
 
 void BrowserWindowCocoa::DestroyBrowser() {

@@ -6,10 +6,12 @@
 
 #include "content/public/browser/navigation_entry.h"
 #include "content/public/browser/render_process_host.h"
+#include "content/public/browser/ssl_status.h"
 #include "content/public/browser/web_contents.h"
-#include "content/public/common/ssl_status.h"
 #include "jni/PolicyAuditor_jni.h"
 #include "net/cert/cert_status_flags.h"
+
+using base::android::JavaParamRef;
 
 int GetCertificateFailure(JNIEnv* env,
                           const JavaParamRef<jclass>& obj,

@@ -7,6 +7,7 @@
 #include <string>
 #include <utility>
 
+#include "base/memory/ptr_util.h"
 #include "components/crx_file/id_util.h"
 #include "components/policy/core/common/configuration_policy_provider.h"
 #include "components/policy/core/common/mock_configuration_policy_provider.h"
@@ -14,7 +15,7 @@
 #include "components/policy/core/common/policy_map.h"
 #include "components/policy/core/common/policy_namespace.h"
 #include "components/policy/core/common/policy_types.h"
-#include "policy/policy_constants.h"
+#include "components/policy/policy_constants.h"
 
 namespace extensions {
 
@@ -60,7 +61,7 @@ void ExtensionManagementPrefUpdaterBase::SetBlacklistedByDefault(bool value) {
 
 void ExtensionManagementPrefUpdaterBase::
     ClearInstallationModesForIndividualExtensions() {
-  for (base::DictionaryValue::Iterator it(*pref_.get()); !it.IsAtEnd();
+  for (base::DictionaryValue::Iterator it(*pref_); !it.IsAtEnd();
        it.Advance()) {
     DCHECK(it.value().IsType(base::Value::TYPE_DICTIONARY));
     if (it.key() != schema::kWildcard) {
@@ -232,7 +233,8 @@ void ExtensionManagementPrefUpdaterBase::AddStringToList(
     list_value = new base::ListValue();
     pref_->Set(path, list_value);
   }
-  CHECK(list_value->AppendIfNotPresent(new base::StringValue(str)));
+  CHECK(
+      list_value->AppendIfNotPresent(base::MakeUnique<base::StringValue>(str)));
 }
 
 void ExtensionManagementPrefUpdaterBase::RemoveStringFromList(

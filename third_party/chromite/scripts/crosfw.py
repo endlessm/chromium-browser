@@ -268,9 +268,30 @@ def ParseCmdline(argv):
                       help='Write to SD card instead of USB/em100')
   parser.add_argument('-z', '--size', action='store_true', default=False,
                       help='Display U-Boot image size')
-  parser.add_argument('target', nargs='?',
+  parser.add_argument('target', nargs='?', default='all',
                       help='The target to work on')
   return parser.parse_args(argv)
+
+
+def FindCompiler(gcc, cros_prefix):
+  """Look up the compiler for an architecture.
+
+  Args:
+    gcc: GCC architecture, either 'arm' or 'aarch64'
+    cros_prefix: Full Chromium OS toolchain prefix
+  """
+  if in_chroot:
+    # Use the Chromium OS toolchain.
+    prefix = cros_prefix
+  else:
+    prefix = glob.glob('/opt/linaro/gcc-linaro-%s-linux-*/bin/*gcc' % gcc)
+    if not prefix:
+      cros_build_lib.Die("""Please install an ARM toolchain for your machine.
+Install a Linaro toolchain from:
+https://launchpad.net/linaro-toolchain-binaries
+or see cros/commands/cros_chrome_sdk.py.""")
+    prefix = re.sub('gcc$', '', prefix[0])
+  return prefix
 
 
 def SetupBuild(options):
@@ -318,8 +339,15 @@ def SetupBuild(options):
 
   # Pull out some information from the U-Boot boards config file
   family = None
+  (PRE_KBUILD, PRE_KCONFIG, KCONFIG) = range(3)
+  if os.path.exists('MAINTAINERS'):
+    board_format = PRE_KBUILD
+  else:
+    board_format = PRE_KCONFIG
   with open('boards.cfg') as f:
     for line in f:
+      if 'genboardscfg' in line:
+        board_format = KCONFIG
       if uboard in line:
         if line[0] == '#':
           continue
@@ -328,9 +356,14 @@ def SetupBuild(options):
           continue
         arch = fields[1]
         fields += [None, None, None]
-        smdk = fields[3]
-        vendor = fields[4]
-        family = fields[5]
+        if board_format == PRE_KBUILD:
+          smdk = fields[3]
+          vendor = fields[4]
+          family = fields[5]
+        elif board_format in (PRE_KCONFIG, KCONFIG):
+          smdk = fields[5]
+          vendor = fields[4]
+          family = fields[3]
         break
   if not arch:
     cros_build_lib.Die("Selected board '%s' not found in boards.cfg." % board)
@@ -343,18 +376,11 @@ def SetupBuild(options):
     else:
       compiler = '/opt/i686/bin/i686-unknown-elf-'
   elif arch == 'arm':
-    if in_chroot:
-      # Use the Chrome OS toolchain
-      compiler = 'armv7a-cros-linux-gnueabi-'
-    else:
-      compiler = glob.glob('/opt/linaro/gcc-linaro-arm-linux-*/bin/*gcc')
-      if not compiler:
-        cros_build_lib.Die("""Please install an ARM toolchain for your machine.
-'Install a Linaro toolchain from:'
-'https://launchpad.net/linaro-toolchain-binaries'
-'or see cros/commands/cros_chrome_sdk.py.""")
-      compiler = compiler[0]
-    compiler = re.sub('gcc$', '', compiler)
+    compiler = FindCompiler(arch, 'armv7a-cros-linux-gnueabi-')
+  elif arch == 'aarch64':
+    compiler = FindCompiler(arch, 'aarch64-cros-linux-gnu-')
+    # U-Boot builds both arm and aarch64 with the 'arm' architecture.
+    arch = 'arm'
   elif arch == 'sandbox':
     compiler = ''
   else:
@@ -379,6 +405,8 @@ def SetupBuild(options):
 
   if options.verbose < 2:
     base.append('-s')
+  elif options.verbose > 2:
+    base.append('V=1')
 
   if options.ro and options.rw:
     cros_build_lib.Die('Cannot specify both --ro and --rw options')
@@ -429,6 +457,7 @@ def SetupBuild(options):
   if result.returncode == 0:
     base.append('USE_STDINT=1')
 
+  base.append('BUILD_ROM=1')
   if options.trace:
     base.append('FTRACE=1')
   if options.separate:
@@ -436,12 +465,12 @@ def SetupBuild(options):
 
   if options.incremental:
     # Get the correct board for cros_write_firmware
-    config_mk = '%s/include/config.mk' % outdir
+    config_mk = '%s/include/autoconf.mk' % outdir
     if not os.path.exists(config_mk):
       logging.warning('No build found for %s - dropping -i' % board)
       options.incremental = False
 
-  config_mk = 'include/config.mk'
+  config_mk = 'include/autoconf.mk'
   if os.path.exists(config_mk):
     logging.warning("Warning: '%s' exists, try 'make distclean'" % config_mk)
 

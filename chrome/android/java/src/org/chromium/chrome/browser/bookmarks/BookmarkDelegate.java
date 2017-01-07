@@ -7,10 +7,8 @@ package org.chromium.chrome.browser.bookmarks;
 import android.support.v4.widget.DrawerLayout;
 
 import org.chromium.chrome.browser.favicon.LargeIconBridge;
-import org.chromium.chrome.browser.snackbar.SnackbarManager;
+import org.chromium.chrome.browser.widget.selection.SelectionDelegate;
 import org.chromium.components.bookmarks.BookmarkId;
-
-import java.util.List;
 
 /**
  * Interface used by UI components in the main bookmarks UI to broadcast UI change notifications
@@ -37,11 +35,6 @@ interface BookmarkDelegate {
     boolean isDialogUi();
 
     /**
-     * Corresponds to "All Items" list item in the side drawer. Shows all bookmarks.
-     */
-    void openAllBookmarks();
-
-    /**
      * Corresponds to any folder named list item in the side drawer. Shows bookmarks under the
      * folder.
      * @param folder Parent folder that contains bookmarks to show as its children.
@@ -49,31 +42,9 @@ interface BookmarkDelegate {
     void openFolder(BookmarkId folder);
 
     /**
-     * Clear all selected items. After this call, {@link #isSelectionEnabled()} will return false.
+     * @return The SelectionDelegate responsible for tracking selected bookmarks.
      */
-    void clearSelection();
-
-    /**
-     * Toggle the selection state of a bookmark. If the given bookmark is not
-     * editable, it will take no effect.
-     * @return True if the bookmark is selected after toggling. False otherwise.
-     */
-    boolean toggleSelectionForBookmark(BookmarkId bookmark);
-
-    /**
-     * @return True if the bookmark is selected. False otherwise.
-     */
-    boolean isBookmarkSelected(BookmarkId bookmark);
-
-    /**
-     * @return Whether selection is happening.
-     */
-    boolean isSelectionEnabled();
-
-    /**
-     * @return The list of bookmarks that are currently selected by the user.
-     */
-    List<BookmarkId> getSelectedBookmarks();
+    SelectionDelegate<BookmarkId> getSelectionDelegate();
 
     /**
      * Notifies the current mode set event to the given observer. For example, if the current mode
@@ -139,9 +110,4 @@ interface BookmarkDelegate {
      * @return LargeIconBridge instance. By sharing the instance, we can also share the cache.
      */
     LargeIconBridge getLargeIconBridge();
-
-    /**
-     * @return SnackbarManager instance.
-     */
-    SnackbarManager getSnackbarManager();
 }

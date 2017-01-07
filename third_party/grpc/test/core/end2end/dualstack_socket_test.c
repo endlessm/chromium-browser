@@ -199,7 +199,7 @@ void test_connect(const char *server_host, const char *client_host, int port,
     error = grpc_server_request_call(server, &s, &call_details,
                                      &request_metadata_recv, cq, cq, tag(101));
     GPR_ASSERT(GRPC_CALL_OK == error);
-    cq_expect_completion(cqv, tag(101), 1);
+    CQ_EXPECT_COMPLETION(cqv, tag(101), 1);
     cq_verify(cqv);
 
     memset(ops, 0, sizeof(ops));
@@ -221,8 +221,8 @@ void test_connect(const char *server_host, const char *client_host, int port,
     error = grpc_call_start_batch(s, ops, (size_t)(op - ops), tag(102), NULL);
     GPR_ASSERT(GRPC_CALL_OK == error);
 
-    cq_expect_completion(cqv, tag(102), 1);
-    cq_expect_completion(cqv, tag(1), 1);
+    CQ_EXPECT_COMPLETION(cqv, tag(102), 1);
+    CQ_EXPECT_COMPLETION(cqv, tag(1), 1);
     cq_verify(cqv);
 
     peer = grpc_call_get_peer(c);
@@ -238,7 +238,7 @@ void test_connect(const char *server_host, const char *client_host, int port,
     grpc_call_destroy(s);
   } else {
     /* Check for a failed connection. */
-    cq_expect_completion(cqv, tag(1), 1);
+    CQ_EXPECT_COMPLETION(cqv, tag(1), 1);
     cq_verify(cqv);
 
     GPR_ASSERT(status == GRPC_STATUS_UNAVAILABLE);
@@ -273,7 +273,9 @@ void test_connect(const char *server_host, const char *client_host, int port,
 }
 
 int external_dns_works(const char *host) {
-  grpc_resolved_addresses *res = grpc_blocking_resolve_address(host, "80");
+  grpc_resolved_addresses *res = NULL;
+  grpc_error *error = grpc_blocking_resolve_address(host, "80", &res);
+  GRPC_ERROR_UNREF(error);
   if (res != NULL) {
     grpc_resolved_addresses_destroy(res);
     return 1;

@@ -5,6 +5,8 @@
 #include <memory>
 
 #include "ash/common/shell_window_ids.h"
+#include "ash/common/wm_shell.h"
+#include "ash/common/wm_window.h"
 #include "ash/shell.h"
 #include "ash/test/ash_test_base.h"
 #include "ash/test/ash_test_helper.h"
@@ -21,23 +23,18 @@
 namespace ash {
 
 namespace {
-const int kMinimalCenteredAppListMargin = 10;
+const int kMinimalAppListMargin = 10;
 }
 
-// The parameter is true to test the centered app list, false for normal.
-// (The test name ends in "/0" for normal, "/1" for centered.)
-class AppListPresenterDelegateTest
-    : public test::AshTestBase,
-      public ::testing::WithParamInterface<bool> {
+class AppListPresenterDelegateTest : public test::AshTestBase {
  public:
   AppListPresenterDelegateTest();
-  virtual ~AppListPresenterDelegateTest();
+  ~AppListPresenterDelegateTest() override;
 
   // testing::Test:
   void SetUp() override;
 
   app_list::AppListPresenterImpl* GetAppListPresenter();
-  bool IsCentered() const;
 };
 
 AppListPresenterDelegateTest::AppListPresenterDelegateTest() {}
@@ -46,12 +43,8 @@ AppListPresenterDelegateTest::~AppListPresenterDelegateTest() {}
 
 void AppListPresenterDelegateTest::SetUp() {
   AshTestBase::SetUp();
-  if (IsCentered()) {
-    base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
-    command_line->AppendSwitch(app_list::switches::kEnableCenteredAppList);
-  }
 
-  // Make the display big enough to hold the experimental app list.
+  // Make the display big enough to hold the app list.
   UpdateDisplay("1024x768");
 }
 
@@ -60,27 +53,23 @@ AppListPresenterDelegateTest::GetAppListPresenter() {
   return ash_test_helper()->test_shell_delegate()->app_list_presenter();
 }
 
-bool AppListPresenterDelegateTest::IsCentered() const {
-  return GetParam();
-}
-
 // Tests that app launcher hides when focus moves to a normal window.
-TEST_P(AppListPresenterDelegateTest, HideOnFocusOut) {
-  Shell::GetInstance()->ShowAppList(NULL);
-  EXPECT_TRUE(Shell::GetInstance()->GetAppListTargetVisibility());
+TEST_F(AppListPresenterDelegateTest, HideOnFocusOut) {
+  WmShell::Get()->ShowAppList();
+  EXPECT_TRUE(WmShell::Get()->GetAppListTargetVisibility());
 
   std::unique_ptr<aura::Window> window(CreateTestWindowInShellWithId(0));
   wm::ActivateWindow(window.get());
 
-  EXPECT_FALSE(Shell::GetInstance()->GetAppListTargetVisibility());
+  EXPECT_FALSE(WmShell::Get()->GetAppListTargetVisibility());
 }
 
 // Tests that app launcher remains visible when focus is moved to a different
 // window in kShellWindowId_AppListContainer.
-TEST_P(AppListPresenterDelegateTest,
+TEST_F(AppListPresenterDelegateTest,
        RemainVisibleWhenFocusingToApplistContainer) {
-  Shell::GetInstance()->ShowAppList(NULL);
-  EXPECT_TRUE(Shell::GetInstance()->GetAppListTargetVisibility());
+  WmShell::Get()->ShowAppList();
+  EXPECT_TRUE(WmShell::Get()->GetAppListTargetVisibility());
 
   aura::Window* applist_container = Shell::GetContainer(
       Shell::GetPrimaryRootWindow(), kShellWindowId_AppListContainer);
@@ -88,98 +77,84 @@ TEST_P(AppListPresenterDelegateTest,
       aura::test::CreateTestWindowWithId(0, applist_container));
   wm::ActivateWindow(window.get());
 
-  EXPECT_TRUE(Shell::GetInstance()->GetAppListTargetVisibility());
+  EXPECT_TRUE(WmShell::Get()->GetAppListTargetVisibility());
 }
 
 // Tests that clicking outside the app-list bubble closes it.
-TEST_P(AppListPresenterDelegateTest, ClickOutsideBubbleClosesBubble) {
-  Shell* shell = Shell::GetInstance();
-  shell->ShowAppList(NULL);
+TEST_F(AppListPresenterDelegateTest, ClickOutsideBubbleClosesBubble) {
+  WmShell::Get()->ShowAppList();
   aura::Window* app_window = GetAppListPresenter()->GetWindow();
   ASSERT_TRUE(app_window);
-  ui::test::EventGenerator generator(shell->GetPrimaryRootWindow(), app_window);
+  ui::test::EventGenerator& generator = GetEventGenerator();
   // Click on the bubble itself. The bubble should remain visible.
+  generator.MoveMouseToCenterOf(app_window);
   generator.ClickLeftButton();
-  EXPECT_TRUE(shell->GetAppListTargetVisibility());
+  EXPECT_TRUE(WmShell::Get()->GetAppListTargetVisibility());
 
   // Click outside the bubble. This should close it.
   gfx::Rect app_window_bounds = app_window->GetBoundsInRootWindow();
   gfx::Point point_outside =
       gfx::Point(app_window_bounds.right(), app_window_bounds.y()) +
       gfx::Vector2d(10, 0);
-  EXPECT_TRUE(shell->GetPrimaryRootWindow()->bounds().Contains(point_outside));
   generator.MoveMouseToInHost(point_outside);
   generator.ClickLeftButton();
-  EXPECT_FALSE(shell->GetAppListTargetVisibility());
+  EXPECT_FALSE(WmShell::Get()->GetAppListTargetVisibility());
 }
 
 // Tests that clicking outside the app-list bubble closes it.
-TEST_P(AppListPresenterDelegateTest, TapOutsideBubbleClosesBubble) {
-  Shell* shell = Shell::GetInstance();
-  shell->ShowAppList(NULL);
+TEST_F(AppListPresenterDelegateTest, TapOutsideBubbleClosesBubble) {
+  WmShell::Get()->ShowAppList();
 
   aura::Window* app_window = GetAppListPresenter()->GetWindow();
   ASSERT_TRUE(app_window);
   gfx::Rect app_window_bounds = app_window->GetBoundsInRootWindow();
 
-  ui::test::EventGenerator generator(shell->GetPrimaryRootWindow());
+  ui::test::EventGenerator& generator = GetEventGenerator();
   // Click on the bubble itself. The bubble should remain visible.
   generator.GestureTapAt(app_window_bounds.CenterPoint());
-  EXPECT_TRUE(shell->GetAppListTargetVisibility());
+  EXPECT_TRUE(WmShell::Get()->GetAppListTargetVisibility());
 
   // Click outside the bubble. This should close it.
   gfx::Point point_outside =
       gfx::Point(app_window_bounds.right(), app_window_bounds.y()) +
       gfx::Vector2d(10, 0);
-  EXPECT_TRUE(shell->GetPrimaryRootWindow()->bounds().Contains(point_outside));
   generator.GestureTapAt(point_outside);
-  EXPECT_FALSE(shell->GetAppListTargetVisibility());
+  EXPECT_FALSE(WmShell::Get()->GetAppListTargetVisibility());
 }
 
 // Tests opening the app launcher on a non-primary display, then deleting the
 // display.
-TEST_P(AppListPresenterDelegateTest, NonPrimaryDisplay) {
+TEST_F(AppListPresenterDelegateTest, NonPrimaryDisplay) {
   if (!SupportsMultipleDisplays())
     return;
 
   // Set up a screen with two displays (horizontally adjacent).
   UpdateDisplay("1024x768,1024x768");
 
-  aura::Window::Windows root_windows = Shell::GetAllRootWindows();
+  std::vector<WmWindow*> root_windows = WmShell::Get()->GetAllRootWindows();
   ASSERT_EQ(2u, root_windows.size());
-  aura::Window* secondary_window = root_windows[1];
-  EXPECT_EQ("1024,0 1024x768",
-            secondary_window->GetBoundsInScreen().ToString());
+  WmWindow* secondary_root = root_windows[1];
+  EXPECT_EQ("1024,0 1024x768", secondary_root->GetBoundsInScreen().ToString());
 
-  Shell::GetInstance()->ShowAppList(secondary_window);
-  EXPECT_TRUE(Shell::GetInstance()->GetAppListTargetVisibility());
+  WmShell::Get()->delegate()->GetAppListPresenter()->Show(
+      secondary_root->GetDisplayNearestWindow().id());
+  EXPECT_TRUE(WmShell::Get()->GetAppListTargetVisibility());
 
   // Remove the secondary display. Shouldn't crash (http://crbug.com/368990).
   UpdateDisplay("1024x768");
 
   // Updating the displays should close the app list.
-  EXPECT_FALSE(Shell::GetInstance()->GetAppListTargetVisibility());
+  EXPECT_FALSE(WmShell::Get()->GetAppListTargetVisibility());
 }
 
 // Tests opening the app launcher on a tiny display that is too small to contain
 // it.
-TEST_P(AppListPresenterDelegateTest, TinyDisplay) {
-  // Don't test this for the non-centered app list case; it isn't designed for
-  // small displays. The most common case of a small display --- when the
-  // virtual keyboard is open --- switches into the centered app list mode, so
-  // we just want to run this test in that case.
-  if (!IsCentered())
-    return;
-
-  // UpdateDisplay is not supported in this case, so just skip the test.
-  if (!SupportsHostWindowResize())
-    return;
-
+TEST_F(AppListPresenterDelegateTest, TinyDisplay) {
   // Set up a screen with a tiny display (height smaller than the app list).
   UpdateDisplay("400x300");
 
-  Shell::GetInstance()->ShowAppList(NULL);
-  EXPECT_TRUE(Shell::GetInstance()->GetAppListTargetVisibility());
+  WmShell::Get()->ShowAppList();
+  EXPECT_TRUE(WmShell::Get()->GetAppListTargetVisibility());
 
   // The top of the app list should be on-screen (even if the bottom is not).
   // We need to manually calculate the Y coordinate of the top of the app list
@@ -189,11 +164,7 @@ TEST_P(AppListPresenterDelegateTest, TinyDisplay) {
   app_list::AppListView* app_list = GetAppListPresenter()->GetView();
   int app_list_view_top =
       app_list->anchor_rect().y() - app_list->bounds().height() / 2;
-  EXPECT_GE(app_list_view_top, kMinimalCenteredAppListMargin);
+  EXPECT_GE(app_list_view_top, kMinimalAppListMargin);
 }
-
-INSTANTIATE_TEST_CASE_P(AppListPresenterDelegateTestInstance,
-                        AppListPresenterDelegateTest,
-                        ::testing::Bool());
 
 }  // namespace ash

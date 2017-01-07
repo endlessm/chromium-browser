@@ -50,8 +50,7 @@ class SyncableFileSystemTest : public testing::Test {
     file_system_.SetUp(CannedSyncableFileSystem::QUOTA_ENABLED);
 
     sync_context_ =
-        new LocalFileSyncContext(data_dir_.path(),
-                                 in_memory_env_.get(),
+        new LocalFileSyncContext(data_dir_.GetPath(), in_memory_env_.get(),
                                  base::ThreadTaskRunnerHandle::Get().get(),
                                  base::ThreadTaskRunnerHandle::Get().get());
     ASSERT_EQ(
@@ -202,9 +201,9 @@ TEST_F(SyncableFileSystemTest, ChangeTrackerSimple) {
   file_system_.GetChangedURLsInTracker(&urls);
 
   EXPECT_EQ(3U, urls.size());
-  EXPECT_TRUE(ContainsKey(urls, URL(kPath0)));
-  EXPECT_TRUE(ContainsKey(urls, URL(kPath1)));
-  EXPECT_TRUE(ContainsKey(urls, URL(kPath2)));
+  EXPECT_TRUE(base::ContainsKey(urls, URL(kPath0)));
+  EXPECT_TRUE(base::ContainsKey(urls, URL(kPath1)));
+  EXPECT_TRUE(base::ContainsKey(urls, URL(kPath2)));
 
   VerifyAndClearChange(URL(kPath0),
                        FileChange(FileChange::FILE_CHANGE_ADD_OR_UPDATE,
@@ -236,9 +235,9 @@ TEST_F(SyncableFileSystemTest, ChangeTrackerSimple) {
 
   // kPath0 and its all chidren (kPath1 and kPath2) must have been deleted.
   EXPECT_EQ(3U, urls.size());
-  EXPECT_TRUE(ContainsKey(urls, URL(kPath0)));
-  EXPECT_TRUE(ContainsKey(urls, URL(kPath1)));
-  EXPECT_TRUE(ContainsKey(urls, URL(kPath2)));
+  EXPECT_TRUE(base::ContainsKey(urls, URL(kPath0)));
+  EXPECT_TRUE(base::ContainsKey(urls, URL(kPath1)));
+  EXPECT_TRUE(base::ContainsKey(urls, URL(kPath2)));
 
   VerifyAndClearChange(URL(kPath0),
                        FileChange(FileChange::FILE_CHANGE_DELETE,

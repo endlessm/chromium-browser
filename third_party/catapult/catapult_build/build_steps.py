@@ -39,8 +39,8 @@ _CATAPULT_TESTS = [
         'disabled': ['android'],
     },
     {
-        'name': 'Catapult Base Tests',
-        'path': 'catapult_base/bin/run_tests',
+        'name': 'Common Tests',
+        'path': 'common/bin/run_tests',
     },
     {
         'name': 'Dashboard Dev Server Tests Canary',
@@ -77,7 +77,7 @@ _CATAPULT_TESTS = [
     },
     {
         'name': 'Devil Device Tests',
-        'path': 'devil/devil/android/device_utils_devicetest.py',
+        'path': 'devil/bin/run_py_devicetests',
         'disabled': ['win', 'mac', 'linux']
     },
     {
@@ -86,38 +86,10 @@ _CATAPULT_TESTS = [
         'disabled': ['mac', 'win'],
     },
     {
-        'name': 'Perf Insights Dev Server Tests Canary',
-        'path': 'perf_insights/bin/run_dev_server_tests',
-        'additional_args': [
-            '--no-install-hooks',
-            '--no-use-local-chrome',
-            '--channel=canary'
-        ],
-        'outputs_presentation_json': True,
-        'disabled': ['android'],
-    },
-    {
-        'name': 'Perf Insights Dev Server Tests Stable',
-        'path': 'perf_insights/bin/run_dev_server_tests',
-        'additional_args': [
-            '--no-install-hooks',
-            '--no-use-local-chrome',
-            '--channel=stable',
-        ],
-        'uses_sandbox_env': True,
-        'outputs_presentation_json': True,
-        'disabled': ['android'],
-    },
-    {
-        'name': 'Perf Insights Python Tests',
-        'path': 'perf_insights/bin/run_py_tests',
-        'additional_args': ['--no-install-hooks'],
-        'disabled': ['android'],
-    },
-    {
-        'name': 'Perf VINN Insights Tests',
-        'path': 'perf_insights/bin/run_vinn_tests',
-        'disabled': ['android'],
+        'name': 'eslint Tests',
+        'path': 'common/eslint/bin/run_tests',
+        # https://github.com/catapult-project/catapult/issues/2908
+        'disabled': ['android', 'win'],
     },
     {
         'name': 'Py-vulcanize Tests',
@@ -128,7 +100,6 @@ _CATAPULT_TESTS = [
     {
         'name': 'Systrace Tests',
         'path': 'systrace/bin/run_tests',
-        'disabled': ['android'],
     },
     {
         'name': 'Telemetry Tests with Stable Browser',
@@ -138,6 +109,7 @@ _CATAPULT_TESTS = [
             '--start-xvfb'
         ],
         'uses_sandbox_env': True,
+        'disabled': ['android'],
     },
     {
         'name': 'Telemetry Integration Tests with Stable Browser',
@@ -187,6 +159,15 @@ _CATAPULT_TESTS = [
         'path': 'third_party/vinn/bin/run_tests',
         'disabled': ['android'],
     },
+    {
+        'name': 'NetLog Viewer Dev Server Tests',
+        'path': 'netlog_viewer/bin/run_dev_server_tests',
+        'additional_args': [
+            '--no-install-hooks',
+            '--no-use-local-chrome',
+        ],
+        'disabled': ['android', 'win', 'mac', 'linux'],
+    },
 ]
 
 
@@ -226,6 +207,12 @@ def main(args=None):
                                  'android', 'tools', 'device_recovery.py')],
         },
         {
+            'name': 'Android: Provision Devices',
+            'cmd': ['python',
+                    os.path.join(args.api_path_checkout, 'devil', 'devil',
+                                 'android', 'tools', 'provision_devices.py')],
+        },
+        {
             'name': 'Android: Device Status',
             'cmd': ['python',
                     os.path.join(args.api_path_checkout, 'devil', 'devil',
@@ -241,6 +228,8 @@ def main(args=None):
         'env': {}
     }
     step['cmd'] = ['python', os.path.join(args.api_path_checkout, test['path'])]
+    if step['name'] == 'Systrace Tests':
+      step['cmd'] += ['--device=' + args.platform]
     if test.get('additional_args'):
       step['cmd'] += test['additional_args']
     if test.get('uses_app_engine_sdk'):

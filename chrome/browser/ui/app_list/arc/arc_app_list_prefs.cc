@@ -12,6 +12,8 @@
 #include "base/metrics/histogram_macros.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/task_runner_util.h"
+#include "chrome/browser/policy/profile_policy_connector.h"
+#include "chrome/browser/policy/profile_policy_connector_factory.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/app_list/app_list_service.h"
 #include "chrome/browser/ui/app_list/arc/arc_app_list_prefs_factory.h"
@@ -47,7 +49,8 @@ const char kShouldSync[] = "should_sync";
 const char kSystem[] = "system";
 const char kUninstalled[] = "uninstalled";
 
-constexpr int kSetNotificationsEnabledMinVersion = 6;
+constexpr uint32_t kSetNotificationsEnabledMinVersion = 6;
+constexpr uint32_t kRequestIconMinVersion = 9;
 
 // Provider of write access to a dictionary storing ARC prefs.
 class ScopedArcPrefUpdate : public DictionaryPrefUpdate {
@@ -143,6 +146,11 @@ bool IsArcEnabled() {
   return auth_service &&
          auth_service->state() != arc::ArcAuthService::State::NOT_INITIALIZED &&
          auth_service->IsArcEnabled();
+}
+
+bool IsAccountManaged(Profile* profile) {
+  return policy::ProfilePolicyConnectorFactory::GetForBrowserContext(profile)
+      ->IsManaged();
 }
 
 bool GetInt64FromPref(const base::DictionaryValue* dict,
@@ -269,7 +277,7 @@ void ArcAppListPrefs::StartPrefs() {
   auth_service->AddObserver(this);
 
   app_instance_holder_->AddObserver(this);
-  if (!app_instance_holder_->instance())
+  if (!app_instance_holder_->has_instance())
     OnInstanceClosed();
 }
 
@@ -307,8 +315,7 @@ void ArcAppListPrefs::RequestIcon(const std::string& app_id,
     return;
   }
 
-  arc::mojom::AppInstance* app_instance = app_instance_holder_->instance();
-  if (!app_instance) {
+  if (!app_instance_holder_->has_instance()) {
     // AppInstance should be ready since we have app_id in ready_apps_. This
     // can happen in browser_tests.
     return;
@@ -321,10 +328,19 @@ void ArcAppListPrefs::RequestIcon(const std::string& app_id,
   }
 
   if (app_info->icon_resource_id.empty()) {
+    auto* app_instance =
+        app_instance_holder_->GetInstanceForMethod("RequestAppIcon");
+    // Version 0 instance should always be available here because has_instance()
+    // returned true above.
+    DCHECK(app_instance);
     app_instance->RequestAppIcon(
         app_info->package_name, app_info->activity,
         static_cast<arc::mojom::ScaleFactor>(scale_factor));
   } else {
+    auto* app_instance = app_instance_holder_->GetInstanceForMethod(
+        "RequestIcon", kRequestIconMinVersion);
+    if (!app_instance)
+      return;  // The instance version on ARC side was too old.
     app_instance->RequestIcon(
         app_info->icon_resource_id,
         static_cast<arc::mojom::ScaleFactor>(scale_factor),
@@ -356,17 +372,10 @@ void ArcAppListPrefs::SetNotificationsEnabled(const std::string& app_id,
     return;
   }
 
-  arc::mojom::AppInstance* app_instance = app_instance_holder_->instance();
-  if (!app_instance) {
-    // AppInstance should be ready since we have app_id in ready_apps_.
-    NOTREACHED();
+  auto* app_instance = app_instance_holder_->GetInstanceForMethod(
+      "SetNotificationsEnabled", kSetNotificationsEnabledMinVersion);
+  if (!app_instance)
     return;
-  }
-
-  if (app_instance_holder_->version() < kSetNotificationsEnabledMinVersion) {
-    VLOG(2) << "app version is too small to set notifications enabled.";
-    return;
-  }
 
   SetNotificationsEnabledDeferred(prefs_).Remove(app_id);
   app_instance->SetNotificationsEnabled(app_info->package_name, enabled);
@@ -589,19 +598,44 @@ void ArcAppListPrefs::RemoveAllApps() {
 }
 
 void ArcAppListPrefs::OnOptInEnabled(bool enabled) {
+  UpdateDefaultAppsHiddenState();
+
   if (enabled)
     NotifyRegisteredApps();
   else
     RemoveAllApps();
 }
 
+void ArcAppListPrefs::UpdateDefaultAppsHiddenState() {
+  const bool was_hidden = default_apps_.is_hidden();
+  // There is no a blacklisting mechanism for Android apps. Until there is
+  // one, we have no option but to ban all pre-installed apps on Android side.
+  // Match this requirement and don't show pre-installed apps for managed users
+  // in app list.
+  const bool now_hidden = IsAccountManaged(profile_);
+  default_apps_.set_hidden(now_hidden);
+  if (was_hidden && !default_apps_.is_hidden())
+    RegisterDefaultApps();
+}
+
 void ArcAppListPrefs::OnDefaultAppsReady() {
   // Apply uninstalled packages now.
+
   const std::vector<std::string> uninstalled_package_names =
       GetPackagesFromPrefs(false);
   for (const auto& uninstalled_package_name : uninstalled_package_names)
     default_apps_.MaybeMarkPackageUninstalled(uninstalled_package_name, true);
 
+  UpdateDefaultAppsHiddenState();
+
+  default_apps_ready_ = true;
+  if (!default_apps_ready_callback_.is_null())
+    default_apps_ready_callback_.Run();
+
+  StartPrefs();
+}
+
+void ArcAppListPrefs::RegisterDefaultApps() {
   // Report default apps first, note, app_map includes uninstalled apps as well.
   for (const auto& default_app : default_apps_.app_map()) {
     const std::string& app_id = default_app.first;
@@ -620,12 +654,6 @@ void ArcAppListPrefs::OnDefaultAppsReady() {
                       true /* launchable */,
                       arc::mojom::OrientationLock::NONE);
   }
-
-  default_apps_ready_ = true;
-  if (!default_apps_ready_callback_.is_null())
-    default_apps_ready_callback_.Run();
-
-  StartPrefs();
 }
 
 void ArcAppListPrefs::SetDefaltAppsReadyCallback(base::Closure callback) {
@@ -637,16 +665,16 @@ void ArcAppListPrefs::SetDefaltAppsReadyCallback(base::Closure callback) {
 }
 
 void ArcAppListPrefs::OnInstanceReady() {
-  arc::mojom::AppInstance* app_instance = app_instance_holder_->instance();
+  // Init() is also available at version 0.
+  arc::mojom::AppInstance* app_instance =
+      app_instance_holder_->GetInstanceForMethod("RefreshAppList");
 
   sync_service_ = arc::ArcPackageSyncableService::Get(profile_);
   DCHECK(sync_service_);
 
   // In some tests app_instance may not be set.
-  if (!app_instance) {
-    VLOG(2) << "Request to refresh app list when bridge service is not ready.";
+  if (!app_instance)
     return;
-  }
 
   is_initialized_ = false;
 
@@ -664,6 +692,7 @@ void ArcAppListPrefs::OnInstanceClosed() {
   }
 
   is_initialized_ = false;
+  package_list_initial_refreshed_ = false;
 }
 
 void ArcAppListPrefs::MaybeAddNonLaunchableApp(const std::string& name,
@@ -699,14 +728,10 @@ void ArcAppListPrefs::AddAppAndShortcut(
     const arc::mojom::OrientationLock orientation_lock) {
   const std::string app_id = shortcut ? GetAppId(package_name, intent_uri)
                                       : GetAppId(package_name, activity);
-
-  // |updated_name| will be only used on M53 and will be reverted later on Tot.
   std::string updated_name = name;
-  if (app_id == arc::kPlayStoreAppId) {
-    updated_name =
-        name + " (" +
-        l10n_util::GetStringUTF8(IDS_ABOUT_PAGE_CURRENT_CHANNEL_BETA) + ")";
-  }
+  // Add "(beta)" string to Play Store. See crbug.com/644576 for details.
+  if (app_id == arc::kPlayStoreAppId)
+    updated_name = l10n_util::GetStringUTF8(IDS_ARC_PLAYSTORE_ICON_TITLE_BETA);
 
   const bool was_registered = IsRegistered(app_id);
   if (was_registered) {
@@ -1134,12 +1159,13 @@ void ArcAppListPrefs::OnPackageListRefreshed(
       RemovePackageFromPrefs(prefs_, package_name);
   }
 
-  // Start ArcPackageSyncService ASAP. This is the call_back of
-  // app_instance->RefreshAppList() in OnInstanceReady(). SyncStarted() should
-  // only be called after packagelist refresh is completed. SyncStarted() is
-  // no-op after first time setup or if sync is disabled.
-  DCHECK(sync_service_);
-  sync_service_->SyncStarted();
+  // TODO(lgcheng@) File http://b/31944261. Remove the flag after Android side
+  // cleanup.
+  if (package_list_initial_refreshed_)
+    return;
+
+  package_list_initial_refreshed_ = true;
+  FOR_EACH_OBSERVER(Observer, observer_list_, OnPackageListInitialRefreshed());
 }
 
 std::vector<std::string> ArcAppListPrefs::GetPackagesFromPrefs() const {
@@ -1156,7 +1182,6 @@ std::vector<std::string> ArcAppListPrefs::GetPackagesFromPrefs(
       prefs_->GetDictionary(prefs::kArcPackages);
   for (base::DictionaryValue::Iterator package(*package_prefs);
        !package.IsAtEnd(); package.Advance()) {
-
     bool uninstalled = false;
     package_prefs->GetBoolean(kSystem, &uninstalled);
     if (installed != !uninstalled)

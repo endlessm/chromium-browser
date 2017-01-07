@@ -14,7 +14,7 @@
 #include "chrome/browser/sync/profile_sync_service_factory.h"
 #include "chrome/grit/generated_resources.h"
 #include "components/autofill/core/common/password_form.h"
-#include "components/browser_sync/browser/profile_sync_service.h"
+#include "components/browser_sync/profile_sync_service.h"
 #include "components/password_manager/core/browser/affiliation_utils.h"
 #include "components/password_manager/core/browser/password_bubble_experiment.h"
 #include "components/password_manager/core/browser/password_manager_constants.h"
@@ -25,6 +25,7 @@
 
 using base::android::ConvertUTF16ToJavaString;
 using base::android::ConvertUTF8ToJavaString;
+using base::android::JavaParamRef;
 using base::android::ScopedJavaLocalRef;
 
 namespace {
@@ -78,7 +79,7 @@ void PasswordUIViewAndroid::SetPasswordList(
   ScopedJavaLocalRef<jobject> ui_controller = weak_java_ui_controller_.get(env);
   if (!ui_controller.is_null()) {
     Java_PasswordUIView_passwordListAvailable(
-        env, ui_controller.obj(), static_cast<int>(password_list.size()));
+        env, ui_controller, static_cast<int>(password_list.size()));
   }
 }
 
@@ -89,9 +90,7 @@ void PasswordUIViewAndroid::SetPasswordExceptionList(
   ScopedJavaLocalRef<jobject> ui_controller = weak_java_ui_controller_.get(env);
   if (!ui_controller.is_null()) {
     Java_PasswordUIView_passwordExceptionListAvailable(
-        env,
-        ui_controller.obj(),
-        static_cast<int>(password_exception_list.size()));
+        env, ui_controller, static_cast<int>(password_exception_list.size()));
   }
 }
 
@@ -108,14 +107,13 @@ ScopedJavaLocalRef<jobject> PasswordUIViewAndroid::GetSavedPasswordEntry(
       password_manager_presenter_.GetPassword(index);
   if (!form) {
     return Java_PasswordUIView_createSavedPasswordEntry(
-        env,
-        ConvertUTF8ToJavaString(env, std::string()).obj(),
-        ConvertUTF16ToJavaString(env, base::string16()).obj());
+        env, ConvertUTF8ToJavaString(env, std::string()),
+        ConvertUTF16ToJavaString(env, base::string16()));
   }
   std::string human_readable_origin = GetDisplayOriginForSettings(*form);
   return Java_PasswordUIView_createSavedPasswordEntry(
-      env, ConvertUTF8ToJavaString(env, human_readable_origin).obj(),
-      ConvertUTF16ToJavaString(env, form->username_value).obj());
+      env, ConvertUTF8ToJavaString(env, human_readable_origin),
+      ConvertUTF16ToJavaString(env, form->username_value));
 }
 
 ScopedJavaLocalRef<jstring> PasswordUIViewAndroid::GetSavedPasswordException(
@@ -153,7 +151,7 @@ ScopedJavaLocalRef<jstring> GetAccountDashboardURL(
 
 static jboolean ShouldUseSmartLockBranding(JNIEnv* env,
                                            const JavaParamRef<jclass>&) {
-  const ProfileSyncService* sync_service =
+  const browser_sync::ProfileSyncService* sync_service =
       ProfileSyncServiceFactory::GetForProfile(
           ProfileManager::GetLastUsedProfile());
   return password_bubble_experiment::IsSmartLockBrandingEnabled(sync_service);

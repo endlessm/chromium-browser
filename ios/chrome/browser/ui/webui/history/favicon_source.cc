@@ -12,7 +12,7 @@
 #include "components/favicon_base/favicon_url_parser.h"
 #include "components/history/core/browser/top_sites.h"
 #include "components/keyed_service/core/service_access_type.h"
-#include "components/sync_driver/sync_service.h"
+#include "components/sync/driver/sync_service.h"
 #include "components/sync_sessions/open_tabs_ui_delegate.h"
 #include "net/url_request/url_request.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -40,7 +40,7 @@ FaviconSource::IconRequest::~IconRequest() {}
 
 FaviconSource::FaviconSource(favicon::FaviconService* favicon_service,
                              const scoped_refptr<history::TopSites>& top_sites,
-                             sync_driver::SyncService* sync_service)
+                             syncer::SyncService* sync_service)
     : favicon_service_(favicon_service),
       top_sites_(top_sites),
       sync_service_(sync_service) {}
@@ -121,7 +121,7 @@ bool FaviconSource::ShouldReplaceExistingSource() const {
 
 bool FaviconSource::HandleMissingResource(const IconRequest& request) {
   // If the favicon is not available, try to use the synced favicon.
-  sync_driver::OpenTabsUIDelegate* open_tabs =
+  sync_sessions::OpenTabsUIDelegate* open_tabs =
       sync_service_ ? sync_service_->GetOpenTabsUIDelegate() : nullptr;
 
   scoped_refptr<base::RefCountedMemory> response;

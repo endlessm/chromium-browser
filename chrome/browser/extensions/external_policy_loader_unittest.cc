@@ -85,7 +85,7 @@ class MockExternalPolicyProviderVisitor
 
     // Provider returns the correct location when asked.
     Manifest::Location location1;
-    std::unique_ptr<Version> version1;
+    std::unique_ptr<base::Version> version1;
     provider_->GetExtensionDetails(info.extension_id, &location1, &version1);
     EXPECT_EQ(Manifest::EXTERNAL_POLICY_DOWNLOAD, location1);
     EXPECT_FALSE(version1.get());
@@ -103,8 +103,10 @@ class MockExternalPolicyProviderVisitor
 
   void OnExternalProviderUpdateComplete(
       const ExternalProviderInterface* provider,
-      const ScopedVector<ExternalInstallInfoUpdateUrl>& update_url_extensions,
-      const ScopedVector<ExternalInstallInfoFile>& file_extensions,
+      const std::vector<std::unique_ptr<ExternalInstallInfoUpdateUrl>>&
+          update_url_extensions,
+      const std::vector<std::unique_ptr<ExternalInstallInfoFile>>&
+          file_extensions,
       const std::set<std::string>& removed_extensions) override {
     ADD_FAILURE() << "Only win registry provider is expected to call this.";
   }

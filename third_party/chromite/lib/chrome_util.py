@@ -122,10 +122,8 @@ class Copier(object):
   Provides destination stripping and permission setting functionality.
   """
 
-  DEFAULT_BLACKLIST = (r'(^|.*/)\.svn($|/.*)',)
-
   def __init__(self, strip_bin=None, strip_flags=None, default_mode=0o644,
-               dir_mode=0o755, exe_mode=0o755, blacklist=None):
+               dir_mode=0o755, exe_mode=0o755):
     """Initialization.
 
     Args:
@@ -135,27 +133,17 @@ class Copier(object):
       default_mode: Default permissions to set on files.
       dir_mode: Mode to set for directories.
       exe_mode: Permissions to set on executables.
-      blacklist: A list of path patterns to ignore during the copy.
     """
     self.strip_bin = strip_bin
     self.strip_flags = strip_flags
     self.default_mode = default_mode
     self.dir_mode = dir_mode
     self.exe_mode = exe_mode
-    self.blacklist = blacklist
-    if self.blacklist is None:
-      self.blacklist = self.DEFAULT_BLACKLIST
 
   @staticmethod
   def Log(src, dest, directory):
     sep = ' [d] -> ' if directory else ' -> '
     logging.debug('%s %s %s', src, sep, dest)
-
-  def _PathIsBlacklisted(self, path):
-    for pattern in self.blacklist:
-      if re.match(pattern, path):
-        return True
-    return False
 
   def _CopyFile(self, src, dest, path):
     """Perform the copy.
@@ -174,8 +162,7 @@ class Copier(object):
       return
 
     osutils.SafeMakedirs(os.path.dirname(dest), mode=self.dir_mode)
-    is_bin = path.exe or src.endswith('.mojo')
-    if is_bin and self.strip_bin and path.strip and os.path.getsize(src) > 0:
+    if path.exe and self.strip_bin and path.strip and os.path.getsize(src) > 0:
       strip_flags = (['--strip-unneeded'] if self.strip_flags is None else
                      self.strip_flags)
       cros_build_lib.DebugRunCommand(
@@ -189,20 +176,18 @@ class Copier(object):
       mode = self.exe_mode if path.exe else self.default_mode
     os.chmod(dest, mode)
 
-  def Copy(self, src_base, dest_base, path, strict=False, sloppy=False):
+  def Copy(self, src_base, dest_base, path, sloppy=False):
     """Copy artifact(s) from source directory to destination.
 
     Args:
       src_base: The directory to apply the src glob pattern match in.
       dest_base: The directory to copy matched files to.  |Path.dest|.
       path: A Path instance that specifies what is to be copied.
-      strict: If set, enforce that all optional files are copied.
       sloppy: If set, ignore when mandatory artifacts are missing.
 
     Returns:
       A list of the artifacts copied.
     """
-    assert not (strict and sloppy), 'strict and sloppy are not compatible.'
     copied_paths = []
     src = os.path.join(src_base, path.src)
     if not src.endswith('/') and os.path.isdir(src):
@@ -210,17 +195,16 @@ class Copier(object):
                               'Aborting copy...' % (src,))
     paths = glob.glob(src)
     if not paths:
-      if ((strict and not path.optional) or
-          (not strict and not (path.optional or path.cond) and not sloppy)):
+      if path.optional:
+        logging.debug('%s does not exist and is optional.  Skipping.', src)
+      elif sloppy:
+        logging.warning('%s does not exist and is required.  Skipping anyway.',
+                        src)
+      else:
         msg = ('%s does not exist and is required.\n'
                'You can bypass this error with --sloppy.\n'
                'Aborting copy...' % src)
         raise MissingPathError(msg)
-      elif path.optional or (not strict and path.cond):
-        logging.debug('%s does not exist and is optional.  Skipping.', src)
-      else:
-        logging.warning('%s does not exist and is required.  Skipping anyway.',
-                        src)
     elif len(paths) > 1 and path.dest and not path.dest.endswith('/'):
       raise MultipleMatchError(
           'Glob pattern %r has multiple matches, but dest %s '
@@ -244,7 +228,7 @@ class Copier(object):
           for sub_path in osutils.DirectoryIterator(p):
             rel_path = os.path.relpath(sub_path, p)
             sub_dest = os.path.join(dest, rel_path)
-            if self._PathIsBlacklisted(rel_path):
+            if path.IsBlacklisted(rel_path):
               continue
             if sub_path.endswith('/'):
               osutils.SafeMakedirs(sub_dest, mode=self.dir_mode)
@@ -259,8 +243,10 @@ class Copier(object):
 class Path(object):
   """Represents an artifact to be copied from build dir to staging dir."""
 
+  DEFAULT_BLACKLIST = (r'(^|.*/)\.svn($|/.*)',)
+
   def __init__(self, src, exe=False, cond=None, dest=None, mode=None,
-               optional=False, strip=True):
+               optional=False, strip=True, blacklist=None):
     """Initializes the object.
 
     Args:
@@ -273,8 +259,7 @@ class Path(object):
            directory or contains directories, the content of the directory will
            not be stripped.
       cond: A condition (see Conditions class) to test for in deciding whether
-            to process this artifact. If supplied, the artifact will be treated
-            as optional unless --strict is supplied.
+            to process this artifact.
       dest: Name to give to the target file/directory.  Defaults to keeping the
             same name as the source.
       mode: The mode to set for the matched files, and the contents of matched
@@ -283,6 +268,9 @@ class Path(object):
                 script errors out if the artifact does not exist.  In 'sloppy'
                 mode, the Copier class treats all artifacts as optional.
       strip: If |exe| is set, whether to strip the executable.
+      blacklist: A list of path patterns to ignore during the copy. This gets
+                 added to a default blacklist pattern. Only used if Path
+                 represents a directory.
     """
     self.src = src
     self.exe = exe
@@ -291,9 +279,27 @@ class Path(object):
     self.mode = mode
     self.optional = optional
     self.strip = strip
+    self.blacklist = self.DEFAULT_BLACKLIST
+    if blacklist is not None:
+      self.blacklist += tuple(blacklist)
+
+  def IsBlacklisted(self, path):
+    """Returns whether |path| is in the blacklist.
+
+    A file in the blacklist is not copied over to the staging directory.
+
+    Args:
+      path: The path of a file, relative to the path of this Path object.
+    """
+    for pattern in self.blacklist:
+      if re.match(pattern, path):
+        return True
+    return False
 
   def ShouldProcess(self, gyp_defines, staging_flags):
     """Tests whether this artifact should be copied."""
+    if not gyp_defines and not staging_flags:
+      return True
     if self.cond and isinstance(self.cond, list):
       for c in self.cond:
         if not c(gyp_defines, staging_flags):
@@ -362,21 +368,17 @@ _COPY_PATHS_CHROME = (
     Path('chrome-wrapper'),
     Path('chrome_100_percent.pak'),
     Path('chrome_200_percent.pak', cond=C.StagingFlagSet(_HIGHDPI_FLAG)),
-    Path('chrome_material_100_percent.pak', optional=True),
-    Path('chrome_material_200_percent.pak',
-         optional=True,
-         cond=C.StagingFlagSet(_HIGHDPI_FLAG)),
     Path('keyboard_resources.pak'),
-    # Set as optional for backwards compatibility.
-    Path('libexif.so', exe=True, optional=True),
     # Widevine binaries are already pre-stripped.  In addition, they don't
     # play well with the binutils stripping tools, so skip stripping.
     Path('libwidevinecdmadapter.so',
          exe=True,
+         optional=True,
          strip=False,
          cond=C.StagingFlagSet(_CHROME_INTERNAL_FLAG)),
     Path('libwidevinecdm.so',
          exe=True,
+         optional=True,
          strip=False,
          cond=C.StagingFlagSet(_CHROME_INTERNAL_FLAG)),
     Path('lib/*.so',
@@ -400,8 +402,7 @@ _COPY_PATHS_ENVOY = (
 ) + _COPY_PATHS_COMMON
 
 _COPY_PATHS_MASH = (
-    Path('mojo_runner', exe=True),
-    Path('Mojo Applications/'),
+    Path('Packages/', blacklist=(r'.*\.library$',)),
     Path('*_manifest.json'),
 ) + _COPY_PATHS_CHROME
 
@@ -425,7 +426,7 @@ def GetCopyPaths(deployment_type='chrome'):
 
   Args:
     deployment_type: String describing the deployment type. Either "app_shell",
-                     "chrome", or "envoy".
+                     "chrome", "envoy" or "mash".
 
   Returns:
     The list of paths to use as a filter for staging files.
@@ -435,23 +436,19 @@ def GetCopyPaths(deployment_type='chrome'):
     raise RuntimeError('Invalid deployment type "%s"' % deployment_type)
   return paths
 
-def StageChromeFromBuildDir(staging_dir, build_dir, strip_bin, strict=False,
-                            sloppy=False, gyp_defines=None, staging_flags=None,
+def StageChromeFromBuildDir(staging_dir, build_dir, strip_bin, sloppy=False,
+                            gyp_defines=None, staging_flags=None,
                             strip_flags=None, copy_paths=_COPY_PATHS_CHROME):
   """Populates a staging directory with necessary build artifacts.
 
-  If |strict| is set, then we decide what to stage based on the |gyp_defines|
-  and |staging_flags| passed in.  Otherwise, we stage everything that we know
-  about, that we can find.
+  If |gyp_defines| or |staging_flags| are set, then we decide what to stage
+  based on the flag values. Otherwise, we stage everything that we know
+  about that we can find.
 
   Args:
     staging_dir: Path to an empty staging directory.
     build_dir: Path to location of Chrome build artifacts.
     strip_bin: Path to executable used for stripping binaries.
-    strict: If set, decide what to stage based on the |gyp_defines| and
-            |staging_flags| passed in, and enforce that all optional files
-            are copied.  Otherwise, we stage optional files if they are
-            there, but we don't complain if they're not.
     sloppy: Ignore when mandatory artifacts are missing.
     gyp_defines: A dictionary (i.e., one returned by ProcessGypDefines)
       containing GYP_DEFINES Chrome was built with.
@@ -470,9 +467,8 @@ def StageChromeFromBuildDir(staging_dir, build_dir, strip_bin, strict=False,
   copier = Copier(strip_bin=strip_bin, strip_flags=strip_flags)
   copied_paths = []
   for p in copy_paths:
-    if not strict or p.ShouldProcess(gyp_defines, staging_flags):
-      copied_paths += copier.Copy(build_dir, staging_dir, p, strict=strict,
-                                  sloppy=sloppy)
+    if p.ShouldProcess(gyp_defines, staging_flags):
+      copied_paths += copier.Copy(build_dir, staging_dir, p, sloppy=sloppy)
 
   if not copied_paths:
     raise MissingPathError('Couldn\'t find anything to copy!\n'

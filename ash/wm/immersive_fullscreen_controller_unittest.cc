@@ -2,17 +2,19 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "ash/wm/immersive_fullscreen_controller.h"
+#include "ash/shared/immersive_fullscreen_controller.h"
 
-#include "ash/common/shelf/shelf_types.h"
+#include "ash/common/shelf/wm_shelf.h"
 #include "ash/common/wm/window_state.h"
 #include "ash/display/display_manager.h"
 #include "ash/display/mouse_cursor_event_filter.h"
+#include "ash/public/cpp/shelf_types.h"
 #include "ash/root_window_controller.h"
-#include "ash/shelf/shelf.h"
+#include "ash/shared/immersive_fullscreen_controller_delegate.h"
 #include "ash/shell.h"
 #include "ash/test/ash_test_base.h"
 #include "ash/test/display_manager_test_api.h"
+#include "ash/test/immersive_fullscreen_controller_test_api.h"
 #include "ash/wm/window_state_aura.h"
 #include "ui/aura/client/aura_constants.h"
 #include "ui/aura/client/cursor_client.h"
@@ -45,7 +47,7 @@ class TestBubbleDialogDelegate : public views::BubbleDialogDelegateView {
 };
 
 class MockImmersiveFullscreenControllerDelegate
-    : public ImmersiveFullscreenController::Delegate {
+    : public ImmersiveFullscreenControllerDelegate {
  public:
   MockImmersiveFullscreenControllerDelegate(views::View* top_container_view)
       : top_container_view_(top_container_view),
@@ -53,7 +55,7 @@ class MockImmersiveFullscreenControllerDelegate
         visible_fraction_(1) {}
   ~MockImmersiveFullscreenControllerDelegate() override {}
 
-  // ImmersiveFullscreenController::Delegate overrides:
+  // ImmersiveFullscreenControllerDelegate overrides:
   void OnImmersiveRevealStarted() override {
     enabled_ = true;
     visible_fraction_ = 0;
@@ -164,7 +166,7 @@ class ImmersiveFullscreenControllerTest : public ash::test::AshTestBase {
         new MockImmersiveFullscreenControllerDelegate(top_container_));
     controller_.reset(new ImmersiveFullscreenController);
     controller_->Init(delegate_.get(), widget_, top_container_);
-    controller_->SetupForTest();
+    ImmersiveFullscreenControllerTestApi(controller_.get()).SetupForTest();
 
     // The mouse is moved so that it is not over |top_container_| by
     // AshTestBase.
@@ -352,8 +354,8 @@ TEST_F(ImmersiveFullscreenControllerTest, OnMouseEvent) {
                           top_container_bounds_in_screen.y());
 
   // Mouse wheel event does nothing.
-  ui::MouseEvent wheel(ui::ET_MOUSEWHEEL, top_edge_pos, top_edge_pos,
-                       ui::EventTimeForNow(), ui::EF_NONE, ui::EF_NONE);
+  ui::MouseWheelEvent wheel(gfx::Vector2d(), top_edge_pos, top_edge_pos,
+                            ui::EventTimeForNow(), ui::EF_NONE, ui::EF_NONE);
   event_generator.Dispatch(&wheel);
   EXPECT_FALSE(top_edge_hover_timer_running());
 
@@ -500,7 +502,8 @@ TEST_F(ImmersiveFullscreenControllerTest, MouseEventsVerticalDisplayLayout) {
   // Set up initial state.
   UpdateDisplay("800x600,800x600");
   ash::Shell::GetInstance()->display_manager()->SetLayoutForCurrentDisplays(
-      test::CreateDisplayLayout(display::DisplayPlacement::TOP, 0));
+      test::CreateDisplayLayout(display_manager(),
+                                display::DisplayPlacement::TOP, 0));
 
   SetEnabled(true);
   ASSERT_TRUE(controller()->IsEnabled());
@@ -1019,7 +1022,7 @@ TEST_F(ImmersiveFullscreenControllerTest, Bubbles) {
 // immersive fullscreen and that the shelf's state before entering immersive
 // fullscreen is restored upon exiting immersive fullscreen.
 TEST_F(ImmersiveFullscreenControllerTest, Shelf) {
-  Shelf* shelf = Shelf::ForPrimaryDisplay();
+  WmShelf* shelf = GetPrimaryShelf();
 
   // Shelf is visible by default.
   window()->SetProperty(aura::client::kShowStateKey, ui::SHOW_STATE_NORMAL);

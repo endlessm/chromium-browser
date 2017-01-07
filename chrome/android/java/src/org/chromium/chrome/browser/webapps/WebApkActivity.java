@@ -10,7 +10,6 @@ import org.chromium.base.ContextUtils;
 import org.chromium.base.library_loader.LibraryProcessType;
 import org.chromium.chrome.browser.ChromeApplication;
 import org.chromium.chrome.browser.ShortcutHelper;
-import org.chromium.chrome.browser.banners.AppBannerManager;
 import org.chromium.chrome.browser.externalnav.ExternalNavigationParams;
 import org.chromium.chrome.browser.tab.InterceptNavigationDelegateImpl;
 import org.chromium.chrome.browser.tab.Tab;
@@ -27,6 +26,8 @@ import org.chromium.webapk.lib.client.WebApkServiceConnectionManager;
  * UI-less Chrome.
  */
 public class WebApkActivity extends WebappActivity {
+    /** Manages whether to check update for the WebAPK, and starts update check if needed. */
+    private WebApkUpdateManager mUpdateManager;
     @Override
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
@@ -46,10 +47,29 @@ public class WebApkActivity extends WebappActivity {
     }
 
     @Override
-    protected void initializeSplashScreenWidgets(final int backgroundColor) {
-        // TODO(hanxi): Removes this function and use {@link WebApkActivity}'s implementation
-        // when WebAPKs are registered in WebappRegistry.
-        initializeSplashScreenWidgets(backgroundColor, null);
+    protected void onStorageIsNull(final int backgroundColor) {
+        // Register the WebAPK. It is possible that a WebAPK's meta data was deleted when user
+        // cleared Chrome's data. When it is launched again, we know that the WebAPK is still
+        // installed, so re-register it.
+        WebappRegistry.registerWebapp(
+                mWebappInfo.id(), new WebappRegistry.FetchWebappDataStorageCallback() {
+                    @Override
+                    public void onWebappDataStorageRetrieved(WebappDataStorage storage) {
+                        updateStorage(storage);
+                        // Initialize the update related timestamps to the registration time.
+                        storage.updateTimeOfLastCheckForUpdatedWebManifest();
+                        storage.updateTimeOfLastWebApkUpdateRequestCompletion();
+                        // The downloading of the splash screen image happens before a WebAPK's
+                        // package name is available. If we want to use the image in the first
+                        // launch, we need to cache the image, register the WebAPK and store the
+                        // image in the SharedPreference when the WebAPK is installed
+                        // (before the first launch), and delete the cached image if it's not
+                        // installed. Therefore, lots of complexity will be introduced. To simplify
+                        // the logic, WebAPKs are registered during the first launch, and don't
+                        // retrieve splash screen image but use app icon for initialization.
+                        initializeSplashScreenWidgets(backgroundColor, null);
+                    }
+                });
     }
 
     @Override
@@ -72,11 +92,11 @@ public class WebApkActivity extends WebappActivity {
             }
 
             @Override
-            public AppBannerManager createAppBannerManager(Tab tab) {
+            public boolean canShowAppBanners(Tab tab) {
                 // Do not show app banners for WebAPKs regardless of the current page URL.
                 // A WebAPK can display a page outside of its WebAPK scope if a page within the
                 // WebAPK scope navigates via JavaScript while the WebAPK is in the background.
-                return null;
+                return false;
             }
         };
     }
@@ -113,6 +133,14 @@ public class WebApkActivity extends WebappActivity {
     }
 
     @Override
+    public void onDeferredStartup() {
+        super.onDeferredStartup();
+
+        mUpdateManager = new WebApkUpdateManager();
+        mUpdateManager.updateIfNeeded(getActivityTab(), mWebappInfo);
+    }
+
+    @Override
     public void onPause() {
         super.onPause();
         initializeChildProcessCreationParams(false);
@@ -133,5 +161,13 @@ public class WebApkActivity extends WebappActivity {
                     extraBindFlag, LibraryProcessType.PROCESS_CHILD);
         }
         ChildProcessCreationParams.set(params);
+    }
+
+    @Override
+    protected void onDestroyInternal() {
+        if (mUpdateManager != null) {
+            mUpdateManager.destroy();
+        }
+        super.onDestroyInternal();
     }
 }

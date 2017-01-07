@@ -14,7 +14,7 @@
 #include "chrome/browser/ui/passwords/manage_passwords_view_utils.h"
 #include "chrome/grit/chromium_strings.h"
 #include "chrome/grit/generated_resources.h"
-#include "components/browser_sync/browser/profile_sync_service.h"
+#include "components/browser_sync/profile_sync_service.h"
 #include "components/infobars/core/infobar.h"
 #include "components/password_manager/core/browser/password_bubble_experiment.h"
 #include "content/public/browser/web_contents.h"
@@ -29,10 +29,10 @@ void UpdatePasswordInfoBarDelegate::Create(
           ProfileSyncServiceFactory::GetForProfile(
               Profile::FromBrowserContext(web_contents->GetBrowserContext())));
   InfoBarService::FromWebContents(web_contents)
-      ->AddInfoBar(base::WrapUnique(new UpdatePasswordInfoBar(
+      ->AddInfoBar(base::MakeUnique<UpdatePasswordInfoBar>(
           base::WrapUnique(new UpdatePasswordInfoBarDelegate(
               web_contents, std::move(form_to_save),
-              is_smartlock_branding_enabled)))));
+              is_smartlock_branding_enabled))));
 }
 
 UpdatePasswordInfoBarDelegate::~UpdatePasswordInfoBarDelegate() {}
@@ -52,7 +52,7 @@ bool UpdatePasswordInfoBarDelegate::ShowMultipleAccounts() const {
   return GetCurrentForms().size() > 1 && !is_password_overriden;
 }
 
-const std::vector<const autofill::PasswordForm*>&
+const std::vector<std::unique_ptr<autofill::PasswordForm>>&
 UpdatePasswordInfoBarDelegate::GetCurrentForms() const {
   return passwords_state_.GetCurrentForms();
 }
@@ -62,6 +62,15 @@ UpdatePasswordInfoBarDelegate::UpdatePasswordInfoBarDelegate(
     std::unique_ptr<password_manager::PasswordFormManager> form_to_update,
     bool is_smartlock_branding_enabled)
     : is_smartlock_branding_enabled_(is_smartlock_branding_enabled) {
+  base::string16 message;
+  gfx::Range message_link_range = gfx::Range();
+  GetSavePasswordDialogTitleTextAndLinkRange(
+      web_contents->GetVisibleURL(), form_to_update->observed_form().origin,
+      is_smartlock_branding_enabled, PasswordTittleType::UPDATE_PASSWORD,
+      &message, &message_link_range);
+  SetMessage(message);
+  SetMessageLinkRange(message_link_range);
+
   // TODO(melandory): Add histograms, crbug.com/577129
   passwords_state_.set_client(
       ChromePasswordManagerClient::FromWebContents(web_contents));
@@ -73,11 +82,13 @@ UpdatePasswordInfoBarDelegate::GetIdentifier() const {
   return UPDATE_PASSWORD_INFOBAR_DELEGATE;
 }
 
+int UpdatePasswordInfoBarDelegate::GetButtons() const {
+  return BUTTON_OK;
+}
+
 base::string16 UpdatePasswordInfoBarDelegate::GetButtonLabel(
     InfoBarButton button) const {
-  return l10n_util::GetStringUTF16((button == BUTTON_OK)
-                                       ? IDS_PASSWORD_MANAGER_UPDATE_BUTTON
-                                       : IDS_PASSWORD_MANAGER_CANCEL_BUTTON);
+  return l10n_util::GetStringUTF16(IDS_PASSWORD_MANAGER_UPDATE_BUTTON);
 }
 
 bool UpdatePasswordInfoBarDelegate::Accept() {
@@ -93,9 +104,5 @@ bool UpdatePasswordInfoBarDelegate::Accept() {
   } else {
     form_manager->Update(form_manager->pending_credentials());
   }
-  return true;
-}
-
-bool UpdatePasswordInfoBarDelegate::Cancel() {
   return true;
 }

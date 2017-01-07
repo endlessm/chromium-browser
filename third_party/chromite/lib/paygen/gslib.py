@@ -7,11 +7,11 @@
 from __future__ import print_function
 
 import base64
-import datetime
 import errno
 import os
 import re
 
+from chromite.lib import cros_build_lib
 from chromite.lib import cros_logging as logging
 from chromite.lib import gs
 from chromite.lib import osutils
@@ -78,20 +78,12 @@ class RemoveFail(GSLibError):
   """Raised if Remove fails in any way."""
 
 
-class AclFail(GSLibError):
-  """Raised if SetAcl fails in any way."""
-
-
 class CatFail(GSLibError):
   """Raised if Cat fails in any way."""
 
 
 class StatFail(GSLibError):
   """Raised if Stat fails in any way."""
-
-
-class BucketOperationError(GSLibError):
-  """Raised when a delete or create bucket command fails."""
 
 
 class URIError(GSLibError):
@@ -213,7 +205,7 @@ def RunGsutilCommand(args,
   Raises:
     GsutilMissingError is the gsutil utility cannot be found.
     GSLibError (or whatever is in failed_exception) if RunCommand failed (and
-      error_ok was not True).
+      error_code_ok was not True).
   """
   # The -d flag causes gsutil to dump various metadata, including user
   # credentials.  We therefore don't allow users to pass it in directly.
@@ -233,20 +225,16 @@ def RunGsutilCommand(args,
   }
   run_opts.update(kwargs)
 
-  # Always use RunCommand with return_result on, which will be the default
-  # behavior for RunCommand itself someday.
-  run_opts['return_result'] = True
-
   try:
-    result = utils.RunCommand(cmd, **run_opts)
+    result = cros_build_lib.RunCommand(cmd, **run_opts)
   except OSError as e:
     if e.errno == errno.ENOENT:
       raise GsutilMissingError()
     raise
-  except utils.CommandFailedException as e:
+  except cros_build_lib.RunCommandError as e:
     # If headers is set, we have to hide the output here because it may contain
     # credentials that we don't want to show in buildbot logs.
-    raise failed_exception('%r failed' % cmd if headers else e)
+    raise failed_exception('%r failed' % cmd if headers else e.result.error)
 
   if headers is not None and result is not None:
     assert redirect_stdout if get_headers_from_stdout else redirect_stderr
@@ -286,82 +274,6 @@ def ValidateGsutilWorking(bucket):
     raise ValidateGsutilFailure('Unable to find anything in: %s' % url)
 
 
-def GetGsutilVersion():
-  """Return the version string for the installed gsutil utility.
-
-  Returns:
-    The version string.
-
-  Raises:
-    GsutilMissingError if gsutil cannot be found.
-    GSLibError for any other error.
-  """
-  args = ['version']
-
-  # As of version 3.26, a quirk of 'gsutil version' is that if gsutil is
-  # outdated it will ask if you want to update (Y/n) before proceeding... but
-  # do it only the first time (for a particular update?  I'm not exactly sure).
-  # Prepare a 'n' answer just in case.
-  user_input = 'n\n'
-
-  result = RunGsutilCommand(args, error_ok=False, input=user_input)
-
-  output = '\n'.join(o for o in [result.output, result.error] if o)
-
-  if output:
-    match = re.search(r'^\s*gsutil\s+version\s+([\d\.]+)', output,
-                      re.IGNORECASE)
-    if match:
-      return match.group(1)
-    else:
-      logging.error('Unexpected output format from %r:\n%s',
-                    result.cmdstr, output)
-      raise GSLibError('Unexpected output format from %r.' % result.cmdstr)
-
-  else:
-    logging.error('No stdout output from %r.', result.cmdstr)
-    raise GSLibError('No stdout output from %r.', result.cmdstr)
-
-
-def UpdateGsutil():
-  """Update the gsutil utility to the latest version.
-
-  Returns:
-    The updated version, if updated, otherwise None.
-
-  Raises:
-    GSLibError if any error occurs.
-  """
-  original_version = GetGsutilVersion()
-  updated_version = None
-
-  # If an update is available the 'gsutil update' command will ask
-  # whether to continue.  Reply with 'y'.
-  user_input = 'y\n'
-  args = ['update']
-
-  result = RunGsutilCommand(args, error_ok=True, input=user_input)
-
-  if result.returncode != 0:
-    # Oddly, 'gsutil update' exits with error if no update is needed.
-    # Check the output to see if this is the situation, in which case the
-    # error is harmless (and expected).  Last line in stderr will be:
-    # "You already have the latest gsutil release installed."
-    if not result.error:
-      raise GSLibError('Failed command: %r' % result.cmdstr)
-
-    last_error_line = result.error.splitlines()[-1]
-    if not last_error_line.startswith('You already have'):
-      raise GSLibError(result.error)
-
-  else:
-    current_version = GetGsutilVersion()
-    if current_version != original_version:
-      updated_version = current_version
-
-  return updated_version
-
-
 @RetryGSLib
 def MD5Sum(gs_uri):
   """Read the gsutil md5 sum from etag and gsutil ls -L.
@@ -384,7 +296,7 @@ def MD5Sum(gs_uri):
   gs_md5_regex = re.compile(r'.*?Hash \(md5\):\s+(.*)', re.IGNORECASE)
   args = ['ls', '-L', gs_uri]
 
-  result = RunGsutilCommand(args, error_ok=True)
+  result = RunGsutilCommand(args, error_code_ok=True)
 
   # If object was not found then output is completely empty.
   if not result.output:
@@ -580,30 +492,6 @@ def IsGsURI(path):
   return path and path.startswith(PROTOCOL + '://')
 
 
-def SplitGSUri(gs_uri):
-  """Returns tuple (bucket, uri_remainder) from GS URI.
-
-  Examples: 1) 'gs://foo/hi/there' returns ('foo', 'hi/there')
-            2) 'gs://foo/hi/there/' returns ('foo', 'hi/there/')
-            3) 'gs://foo' returns ('foo', '')
-            4) 'gs://foo/' returns ('foo', '')
-
-  Args:
-    gs_uri: A Google Storage URI.
-
-  Returns:
-    A tuple (bucket, uri_remainder)
-
-  Raises:
-    URIError if URI is not in recognized format
-  """
-  match = re.search(r'^gs://([^/]+)/?(.*)$', gs_uri)
-  if match:
-    return (match.group(1), match.group(2))
-  else:
-    raise URIError('Bad GS URI: %r' % gs_uri)
-
-
 # TODO(mtennant): Rename this "Size" for consistency.
 @RetryGSLib
 def FileSize(gs_uri, **kwargs):
@@ -633,72 +521,6 @@ def FileSize(gs_uri, **kwargs):
     raise URIError('Failed to get size of %r' % gs_uri)
 
   return int(size_str)
-
-
-def FileTimestamp(gs_uri, **kwargs):
-  """Return the timestamp of the given gsutil file.
-
-  Args:
-    gs_uri: Google Storage URI (beginning with 'gs://') pointing
-      directly to a single file.
-    kwargs: Additional options to pass directly to RunGsutilCommand, beyond the
-      explicit ones above.  See RunGsutilCommand itself.
-
-  Returns:
-    datetime of the files creation, or None
-
-  Raises:
-    URIError: Raised when URI is unknown to Google Storage or when
-      URI matches more than one file.
-  """
-  args = ['ls', '-l', gs_uri]
-  try:
-    result = RunGsutilCommand(args, **kwargs)
-    ls_lines = result.output.splitlines()
-
-    # We expect one line per file and a summary line.
-    if len(ls_lines) != 2:
-      raise URIError('More than one file matched URI %r' % gs_uri)
-
-    # Should have the format:
-    # <filesize> <date> <filepath>
-    return datetime.datetime.strptime(ls_lines[0].split()[1],
-                                      '%Y-%m-%dT%H:%M:%S')
-  except GSLibError:
-    raise URIError('Unable to locate file at URI %r' % gs_uri)
-
-
-def ExistsLazy(gs_uri, **kwargs):
-  """Return True if object exists at given GS URI.
-
-  Warning: This can return false negatives, because 'gsutil ls' relies on
-  a cache that is only eventually consistent.  But it is faster to run, and
-  it does accept URIs with glob expressions, where Exists does not.
-
-  Args:
-    gs_uri: Google Storage URI
-    kwargs: Additional options to pass directly to RunGsutilCommand, beyond the
-      explicit ones above.  See RunGsutilCommand itself.
-
-  Returns:
-    True if object exists and False otherwise.
-
-  Raises:
-    URIError if there is a problem with the URI other than the URI
-      not being found.
-  """
-  args = ['ls', gs_uri]
-  try:
-    RunGsutilCommand(args, **kwargs)
-    return True
-  except GSLibError as e:
-    # If the URI was simply not found, the output should be something like:
-    # CommandException: One or more URLs matched no objects.
-    msg = str(e).strip()
-    if not msg.startswith('CommandException: '):
-      raise URIError(e)
-
-    return False
 
 
 def Exists(gs_uri, **kwargs):
@@ -788,90 +610,3 @@ def ListFiles(root_uri, recurse=False, filepattern=None, sort=False):
 
   # Directory paths should be excluded from output, per ListFiles guarantee.
   return [path for path in paths if not path.endswith('/')]
-
-
-def ListDirs(root_uri, recurse=False, filepattern=None, sort=False):
-  """Return list of dir paths under given root URI.
-
-  File paths are intentionally excluded.  The root_uri itself is excluded.
-
-  Args:
-    root_uri: e.g. gs://foo/bar
-    recurse: Look for directories in subdirectories, as well
-    filepattern: glob pattern to match against basename of director
-    sort: If True then do a default sort on paths
-
-  Returns:
-    List of GS URIs to directories that matched
-  """
-  paths = List(root_uri, recurse=recurse, filepattern=filepattern, sort=sort)
-
-  # Only include directory paths in output, per ListDirs guarantee.
-  return [path for path in paths if path.endswith('/')]
-
-
-@RetryGSLib
-def SetACL(gs_uri, acl_file, **kwargs):
-  """Set the ACLs of a file in Google Storage.
-
-  Args:
-    gs_uri: The GS URI to set the ACL on.
-    acl_file: A Google Storage xml ACL file.
-    kwargs: Additional options to pass directly to RunGsutilCommand, beyond the
-      explicit ones above.  See RunGsutilCommand itself.
-
-  Returns:
-    True if the ACL was successfully set
-
-  Raises:
-    AclFail: If SetACL fails for any reason.
-  """
-  args = ['setacl', acl_file, gs_uri]
-  RunGsutilCommand(args, failed_exception=AclFail, **kwargs)
-
-
-@RetryGSLib
-def CreateBucket(bucket, **kwargs):
-  """Create a Google Storage bucket using the users default credentials.
-
-  Args:
-    bucket: The name of the bucket to create.
-    kwargs: Additional options to pass directly to RunGsutilCommand, beyond the
-      explicit ones above.  See RunGsutilCommand itself.
-
-  Returns:
-    The GS URI of the bucket created.
-
-  Raises:
-    BucketOperationError if the bucket is not created properly.
-  """
-  gs_uri = 'gs://%s' % bucket
-  args = ['mb', gs_uri]
-  try:
-    RunGsutilCommand(args, **kwargs)
-  except GSLibError as e:
-    raise BucketOperationError('Error creating bucket %s.\n%s' % (bucket, e))
-
-  return gs_uri
-
-
-@RetryGSLib
-def DeleteBucket(bucket):
-  """Delete a Google Storage bucket using the users default credentials.
-
-  Warning: All contents will be deleted.
-
-  Args:
-    bucket: The name of the bucket to create.
-
-  Raises:
-    BucketOperationError if the bucket is not created properly.
-  """
-  bucket = bucket.strip('/')
-  gs_uri = 'gs://%s' % bucket
-  try:
-    RunGsutilCommand(['rm', '%s/*' % gs_uri], error_ok=True)
-    RunGsutilCommand(['rb', gs_uri])
-
-  except GSLibError as e:
-    raise BucketOperationError('Error deleting bucket %s.\n%s' % (bucket, e))

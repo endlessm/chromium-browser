@@ -62,14 +62,84 @@ union U {
   int m_hasPrefix;
 };
 
+// https://crbug.com/640749#c1: Some type traits are inside blink namespace.
+struct IsGarbageCollectedMixin {
+  static const bool value = true;
+};
+
 }  // namespace blink
 
 namespace WTF {
 
-struct TypeTrait {
-  // WTF has structs for things like type traits, which we don't want to
-  // capitalize.
+// We don't want to capitalize fields in type traits
+// (i.e. the |value| -> |kValue| rename is undesirable below).
+struct TypeTrait1 {
   static const bool value = true;
+};
+
+// Some type traits are implemented as classes, not structs
+// (e.g. WTF::IsGarbageCollectedType or WTF::IsAssignable).
+// We should not perform a |value| -> |kValue| rename in the type trait below.
+template <typename T>
+class TypeTrait2 {
+ public:
+  static const bool value = false;
+};
+template <>
+class TypeTrait2<void> {
+ public:
+  static const bool value = false;
+};
+
+// Some type traits have static methods.  We should not perform
+// a |value| -> |kValue| rename in the type trait below.
+template <typename T, typename U>
+struct IsSubclass {
+ private:
+  typedef char YesType;
+  struct NoType {
+    char padding[8];
+  };
+
+  static YesType subclassCheck(U*);
+  static NoType subclassCheck(...);
+  static T* t;
+
+ public:
+  static const bool value = sizeof(subclassCheck(t)) == sizeof(YesType);
+};
+
+// Some type traits have deleted instance methods.  We should not perform
+// a |value| -> |kValue| rename in the type trait below.
+template <typename U = void>
+struct IsTraceableInCollection {
+  // Expanded from STATIC_ONLY(IsTraceableInCollection) macro:
+ private:
+  IsTraceableInCollection() = delete;
+  IsTraceableInCollection(const IsTraceableInCollection&) = delete;
+  IsTraceableInCollection& operator=(const IsTraceableInCollection&) = delete;
+  void* operator new(unsigned long) = delete;
+  void* operator new(unsigned long, void*) = delete;
+
+ public:
+  static const bool value = true;
+};
+
+// Some type traits have a non-boolean value.
+enum LifetimeManagementType {
+  RefCountedLifetime,
+  GarbageCollectedLifetime,
+};
+template <typename T>
+struct LifetimeOf {
+ private:
+  // Okay to rename |isGarbageCollected| to |kIsGarbageCollected|.
+  static const bool isGarbageCollected = true;
+
+ public:
+  // Expecting no rename of |value|.
+  static const LifetimeManagementType value =
+      !isGarbageCollected ? RefCountedLifetime : GarbageCollectedLifetime;
 };
 
 };  // namespace WTF
@@ -82,5 +152,6 @@ void F() {
   blink::C c;
   blink::C c2 = c;
 
-  bool b = WTF::TypeTrait::value;
+  bool b1 = WTF::TypeTrait1::value;
+  bool b2 = WTF::TypeTrait2<void>::value;
 }

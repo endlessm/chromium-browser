@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8" standalone="no"?>
 <document type="com.apple.InterfaceBuilder3.Cocoa.XIB" version="3.0" toolsVersion="5056" systemVersion="13F1077" targetRuntime="MacOSX.Cocoa" propertyAccessControl="none">
     <dependencies>
-        <deployment version="1060" identifier="macosx"/>
+        <deployment version="1090" identifier="macosx"/>
         <development version="5100" identifier="xcode"/>
         <plugIn identifier="com.apple.InterfaceBuilder.CocoaPlugin" version="5056"/>
     </dependencies>
@@ -53,7 +53,7 @@
                         <button id="24" customClass="DownloadShowAllButton">
                             <rect key="frame" x="2" y="6" width="189" height="34"/>
                             <autoresizingMask key="autoresizingMask" flexibleMaxX="YES"/>
-                            <buttonCell key="cell" type="square" title="^IDS_SHOW_ALL" bezelStyle="shadowlessSquare" imagePosition="left" alignment="center" imageScaling="proportionallyDown" inset="2" id="25" customClass="DownloadShowAllCell">
+                            <buttonCell key="cell" type="square" title="^IDS_SHOW_ALL_DOWNLOADS" bezelStyle="shadowlessSquare" imagePosition="left" alignment="center" imageScaling="proportionallyDown" inset="2" id="25" customClass="DownloadShowAllCell">
                                 <behavior key="behavior" pushIn="YES" lightByBackground="YES" lightByGray="YES"/>
                                 <font key="font" metaFont="system"/>
                             </buttonCell>

@@ -80,11 +80,6 @@ void ExclusiveAccessController::Destroy() {
   bubble_type_ = EXCLUSIVE_ACCESS_BUBBLE_TYPE_NONE;
 }
 
-void ExclusiveAccessController::Layout(CGFloat max_y) {
-  if (views_bubble_)
-    views_bubble_->RepositionIfVisible();
-}
-
 Profile* ExclusiveAccessController::GetProfile() {
   return browser_->profile();
 }
@@ -154,7 +149,7 @@ void ExclusiveAccessController::HideDownloadShelf() {
 
 bool ExclusiveAccessController::GetAcceleratorForCommandId(
     int cmd_id,
-    ui::Accelerator* accelerator) {
+    ui::Accelerator* accelerator) const {
   *accelerator =
       *AcceleratorsCocoa::GetInstance()->GetAcceleratorForCommand(cmd_id);
   return true;

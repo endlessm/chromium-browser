@@ -29,6 +29,7 @@
 #include "chrome/grit/chromium_strings.h"
 #include "chrome/grit/generated_resources.h"
 #include "chrome/grit/theme_resources.h"
+#include "components/grit/components_scaled_resources.h"
 #include "components/prefs/pref_service.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/context_menu_params.h"
@@ -40,7 +41,6 @@
 #include "extensions/common/feature_switch.h"
 #include "extensions/common/manifest_handlers/options_page_info.h"
 #include "extensions/common/manifest_url_handlers.h"
-#include "grit/components_scaled_resources.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/gfx/image/image.h"
@@ -227,11 +227,6 @@ bool ExtensionContextMenuModel::IsCommandIdEnabled(int command_id) const {
   return true;
 }
 
-bool ExtensionContextMenuModel::GetAcceleratorForCommandId(
-    int command_id, ui::Accelerator* accelerator) {
-  return false;
-}
-
 void ExtensionContextMenuModel::ExecuteCommand(int command_id,
                                                int event_flags) {
   const Extension* extension = GetExtension();
@@ -249,7 +244,8 @@ void ExtensionContextMenuModel::ExecuteCommand(int command_id,
   switch (command_id) {
     case NAME: {
       content::OpenURLParams params(ManifestURL::GetHomepageURL(extension),
-                                    content::Referrer(), NEW_FOREGROUND_TAB,
+                                    content::Referrer(),
+                                    WindowOpenDisposition::NEW_FOREGROUND_TAB,
                                     ui::PAGE_TRANSITION_LINK, false);
       browser_->OpenURL(params);
       break;
@@ -383,7 +379,7 @@ ExtensionContextMenuModel::GetCurrentPageAccess(
     content::WebContents* web_contents) const {
   ScriptingPermissionsModifier modifier(profile_, extension);
   DCHECK(modifier.HasAffectedExtension());
-  if (util::AllowedScriptingOnAllUrls(extension->id(), profile_))
+  if (modifier.IsAllowedOnAllUrls())
     return PAGE_ACCESS_RUN_ON_ALL_SITES;
   if (modifier.HasGrantedHostPermission(
           GetActiveWebContents()->GetLastCommittedURL()))
@@ -433,21 +429,22 @@ void ExtensionContextMenuModel::HandlePageAccessCommand(
 
   const GURL& url = web_contents->GetLastCommittedURL();
   ScriptingPermissionsModifier modifier(profile_, extension);
+  DCHECK(modifier.HasAffectedExtension());
   switch (command_id) {
     case PAGE_ACCESS_RUN_ON_CLICK:
       if (current_access == PAGE_ACCESS_RUN_ON_ALL_SITES)
-        util::SetAllowedScriptingOnAllUrls(extension->id(), profile_, false);
+        modifier.SetAllowedOnAllUrls(false);
       if (modifier.HasGrantedHostPermission(url))
         modifier.RemoveGrantedHostPermission(url);
       break;
     case PAGE_ACCESS_RUN_ON_SITE:
       if (current_access == PAGE_ACCESS_RUN_ON_ALL_SITES)
-        util::SetAllowedScriptingOnAllUrls(extension->id(), profile_, false);
+        modifier.SetAllowedOnAllUrls(false);
       if (!modifier.HasGrantedHostPermission(url))
         modifier.GrantHostPermission(url);
       break;
     case PAGE_ACCESS_RUN_ON_ALL_SITES:
-      util::SetAllowedScriptingOnAllUrls(extension->id(), profile_, true);
+      modifier.SetAllowedOnAllUrls(true);
       break;
     default:
       NOTREACHED();

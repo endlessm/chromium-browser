@@ -12,14 +12,13 @@ import com.google.ipc.invalidation.external.client.types.ObjectId;
 
 import org.chromium.base.test.util.Feature;
 import org.chromium.chrome.test.invalidation.IntentSavingContext;
-import org.chromium.components.invalidation.InvalidationClientService;
 import org.chromium.components.invalidation.InvalidationService;
+import org.chromium.components.sync.AndroidSyncSettings;
+import org.chromium.components.sync.ModelType;
+import org.chromium.components.sync.ModelTypeHelper;
+import org.chromium.components.sync.notifier.InvalidationIntentProtocol;
+import org.chromium.components.sync.test.util.MockSyncContentResolverDelegate;
 import org.chromium.content.browser.test.NativeLibraryTestBase;
-import org.chromium.sync.AndroidSyncSettings;
-import org.chromium.sync.ModelType;
-import org.chromium.sync.ModelTypeHelper;
-import org.chromium.sync.notifier.InvalidationIntentProtocol;
-import org.chromium.sync.test.util.MockSyncContentResolverDelegate;
 
 import java.util.Set;
 
@@ -71,7 +70,7 @@ public class InvalidationServiceTest extends NativeLibraryTestBase {
      */
     private static void validateIntentComponent(Intent intent) {
         assertNotNull(intent.getComponent());
-        assertEquals(InvalidationClientService.class.getName(),
+        assertEquals(ChromeInvalidationClientService.class.getName(),
                 intent.getComponent().getClassName());
     }
 

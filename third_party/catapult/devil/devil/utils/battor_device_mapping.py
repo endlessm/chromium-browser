@@ -158,15 +158,23 @@ def GenerateSerialMap(hub_types=None):
   of the hubs that the BattOrs and phones are connected to.
 
   Args:
-      hub_types: List of hub types to check for.
-      Defaults to ['plugable_7port']
+      hub_types: List of hub types to check for. If not specified, checks
+      for all defined hub types. (see usb_hubs.py for details)
   """
-  hub_types = [usb_hubs.GetHubType(x)
-               for x in hub_types or ['plugable_7port']]
+  if hub_types:
+    hub_types = [usb_hubs.GetHubType(x) for x in hub_types]
+  else:
+    hub_types = usb_hubs.ALL_HUBS
+
   devtree = find_usb_devices.GetBusNumberToDeviceTreeMap()
 
   # List of serial numbers in the system that represent BattOrs.
   battor_serials = list(GetBattorSerialNumbers(devtree))
+
+  # If there's only one BattOr in the system, then a serial number ma
+  # is not necessary.
+  if len(battor_serials) == 1:
+    return {}
 
   # List of dictionaries, one for each hub, that maps the physical
   # port number to the serial number of that hub. For instance, in a 2
@@ -204,8 +212,7 @@ def GenerateSerialMap(hub_types=None):
   result = {}
   for pair in port_to_devices.values():
     if pair.phone is None:
-      raise battor_error.BattorError(
-          'BattOr detected with no corresponding phone')
+      continue
     if pair.battor is None:
       raise battor_error.BattorError(
           'Phone detected with no corresponding BattOr')
@@ -296,3 +303,7 @@ def GetBattorPathFromPhoneSerial(serial, serial_map=None,
   else:
     raise battor_error.BattorError(
         'Device with given serial number is not a BattOr.')
+
+if __name__ == '__main__':
+  # Main function for testing purposes
+  print GenerateSerialMap()

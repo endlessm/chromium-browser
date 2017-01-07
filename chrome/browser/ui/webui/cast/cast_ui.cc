@@ -8,17 +8,16 @@
 #include "chrome/browser/media/router/mojo/media_router_mojo_impl.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/common/url_constants.h"
+#include "chrome/grit/browser_resources.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_ui.h"
 #include "content/public/browser/web_ui_data_source.h"
-#include "grit/browser_resources.h"
-#include "grit/generated_resources.h"
 
 CastUI::CastUI(content::WebUI* web_ui)
     : content::WebUIController(web_ui) {
   // Retrieve the ID of the component extension.
   // TODO(crbug.com/597778): remove reference to MediaRouterMojoImpl.
-  auto router = static_cast<media_router::MediaRouterMojoImpl*>(
+  auto* router = static_cast<media_router::MediaRouterMojoImpl*>(
       media_router::MediaRouterFactory::GetApiForBrowserContext(
           web_ui->GetWebContents()->GetBrowserContext()));
   std::string extension_id = router->media_route_provider_extension_id();
@@ -33,7 +32,7 @@ CastUI::CastUI(content::WebUI* web_ui)
   html_source->AddString("extensionId", extension_id);
   html_source->SetJsonPath("strings.js");
   html_source->SetDefaultResource(IDR_CAST_HTML);
-  html_source->OverrideContentSecurityPolicyObjectSrc("object-src *;");
+  html_source->OverrideContentSecurityPolicyObjectSrc("object-src * chrome:;");
 
   content::WebUIDataSource::Add(Profile::FromWebUI(web_ui), html_source);
 }

@@ -10,15 +10,17 @@ import logging
 from google.appengine.ext import ndb
 
 from dashboard import email_template
-from dashboard import request_handler
-from dashboard import utils
+from dashboard.common import request_handler
+from dashboard.common import utils
 from dashboard.models import anomaly
 from dashboard.models import sheriff
 from dashboard.models import stoppage_alert
 
 _MAX_ANOMALIES_TO_COUNT = 5000
 _MAX_ANOMALIES_TO_SHOW = 500
-_MAX_STOPPAGE_ALERTS = 500
+# TODO(sullivan): Up this back to 500 when this bug is fixed:
+# https://github.com/catapult-project/catapult/issues/2818
+_MAX_STOPPAGE_ALERTS = 50
 
 
 class AlertsHandler(request_handler.RequestHandler):

@@ -3,12 +3,14 @@
 # found in the LICENSE file.
 
 import datetime
+import functools
 import logging
 import os
 import shutil
 import tempfile
 import threading
 
+from devil import base_error
 from devil.android import device_blacklist
 from devil.android import device_errors
 from devil.android import device_list
@@ -25,6 +27,50 @@ def _DeviceCachePath(device):
   return os.path.join(constants.GetOutDirectory(), file_name)
 
 
+def handle_shard_failures(f):
+  """A decorator that handles device failures for per-device functions.
+
+  Args:
+    f: the function being decorated. The function must take at least one
+      argument, and that argument must be the device.
+  """
+  return handle_shard_failures_with(None)(f)
+
+
+# TODO(jbudorick): Refactor this to work as a decorator or context manager.
+def handle_shard_failures_with(on_failure):
+  """A decorator that handles device failures for per-device functions.
+
+  This calls on_failure in the event of a failure.
+
+  Args:
+    f: the function being decorated. The function must take at least one
+      argument, and that argument must be the device.
+    on_failure: A binary function to call on failure.
+  """
+  def decorator(f):
+    @functools.wraps(f)
+    def wrapper(dev, *args, **kwargs):
+      try:
+        return f(dev, *args, **kwargs)
+      except device_errors.CommandTimeoutError:
+        logging.exception('Shard timed out: %s(%s)', f.__name__, str(dev))
+      except device_errors.DeviceUnreachableError:
+        logging.exception('Shard died: %s(%s)', f.__name__, str(dev))
+      except base_error.BaseError:
+        logging.exception('Shard failed: %s(%s)', f.__name__, str(dev))
+      except SystemExit:
+        logging.exception('Shard killed: %s(%s)', f.__name__, str(dev))
+        raise
+      if on_failure:
+        on_failure(dev, f.__name__)
+      return None
+
+    return wrapper
+
+  return decorator
+
+
 class LocalDeviceEnvironment(environment.Environment):
 
   def __init__(self, args, _error_func):
@@ -34,7 +80,7 @@ class LocalDeviceEnvironment(environment.Environment):
                        else None)
     self._device_serial = args.test_device
     self._devices_lock = threading.Lock()
-    self._devices = []
+    self._devices = None
     self._concurrent_adb = args.enable_concurrent_adb
     self._enable_device_cache = args.enable_device_cache
     self._logcat_monitors = []
@@ -47,6 +93,9 @@ class LocalDeviceEnvironment(environment.Environment):
 
   #override
   def SetUp(self):
+    pass
+
+  def _InitDevices(self):
     device_arg = 'default'
     if self._target_devices_file:
       device_arg = device_list.GetPersistentDeviceList(
@@ -55,6 +104,9 @@ class LocalDeviceEnvironment(environment.Environment):
         logging.warning('No target devices specified. Falling back to '
                         'running on all available devices.')
         device_arg = 'default'
+      else:
+        logging.info(
+            'Read device list %s from target devices file.', str(device_arg))
     elif self._device_serial:
       device_arg = self._device_serial
 
@@ -64,8 +116,12 @@ class LocalDeviceEnvironment(environment.Environment):
     if not self._devices:
       raise device_errors.NoDevicesError
 
-    if self._enable_device_cache:
-      for d in self._devices:
+    if self._logcat_output_file:
+      self._logcat_output_dir = tempfile.mkdtemp()
+
+    @handle_shard_failures_with(on_failure=self.BlacklistDevice)
+    def prepare_device(d):
+      if self._enable_device_cache:
         cache_path = _DeviceCachePath(d)
         if os.path.exists(cache_path):
           logging.info('Using device cache: %s', cache_path)
@@ -73,10 +129,8 @@ class LocalDeviceEnvironment(environment.Environment):
             d.LoadCacheData(f.read())
           # Delete cached file so that any exceptions cause it to be cleared.
           os.unlink(cache_path)
-    if self._logcat_output_file:
-      self._logcat_output_dir = tempfile.mkdtemp()
-    if self._logcat_output_dir:
-      for d in self._devices:
+
+      if self._logcat_output_dir:
         logcat_file = os.path.join(
             self._logcat_output_dir,
             '%s_%s' % (d.adb.GetDeviceSerial(),
@@ -86,12 +140,22 @@ class LocalDeviceEnvironment(environment.Environment):
         self._logcat_monitors.append(monitor)
         monitor.Start()
 
+    self.parallel_devices.pMap(prepare_device)
+
+  @property
+  def blacklist(self):
+    return self._blacklist
+
   @property
   def concurrent_adb(self):
     return self._concurrent_adb
 
   @property
   def devices(self):
+    # Initialize lazily so that host-only tests do not fail when no devices are
+    # attached.
+    if self._devices is None:
+      self._InitDevices()
     if not self._devices:
       raise device_errors.NoDevicesError()
     return self._devices
@@ -114,21 +178,43 @@ class LocalDeviceEnvironment(environment.Environment):
 
   #override
   def TearDown(self):
-    # Write the cache even when not using it so that it will be ready the first
-    # time that it is enabled. Writing it every time is also necessary so that
-    # an invalid cache can be flushed just by disabling it for one run.
-    for d in self._devices:
+    if self._devices is None:
+      return
+    @handle_shard_failures_with(on_failure=self.BlacklistDevice)
+    def tear_down_device(d):
+      # Write the cache even when not using it so that it will be ready the
+      # first time that it is enabled. Writing it every time is also necessary
+      # so that an invalid cache can be flushed just by disabling it for one
+      # run.
       cache_path = _DeviceCachePath(d)
       with open(cache_path, 'w') as f:
         f.write(d.DumpCacheData())
         logging.info('Wrote device cache: %s', cache_path)
+
+    self.parallel_devices.pMap(tear_down_device)
+
     for m in self._logcat_monitors:
-      m.Stop()
-      m.Close()
+      try:
+        m.Stop()
+        m.Close()
+        _, temp_path = tempfile.mkstemp()
+        with open(m.output_file, 'r') as infile:
+          with open(temp_path, 'w') as outfile:
+            for line in infile:
+              outfile.write('Device(%s) %s' % (m.adb.GetDeviceSerial(), line))
+        shutil.move(temp_path, m.output_file)
+      except base_error.BaseError:
+        logging.exception('Failed to stop logcat monitor for %s',
+                          m.adb.GetDeviceSerial())
+      except IOError:
+        logging.exception('Failed to locate logcat for device %s',
+                          m.adb.GetDeviceSerial())
+
     if self._logcat_output_file:
       file_utils.MergeFiles(
           self._logcat_output_file,
-          [m.output_file for m in self._logcat_monitors])
+          [m.output_file for m in self._logcat_monitors
+           if os.path.exists(m.output_file)])
       shutil.rmtree(self._logcat_output_dir)
 
   def BlacklistDevice(self, device, reason='local_device_failure'):

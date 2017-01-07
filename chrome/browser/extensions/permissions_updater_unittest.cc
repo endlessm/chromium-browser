@@ -186,14 +186,13 @@ TEST_F(PermissionsUpdaterTest, AddAndRemovePermissions) {
 
   // Make sure the extension's active permissions reflect the change.
   active_permissions = PermissionSet::CreateUnion(default_permissions, delta);
-  ASSERT_EQ(*active_permissions.get(),
+  ASSERT_EQ(*active_permissions,
             extension->permissions_data()->active_permissions());
 
   // Verify that the new granted and active permissions were also stored
   // in the extension preferences. In this case, the granted permissions should
   // be equal to the active permissions.
-  ASSERT_EQ(*active_permissions.get(),
-            *prefs->GetActivePermissions(extension->id()));
+  ASSERT_EQ(*active_permissions, *prefs->GetActivePermissions(extension->id()));
   granted_permissions = active_permissions->Clone();
   ASSERT_EQ(*granted_permissions,
             *prefs->GetGrantedPermissions(extension->id()));
@@ -240,16 +239,16 @@ TEST_F(PermissionsUpdaterTest, RevokingPermissions) {
   auto api_permission_set = [](APIPermission::ID id) {
     APIPermissionSet apis;
     apis.insert(id);
-    return base::WrapUnique(new PermissionSet(
-        apis, ManifestPermissionSet(), URLPatternSet(), URLPatternSet()));
+    return base::MakeUnique<PermissionSet>(apis, ManifestPermissionSet(),
+                                           URLPatternSet(), URLPatternSet());
   };
 
   auto url_permission_set = [](const GURL& url) {
     URLPatternSet set;
     URLPattern pattern(URLPattern::SCHEME_ALL, url.spec());
     set.AddPattern(pattern);
-    return base::WrapUnique(new PermissionSet(
-        APIPermissionSet(), ManifestPermissionSet(), set, URLPatternSet()));
+    return base::MakeUnique<PermissionSet>(
+        APIPermissionSet(), ManifestPermissionSet(), set, URLPatternSet());
   };
 
   {

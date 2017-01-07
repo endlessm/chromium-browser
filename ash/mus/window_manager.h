@@ -11,25 +11,34 @@
 #include <set>
 
 #include "base/macros.h"
+#include "base/memory/ref_counted.h"
 #include "base/observer_list.h"
-#include "components/mus/common/types.h"
-#include "components/mus/public/cpp/window_manager_delegate.h"
-#include "components/mus/public/cpp/window_observer.h"
-#include "components/mus/public/cpp/window_tree_client_delegate.h"
-#include "components/mus/public/interfaces/window_manager.mojom.h"
+#include "services/ui/common/types.h"
+#include "services/ui/public/cpp/window_manager_delegate.h"
+#include "services/ui/public/cpp/window_tree_client_delegate.h"
+#include "services/ui/public/interfaces/window_manager.mojom.h"
+
+namespace base {
+class SequencedWorkerPool;
+}
 
 namespace display {
 class Display;
-class Screen;
+class ScreenBase;
 }
 
 namespace shell {
 class Connector;
 }
 
+namespace views {
+class PointerWatcherEventRouter;
+}
+
 namespace ash {
 namespace mus {
 
+class AcceleratorHandler;
 class RootWindowController;
 class ShadowController;
 class WindowManagerObserver;
@@ -41,18 +50,24 @@ class WmTestHelper;
 // WindowTreeClientDelegate for mash. WindowManager creates (and owns)
 // a RootWindowController per Display. WindowManager takes ownership of
 // the WindowTreeClient.
-class WindowManager : public ::mus::WindowManagerDelegate,
-                      public ::mus::WindowObserver,
-                      public ::mus::WindowTreeClientDelegate {
+class WindowManager : public ui::WindowManagerDelegate,
+                      public ui::WindowTreeClientDelegate {
  public:
   explicit WindowManager(shell::Connector* connector);
   ~WindowManager() override;
 
-  void Init(::mus::WindowTreeClient* window_tree_client);
+  void Init(std::unique_ptr<ui::WindowTreeClient> window_tree_client,
+            const scoped_refptr<base::SequencedWorkerPool>& blocking_pool);
 
   WmShellMus* shell() { return shell_.get(); }
 
-  ::mus::WindowManagerClient* window_manager_client() {
+  display::ScreenBase* screen() { return screen_.get(); }
+
+  ui::WindowTreeClient* window_tree_client() {
+    return window_tree_client_.get();
+  }
+
+  ui::WindowManagerClient* window_manager_client() {
     return window_manager_client_;
   }
 
@@ -61,10 +76,17 @@ class WindowManager : public ::mus::WindowManagerDelegate,
   void SetScreenLocked(bool is_locked);
 
   // Creates a new top level window.
-  ::mus::Window* NewTopLevelWindow(
+  ui::Window* NewTopLevelWindow(
       std::map<std::string, std::vector<uint8_t>>* properties);
 
   std::set<RootWindowController*> GetRootWindowControllers();
+
+  // Returns the next accelerator namespace id by value in |id|. Returns true
+  // if there is another slot available, false if all slots are taken up.
+  bool GetNextAcceleratorNamespaceId(uint16_t* id);
+  void AddAcceleratorHandler(uint16_t id_namespace,
+                             AcceleratorHandler* handler);
+  void RemoveAcceleratorHandler(uint16_t id_namespace);
 
   void AddObserver(WindowManagerObserver* observer);
   void RemoveObserver(WindowManagerObserver* observer);
@@ -72,54 +94,84 @@ class WindowManager : public ::mus::WindowManagerDelegate,
  private:
   friend class WmTestHelper;
 
-  void AddAccelerators();
+  using RootWindowControllers = std::set<std::unique_ptr<RootWindowController>>;
 
   RootWindowController* CreateRootWindowController(
-      ::mus::Window* window,
+      ui::Window* window,
       const display::Display& display);
 
-  // ::mus::WindowObserver:
-  void OnWindowDestroying(::mus::Window* window) override;
-  void OnWindowDestroyed(::mus::Window* window) override;
+  // Deletes the specified RootWindowController. Called when a display is
+  // removed.
+  void DestroyRootWindowController(
+      RootWindowController* root_window_controller);
+
+  void Shutdown();
+
+  // Returns an iterator into |root_window_controllers_|. Returns
+  // root_window_controllers_.end() if |window| is not the root of a
+  // RootWindowController.
+  RootWindowControllers::iterator FindRootWindowControllerByWindow(
+      ui::Window* window);
+
+  RootWindowController* GetPrimaryRootWindowController();
+
+  // Returns the RootWindowController where new top levels are created.
+  // |properties| is the properties supplied during window creation.
+  RootWindowController* GetRootWindowControllerForNewTopLevelWindow(
+      std::map<std::string, std::vector<uint8_t>>* properties);
 
   // WindowTreeClientDelegate:
-  void OnEmbed(::mus::Window* root) override;
-  void OnWindowTreeClientDestroyed(::mus::WindowTreeClient* client) override;
-  void OnEventObserved(const ui::Event& event, ::mus::Window* target) override;
+  void OnEmbed(ui::Window* root) override;
+  void OnEmbedRootDestroyed(ui::Window* root) override;
+  void OnLostConnection(ui::WindowTreeClient* client) override;
+  void OnPointerEventObserved(const ui::PointerEvent& event,
+                              ui::Window* target) override;
 
   // WindowManagerDelegate:
-  void SetWindowManagerClient(::mus::WindowManagerClient* client) override;
-  bool OnWmSetBounds(::mus::Window* window, gfx::Rect* bounds) override;
+  void SetWindowManagerClient(ui::WindowManagerClient* client) override;
+  bool OnWmSetBounds(ui::Window* window, gfx::Rect* bounds) override;
   bool OnWmSetProperty(
-      ::mus::Window* window,
+      ui::Window* window,
       const std::string& name,
       std::unique_ptr<std::vector<uint8_t>>* new_data) override;
-  ::mus::Window* OnWmCreateTopLevelWindow(
+  ui::Window* OnWmCreateTopLevelWindow(
       std::map<std::string, std::vector<uint8_t>>* properties) override;
-  void OnWmClientJankinessChanged(
-      const std::set<::mus::Window*>& client_windows,
-      bool not_responding) override;
-  void OnWmNewDisplay(::mus::Window* window,
+  void OnWmClientJankinessChanged(const std::set<ui::Window*>& client_windows,
+                                  bool not_responding) override;
+  void OnWmNewDisplay(ui::Window* window,
                       const display::Display& display) override;
-  void OnAccelerator(uint32_t id, const ui::Event& event) override;
+  void OnWmDisplayRemoved(ui::Window* window) override;
+  void OnWmPerformMoveLoop(ui::Window* window,
+                           ui::mojom::MoveLoopSource source,
+                           const gfx::Point& cursor_location,
+                           const base::Callback<void(bool)>& on_done) override;
+  void OnWmCancelMoveLoop(ui::Window* window) override;
+  ui::mojom::EventResult OnAccelerator(uint32_t id,
+                                       const ui::Event& event) override;
 
   shell::Connector* connector_;
 
-  ::mus::WindowTreeClient* window_tree_client_ = nullptr;
+  std::unique_ptr<ui::WindowTreeClient> window_tree_client_;
 
-  ::mus::WindowManagerClient* window_manager_client_ = nullptr;
+  ui::WindowManagerClient* window_manager_client_ = nullptr;
+
+  std::unique_ptr<views::PointerWatcherEventRouter>
+      pointer_watcher_event_router_;
 
   std::unique_ptr<ShadowController> shadow_controller_;
 
-  std::set<std::unique_ptr<RootWindowController>> root_window_controllers_;
+  RootWindowControllers root_window_controllers_;
 
   base::ObserverList<WindowManagerObserver> observers_;
 
-  std::unique_ptr<display::Screen> screen_;
+  std::unique_ptr<display::ScreenBase> screen_;
 
   std::unique_ptr<WmShellMus> shell_;
 
   std::unique_ptr<WmLookupMus> lookup_;
+
+  std::map<uint16_t, AcceleratorHandler*> accelerator_handlers_;
+  uint16_t next_accelerator_namespace_id_ = 0u;
 
   DISALLOW_COPY_AND_ASSIGN(WindowManager);
 };

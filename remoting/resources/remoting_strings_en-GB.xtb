@@ -65,7 +65,6 @@ For information about privacy, please see the Google Privacy Policy (http://goo.
 <translation id="2359808026110333948">Continue</translation>
 <translation id="2366718077645204424">Unable to reach the host. This is probably due to the configuration of the network you are using.</translation>
 <translation id="2370754117186920852"><ph name="OPTIONAL_OFFLINE_REASON" />  Last seen online <ph name="RELATIVE_TIMESTAMP" />.</translation>
-<translation id="2498359688066513246">Help &amp; feedback</translation>
 <translation id="2499160551253595098">Help us to improve Chrome Remote Desktop by allowing us to collect usage statistics and crash reports.</translation>
 <translation id="2512228156274966424">NOTE: To ensure that all keyboard shortcuts are available, you can configure Chrome Remote Desktop to ‘Open as window’.</translation>
 <translation id="2540992418118313681">Would you like to share this computer for another user to see and control?</translation>
@@ -74,7 +73,6 @@ For information about privacy, please see the Google Privacy Policy (http://goo.
 <translation id="2676780859508944670">Working…</translation>
 <translation id="2699970397166997657">Chromoting</translation>
 <translation id="2747641796667576127">Software updates usually happen automatically, but can fail in some rare cases. Updating the software should take no more than a few minutes and can be done while connected to your computer remotely.</translation>
-<translation id="2813770873348017932">Connections to the remote computer are temporarily blocked because somebody was trying to connect to it with invalid PIN. Please try again later.</translation>
 <translation id="2841013758207633010">Time</translation>
 <translation id="2851674870054673688">Once they have entered the code your sharing session will begin.</translation>
 <translation id="2851754573186462851">Chromium App Streaming</translation>
@@ -149,7 +147,6 @@ Host</translation>
 <translation id="4573676252416618192">Chrome Remote
 Desktop Host</translation>
 <translation id="4619978527973181021">Accept and install</translation>
-<translation id="4647791084836149355">Show Cardboard view</translation>
 <translation id="4703302905453407178">A required component has stopped working. Please report this problem to the developers.</translation>
 <translation id="4703799847237267011">Your Chromoting session has ended.</translation>
 <translation id="4736223761657662401">Connection History</translation>
@@ -210,7 +207,6 @@ Desktop Host</translation>
 <translation id="6284412385303060032">Host running at the console logic screen has shut down to support curtain mode by switching to a host running in a user-specific session.</translation>
 <translation id="629730747756840877">Account</translation>
 <translation id="6304318647555713317">Client</translation>
-<translation id="6324708100353784493">You have enabled Google Cardboard integration mode. To use this mode, insert your device into a Google Cardboard-compatible viewer.</translation>
 <translation id="6381670701864002291">Something else.</translation>
 <translation id="6398765197997659313">Exit full screen</translation>
 <translation id="6408143143164565232">• Listen to audio from Windows or Linux computers.
@@ -236,6 +232,7 @@ Desktop Host</translation>
 <translation id="6930242544192836755">Duration</translation>
 <translation id="6939719207673461467">Show/hide keyboard.</translation>
 <translation id="6944854424004126054">Restore window</translation>
+<translation id="6963936880795878952">Connections to the remote computer are temporarily blocked because somebody was trying to connect to it with an invalid PIN. Please try again later.</translation>
 <translation id="6965382102122355670">OK</translation>
 <translation id="6985691951107243942">Are you sure you want to disable remote connections to <ph name="HOSTNAME" />? If you change your mind, you'll need to visit that computer to re-enable connections.</translation>
 <translation id="6998989275928107238">To</translation>
@@ -266,6 +263,7 @@ Desktop Host</translation>
 <translation id="7948001860594368197">Screen options</translation>
 <translation id="7970576581263377361">Authentication failed. Please sign in to Chromium again.</translation>
 <translation id="7981525049612125370">The remote session has expired.</translation>
+<translation id="8041089156583427627">Send Feedback</translation>
 <translation id="8041721485428375115">By downloading the Chrome Remote Desktop Host Installer, you are agreeing to the Google <ph name="LINK_BEGIN" />Terms of Service<ph name="LINK_END" />.</translation>
 <translation id="8073845705237259513">To use Chrome Remote Desktop, you'll need to add a Google Account to your device.</translation>
 <translation id="80739703311984697">The remote host requires you to authenticate to a third-party website. To continue, you must grant Chromoting additional permissions to access this address:</translation>
@@ -289,6 +287,7 @@ Desktop Host</translation>
 <translation id="8548209692293300397">You have previously signed in as <ph name="USER_NAME" /> (<ph name="USER_EMAIL" />). To access your computers in that account, <ph name="LINK_BEGIN" />sign in to Google Chrome<ph name="LINK_END" /> with that account and re-install Chrome Remote Desktop.</translation>
 <translation id="8642984861538780905">Fair</translation>
 <translation id="8712909229180978490">I can't see my saved files online in Google Drive.</translation>
+<translation id="8743328882720071828">Would you like to allow <ph name="CLIENT_USERNAME" /> to see and control your computer?</translation>
 <translation id="8759753423332885148">Learn more.</translation>
 <translation id="8791202241915690908">Download Chromoting Host Installer</translation>
 <translation id="894763922177556086">Good</translation>

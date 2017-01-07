@@ -16,9 +16,9 @@ import time
 
 from hooks import install
 
-from catapult_base import binary_manager
-from catapult_base import dependency_util
-from catapult_base import xvfb
+from py_utils import binary_manager
+from py_utils import dependency_util
+from py_utils import xvfb
 
 
 # Path to dependency manager config containing chrome binary data.
@@ -26,7 +26,7 @@ CHROME_BINARIES_CONFIG = dependency_util.ChromeBinariesConfigPath()
 
 CHROME_CONFIG_URL = (
     'https://code.google.com/p/chromium/codesearch#chromium/src/third_party/'
-    'catapult/catapult_base/catapult_base/chrome_binaries.json')
+    'catapult/py_utils/py_utils/chrome_binaries.json')
 
 # Default port to run on if not auto-assigning from OS
 DEFAULT_PORT = '8111'
@@ -173,7 +173,9 @@ def Main(argv):
       arch, os_name = dependency_util.GetOSAndArchForCurrentDesktopPlatform()
       chrome_path, version = chrome_manager.FetchPathWithVersion(
           'chrome_%s' % channel, arch, os_name)
+      print 'Finished fetching the chrome binary to %s' % chrome_path
       if xvfb.ShouldStartXvfb():
+        print 'Starting xvfb...'
         xvfb_process = xvfb.StartXvfb()
       chrome_info = 'version %s from channel %s' % (version, channel)
     chrome_command = [

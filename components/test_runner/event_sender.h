@@ -18,14 +18,15 @@
 #include "build/build_config.h"
 #include "third_party/WebKit/public/platform/WebDragData.h"
 #include "third_party/WebKit/public/platform/WebDragOperation.h"
+#include "third_party/WebKit/public/platform/WebInputEvent.h"
 #include "third_party/WebKit/public/platform/WebInputEventResult.h"
 #include "third_party/WebKit/public/platform/WebPoint.h"
-#include "third_party/WebKit/public/web/WebInputEvent.h"
-#include "third_party/WebKit/public/web/WebTouchPoint.h"
+#include "third_party/WebKit/public/platform/WebTouchPoint.h"
 
 namespace blink {
 class WebLocalFrame;
 class WebView;
+class WebWidget;
 struct WebContextMenuData;
 }
 
@@ -36,8 +37,8 @@ class Arguments;
 namespace test_runner {
 
 class TestInterfaces;
+class WebWidgetTestProxyBase;
 class WebTestDelegate;
-class WebTestProxyBase;
 
 // Key event location code introduced in DOM Level 3.
 // See also: http://www.w3.org/TR/DOM-Level-3-Events/#events-keyboardevents
@@ -50,7 +51,7 @@ enum KeyLocationCode {
 
 class EventSender {
  public:
-  explicit EventSender(WebTestProxyBase*);
+  explicit EventSender(WebWidgetTestProxyBase*);
   virtual ~EventSender();
 
   void Reset();
@@ -200,12 +201,12 @@ class EventSender {
   void DoDragAfterMouseMove(const blink::WebMouseEvent&);
   void ReplaySavedEvents();
   blink::WebInputEventResult HandleInputEventOnViewOrPopup(
-      const blink::WebInputEvent&);
+      const blink::WebInputEvent& event);
 
   void SendGesturesForMouseWheelEvent(
       const blink::WebMouseWheelEvent wheel_event);
 
-  std::unique_ptr<blink::WebInputEvent> ScaleEvent(
+  std::unique_ptr<blink::WebInputEvent> TransformScreenToWidgetCoordinates(
       const blink::WebInputEvent& event);
 
   double last_event_timestamp() { return last_event_timestamp_; }
@@ -214,6 +215,7 @@ class EventSender {
   void set_force_layout_on_events(bool force) {
     force_layout_on_events_ = force;
   }
+  void DoLayoutIfForceLayoutOnEventsRequested();
 
   bool is_drag_mode() const { return is_drag_mode_; }
   void set_is_drag_mode(bool drag_mode) { is_drag_mode_ = drag_mode; }
@@ -257,11 +259,12 @@ class EventSender {
   int wm_sys_dead_char_;
 #endif
 
-  WebTestProxyBase* web_test_proxy_base_;
+  WebWidgetTestProxyBase* web_widget_test_proxy_base_;
   TestInterfaces* interfaces();
   WebTestDelegate* delegate();
   const blink::WebView* view() const;
   blink::WebView* view();
+  blink::WebWidget* widget();
 
   bool force_layout_on_events_;
 
@@ -280,7 +283,6 @@ class EventSender {
   // Location of the touch point that initiated a gesture.
   blink::WebPoint current_gesture_location_;
 
-
   // Mouse-like pointer properties.
   struct PointerState {
       // Last pressed button (Left/Right/Middle or None).
@@ -296,7 +298,7 @@ class EventSender {
       int modifiers_;
 
       PointerState()
-      : pressed_button_(blink::WebMouseEvent::ButtonNone)
+      : pressed_button_(blink::WebMouseEvent::Button::NoButton)
       , current_buttons_(0)
       , last_pos_(blink::WebPoint(0, 0))
       , modifiers_(0) { }

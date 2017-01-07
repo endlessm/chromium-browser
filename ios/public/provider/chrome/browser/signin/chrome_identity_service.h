@@ -9,21 +9,28 @@
 #include <string>
 #include <vector>
 
+#include "base/mac/scoped_nsobject.h"
 #include "base/macros.h"
 #include "base/observer_list.h"
 
 @class ChromeIdentity;
+@protocol ChromeIdentityBrowserOpener;
 @class ChromeIdentityInteractionManager;
 @protocol ChromeIdentityInteractionManagerDelegate;
 @class NSArray;
 @class NSDate;
+@class NSDictionary;
 @class NSError;
 @class NSString;
+@class NSURL;
+@class UIApplication;
 @class UIImage;
+@class UINavigationController;
 
 namespace ios {
 
 class ChromeBrowserState;
+class ChromeIdentityService;
 
 // Callback passed to method |GetAccessTokenForScopes()| that returns the
 // information of the obtained access token to the caller.
@@ -83,10 +90,31 @@ class ChromeIdentityService {
   ChromeIdentityService();
   virtual ~ChromeIdentityService();
 
-  // Returns a newly created and autoreleased ChromeIdentityInteractionManager
-  // with |delegate| as its delegate.
-  virtual ChromeIdentityInteractionManager*
-  CreateChromeIdentityInteractionManager(
+  // Handles open URL authentication callback. Returns whether the URL was
+  // actually handled. This should be called within
+  // UIApplicationDelegate application:openURL:options:.
+  virtual bool HandleApplicationOpenURL(UIApplication* application,
+                                        NSURL* url,
+                                        NSDictionary* options);
+
+  // Dismisses all the dialogs created by the abstracted flows.
+  virtual void DismissDialogs();
+
+  // Returns a new account details controller to present. A cancel button is
+  // present as leading navigation item.
+  virtual base::scoped_nsobject<UINavigationController> NewAccountDetails(
+      ChromeIdentity* identity,
+      id<ChromeIdentityBrowserOpener> browser_opener);
+
+  // Returns a new Web and App Setting Details controller to present.
+  virtual base::scoped_nsobject<UINavigationController>
+  NewWebAndAppSettingDetails(ChromeIdentity* identity,
+                             id<ChromeIdentityBrowserOpener> browser_opener);
+
+  // Returns a new ChromeIdentityInteractionManager with |delegate| as its
+  // delegate.
+  virtual base::scoped_nsobject<ChromeIdentityInteractionManager>
+  NewChromeIdentityInteractionManager(
       ios::ChromeBrowserState* browser_state,
       id<ChromeIdentityInteractionManagerDelegate> delegate) const;
 

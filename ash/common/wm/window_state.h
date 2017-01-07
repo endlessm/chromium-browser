@@ -196,21 +196,14 @@ class ASH_EXPORT WindowState {
     unminimize_to_restore_bounds_ = value;
   }
 
-  // Controls the shelf mode when this window is in fullscreen state.
-  // This enum is temporary until MD immersive is launched.
-  // TODO(oshima): Remove this when MD immersive is launched.
-  enum FullscreenShelfMode {
-    SHELF_HIDDEN,
-    SHELF_AUTO_HIDE_VISIBLE,
-    SHELF_AUTO_HIDE_INVISIBLE,
-  };
   // Gets/sets whether the shelf should be hidden when this window is
   // fullscreen.
-  FullscreenShelfMode shelf_mode_in_fullscreen() const {
-    return shelf_mode_in_fullscreen_;
+  bool hide_shelf_when_fullscreen() const {
+    return hide_shelf_when_fullscreen_;
   }
-  void set_shelf_mode_in_fullscreen(FullscreenShelfMode value) {
-    shelf_mode_in_fullscreen_ = value;
+
+  void set_hide_shelf_when_fullscreen(bool value) {
+    hide_shelf_when_fullscreen_ = value;
   }
 
   // If the minimum visibility is true, ash will try to keep a
@@ -274,15 +267,6 @@ class ASH_EXPORT WindowState {
   bool can_consume_system_keys() const { return can_consume_system_keys_; }
   void set_can_consume_system_keys(bool can_consume_system_keys) {
     can_consume_system_keys_ = can_consume_system_keys;
-  }
-
-  // True if this window has requested that the top-row keys (back, forward,
-  // brightness, volume) should be treated as function keys.
-  bool top_row_keys_are_function_keys() const {
-    return top_row_keys_are_function_keys_;
-  }
-  void set_top_row_keys_are_function_keys(bool value) {
-    top_row_keys_are_function_keys_ = value;
   }
 
   // True if the window is in "immersive full screen mode" which is slightly
@@ -391,13 +375,12 @@ class ASH_EXPORT WindowState {
   bool panel_attached_;
   bool ignored_by_shelf_;
   bool can_consume_system_keys_;
-  bool top_row_keys_are_function_keys_;
   std::unique_ptr<DragDetails> drag_details_;
 
   bool unminimize_to_restore_bounds_;
   bool in_immersive_fullscreen_;
   bool ignore_keyboard_bounds_change_ = false;
-  FullscreenShelfMode shelf_mode_in_fullscreen_ = SHELF_HIDDEN;
+  bool hide_shelf_when_fullscreen_;
   bool minimum_visibility_;
   bool can_be_dragged_;
   bool cached_always_on_top_;

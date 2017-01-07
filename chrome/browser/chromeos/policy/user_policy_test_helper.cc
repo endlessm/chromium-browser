@@ -25,7 +25,7 @@
 #include "components/policy/core/common/cloud/cloud_policy_core.h"
 #include "components/policy/core/common/policy_service.h"
 #include "components/policy/core/common/policy_switches.h"
-#include "policy/proto/device_management_backend.pb.h"
+#include "components/policy/proto/device_management_backend.pb.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "url/gurl.h"
 
@@ -144,7 +144,7 @@ void UserPolicyTestHelper::WritePolicyFile(
 }
 
 base::FilePath UserPolicyTestHelper::PolicyFilePath() const {
-  return temp_dir_.path().AppendASCII("policy.json");
+  return temp_dir_.GetPath().AppendASCII("policy.json");
 }
 
 }  // namespace policy

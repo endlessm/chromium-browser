@@ -65,7 +65,6 @@ Informace ohledně ochrany soukromí naleznete v zásadách ochrany soukromí sp
 <translation id="2359808026110333948">Pokračovat</translation>
 <translation id="2366718077645204424">Hostitele nelze nalézt. Pravděpodobnou příčinou je aktuální konfigurace sítě.</translation>
 <translation id="2370754117186920852"><ph name="OPTIONAL_OFFLINE_REASON" /> Naposledy online: <ph name="RELATIVE_TIMESTAMP" />.</translation>
-<translation id="2498359688066513246">Nápověda a zpětná vazba</translation>
 <translation id="2499160551253595098">Pomozte nám Vzdálenou plochu Chrome vylepšit tím, že nám povolíte shromažďovat statistiky využití a zprávy o selhání.</translation>
 <translation id="2512228156274966424">POZNÁMKA: Pokud chcete mít k dispozici všechny klávesové zkratky, povolte v konfiguraci Vzdálené plochy Google možnost Otevřít jako okno.</translation>
 <translation id="2540992418118313681">Chcete tento počítač sdílet s dalším uživatelem, aby jej mohl zobrazit a ovládat?</translation>
@@ -74,7 +73,6 @@ Informace ohledně ochrany soukromí naleznete v zásadách ochrany soukromí sp
 <translation id="2676780859508944670">Probíhá zpracování…</translation>
 <translation id="2699970397166997657">Chromoting</translation>
 <translation id="2747641796667576127">Softwarové aktualizace probíhají obvykle automaticky, ve výjimečných případech však mohou selhat. Aktualizace softwaru by neměla trvat déle než několik minut a lze ji provést i během vzdáleného připojení k počítači.</translation>
-<translation id="2813770873348017932">Připojení ke vzdálenému počítači jsou dočasně zablokována, protože došlo k několika pokusům o připojení s nesprávným kódem PIN. Opakujte akci později.</translation>
 <translation id="2841013758207633010">Čas</translation>
 <translation id="2851674870054673688">Po zadání kódu bude spuštěna relace sdílení.</translation>
 <translation id="2851754573186462851">Streamování aplikací Chromium</translation>
@@ -150,7 +148,6 @@ Chromoting</translation>
 <translation id="4573676252416618192">Hostitel Vzdálené
 plochy Chrome</translation>
 <translation id="4619978527973181021">Přijmout a nainstalovat</translation>
-<translation id="4647791084836149355">Přepnout na zobrazení Cardboard</translation>
 <translation id="4703302905453407178">Vyžadovaná komponenta přestala pracovat. Nahlaste tento problém vývojářům.</translation>
 <translation id="4703799847237267011">Relace funkce Chromoting byla ukončena.</translation>
 <translation id="4736223761657662401">Historie připojení</translation>
@@ -211,7 +208,6 @@ plochy Chrome</translation>
 <translation id="6284412385303060032">Hostitel spuštěný na obrazovce logiky konzole byl ukončen za účelem zajištění podpory režimu opony prostřednictvím přepnutí na hostitele spuštěného v relaci specifické pro uživatele.</translation>
 <translation id="629730747756840877">Účet</translation>
 <translation id="6304318647555713317">Klient</translation>
-<translation id="6324708100353784493">Povolili jste režim integrace Google Cardboard. Chcete-li tento režim používat, vložte zařízení do brýlí pro virtuální realitu kompatibilních se službou Google Cardboard.</translation>
 <translation id="6381670701864002291">Něco jiného</translation>
 <translation id="6398765197997659313">Ukončit režim celé obrazovky</translation>
 <translation id="6408143143164565232">• Poslech zvuku z počítačů se systémem Windows nebo Linux
@@ -237,6 +233,7 @@ plochy Chrome</translation>
 <translation id="6930242544192836755">Délka</translation>
 <translation id="6939719207673461467">Zobrazit či skrýt klávesnici</translation>
 <translation id="6944854424004126054">Obnovit okno</translation>
+<translation id="6963936880795878952">Připojení ke vzdálenému počítači jsou dočasně zablokována, protože došlo k několika pokusům o připojení s nesprávným kódem PIN. Zkuste to znovu později.</translation>
 <translation id="6965382102122355670">OK</translation>
 <translation id="6985691951107243942">Opravdu chcete zakázat vzdálená připojení k počítači <ph name="HOSTNAME" />? Pokud později své rozhodnutí změníte, bude nutné připojení povolit přímo z uvedeného počítače.</translation>
 <translation id="6998989275928107238">Komu</translation>
@@ -267,6 +264,7 @@ plochy Chrome</translation>
 <translation id="7948001860594368197">Možnosti obrazovky</translation>
 <translation id="7970576581263377361">Ověření selhalo. Přihlaste se do prohlížeče Chromium znovu.</translation>
 <translation id="7981525049612125370">Platnost vzdálené relace vypršela.</translation>
+<translation id="8041089156583427627">Odeslat svůj názor</translation>
 <translation id="8041721485428375115">Stažením instalačního programu hostitele Vzdálené plochy Chrome vyjadřujete souhlas se <ph name="LINK_BEGIN" />smluvními podmínkami<ph name="LINK_END" /> společnosti Google.</translation>
 <translation id="8073845705237259513">Chcete-li používat Vzdálenou plochu Chrome, budete do zařízení muset přidat účet Google.</translation>
 <translation id="80739703311984697">Vzdálený hostitelský server vyžaduje, abyste provedli ověření na stránce třetí strany. Aby bylo možné pokračovat, je nutné udělit funkci Chromoting dodatečná oprávnění k přístupu na tuto adresu:</translation>
@@ -290,6 +288,7 @@ plochy Chrome</translation>
 <translation id="8548209692293300397">Dříve jste byli přihlášeni pomocí účtu <ph name="USER_NAME" /> (<ph name="USER_EMAIL" />). Chcete-li získat přístup k počítačům v tomto účtu, <ph name="LINK_BEGIN" />přihlaste se do prohlížeče Google Chrome<ph name="LINK_END" /> pomocí příslušného účtu a znovu nainstalujte Vzdálenou plochu Chrome.</translation>
 <translation id="8642984861538780905">Přijatelná</translation>
 <translation id="8712909229180978490">Soubory uložené online na Disku Google se nezobrazují.</translation>
+<translation id="8743328882720071828">Chcete uživateli <ph name="CLIENT_USERNAME" /> povolit zobrazit a ovládat váš počítač?</translation>
 <translation id="8759753423332885148">Další informace</translation>
 <translation id="8791202241915690908">Stažení instalačního programu hostitele funkce Chromoting</translation>
 <translation id="894763922177556086">Dobrá</translation>

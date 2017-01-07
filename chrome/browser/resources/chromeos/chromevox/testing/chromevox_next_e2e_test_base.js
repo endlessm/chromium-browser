@@ -24,6 +24,9 @@ function ChromeVoxNextE2ETest() {
       }.bind(this));
     }.bind(this));
   }
+
+  // For tests, enable announcement of events we trigger via automation.
+  DesktopAutomationHandler.announceActions = true;
 }
 
 ChromeVoxNextE2ETest.prototype = {
@@ -57,7 +60,7 @@ ChromeVoxNextE2ETest.prototype = {
 
         r.removeEventListener('focus', listener, true);
         r.removeEventListener('loadComplete', listener, true);
-        ChromeVoxState.instance.onGotCommand('nextObject');
+        CommandHandler.onCommand('nextObject');
         callback && callback(evt.target);
         callback = null;
       };

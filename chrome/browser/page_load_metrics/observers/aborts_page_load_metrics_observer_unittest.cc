@@ -11,7 +11,7 @@ class AbortsPageLoadMetricsObserverTest
     : public page_load_metrics::PageLoadMetricsObserverTestHarness {
  protected:
   void RegisterObservers(page_load_metrics::PageLoadTracker* tracker) override {
-    tracker->AddObserver(base::WrapUnique(new AbortsPageLoadMetricsObserver()));
+    tracker->AddObserver(base::MakeUnique<AbortsPageLoadMetricsObserver>());
   }
 
   void SimulateTimingWithoutPaint() {
@@ -21,12 +21,49 @@ class AbortsPageLoadMetricsObserverTest
   }
 };
 
-TEST_F(AbortsPageLoadMetricsObserverTest, UnknownNavigationBeforeCommit) {
+TEST_F(AbortsPageLoadMetricsObserverTest, NewNavigationBeforeCommit) {
   StartNavigation(GURL("https://www.google.com"));
   // Simulate the user performing another navigation before commit.
   NavigateAndCommit(GURL("https://www.example.com"));
   histogram_tester().ExpectTotalCount(
-      internal::kHistogramAbortUnknownNavigationBeforeCommit, 1);
+      internal::kHistogramAbortNewNavigationBeforeCommit, 1);
+}
+
+TEST_F(AbortsPageLoadMetricsObserverTest, ReloadBeforeCommit) {
+  StartNavigation(GURL("https://www.google.com"));
+  // Simulate the user performing another navigation before commit.
+  NavigateWithPageTransitionAndCommit(GURL("https://www.example.com"),
+                                      ui::PAGE_TRANSITION_RELOAD);
+  histogram_tester().ExpectTotalCount(
+      internal::kHistogramAbortReloadBeforeCommit, 1);
+}
+
+TEST_F(AbortsPageLoadMetricsObserverTest, ForwardBackBeforeCommit) {
+  StartNavigation(GURL("https://www.google.com"));
+  // Simulate the user performing another navigation before commit.
+  NavigateWithPageTransitionAndCommit(GURL("https://www.example.com"),
+                                      ui::PAGE_TRANSITION_FORWARD_BACK);
+  histogram_tester().ExpectTotalCount(
+      internal::kHistogramAbortForwardBackBeforeCommit, 1);
+}
+
+TEST_F(AbortsPageLoadMetricsObserverTest,
+       NewProvisionalNavigationBeforeCommit) {
+  StartNavigation(GURL("https://www.google.com"));
+  StartNavigation(GURL("https://www.example.com"));
+  histogram_tester().ExpectTotalCount(
+      internal::kHistogramAbortNewNavigationBeforeCommit, 1);
+}
+
+TEST_F(AbortsPageLoadMetricsObserverTest,
+       NewNavigationBeforeCommitNonTrackedPageLoad) {
+  StartNavigation(GURL("https://www.google.com"));
+  // Simulate the user performing another navigation before commit. Navigate to
+  // an untracked URL, to verify that we still log abort metrics even if the new
+  // navigation isn't tracked.
+  NavigateAndCommit(GURL("about:blank"));
+  histogram_tester().ExpectTotalCount(
+      internal::kHistogramAbortNewNavigationBeforeCommit, 1);
 }
 
 TEST_F(AbortsPageLoadMetricsObserverTest, NewNavigationBeforePaint) {

@@ -9,19 +9,21 @@
 #include "base/environment.h"
 #include "base/logging.h"
 #include "base/macros.h"
+#include "base/memory/ptr_util.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/metrics/sparse_histogram.h"
 #include "base/profiler/scoped_tracker.h"
 #include "base/rand_util.h"
-#include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/timer/timer.h"
 #include "chrome/browser/safe_browsing/protocol_parser.h"
 #include "chrome/common/env_vars.h"
+#include "components/data_use_measurement/core/data_use_user_data.h"
 #include "components/safe_browsing_db/util.h"
 #include "components/variations/variations_associated_data.h"
+#include "content/public/browser/browser_thread.h"
 #include "google_apis/google_api_keys.h"
 #include "net/base/escape.h"
 #include "net/base/load_flags.h"
@@ -98,12 +100,13 @@ class SBProtocolManagerFactoryImpl : public SBProtocolManagerFactory {
  public:
   SBProtocolManagerFactoryImpl() {}
   ~SBProtocolManagerFactoryImpl() override {}
-  SafeBrowsingProtocolManager* CreateProtocolManager(
+
+  std::unique_ptr<SafeBrowsingProtocolManager> CreateProtocolManager(
       SafeBrowsingProtocolManagerDelegate* delegate,
       net::URLRequestContextGetter* request_context_getter,
       const SafeBrowsingProtocolConfig& config) override {
-    return new SafeBrowsingProtocolManager(delegate, request_context_getter,
-                                           config);
+    return base::WrapUnique(new SafeBrowsingProtocolManager(
+        delegate, request_context_getter, config));
   }
 
  private:
@@ -113,17 +116,14 @@ class SBProtocolManagerFactoryImpl : public SBProtocolManagerFactory {
 // SafeBrowsingProtocolManager implementation ----------------------------------
 
 // static
-SBProtocolManagerFactory* SafeBrowsingProtocolManager::factory_ = NULL;
+SBProtocolManagerFactory* SafeBrowsingProtocolManager::factory_ = nullptr;
 
 // static
-SafeBrowsingProtocolManager* SafeBrowsingProtocolManager::Create(
+std::unique_ptr<SafeBrowsingProtocolManager>
+SafeBrowsingProtocolManager::Create(
     SafeBrowsingProtocolManagerDelegate* delegate,
     net::URLRequestContextGetter* request_context_getter,
     const SafeBrowsingProtocolConfig& config) {
-  // TODO(cbentzel): Remove ScopedTracker below once crbug.com/483689 is fixed.
-  tracked_objects::ScopedTracker tracking_profile(
-      FROM_HERE_WITH_EXPLICIT_FUNCTION(
-          "483689 SafeBrowsingProtocolManager::Create"));
   if (!factory_)
     factory_ = new SBProtocolManagerFactoryImpl();
   return factory_->CreateProtocolManager(delegate, request_context_getter,
@@ -191,12 +191,7 @@ bool SafeBrowsingProtocolManager::IsUpdateScheduled() const {
   return update_timer_.IsRunning();
 }
 
-SafeBrowsingProtocolManager::~SafeBrowsingProtocolManager() {
-  // Delete in-progress SafeBrowsing requests.
-  STLDeleteContainerPairFirstPointers(hash_requests_.begin(),
-                                      hash_requests_.end());
-  hash_requests_.clear();
-}
+SafeBrowsingProtocolManager::~SafeBrowsingProtocolManager() {}
 
 // We can only have one update or chunk request outstanding, but there may be
 // multiple GetHash requests pending since we don't want to serialize them and
@@ -206,7 +201,7 @@ void SafeBrowsingProtocolManager::GetFullHash(
     FullHashCallback callback,
     bool is_download,
     bool is_extended_reporting) {
-  DCHECK(CalledOnValidThread());
+  DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
   // If we are in GetHash backoff, we need to check if we're past the next
   // allowed time. If we are, we can proceed with the request. If not, we are
   // required to return empty results (i.e. treat the page as safe).
@@ -217,11 +212,13 @@ void SafeBrowsingProtocolManager::GetFullHash(
     return;
   }
   GURL gethash_url = GetHashUrl(is_extended_reporting);
-  net::URLFetcher* fetcher =
-      net::URLFetcher::Create(url_fetcher_id_++, gethash_url,
-                              net::URLFetcher::POST, this)
-          .release();
-  hash_requests_[fetcher] = FullHashDetails(callback, is_download);
+  std::unique_ptr<net::URLFetcher> fetcher_ptr = net::URLFetcher::Create(
+      url_fetcher_id_++, gethash_url, net::URLFetcher::POST, this);
+  net::URLFetcher* fetcher = fetcher_ptr.get();
+  data_use_measurement::DataUseUserData::AttachToFetcher(
+      fetcher, data_use_measurement::DataUseUserData::SAFE_BROWSING);
+  hash_requests_[fetcher] = {std::move(fetcher_ptr),
+                             FullHashDetails(callback, is_download)};
 
   const std::string get_hash = FormatGetHash(prefixes);
 
@@ -232,7 +229,7 @@ void SafeBrowsingProtocolManager::GetFullHash(
 }
 
 void SafeBrowsingProtocolManager::GetNextUpdate() {
-  DCHECK(CalledOnValidThread());
+  DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
   if (request_.get() || request_type_ != NO_REQUEST)
     return;
 
@@ -251,20 +248,17 @@ void SafeBrowsingProtocolManager::GetNextUpdate() {
 //              required, the SafeBrowsing servers will tell us to get it again.
 void SafeBrowsingProtocolManager::OnURLFetchComplete(
     const net::URLFetcher* source) {
-  DCHECK(CalledOnValidThread());
-  std::unique_ptr<const net::URLFetcher> fetcher;
+  DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
 
-  HashRequests::iterator it = hash_requests_.find(source);
+  auto it = hash_requests_.find(source);
   int response_code = source->GetResponseCode();
   net::URLRequestStatus status = source->GetStatus();
 
   if (it != hash_requests_.end()) {
     // GetHash response.
-    // Reset the scoped pointer so the fetcher gets destroyed properly.
-    fetcher.reset(it->first);
     RecordHttpResponseOrErrorCode(kGetHashUmaResponseMetricName, status,
                                   response_code);
-    const FullHashDetails& details = it->second;
+    const FullHashDetails& details = it->second.second;
     std::vector<SBFullHashResult> full_hashes;
     base::TimeDelta cache_lifetime;
     if (status.is_success() && (response_code == net::HTTP_OK ||
@@ -310,7 +304,7 @@ void SafeBrowsingProtocolManager::OnURLFetchComplete(
     // Update or chunk response.
     RecordHttpResponseOrErrorCode(kGetChunkUmaResponseMetricName, status,
                                   response_code);
-    fetcher.reset(request_.release());
+    std::unique_ptr<net::URLFetcher> fetcher = std::move(request_);
 
     if (request_type_ == UPDATE_REQUEST ||
         request_type_ == BACKUP_UPDATE_REQUEST) {
@@ -409,7 +403,7 @@ void SafeBrowsingProtocolManager::OnURLFetchComplete(
 bool SafeBrowsingProtocolManager::HandleServiceResponse(const GURL& url,
                                                         const char* data,
                                                         size_t length) {
-  DCHECK(CalledOnValidThread());
+  DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
 
   switch (request_type_) {
     case UPDATE_REQUEST:
@@ -490,11 +484,7 @@ bool SafeBrowsingProtocolManager::HandleServiceResponse(const GURL& url,
 }
 
 void SafeBrowsingProtocolManager::Initialize() {
-  DCHECK(CalledOnValidThread());
-  // TODO(cbentzel): Remove ScopedTracker below once crbug.com/483689 is fixed.
-  tracked_objects::ScopedTracker tracking_profile(
-      FROM_HERE_WITH_EXPLICIT_FUNCTION(
-          "483689 SafeBrowsingProtocolManager::Initialize"));
+  DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
   // Don't want to hit the safe browsing servers on build/chrome bots.
   std::unique_ptr<base::Environment> env(base::Environment::Create());
   if (env->HasVar(env_vars::kHeadless))
@@ -503,7 +493,7 @@ void SafeBrowsingProtocolManager::Initialize() {
 }
 
 void SafeBrowsingProtocolManager::ScheduleNextUpdate(bool back_off) {
-  DCHECK(CalledOnValidThread());
+  DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
   if (disable_auto_update_) {
     // Unschedule any current timer.
     update_timer_.Stop();
@@ -516,7 +506,7 @@ void SafeBrowsingProtocolManager::ScheduleNextUpdate(bool back_off) {
 
 void SafeBrowsingProtocolManager::ForceScheduleNextUpdate(
     base::TimeDelta interval) {
-  DCHECK(CalledOnValidThread());
+  DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
   DCHECK(interval >= base::TimeDelta());
   // Unschedule any current timer.
   update_timer_.Stop();
@@ -529,7 +519,7 @@ void SafeBrowsingProtocolManager::ForceScheduleNextUpdate(
 // when we receive a response from the SafeBrowsing service.
 base::TimeDelta SafeBrowsingProtocolManager::GetNextUpdateInterval(
     bool back_off) {
-  DCHECK(CalledOnValidThread());
+  DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
   DCHECK(next_update_interval_ > base::TimeDelta());
   base::TimeDelta next = next_update_interval_;
   if (back_off) {
@@ -545,7 +535,7 @@ base::TimeDelta SafeBrowsingProtocolManager::GetNextUpdateInterval(
 base::TimeDelta SafeBrowsingProtocolManager::GetNextBackOffInterval(
     size_t* error_count,
     size_t* multiplier) const {
-  DCHECK(CalledOnValidThread());
+  DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
   DCHECK(multiplier && error_count);
   (*error_count)++;
   if (*error_count > 1 && *error_count < 6) {
@@ -569,7 +559,7 @@ base::TimeDelta SafeBrowsingProtocolManager::GetNextBackOffInterval(
 //              otherhand, this request will only occur ~20-30 minutes so there
 //              isn't that much overhead. Measure!
 void SafeBrowsingProtocolManager::IssueUpdateRequest() {
-  DCHECK(CalledOnValidThread());
+  DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
   request_type_ = UPDATE_REQUEST;
   delegate_->UpdateStarted();
   delegate_->GetChunks(
@@ -581,7 +571,7 @@ void SafeBrowsingProtocolManager::IssueUpdateRequest() {
 // retrieved from the DB.
 bool SafeBrowsingProtocolManager::IssueBackupUpdateRequest(
     BackupUpdateReason backup_update_reason) {
-  DCHECK(CalledOnValidThread());
+  DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
   DCHECK_EQ(request_type_, UPDATE_REQUEST);
   DCHECK(backup_update_reason >= 0 &&
          backup_update_reason < BACKUP_UPDATE_REASON_MAX);
@@ -593,6 +583,8 @@ bool SafeBrowsingProtocolManager::IssueBackupUpdateRequest(
   GURL backup_update_url = BackupUpdateUrl(backup_update_reason);
   request_ = net::URLFetcher::Create(url_fetcher_id_++, backup_update_url,
                                      net::URLFetcher::POST, this);
+  data_use_measurement::DataUseUserData::AttachToFetcher(
+      request_.get(), data_use_measurement::DataUseUserData::SAFE_BROWSING);
   request_->SetLoadFlags(net::LOAD_DISABLE_CACHE);
   request_->SetRequestContext(request_context_getter_.get());
   request_->SetUploadData("text/plain", update_list_data_);
@@ -607,7 +599,7 @@ bool SafeBrowsingProtocolManager::IssueBackupUpdateRequest(
 }
 
 void SafeBrowsingProtocolManager::IssueChunkRequest() {
-  DCHECK(CalledOnValidThread());
+  DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
   // We are only allowed to have one request outstanding at any time.  Also,
   // don't get the next url until the previous one has been written to disk so
   // that we don't use too much memory.
@@ -620,6 +612,8 @@ void SafeBrowsingProtocolManager::IssueChunkRequest() {
   request_type_ = CHUNK_REQUEST;
   request_ = net::URLFetcher::Create(url_fetcher_id_++, chunk_url,
                                      net::URLFetcher::GET, this);
+  data_use_measurement::DataUseUserData::AttachToFetcher(
+      request_.get(), data_use_measurement::DataUseUserData::SAFE_BROWSING);
   request_->SetLoadFlags(net::LOAD_DISABLE_CACHE);
   request_->SetRequestContext(request_context_getter_.get());
   chunk_request_start_ = base::Time::Now();
@@ -630,7 +624,7 @@ void SafeBrowsingProtocolManager::OnGetChunksComplete(
     const std::vector<SBListChunkRanges>& lists,
     bool database_error,
     bool is_extended_reporting) {
-  DCHECK(CalledOnValidThread());
+  DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
   DCHECK_EQ(request_type_, UPDATE_REQUEST);
   DCHECK(update_list_data_.empty());
   if (database_error) {
@@ -671,6 +665,8 @@ void SafeBrowsingProtocolManager::OnGetChunksComplete(
   GURL update_url = UpdateUrl(is_extended_reporting);
   request_ = net::URLFetcher::Create(url_fetcher_id_++, update_url,
                                      net::URLFetcher::POST, this);
+  data_use_measurement::DataUseUserData::AttachToFetcher(
+      request_.get(), data_use_measurement::DataUseUserData::SAFE_BROWSING);
   request_->SetLoadFlags(net::LOAD_DISABLE_CACHE);
   request_->SetRequestContext(request_context_getter_.get());
   request_->SetUploadData("text/plain", update_list_data_);
@@ -685,7 +681,7 @@ void SafeBrowsingProtocolManager::OnGetChunksComplete(
 // If we haven't heard back from the server with an update response, this method
 // will run. Close the current update session and schedule another update.
 void SafeBrowsingProtocolManager::UpdateResponseTimeout() {
-  DCHECK(CalledOnValidThread());
+  DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
   DCHECK(request_type_ == UPDATE_REQUEST ||
          request_type_ == BACKUP_UPDATE_REQUEST);
   request_.reset();
@@ -697,7 +693,7 @@ void SafeBrowsingProtocolManager::UpdateResponseTimeout() {
 }
 
 void SafeBrowsingProtocolManager::OnAddChunksComplete() {
-  DCHECK(CalledOnValidThread());
+  DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
   chunk_pending_to_write_ = false;
 
   if (chunk_request_urls_.empty()) {
@@ -709,7 +705,7 @@ void SafeBrowsingProtocolManager::OnAddChunksComplete() {
 }
 
 void SafeBrowsingProtocolManager::HandleGetHashError(const Time& now) {
-  DCHECK(CalledOnValidThread());
+  DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
   base::TimeDelta next =
       GetNextBackOffInterval(&gethash_error_count_, &gethash_back_off_mult_);
   next_gethash_time_ = now + next;
@@ -720,7 +716,7 @@ void SafeBrowsingProtocolManager::UpdateFinished(bool success) {
 }
 
 void SafeBrowsingProtocolManager::UpdateFinished(bool success, bool back_off) {
-  DCHECK(CalledOnValidThread());
+  DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
   UMA_HISTOGRAM_COUNTS("SB2.UpdateSize", update_size_);
   update_size_ = 0;
   bool update_success = success || request_type_ == CHUNK_REQUEST;
@@ -766,7 +762,7 @@ GURL SafeBrowsingProtocolManager::GetHashUrl(bool is_extended_reporting) const {
 }
 
 GURL SafeBrowsingProtocolManager::NextChunkUrl(const std::string& url) const {
-  DCHECK(CalledOnValidThread());
+  DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
   std::string next_url;
   if (!base::StartsWith(url, "http://", base::CompareCase::INSENSITIVE_ASCII) &&
       !base::StartsWith(url, "https://",

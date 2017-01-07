@@ -34,6 +34,7 @@
 using base::android::AttachCurrentThread;
 using base::android::ConvertUTF16ToJavaString;
 using base::android::ConvertUTF8ToJavaString;
+using base::android::JavaParamRef;
 using base::android::ScopedJavaLocalRef;
 using content::FileChooserParams;
 using content::WebContents;
@@ -115,17 +116,15 @@ void AwWebContentsDelegate::RunFileChooser(
     DCHECK_EQ(FileChooserParams::Open, params.mode);
   }
   Java_AwWebContentsDelegate_runFileChooser(
-      env, java_delegate.obj(), render_frame_host->GetProcess()->GetID(),
+      env, java_delegate, render_frame_host->GetProcess()->GetID(),
       render_frame_host->GetRoutingID(), mode_flags,
       ConvertUTF16ToJavaString(
-          env, base::JoinString(params.accept_types, base::ASCIIToUTF16(",")))
-          .obj(),
-      params.title.empty() ? NULL
-                           : ConvertUTF16ToJavaString(env, params.title).obj(),
+          env, base::JoinString(params.accept_types, base::ASCIIToUTF16(","))),
+      params.title.empty() ? nullptr
+                           : ConvertUTF16ToJavaString(env, params.title),
       params.default_file_name.empty()
-          ? NULL
-          : ConvertUTF8ToJavaString(env, params.default_file_name.value())
-                .obj(),
+          ? nullptr
+          : ConvertUTF8ToJavaString(env, params.default_file_name.value()),
       params.capture);
 }
 
@@ -137,13 +136,13 @@ void AwWebContentsDelegate::AddNewContents(WebContents* source,
                                            bool* was_blocked) {
   JNIEnv* env = AttachCurrentThread();
 
-  bool is_dialog = disposition == NEW_POPUP;
+  bool is_dialog = disposition == WindowOpenDisposition::NEW_POPUP;
   ScopedJavaLocalRef<jobject> java_delegate = GetJavaDelegate(env);
   bool create_popup = false;
 
   if (java_delegate.obj()) {
-    create_popup = Java_AwWebContentsDelegate_addNewContents(env,
-        java_delegate.obj(), is_dialog, user_gesture);
+    create_popup = Java_AwWebContentsDelegate_addNewContents(
+        env, java_delegate, is_dialog, user_gesture);
   }
 
   if (create_popup) {
@@ -177,7 +176,7 @@ void AwWebContentsDelegate::NavigationStateChanged(
 
   ScopedJavaLocalRef<jobject> java_delegate = GetJavaDelegate(env);
   if (java_delegate.obj()) {
-    Java_AwWebContentsDelegate_navigationStateChanged(env, java_delegate.obj(),
+    Java_AwWebContentsDelegate_navigationStateChanged(env, java_delegate,
                                                       changed_flags);
   }
 }
@@ -186,6 +185,7 @@ void AwWebContentsDelegate::NavigationStateChanged(
 // typically happens when popups are created.
 void AwWebContentsDelegate::WebContentsCreated(
     WebContents* source_contents,
+    int opener_render_process_id,
     int opener_render_frame_id,
     const std::string& frame_name,
     const GURL& target_url,
@@ -198,7 +198,7 @@ void AwWebContentsDelegate::CloseContents(WebContents* source) {
 
   ScopedJavaLocalRef<jobject> java_delegate = GetJavaDelegate(env);
   if (java_delegate.obj()) {
-    Java_AwWebContentsDelegate_closeContents(env, java_delegate.obj());
+    Java_AwWebContentsDelegate_closeContents(env, java_delegate);
   }
 }
 
@@ -207,7 +207,7 @@ void AwWebContentsDelegate::ActivateContents(WebContents* contents) {
 
   ScopedJavaLocalRef<jobject> java_delegate = GetJavaDelegate(env);
   if (java_delegate.obj()) {
-    Java_AwWebContentsDelegate_activateContents(env, java_delegate.obj());
+    Java_AwWebContentsDelegate_activateContents(env, java_delegate);
   }
 }
 
@@ -219,7 +219,7 @@ void AwWebContentsDelegate::LoadingStateChanged(WebContents* source,
 
   ScopedJavaLocalRef<jobject> java_delegate = GetJavaDelegate(env);
   if (java_delegate.obj()) {
-    Java_AwWebContentsDelegate_loadingStateChanged(env, java_delegate.obj());
+    Java_AwWebContentsDelegate_loadingStateChanged(env, java_delegate);
   }
 }
 

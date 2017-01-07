@@ -13,12 +13,12 @@
 #include "ash/common/shell_observer.h"
 #include "base/macros.h"
 #include "ui/display/chromeos/display_configurator.h"
+#include "ui/display/manager/managed_display_info.h"
 #include "ui/events/devices/input_device_event_observer.h"
 
 namespace ash {
 
-class DisplayInfo;
-struct DisplayMode;
+class DisplayMode;
 class DisplaySnapshot;
 
 // An object that observes changes in display configuration and
@@ -29,13 +29,14 @@ class DisplayChangeObserver : public ui::DisplayConfigurator::StateController,
                               public ShellObserver {
  public:
   // Returns the mode list for internal display.
-  ASH_EXPORT static std::vector<DisplayMode> GetInternalDisplayModeList(
-      const DisplayInfo& display_info,
+  ASH_EXPORT static display::ManagedDisplayInfo::ManagedDisplayModeList
+  GetInternalManagedDisplayModeList(
+      const display::ManagedDisplayInfo& display_info,
       const ui::DisplaySnapshot& output);
 
   // Returns the resolution list.
-  ASH_EXPORT static std::vector<DisplayMode> GetExternalDisplayModeList(
-      const ui::DisplaySnapshot& output);
+  ASH_EXPORT static display::ManagedDisplayInfo::ManagedDisplayModeList
+  GetExternalManagedDisplayModeList(const ui::DisplaySnapshot& output);
 
   DisplayChangeObserver();
   ~DisplayChangeObserver() override;

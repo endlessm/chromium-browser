@@ -5,17 +5,17 @@
 #include "chrome/browser/ui/views/frame/browser_header_painter_ash.h"
 
 #include "ash/common/ash_layout_constants.h"
-#include "ash/frame/caption_buttons/frame_caption_button_container_view.h"
-#include "ash/frame/header_painter_util.h"
+#include "ash/common/frame/caption_buttons/frame_caption_button_container_view.h"
+#include "ash/common/frame/header_painter_util.h"
 #include "base/logging.h"  // DCHECK
 #include "chrome/browser/themes/theme_properties.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/views/frame/browser_frame.h"
 #include "chrome/browser/ui/views/frame/browser_non_client_frame_view_ash.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
-#include "grit/ash_resources.h"
-#include "grit/theme_resources.h"
+#include "chrome/grit/theme_resources.h"
 #include "third_party/skia/include/core/SkCanvas.h"
+#include "third_party/skia/include/core/SkColor.h"
 #include "third_party/skia/include/core/SkPaint.h"
 #include "third_party/skia/include/core/SkPath.h"
 #include "ui/base/material_design/material_design_controller.h"
@@ -34,8 +34,11 @@
 using views::Widget;
 
 namespace {
+
 // Color for the window title text.
-const SkColor kWindowTitleTextColor = SkColorSetRGB(40, 40, 40);
+const SkColor kNormalWindowTitleTextColor = SkColorSetRGB(40, 40, 40);
+const SkColor kIncognitoWindowTitleTextColor = SK_ColorWHITE;
+
 // Duration of crossfade animation for activating and deactivating frame.
 const int kActivationCrossfadeDurationMs = 200;
 
@@ -152,8 +155,8 @@ void BrowserHeaderPainterAsh::Init(
   view_ = header_view;
   window_icon_ = window_icon;
   caption_button_container_ = caption_button_container;
-  // Use light images in otr, even when a custom theme is installed. The
-  // otr window with a custom theme is still darker than a normal window.
+  // Use light images in incognito, even when a custom theme is installed. The
+  // incognito window with a custom theme is still darker than a normal window.
   caption_button_container_->SetUseLightImages(is_incognito_);
 }
 
@@ -333,7 +336,8 @@ void BrowserHeaderPainterAsh::PaintTitleBar(gfx::Canvas* canvas) {
   title_bounds.set_x(view_->GetMirroredXForRect(title_bounds));
   canvas->DrawStringRectWithFlags(frame_->widget_delegate()->GetWindowTitle(),
                                   BrowserFrame::GetTitleFontList(),
-                                  kWindowTitleTextColor,
+                                  is_incognito_ ? kIncognitoWindowTitleTextColor
+                                                : kNormalWindowTitleTextColor,
                                   title_bounds,
                                   gfx::Canvas::NO_SUBPIXEL_RENDERING);
 }

@@ -4,6 +4,9 @@
 
 package org.chromium.chrome.browser.omnibox;
 
+import static org.chromium.base.test.util.Restriction.RESTRICTION_TYPE_NON_LOW_END_DEVICE;
+
+import android.annotation.SuppressLint;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
@@ -16,6 +19,8 @@ import android.view.inputmethod.BaseInputConnection;
 
 import org.chromium.base.ThreadUtils;
 import org.chromium.base.test.util.Feature;
+import org.chromium.base.test.util.Restriction;
+import org.chromium.base.test.util.RetryOnFailure;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.ChromeActivity;
 import org.chromium.chrome.browser.profiles.Profile;
@@ -150,6 +155,7 @@ public class UrlBarTest extends ChromeActivityTestCaseBase<ChromeActivity> {
 
     @SmallTest
     @Feature({"Omnibox"})
+    @RetryOnFailure
     public void testRefocusing() throws InterruptedException {
         startMainActivityOnBlankPage();
         UrlBar urlBar = getUrlBar();
@@ -159,6 +165,7 @@ public class UrlBarTest extends ChromeActivityTestCaseBase<ChromeActivity> {
 
     @SmallTest
     @Feature({"Omnibox"})
+    @RetryOnFailure
     public void testAutocompleteUpdatedOnSetText() throws InterruptedException {
         startMainActivityOnBlankPage();
         stubLocationBarAutocomplete();
@@ -241,6 +248,7 @@ public class UrlBarTest extends ChromeActivityTestCaseBase<ChromeActivity> {
 
     @SmallTest
     @Feature({"Omnibox"})
+    @RetryOnFailure
     public void testAutocompleteUpdatedOnSelection()
             throws InterruptedException, TimeoutException {
         startMainActivityOnBlankPage();
@@ -350,6 +358,7 @@ public class UrlBarTest extends ChromeActivityTestCaseBase<ChromeActivity> {
      */
     @SmallTest
     @Feature({"Omnibox"})
+    @RetryOnFailure
     public void testSuggestionsUpdatedWhenDeletingInlineAutocomplete()
             throws InterruptedException, TimeoutException {
         startMainActivityOnBlankPage();
@@ -392,6 +401,7 @@ public class UrlBarTest extends ChromeActivityTestCaseBase<ChromeActivity> {
 
     @SmallTest
     @Feature({"Omnibox"})
+    @RetryOnFailure
     public void testSelectionChangesIgnoredInBatchMode() throws InterruptedException {
         startMainActivityOnBlankPage();
         stubLocationBarAutocomplete();
@@ -429,6 +439,7 @@ public class UrlBarTest extends ChromeActivityTestCaseBase<ChromeActivity> {
 
     @SmallTest
     @Feature({"Omnibox"})
+    @RetryOnFailure
     public void testBatchModeChangesTriggerCorrectSuggestions() throws InterruptedException {
         startMainActivityOnBlankPage();
 
@@ -478,6 +489,81 @@ public class UrlBarTest extends ChromeActivityTestCaseBase<ChromeActivity> {
 
     @SmallTest
     @Feature("Omnibox")
+    @RetryOnFailure
+    public void testAutocompleteCorrectlyPerservedOnBatchMode() throws InterruptedException {
+        startMainActivityOnBlankPage();
+        stubLocationBarAutocomplete();
+
+        final UrlBar urlBar = getUrlBar();
+        OmniboxTestUtils.toggleUrlBarFocus(urlBar, true);
+        OmniboxTestUtils.waitForFocusAndKeyboardActive(urlBar, true);
+
+        // Valid case (cursor at the end of text, single character, matches previous autocomplete).
+        setAutocomplete(urlBar, "g", "oogle.com");
+        AutocompleteState state = getAutocompleteState(urlBar, new Runnable() {
+            @Override
+            // TODO(crbug.com/635567): Fix this properly.
+            @SuppressLint("SetTextI18n")
+            public void run() {
+                urlBar.beginBatchEdit();
+                urlBar.setText("go");
+                urlBar.setSelection(2);
+                urlBar.endBatchEdit();
+            }
+        });
+        assertTrue(state.hasAutocomplete);
+        assertEquals("google.com", state.textWithAutocomplete);
+        assertEquals("go", state.textWithoutAutocomplete);
+
+        // Invalid case (cursor not at the end of the text)
+        setAutocomplete(urlBar, "g", "oogle.com");
+        state = getAutocompleteState(urlBar, new Runnable() {
+            @Override
+            // TODO(crbug.com/635567): Fix this properly.
+            @SuppressLint("SetTextI18n")
+            public void run() {
+                urlBar.beginBatchEdit();
+                urlBar.setText("go");
+                urlBar.setSelection(0);
+                urlBar.endBatchEdit();
+            }
+        });
+        assertFalse(state.hasAutocomplete);
+
+        // Invalid case (next character did not match previous autocomplete)
+        setAutocomplete(urlBar, "g", "oogle.com");
+        state = getAutocompleteState(urlBar, new Runnable() {
+            @Override
+            // TODO(crbug.com/635567): Fix this properly.
+            @SuppressLint("SetTextI18n")
+            public void run() {
+                urlBar.beginBatchEdit();
+                urlBar.setText("ga");
+                urlBar.setSelection(2);
+                urlBar.endBatchEdit();
+            }
+        });
+        assertFalse(state.hasAutocomplete);
+
+        // Invalid case (multiple characters entered instead of 1)
+        setAutocomplete(urlBar, "g", "oogle.com");
+        state = getAutocompleteState(urlBar, new Runnable() {
+            @Override
+            // TODO(crbug.com/635567): Fix this properly.
+            @SuppressLint("SetTextI18n")
+            public void run() {
+                urlBar.beginBatchEdit();
+                urlBar.setText("googl");
+                urlBar.setSelection(5);
+                urlBar.endBatchEdit();
+            }
+        });
+        assertFalse(state.hasAutocomplete);
+    }
+
+    @SmallTest
+    @Feature("Omnibox")
+    @RetryOnFailure
     public void testAutocompleteSpanClearedOnNonMatchingCommitText() throws InterruptedException {
         startMainActivityOnBlankPage();
 
@@ -510,6 +596,7 @@ public class UrlBarTest extends ChromeActivityTestCaseBase<ChromeActivity> {
 
     @SmallTest
     @Feature({"Omnibox"})
+    @RetryOnFailure
     public void testAutocompleteUpdatedOnDefocus() throws InterruptedException {
         startMainActivityOnBlankPage();
         stubLocationBarAutocomplete();
@@ -526,6 +613,7 @@ public class UrlBarTest extends ChromeActivityTestCaseBase<ChromeActivity> {
 
     @SmallTest
     @Feature({"Omnibox"})
+    @RetryOnFailure
     public void testAutocompleteClearedOnComposition()
             throws InterruptedException, ExecutionException {
         startMainActivityOnBlankPage();
@@ -555,6 +643,8 @@ public class UrlBarTest extends ChromeActivityTestCaseBase<ChromeActivity> {
 
     @SmallTest
     @Feature("Omnibox")
+    @RetryOnFailure
+    @Restriction({RESTRICTION_TYPE_NON_LOW_END_DEVICE}) // crbug.com/635714
     public void testDelayedCompositionCorrectedWithAutocomplete()
             throws InterruptedException, ExecutionException {
         startMainActivityOnBlankPage();
@@ -669,6 +759,7 @@ public class UrlBarTest extends ChromeActivityTestCaseBase<ChromeActivity> {
      */
     @SmallTest
     @Feature({"Omnibox"})
+    @RetryOnFailure
     public void testFocusingOnStartup() throws InterruptedException {
         Intent intent = new Intent(Intent.ACTION_MAIN);
         intent.addCategory(Intent.CATEGORY_LAUNCHER);
@@ -683,6 +774,7 @@ public class UrlBarTest extends ChromeActivityTestCaseBase<ChromeActivity> {
 
     @SmallTest
     @Feature({"Omnibox"})
+    @RetryOnFailure
     public void testCopyHuge() throws InterruptedException {
         startMainActivityWithURL(HUGE_URL);
         OmniboxTestUtils.toggleUrlBarFocus(getUrlBar(), true);

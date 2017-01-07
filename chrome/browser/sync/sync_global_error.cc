@@ -13,21 +13,24 @@
 #include "chrome/browser/ui/webui/signin/login_ui_service.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/grit/generated_resources.h"
-#include "components/browser_sync/browser/profile_sync_service.h"
+#include "components/browser_sync/profile_sync_service.h"
+#include "components/signin/core/common/profile_management_switches.h"
 #include "google_apis/gaia/google_service_auth_error.h"
 #include "ui/base/l10n/l10n_util.h"
 
-SyncGlobalError::SyncGlobalError(GlobalErrorService* global_error_service,
-                                 LoginUIService* login_ui_service,
-                                 SyncErrorController* error_controller,
-                                 ProfileSyncService* profile_sync_service)
+SyncGlobalError::SyncGlobalError(
+    GlobalErrorService* global_error_service,
+    LoginUIService* login_ui_service,
+    syncer::SyncErrorController* error_controller,
+    browser_sync::ProfileSyncService* profile_sync_service)
     : global_error_service_(global_error_service),
       login_ui_service_(login_ui_service),
       error_controller_(error_controller),
       sync_service_(profile_sync_service) {
   DCHECK(sync_service_);
   error_controller_->AddObserver(this);
-  global_error_service_->AddGlobalError(this);
+  if (!switches::IsMaterialDesignUserMenu())
+    global_error_service_->AddGlobalError(this);
 }
 
 SyncGlobalError::~SyncGlobalError() {
@@ -36,7 +39,8 @@ SyncGlobalError::~SyncGlobalError() {
 }
 
 void SyncGlobalError::Shutdown() {
-  global_error_service_->RemoveGlobalError(this);
+  if (!switches::IsMaterialDesignUserMenu())
+    global_error_service_->RemoveGlobalError(this);
   error_controller_->RemoveObserver(this);
   error_controller_ = NULL;
 }
@@ -94,6 +98,9 @@ void SyncGlobalError::BubbleViewCancelButtonPressed(Browser* browser) {
 }
 
 void SyncGlobalError::OnErrorChanged() {
+  if (switches::IsMaterialDesignUserMenu())
+    return;
+
   base::string16 menu_label;
   base::string16 bubble_message;
   base::string16 bubble_accept_label;

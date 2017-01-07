@@ -8,8 +8,6 @@
 #include <stdint.h>
 
 #include <limits>
-#include <memory>
-#include <vector>
 
 #include "base/bind.h"
 #include "base/command_line.h"
@@ -58,7 +56,7 @@
 #include "chrome/test/base/testing_browser_process.h"
 #include "chrome/test/base/ui_test_utils.h"
 #include "components/bookmarks/test/bookmark_test_helpers.h"
-#include "components/browser_sync/browser/profile_sync_service.h"
+#include "components/browser_sync/profile_sync_service.h"
 #include "components/google/core/browser/google_url_tracker.h"
 #include "components/invalidation/impl/invalidation_switches.h"
 #include "components/invalidation/impl/p2p_invalidation_service.h"
@@ -70,8 +68,11 @@
 #include "components/search_engines/template_url_service.h"
 #include "components/signin/core/browser/profile_identity_provider.h"
 #include "components/signin/core/browser/signin_manager.h"
-#include "components/sync_driver/invalidation_helper.h"
-#include "components/sync_driver/sync_driver_switches.h"
+#include "components/sync/driver/invalidation_helper.h"
+#include "components/sync/driver/sync_driver_switches.h"
+#include "components/sync/engine_impl/sync_scheduler_impl.h"
+#include "components/sync/protocol/sync.pb.h"
+#include "components/sync/test/fake_server/fake_server_network_resources.h"
 #include "content/public/browser/navigation_entry.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/web_contents.h"
@@ -84,16 +85,13 @@
 #include "net/url_request/test_url_fetcher_factory.h"
 #include "net/url_request/url_fetcher.h"
 #include "net/url_request/url_fetcher_delegate.h"
-#include "sync/engine/sync_scheduler_impl.h"
-#include "sync/protocol/sync.pb.h"
-#include "sync/test/fake_server/fake_server.h"
-#include "sync/test/fake_server/fake_server_network_resources.h"
 #include "url/gurl.h"
 
 #if defined(OS_CHROMEOS)
 #include "chromeos/chromeos_switches.h"
 #endif
 
+using browser_sync::ProfileSyncService;
 using content::BrowserThread;
 
 namespace switches {
@@ -145,7 +143,8 @@ class SyncServerStatusChecker : public net::URLFetcherDelegate {
     source->GetResponseAsString(&data);
     running_ =
         (source->GetStatus().status() == net::URLRequestStatus::SUCCESS &&
-        source->GetResponseCode() == 200 && data.find("ok") == 0);
+         source->GetResponseCode() == 200 &&
+         base::StartsWith(data, "ok", base::CompareCase::SENSITIVE));
     base::MessageLoop::current()->QuitWhenIdle();
   }
 
@@ -175,16 +174,16 @@ class EncryptionChecker : public SingleClientStatusChangeChecker {
 
 std::unique_ptr<KeyedService> BuildFakeServerProfileInvalidationProvider(
     content::BrowserContext* context) {
-  return base::WrapUnique(new invalidation::ProfileInvalidationProvider(
+  return base::MakeUnique<invalidation::ProfileInvalidationProvider>(
       std::unique_ptr<invalidation::InvalidationService>(
-          new fake_server::FakeServerInvalidationService)));
+          new fake_server::FakeServerInvalidationService));
 }
 
 std::unique_ptr<KeyedService> BuildP2PProfileInvalidationProvider(
     content::BrowserContext* context,
     syncer::P2PNotificationTarget notification_target) {
   Profile* profile = static_cast<Profile*>(context);
-  return base::WrapUnique(new invalidation::ProfileInvalidationProvider(
+  return base::MakeUnique<invalidation::ProfileInvalidationProvider>(
       std::unique_ptr<invalidation::InvalidationService>(
           new invalidation::P2PInvalidationService(
               std::unique_ptr<IdentityProvider>(new ProfileIdentityProvider(
@@ -192,7 +191,7 @@ std::unique_ptr<KeyedService> BuildP2PProfileInvalidationProvider(
                   ProfileOAuth2TokenServiceFactory::GetForProfile(profile),
                   LoginUIServiceFactory::GetShowLoginPopupCallbackForProfile(
                       profile))),
-              profile->GetRequestContext(), notification_target))));
+              profile->GetRequestContext(), notification_target)));
 }
 
 std::unique_ptr<KeyedService> BuildSelfNotifyingP2PProfileInvalidationProvider(
@@ -346,7 +345,7 @@ void SyncTest::CreateProfile(int index) {
     CHECK(
       tmp_profile_paths_[index]->CreateUniqueTempDirUnderPath(user_data_dir));
   }
-  base::FilePath profile_path = tmp_profile_paths_[index]->path();
+  base::FilePath profile_path = tmp_profile_paths_[index]->GetPath();
   if (UsingExternalServers()) {
     // If running against an EXTERNAL_LIVE_SERVER, we signin profiles using real
     // GAIA server. This requires creating profiles with no test hooks.
@@ -712,7 +711,7 @@ void SyncTest::TearDownInProcessBrowserTestFixture() {
 
 void SyncTest::WaitForDataModels(Profile* profile) {
   bookmarks::test::WaitForBookmarkModelToLoad(
-      BookmarkModelFactory::GetForProfile(profile));
+      BookmarkModelFactory::GetForBrowserContext(profile));
   ui_test_utils::WaitForHistoryToLoad(HistoryServiceFactory::GetForProfile(
       profile, ServiceAccessType::EXPLICIT_ACCESS));
   search_test_utils::WaitForTemplateURLServiceToLoad(
@@ -1014,9 +1013,7 @@ bool SyncTest::IsEncryptionComplete(int index) {
 
 bool SyncTest::AwaitEncryptionComplete(int index) {
   ProfileSyncService* service = GetClient(index)->service();
-  EncryptionChecker checker(service);
-  checker.Wait();
-  return !checker.TimedOut();
+  return EncryptionChecker(service).Wait();
 }
 
 bool SyncTest::AwaitQuiescence() {

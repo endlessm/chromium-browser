@@ -12,7 +12,6 @@
 #import "chrome/browser/ui/cocoa/tabs/tab_strip_background_view.h"
 #import "chrome/browser/ui/cocoa/tabs/tab_strip_view.h"
 #import "chrome/browser/ui/cocoa/themed_window.h"
-#include "grit/theme_resources.h"
 #import "ui/base/cocoa/focus_tracker.h"
 #include "ui/base/material_design/material_design_controller.h"
 #include "ui/base/theme_provider.h"
@@ -43,6 +42,14 @@
 
 - (NSPoint)themeImagePositionForAlignment:(ThemeImageAlignment)alignment {
   return [[self parentWindow] themeImagePositionForAlignment:alignment];
+}
+
+- (BOOL)hasDarkTheme {
+  return [[self parentWindow] hasDarkTheme];
+}
+
+- (BOOL)inIncognitoModeWithSystemTheme {
+  return [[self parentWindow] inIncognitoModeWithSystemTheme];
 }
 
 @end
@@ -352,8 +359,7 @@
   // In Material Design on 10.10 and higher, the top portion of the window is
   // blurred using an NSVisualEffectView.
   Class nsVisualEffectViewClass = NSClassFromString(@"NSVisualEffectView");
-  if (!ui::MaterialDesignController::IsModeMaterial() ||
-      !nsVisualEffectViewClass) {
+  if (!nsVisualEffectViewClass) {
     [rootView addSubview:tabStripBackgroundView_
               positioned:NSWindowBelow
               relativeTo:nil];

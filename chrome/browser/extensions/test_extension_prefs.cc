@@ -25,6 +25,7 @@
 #include "components/pref_registry/pref_registry_syncable.h"
 #include "components/prefs/json_pref_store.h"
 #include "components/prefs/pref_value_store.h"
+#include "components/sync/api/string_ordinal.h"
 #include "components/syncable_prefs/pref_service_mock_factory.h"
 #include "components/syncable_prefs/pref_service_syncable.h"
 #include "content/public/browser/browser_thread.h"
@@ -36,7 +37,6 @@
 #include "extensions/browser/extensions_browser_client.h"
 #include "extensions/common/extension.h"
 #include "extensions/common/manifest_constants.h"
-#include "sync/api/string_ordinal.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 using content::BrowserThread;
@@ -71,8 +71,8 @@ TestExtensionPrefs::TestExtensionPrefs(
     const scoped_refptr<base::SequencedTaskRunner>& task_runner)
     : task_runner_(task_runner), extensions_disabled_(false) {
   EXPECT_TRUE(temp_dir_.CreateUniqueTempDir());
-  preferences_file_ = temp_dir_.path().Append(chrome::kPreferencesFilename);
-  extensions_dir_ = temp_dir_.path().AppendASCII("Extensions");
+  preferences_file_ = temp_dir_.GetPath().Append(chrome::kPreferencesFilename);
+  extensions_dir_ = temp_dir_.GetPath().AppendASCII("Extensions");
   EXPECT_TRUE(base::CreateDirectory(extensions_dir_));
 
   ResetPrefRegistry();
@@ -124,7 +124,7 @@ void TestExtensionPrefs::RecreateExtensionPrefs() {
       new ExtensionPrefStore(extension_pref_value_map_.get(), false));
   pref_service_ = factory.CreateSyncable(pref_registry_.get());
   std::unique_ptr<ExtensionPrefs> prefs(ExtensionPrefs::Create(
-      &profile_, pref_service_.get(), temp_dir_.path(),
+      &profile_, pref_service_.get(), temp_dir_.GetPath(),
       extension_pref_value_map_.get(), extensions_disabled_,
       std::vector<ExtensionPrefsObserver*>(),
       // Guarantee that no two extensions get the same installation time

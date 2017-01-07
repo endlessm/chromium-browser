@@ -23,6 +23,10 @@
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/test/base/ui_test_utils.h"
+#include "components/sync/api/fake_sync_change_processor.h"
+#include "components/sync/api/sync_error_factory_mock.h"
+#include "components/sync/protocol/extension_specifics.pb.h"
+#include "components/sync/protocol/sync.pb.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/test/test_utils.h"
 #include "extensions/browser/extension_dialog_auto_confirm.h"
@@ -34,10 +38,6 @@
 #include "extensions/common/extension.h"
 #include "extensions/test/extension_test_message_listener.h"
 #include "net/url_request/test_url_request_interceptor.h"
-#include "sync/api/fake_sync_change_processor.h"
-#include "sync/api/sync_error_factory_mock.h"
-#include "sync/protocol/extension_specifics.pb.h"
-#include "sync/protocol/sync.pb.h"
 
 using content::BrowserThread;
 using extensions::Extension;
@@ -63,18 +63,15 @@ class ExtensionDisabledGlobalErrorTest : public ExtensionBrowserTest {
     const base::FilePath pem_path = test_dir.AppendASCII("permissions.pem");
     path_v1_ = PackExtensionWithOptions(
         test_dir.AppendASCII("v1"),
-        scoped_temp_dir_.path().AppendASCII("permissions1.crx"),
-        pem_path,
+        scoped_temp_dir_.GetPath().AppendASCII("permissions1.crx"), pem_path,
         base::FilePath());
     path_v2_ = PackExtensionWithOptions(
         test_dir.AppendASCII("v2"),
-        scoped_temp_dir_.path().AppendASCII("permissions2.crx"),
-        pem_path,
+        scoped_temp_dir_.GetPath().AppendASCII("permissions2.crx"), pem_path,
         base::FilePath());
     path_v3_ = PackExtensionWithOptions(
         test_dir.AppendASCII("v3"),
-        scoped_temp_dir_.path().AppendASCII("permissions3.crx"),
-        pem_path,
+        scoped_temp_dir_.GetPath().AppendASCII("permissions3.crx"), pem_path,
         base::FilePath());
   }
 
@@ -194,7 +191,7 @@ IN_PROC_BROWSER_TEST_F(ExtensionDisabledGlobalErrorTest,
   GURL url = extension->GetResourceURL("");
   int starting_tab_count = browser()->tab_strip_model()->count();
   ui_test_utils::NavigateToURLWithDisposition(
-      browser(), url, NEW_FOREGROUND_TAB,
+      browser(), url, WindowOpenDisposition::NEW_FOREGROUND_TAB,
       ui_test_utils::BROWSER_TEST_WAIT_FOR_NAVIGATION);
   int tab_count = browser()->tab_strip_model()->count();
   EXPECT_EQ(starting_tab_count + 1, tab_count);
@@ -233,7 +230,7 @@ IN_PROC_BROWSER_TEST_F(ExtensionDisabledGlobalErrorTest,
 
   // Note: This interceptor gets requests on the IO thread.
   net::LocalHostTestURLRequestInterceptor interceptor(
-      BrowserThread::GetMessageLoopProxyForThread(BrowserThread::IO),
+      BrowserThread::GetTaskRunnerForThread(BrowserThread::IO),
       BrowserThread::GetBlockingPool()->GetTaskRunnerWithShutdownBehavior(
           base::SequencedWorkerPool::SKIP_ON_SHUTDOWN));
   interceptor.SetResponseIgnoreQuery(
@@ -242,7 +239,7 @@ IN_PROC_BROWSER_TEST_F(ExtensionDisabledGlobalErrorTest,
                     .AppendASCII("updates.xml"));
   interceptor.SetResponseIgnoreQuery(
       GURL("http://localhost/autoupdate/v2.crx"),
-      scoped_temp_dir_.path().AppendASCII("permissions2.crx"));
+      scoped_temp_dir_.GetPath().AppendASCII("permissions2.crx"));
 
   sync_service->MergeDataAndStartSyncing(
       syncer::EXTENSIONS, syncer::SyncDataList(),
@@ -273,7 +270,7 @@ IN_PROC_BROWSER_TEST_F(ExtensionDisabledGlobalErrorTest, RemoteInstall) {
 
   // Note: This interceptor gets requests on the IO thread.
   net::LocalHostTestURLRequestInterceptor interceptor(
-      BrowserThread::GetMessageLoopProxyForThread(BrowserThread::IO),
+      BrowserThread::GetTaskRunnerForThread(BrowserThread::IO),
       BrowserThread::GetBlockingPool()->GetTaskRunnerWithShutdownBehavior(
           base::SequencedWorkerPool::SKIP_ON_SHUTDOWN));
   interceptor.SetResponseIgnoreQuery(
@@ -282,7 +279,7 @@ IN_PROC_BROWSER_TEST_F(ExtensionDisabledGlobalErrorTest, RemoteInstall) {
           .AppendASCII("updates.xml"));
   interceptor.SetResponseIgnoreQuery(
       GURL("http://localhost/autoupdate/v2.crx"),
-      scoped_temp_dir_.path().AppendASCII("permissions2.crx"));
+      scoped_temp_dir_.GetPath().AppendASCII("permissions2.crx"));
 
   sync_pb::EntitySpecifics specifics;
   specifics.mutable_extension()->set_id(extension_id);

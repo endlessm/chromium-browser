@@ -20,8 +20,8 @@
 #include "components/policy/core/common/policy_service.h"
 #include "components/policy/core/common/policy_types.h"
 #include "components/policy/core/common/schema_registry.h"
-#include "policy/policy_constants.h"
-#include "policy/proto/device_management_backend.pb.h"
+#include "components/policy/policy_constants.h"
+#include "components/policy/proto/device_management_backend.pb.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -46,6 +46,7 @@ class ProfilePolicyConnectorTest : public testing::Test {
     cloud_policy_manager_.reset(new CloudPolicyManager(
         std::string(), std::string(), &cloud_policy_store_, loop_.task_runner(),
         loop_.task_runner(), loop_.task_runner()));
+    cloud_policy_manager_->Init(&schema_registry_);
   }
 
   void TearDown() override {
@@ -99,7 +100,7 @@ TEST_F(ProfilePolicyConnectorTest, IsPolicyFromCloudPolicy) {
   // Set the policy at the cloud provider.
   cloud_policy_store_.policy_map_.Set(
       key::kAutoFillEnabled, POLICY_LEVEL_MANDATORY, POLICY_SCOPE_USER,
-      POLICY_SOURCE_CLOUD, base::WrapUnique(new base::FundamentalValue(false)),
+      POLICY_SOURCE_CLOUD, base::MakeUnique<base::FundamentalValue>(false),
       nullptr);
   cloud_policy_store_.NotifyStoreLoaded();
   base::RunLoop().RunUntilIdle();
@@ -113,8 +114,8 @@ TEST_F(ProfilePolicyConnectorTest, IsPolicyFromCloudPolicy) {
   // Now test with a higher-priority provider also setting the policy.
   PolicyMap map;
   map.Set(key::kAutoFillEnabled, POLICY_LEVEL_MANDATORY, POLICY_SCOPE_USER,
-          POLICY_SOURCE_CLOUD,
-          base::WrapUnique(new base::FundamentalValue(true)), nullptr);
+          POLICY_SOURCE_CLOUD, base::MakeUnique<base::FundamentalValue>(true),
+          nullptr);
   mock_provider_.UpdateChromePolicy(map);
   EXPECT_FALSE(connector.IsPolicyFromCloudPolicy(key::kAutoFillEnabled));
   value = connector.policy_service()->GetPolicies(chrome_ns).GetValue(

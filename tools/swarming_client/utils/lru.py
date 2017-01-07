@@ -1,6 +1,6 @@
-# Copyright 2013 The Swarming Authors. All rights reserved.
-# Use of this source code is governed under the Apache License, Version 2.0 that
-# can be found in the LICENSE file.
+# Copyright 2013 The LUCI Authors. All rights reserved.
+# Use of this source code is governed under the Apache License, Version 2.0
+# that can be found in the LICENSE file.
 
 """Defines a dictionary that can evict least recently used items."""
 
@@ -28,6 +28,10 @@ class LRUDict(object):
     """False if dict is empty."""
     return bool(self._items)
 
+  def __iter__(self):
+    """Iterate over the keys."""
+    return self._items.__iter__()
+
   def __len__(self):
     """Number of items in the dict."""
     return len(self._items)
@@ -35,6 +39,10 @@ class LRUDict(object):
   def __contains__(self, key):
     """True if |key| is in the dict."""
     return key in self._items
+
+  def __getitem__(self, key):
+    """Returns value for |key| or raises KeyError if not found."""
+    return self._items[key]
 
   @classmethod
   def load(cls, state_file):
@@ -130,6 +138,15 @@ class LRUDict(object):
     value = self._items.pop(key)
     self._dirty = True
     return value
+
+  def get_oldest(self):
+    """Returns oldest item as tuple (key, value).
+
+    Raises KeyError if dict is empty.
+    """
+    for i in self._items.iteritems():
+      return i
+    raise KeyError('dictionary is empty')
 
   def pop_oldest(self):
     """Removes oldest item from the dict and returns it as tuple (key, value).

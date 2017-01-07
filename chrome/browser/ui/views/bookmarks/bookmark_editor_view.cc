@@ -7,6 +7,7 @@
 #include <string>
 
 #include "base/logging.h"
+#include "base/memory/ptr_util.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/bookmarks/bookmark_model_factory.h"
@@ -20,9 +21,9 @@
 #include "components/bookmarks/browser/bookmark_utils.h"
 #include "components/constrained_window/constrained_window_views.h"
 #include "components/history/core/browser/history_service.h"
+#include "components/strings/grit/components_strings.h"
 #include "components/url_formatter/url_fixer.h"
 #include "components/user_prefs/user_prefs.h"
-#include "grit/components_strings.h"
 #include "ui/accessibility/ax_view_state.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/events/event.h"
@@ -64,7 +65,7 @@ BookmarkEditorView::BookmarkEditorView(
       title_tf_(NULL),
       parent_(parent),
       details_(details),
-      bb_model_(BookmarkModelFactory::GetForProfile(profile)),
+      bb_model_(BookmarkModelFactory::GetForBrowserContext(profile)),
       running_menu_for_root_(false),
       show_tree_(configuration == SHOW_TREE) {
   DCHECK(profile);
@@ -190,7 +191,7 @@ bool BookmarkEditorView::IsCommandIdEnabled(int command_id) const {
 
 bool BookmarkEditorView::GetAcceleratorForCommandId(
     int command_id,
-    ui::Accelerator* accelerator) {
+    ui::Accelerator* accelerator) const {
   return GetWidget()->GetAccelerator(command_id, accelerator);
 }
 
@@ -244,8 +245,9 @@ void BookmarkEditorView::ShowContextMenuForView(
        tree_model_->GetRoot());
 
   context_menu_runner_.reset(new views::MenuRunner(
-      GetMenuModel(),
-      views::MenuRunner::HAS_MNEMONICS | views::MenuRunner::CONTEXT_MENU));
+      GetMenuModel(), views::MenuRunner::HAS_MNEMONICS |
+                          views::MenuRunner::CONTEXT_MENU |
+                          views::MenuRunner::ASYNC));
 
   if (context_menu_runner_->RunMenuAt(source->GetWidget()->GetTopLevelWidget(),
                                       NULL,
@@ -413,8 +415,7 @@ void BookmarkEditorView::Reset() {
   // tree_view will try to invoke something on the model we just deleted.
   tree_view_->SetModel(NULL);
 
-  EditorNode* root_node = CreateRootNode();
-  tree_model_.reset(new EditorTreeModel(root_node));
+  tree_model_.reset(new EditorTreeModel(CreateRootNode()));
 
   tree_view_->SetModel(tree_model_.get());
   tree_view_->SetController(this);
@@ -457,11 +458,11 @@ void BookmarkEditorView::NewFolder() {
 
 BookmarkEditorView::EditorNode* BookmarkEditorView::AddNewFolder(
     EditorNode* parent) {
-  EditorNode* new_node = new EditorNode(
-      l10n_util::GetStringUTF16(IDS_BOOKMARK_EDITOR_NEW_FOLDER_NAME), 0);
-  // |new_node| is now owned by |parent|.
-  tree_model_->Add(parent, new_node, parent->child_count());
-  return new_node;
+  return tree_model_->Add(
+      parent,
+      base::MakeUnique<EditorNode>(
+          l10n_util::GetStringUTF16(IDS_BOOKMARK_EDITOR_NEW_FOLDER_NAME), 0),
+      parent->child_count());
 }
 
 void BookmarkEditorView::ExpandAndSelect() {
@@ -487,10 +488,12 @@ void BookmarkEditorView::ExpandAndSelect() {
   tree_view_->SetSelectedNode(b_node);
 }
 
-BookmarkEditorView::EditorNode* BookmarkEditorView::CreateRootNode() {
-  EditorNode* root_node = new EditorNode(base::string16(), 0);
+std::unique_ptr<BookmarkEditorView::EditorNode>
+BookmarkEditorView::CreateRootNode() {
+  std::unique_ptr<EditorNode> root_node =
+      base::MakeUnique<EditorNode>(base::string16(), 0);
   const BookmarkNode* bb_root_node = bb_model_->root_node();
-  CreateNodes(bb_root_node, root_node);
+  CreateNodes(bb_root_node, root_node.get());
   DCHECK(root_node->child_count() >= 2 && root_node->child_count() <= 4);
   DCHECK_EQ(BookmarkNode::BOOKMARK_BAR, bb_root_node->GetChild(0)->type());
   DCHECK_EQ(BookmarkNode::OTHER_NODE, bb_root_node->GetChild(1)->type());
@@ -505,9 +508,10 @@ void BookmarkEditorView::CreateNodes(const BookmarkNode* bb_node,
     const BookmarkNode* child_bb_node = bb_node->GetChild(i);
     if (child_bb_node->IsVisible() && child_bb_node->is_folder() &&
         bb_model_->client()->CanBeEditedByUser(child_bb_node)) {
-      EditorNode* new_b_node = new EditorNode(child_bb_node->GetTitle(),
-                                              child_bb_node->id());
-      b_node->Add(new_b_node, b_node->child_count());
+      EditorNode* new_b_node =
+          b_node->Add(base::MakeUnique<EditorNode>(child_bb_node->GetTitle(),
+                                                   child_bb_node->id()),
+                      b_node->child_count());
       CreateNodes(child_bb_node, new_b_node);
     }
   }

@@ -16,15 +16,14 @@ class SolidColorLayer;
 class UIResourceLayer;
 }
 
-namespace content {
-class ContentViewCore;
+namespace cc {
+class Layer;
 }
 
 namespace ui {
 class ResourceManager;
 }
 
-namespace chrome {
 namespace android {
 
 class CrushedSpriteLayer;
@@ -49,7 +48,7 @@ class ContextualSearchLayer : public OverlayPanelLayer {
                      int peek_promo_ripple_resource_id,
                      int peek_promo_text_resource_id,
                      float dp_to_px,
-                     content::ContentViewCore* content_view_core,
+                     const scoped_refptr<cc::Layer>& content_layer,
                      bool search_promo_visible,
                      float search_promo_height,
                      float search_promo_opacity,
@@ -75,6 +74,9 @@ class ContextualSearchLayer : public OverlayPanelLayer {
                      float search_bar_shadow_opacity,
                      bool search_provider_icon_sprite_visible,
                      float search_provider_icon_sprite_completion_percentage,
+                     bool thumbnail_visible,
+                     float thumbnail_visibility_percentage,
+                     int thumbnail_size,
                      float arrow_icon_opacity,
                      float arrow_icon_rotation,
                      float close_icon_opacity,
@@ -83,18 +85,30 @@ class ContextualSearchLayer : public OverlayPanelLayer {
                      float progress_bar_opacity,
                      int progress_bar_completion);
 
+  void SetThumbnail(const SkBitmap* thumbnail);
+
  protected:
   explicit ContextualSearchLayer(ui::ResourceManager* resource_manager);
   ~ContextualSearchLayer() override;
   scoped_refptr<cc::Layer> GetIconLayer() override;
 
  private:
-  bool search_provider_icon_sprite_visible_;
-  int search_provider_icon_sprite_metadata_resource_id_;
-  float search_provider_icon_sprite_completion_percentage_;
+  // Sets up |icon_layer_|, which displays an icon or thumbnail at the start
+  // of the Bar.
+  void SetupIconLayer(bool search_provider_icon_sprite_visible,
+                      int search_provider_icon_sprite_metadata_resource_id,
+                      float search_provider_icon_sprite_completion_percentage,
+                      bool thumbnail_visible,
+                      float thumbnail_visibility_percentage);
+
+  int thumbnail_size_;
+  float thumbnail_side_margin_;
+  float thumbnail_top_margin_;
 
   scoped_refptr<cc::UIResourceLayer> search_context_;
+  scoped_refptr<cc::Layer> icon_layer_;
   scoped_refptr<CrushedSpriteLayer> search_provider_icon_sprite_;
+  scoped_refptr<cc::UIResourceLayer> thumbnail_layer_;
   scoped_refptr<cc::UIResourceLayer> arrow_icon_;
   scoped_refptr<cc::UIResourceLayer> search_promo_;
   scoped_refptr<cc::SolidColorLayer> search_promo_container_;
@@ -107,6 +121,5 @@ class ContextualSearchLayer : public OverlayPanelLayer {
 };
 
 }  //  namespace android
-}  //  namespace chrome
 
 #endif  // CHROME_BROWSER_ANDROID_COMPOSITOR_LAYER_CONTEXTUAL_SEARCH_LAYER_H_

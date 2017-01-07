@@ -1,7 +1,7 @@
 #!/usr/bin/env python
-# Copyright 2013 The Swarming Authors. All rights reserved.
-# Use of this source code is governed under the Apache License, Version 2.0 that
-# can be found in the LICENSE file.
+# Copyright 2013 The LUCI Authors. All rights reserved.
+# Use of this source code is governed under the Apache License, Version 2.0
+# that can be found in the LICENSE file.
 
 """Client tool to perform various authentication related tasks."""
 
@@ -19,6 +19,7 @@ from utils import logging_utils
 from utils import on_error
 from utils import net
 from utils import oauth
+from utils import subprocess42
 from utils import tools
 
 
@@ -56,8 +57,6 @@ class AuthService(object):
 
 def add_auth_options(parser):
   """Adds command line options related to authentication."""
-  parser.auth_group = optparse.OptionGroup(parser, 'Authentication')
-  parser.add_option_group(parser.auth_group)
   oauth.add_oauth_options(parser)
 
 
@@ -177,6 +176,7 @@ def main(args):
 
 
 if __name__ == '__main__':
+  subprocess42.inhibit_os_error_reporting()
   fix_encoding.fix_encoding()
   tools.disable_buffering()
   colorama.init()

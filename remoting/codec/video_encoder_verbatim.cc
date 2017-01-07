@@ -19,15 +19,15 @@ namespace remoting {
 
 static uint8_t* GetPacketOutputBuffer(VideoPacket* packet, size_t size) {
   packet->mutable_data()->resize(size);
-  return reinterpret_cast<uint8_t*>(string_as_array(packet->mutable_data()));
+  return reinterpret_cast<uint8_t*>(
+      base::string_as_array(packet->mutable_data()));
 }
 
 VideoEncoderVerbatim::VideoEncoderVerbatim() {}
 VideoEncoderVerbatim::~VideoEncoderVerbatim() {}
 
 std::unique_ptr<VideoPacket> VideoEncoderVerbatim::Encode(
-    const webrtc::DesktopFrame& frame,
-    uint32_t flags) {
+    const webrtc::DesktopFrame& frame) {
   DCHECK(frame.data());
 
   // If nothing has changed in the frame then return NULL to indicate that

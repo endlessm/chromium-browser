@@ -63,12 +63,9 @@ WKWebViewConfigurationProvider::GetWebViewConfiguration() {
       [configuration_
           setWebsiteDataStore:[WKWebsiteDataStore nonPersistentDataStore]];
     }
-// TODO(crbug.com/620878) Remove these guards after moving to iOS10 SDK.
-#if defined(__IPHONE_10_0) && __IPHONE_OS_VERSION_MAX_ALLOWED >= __IPHONE_10_0
-    if (base::ios::IsRunningOnIOS10OrLater()) {
-      [configuration_ setDataDetectorTypes:WKDataDetectorTypePhoneNumber];
-    }
-#endif
+    // API available on iOS 9, although doesn't appear to enable inline playback
+    // Works as intended on iOS 10+
+    [configuration_ setAllowsInlineMediaPlayback:YES];
     // setJavaScriptCanOpenWindowsAutomatically is required to support popups.
     [[configuration_ preferences] setJavaScriptCanOpenWindowsAutomatically:YES];
     [[configuration_ userContentController]

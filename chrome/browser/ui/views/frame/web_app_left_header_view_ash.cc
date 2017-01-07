@@ -4,15 +4,14 @@
 
 #include "chrome/browser/ui/views/frame/web_app_left_header_view_ash.h"
 
-#include "ash/frame/caption_buttons/frame_caption_button.h"
-#include "ash/frame/caption_buttons/frame_caption_button_container_view.h"
+#include "ash/common/frame/caption_buttons/frame_caption_button.h"
+#include "ash/common/frame/caption_buttons/frame_caption_button_container_view.h"
 #include "chrome/app/chrome_command_ids.h"
 #include "chrome/browser/ssl/chrome_security_state_model_client.h"
 #include "chrome/browser/ui/browser_commands.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
 #include "components/toolbar/toolbar_model.h"
 #include "content/public/browser/navigation_entry.h"
-#include "grit/ash_resources.h"
 #include "ui/gfx/vector_icons_public.h"
 #include "ui/views/layout/box_layout.h"
 
@@ -93,7 +92,8 @@ void WebAppLeftHeaderView::ShowWebsiteSettings() const {
       ChromeSecurityStateModelClient::FromWebContents(tab);
   DCHECK(security_model_client);
 
+  security_state::SecurityStateModel::SecurityInfo security_info;
+  security_model_client->GetSecurityInfo(&security_info);
   chrome::ShowWebsiteSettings(browser_view_->browser(), tab,
-                              nav_entry->GetVirtualURL(),
-                              security_model_client->GetSecurityInfo());
+                              nav_entry->GetVirtualURL(), security_info);
 }

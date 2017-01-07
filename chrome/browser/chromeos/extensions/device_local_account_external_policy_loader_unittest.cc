@@ -25,6 +25,7 @@
 #include "components/policy/core/common/cloud/mock_cloud_policy_store.h"
 #include "components/policy/core/common/policy_map.h"
 #include "components/policy/core/common/policy_types.h"
+#include "components/policy/policy_constants.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/notification_source.h"
 #include "content/public/test/test_browser_thread_bundle.h"
@@ -40,7 +41,6 @@
 #include "net/url_request/url_fetcher_delegate.h"
 #include "net/url_request/url_request_context_getter.h"
 #include "net/url_request/url_request_test_util.h"
-#include "policy/policy_constants.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "url/gurl.h"
@@ -82,11 +82,12 @@ class MockExternalPolicyProviderVisitor
                bool(const ExternalInstallInfoUpdateUrl&, bool));
   MOCK_METHOD1(OnExternalProviderReady,
                void(const extensions::ExternalProviderInterface* provider));
-  MOCK_METHOD4(OnExternalProviderUpdateComplete,
-               void(const extensions::ExternalProviderInterface*,
-                    const ScopedVector<ExternalInstallInfoUpdateUrl>&,
-                    const ScopedVector<ExternalInstallInfoFile>&,
-                    const std::set<std::string>& removed_extensions));
+  MOCK_METHOD4(
+      OnExternalProviderUpdateComplete,
+      void(const extensions::ExternalProviderInterface*,
+           const std::vector<std::unique_ptr<ExternalInstallInfoUpdateUrl>>&,
+           const std::vector<std::unique_ptr<ExternalInstallInfoFile>>&,
+           const std::set<std::string>& removed_extensions));
 
  private:
   DISALLOW_COPY_AND_ASSIGN(MockExternalPolicyProviderVisitor);
@@ -141,7 +142,7 @@ DeviceLocalAccountExternalPolicyLoaderTest::
 
 void DeviceLocalAccountExternalPolicyLoaderTest::SetUp() {
   ASSERT_TRUE(temp_dir_.CreateUniqueTempDir());
-  cache_dir_ = temp_dir_.path().Append(kCacheDir);
+  cache_dir_ = temp_dir_.GetPath().Append(kCacheDir);
   ASSERT_TRUE(base::CreateDirectoryAndGetError(cache_dir_, NULL));
   request_context_getter_ =
       new net::TestURLRequestContextGetter(base::ThreadTaskRunnerHandle::Get());
@@ -200,7 +201,6 @@ TEST_F(DeviceLocalAccountExternalPolicyLoaderTest, CacheNotStarted) {
   loader_->StartLoading();
 
   EXPECT_FALSE(loader_->IsCacheRunning());
-  EXPECT_TRUE(base::MessageLoop::current()->IsIdleForTesting());
 }
 
 // Verifies that the cache can be started and stopped correctly.
@@ -275,9 +275,9 @@ TEST_F(DeviceLocalAccountExternalPolicyLoaderTest, ForceInstallListSet) {
   // Create a temporary CRX file and return its path to the downloader.
   EXPECT_TRUE(base::CopyFile(
       test_dir_.Append(kExtensionCRXSourceDir).Append(kExtensionCRXFile),
-      temp_dir_.path().Append(kExtensionCRXFile)));
+      temp_dir_.GetPath().Append(kExtensionCRXFile)));
   fetcher->set_response_code(200);
-  fetcher->SetResponseFilePath(temp_dir_.path().Append(kExtensionCRXFile));
+  fetcher->SetResponseFilePath(temp_dir_.GetPath().Append(kExtensionCRXFile));
   fetcher->delegate()->OnURLFetchComplete(fetcher);
 
   // Spin the loop. Verify that the loader announces the presence of a new CRX

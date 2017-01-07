@@ -19,6 +19,7 @@ import android.support.v4.view.accessibility.AccessibilityNodeInfoCompat;
 import android.support.v4.widget.ExploreByTouchHelper;
 import android.util.AttributeSet;
 import android.util.Pair;
+import android.view.DragEvent;
 import android.view.MotionEvent;
 import android.view.SurfaceView;
 import android.view.View;
@@ -73,8 +74,6 @@ import java.util.List;
  */
 public class CompositorViewHolder extends CoordinatorLayout
         implements LayoutManagerHost, LayoutRenderHost, Invalidator.Host, FullscreenListener {
-    private static List<View> sCachedViewList = new ArrayList<View>();
-    private static List<ContentViewCore> sCachedCVCList = new ArrayList<ContentViewCore>();
 
     private boolean mIsKeyboardShowing = false;
 
@@ -111,7 +110,7 @@ public class CompositorViewHolder extends CoordinatorLayout
     private Tab mTabVisible;
 
     /** The currently attached View. */
-    private View mView;
+    private TabContentViewParent mView;
 
     private TabObserver mTabObserver;
     private boolean mEnableCompositorTabStrip;
@@ -196,12 +195,6 @@ public class CompositorViewHolder extends CoordinatorLayout
             public void onContentChanged(Tab tab) {
                 CompositorViewHolder.this.onContentChanged();
             }
-
-            @Override
-            public void onOverlayContentViewCoreAdded(Tab tab, ContentViewCore content) {
-                initializeContentViewCore(content);
-                setSizeOfUnattachedView(content.getContainerView());
-            }
         };
 
         mEnableCompositorTabStrip = DeviceFormFactor.isTablet(getContext());
@@ -225,7 +218,8 @@ public class CompositorViewHolder extends CoordinatorLayout
         });
 
         mCompositorView = new CompositorView(getContext(), this);
-        addView(mCompositorView,
+        // mCompositorView should always be the first child.
+        addView(mCompositorView, 0,
                 new FrameLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT));
     }
 
@@ -384,6 +378,23 @@ public class CompositorViewHolder extends CoordinatorLayout
         return super.dispatchHoverEvent(e);
     }
 
+    @Override
+    public boolean dispatchDragEvent(DragEvent e) {
+        ContentViewCore contentViewCore = mTabVisible.getContentViewCore();
+        if (contentViewCore == null) return false;
+
+        if (mLayoutManager != null) mLayoutManager.getViewportPixel(mCacheViewport);
+        contentViewCore.setCurrentTouchEventOffsets(-mCacheViewport.left, -mCacheViewport.top);
+        boolean ret = super.dispatchDragEvent(e);
+
+        int action = e.getAction();
+        if (action == DragEvent.ACTION_DRAG_EXITED || action == DragEvent.ACTION_DRAG_ENDED
+                || action == DragEvent.ACTION_DROP) {
+            contentViewCore.setCurrentTouchEventOffsets(0.f, 0.f);
+        }
+        return ret;
+    }
+
     /**
      * @return The {@link LayoutManager} associated with this view.
      */
@@ -398,34 +409,29 @@ public class CompositorViewHolder extends CoordinatorLayout
         return mCompositorView;
     }
 
+    private View getActiveView() {
+        if (mLayoutManager == null || mTabModelSelector == null) return null;
+        Tab tab = mTabModelSelector.getCurrentTab();
+        return tab != null ? tab.getContentView() : null;
+    }
+
+    private ContentViewCore getActiveContent() {
+        if (mLayoutManager == null || mTabModelSelector == null) return null;
+        Tab tab = mTabModelSelector.getCurrentTab();
+        return tab != null ? tab.getActiveContentViewCore() : null;
+    }
+
     @Override
     protected void onSizeChanged(int w, int h, int oldw, int oldh) {
         super.onSizeChanged(w, h, oldw, oldh);
-        if (mLayoutManager == null) return;
-
-        sCachedViewList.clear();
-        mLayoutManager.getActiveLayout().getAllViews(sCachedViewList);
-
-        boolean resized = false;
-        for (int i = 0; i < sCachedViewList.size(); i++) {
-            resized |= setSizeOfUnattachedView(sCachedViewList.get(i));
-        }
-        sCachedViewList.clear();
-
-        if (resized) requestRender();
+        View view = getActiveView();
+        if (view != null && setSizeOfUnattachedView(view)) requestRender();
     }
 
     @Override
     public void onPhysicalBackingSizeChanged(int width, int height) {
-        if (mLayoutManager == null) return;
-
-        sCachedCVCList.clear();
-        mLayoutManager.getActiveLayout().getAllContentViewCores(sCachedCVCList);
-
-        for (int i = 0; i < sCachedCVCList.size(); i++) {
-            adjustPhysicalBackingSize(sCachedCVCList.get(i), width, height);
-        }
-        sCachedCVCList.clear();
+        ContentViewCore content = getActiveContent();
+        if (content != null) adjustPhysicalBackingSize(content, width, height);
     }
 
     /**
@@ -483,11 +489,11 @@ public class CompositorViewHolder extends CoordinatorLayout
         if (actionMasked == MotionEvent.ACTION_DOWN
                 || actionMasked == MotionEvent.ACTION_HOVER_ENTER) {
             if (mLayoutManager != null) mLayoutManager.getViewportPixel(mCacheViewport);
-            contentViewCore.setCurrentMotionEventOffsets(-mCacheViewport.left, -mCacheViewport.top);
+            contentViewCore.setCurrentTouchEventOffsets(-mCacheViewport.left, -mCacheViewport.top);
         } else if (canClear && (actionMasked == MotionEvent.ACTION_UP
                                        || actionMasked == MotionEvent.ACTION_CANCEL
                                        || actionMasked == MotionEvent.ACTION_HOVER_EXIT)) {
-            contentViewCore.setCurrentMotionEventOffsets(0.f, 0.f);
+            contentViewCore.setCurrentTouchEventOffsets(0.f, 0.f);
         }
     }
 
@@ -759,25 +765,22 @@ public class CompositorViewHolder extends CoordinatorLayout
             }
         });
 
+        mLayerTitleCache.setTabModelSelector(mTabModelSelector);
+
         onContentChanged();
     }
 
     private void updateContentOverlayVisibility(boolean show) {
         if (mView == null) return;
-
-        sCachedCVCList.clear();
-        if (mLayoutManager != null) {
-            mLayoutManager.getActiveLayout().getAllContentViewCores(sCachedCVCList);
-        }
+        ContentViewCore content = getActiveContent();
         if (show) {
             if (mView.getParent() != this) {
-                // Make sure the view isn't a child of something else before we attempt to add it.
-                if (mView.getParent() instanceof ViewGroup) {
-                    ((ViewGroup) mView.getParent()).removeView(mView);
-                }
+                // During tab creation, we temporarily add the new tab's view to a FrameLayout to
+                // measure and lay it out. This way we could show the animation in the stack view.
+                // Therefore we should remove the view from that temporary FrameLayout here.
+                UiUtils.removeViewFromParent(mView);
 
-                for (int i = 0; i < sCachedCVCList.size(); i++) {
-                    ContentViewCore content = sCachedCVCList.get(i);
+                if (content != null) {
                     assert content.isAlive();
                     content.getContainerView().setVisibility(View.VISIBLE);
                     if (mFullscreenManager != null) {
@@ -785,22 +788,19 @@ public class CompositorViewHolder extends CoordinatorLayout
                     }
                 }
 
-                CoordinatorLayout.LayoutParams layoutParams = new CoordinatorLayout.LayoutParams(
-                        LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT);
-                if (mView.getLayoutParams() instanceof MarginLayoutParams) {
-                    MarginLayoutParams existingLayoutParams =
-                            (MarginLayoutParams) mView.getLayoutParams();
-                    layoutParams.leftMargin = existingLayoutParams.leftMargin;
-                    layoutParams.rightMargin = existingLayoutParams.rightMargin;
-                    layoutParams.topMargin = existingLayoutParams.topMargin;
-                    layoutParams.bottomMargin = existingLayoutParams.bottomMargin;
+                CoordinatorLayout.LayoutParams layoutParams;
+                if (mView.getLayoutParams() instanceof CoordinatorLayout.LayoutParams) {
+                    layoutParams = (CoordinatorLayout.LayoutParams) mView.getLayoutParams();
+                } else {
+                    layoutParams = new CoordinatorLayout.LayoutParams(
+                            LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT);
                 }
-                if (mView instanceof TabContentViewParent) {
-                    layoutParams.setBehavior(((TabContentViewParent) mView).getBehavior());
-                }
-                // CompositorView has index of 0; TabContentViewParent has index of 1; Snackbar (if
-                // any) has index of 2. Setting index here explicitly to avoid TabContentViewParent
-                // hiding the snackbar.
+                layoutParams.setBehavior(mView.getBehavior());
+                // CompositorView has index of 0; TabContentViewParent has index of 1; omnibox
+                // result container (the scrim) has index of 2, Snackbar (if any) has index of 3.
+                // Setting index here explicitly to avoid TabContentViewParent hiding the scrim.
+                // TODO(ianwen): Use more advanced technologies to ensure z-order of the children of
+                // this class, instead of hard-coding.
                 addView(mView, 1, layoutParams);
 
                 setFocusable(false);
@@ -814,14 +814,12 @@ public class CompositorViewHolder extends CoordinatorLayout
                 setFocusable(true);
                 setFocusableInTouchMode(true);
 
-                for (int i = 0; i < sCachedCVCList.size(); i++) {
-                    ContentViewCore content = sCachedCVCList.get(i);
+                if (content != null) {
                     if (content.isAlive()) content.getContainerView().setVisibility(View.INVISIBLE);
                 }
                 removeView(mView);
             }
         }
-        sCachedCVCList.clear();
     }
 
     @Override
@@ -845,7 +843,7 @@ public class CompositorViewHolder extends CoordinatorLayout
     private void setTab(Tab tab) {
         if (tab != null) tab.loadIfNeeded();
 
-        View newView = tab != null ? tab.getView() : null;
+        TabContentViewParent newView = tab != null ? tab.getView() : null;
         if (mView == newView) return;
 
         // TODO(dtrainor): Look into changing this only if the views differ, but still parse the
@@ -866,34 +864,16 @@ public class CompositorViewHolder extends CoordinatorLayout
     }
 
     /**
-     * Sets the correct size for all {@link View}s on {@code tab} and sets the correct rendering
-     * parameters on all {@link ContentViewCore}s on {@code tab}.
+     * Sets the correct size for {@link View} on {@code tab} and sets the correct rendering
+     * parameters on {@link ContentViewCore} on {@code tab}.
      * @param tab The {@link Tab} to initialize.
      */
     private void initializeTab(Tab tab) {
-        sCachedCVCList.clear();
-        if (mLayoutManager != null) {
-            mLayoutManager.getActiveLayout().getAllContentViewCores(sCachedCVCList);
-        }
+        ContentViewCore content = tab.getActiveContentViewCore();
+        if (content != null) initializeContentViewCore(content);
 
-        for (int i = 0; i < sCachedCVCList.size(); i++) {
-            initializeContentViewCore(sCachedCVCList.get(i));
-        }
-        sCachedCVCList.clear();
-
-        sCachedViewList.clear();
-        tab.getAllContentViews(sCachedViewList);
-
-        for (int i = 0; i < sCachedViewList.size(); i++) {
-            View view = sCachedViewList.get(i);
-            // Calling View#measure() and View#layout() on a View before adding it to the view
-            // hierarchy seems to cause issues with compound drawables on some versions of Android.
-            // We don't need to proactively size the NTP as we don't need the Android view to render
-            // if it's not actually attached to the view hierarchy (http://crbug.com/462114).
-            if (view == tab.getView() && tab.isNativePage()) continue;
-            setSizeOfUnattachedView(view);
-        }
-        sCachedViewList.clear();
+        View view = tab.getContentView();
+        if (view != tab.getView() || !tab.isNativePage()) setSizeOfUnattachedView(view);
     }
 
     /**
@@ -902,7 +882,7 @@ public class CompositorViewHolder extends CoordinatorLayout
      * @param contentViewCore The {@link ContentViewCore} to initialize.
      */
     private void initializeContentViewCore(ContentViewCore contentViewCore) {
-        contentViewCore.setCurrentMotionEventOffsets(0.f, 0.f);
+        contentViewCore.setCurrentTouchEventOffsets(0.f, 0.f);
         contentViewCore.setTopControlsHeight(
                 getTopControlsHeightPixels(), contentViewCore.doTopControlsShrinkBlinkSize());
 

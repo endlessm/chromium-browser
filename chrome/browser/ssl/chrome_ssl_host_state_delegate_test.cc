@@ -7,6 +7,7 @@
 #include <stdint.h>
 #include <utility>
 
+#include "base/callback.h"
 #include "base/command_line.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/test/simple_test_clock.h"
@@ -21,6 +22,7 @@
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/test/base/in_process_browser_test.h"
+#include "components/browsing_data/core/browsing_data_utils.h"
 #include "components/content_settings/core/browser/host_content_settings_map.h"
 #include "components/content_settings/core/common/content_settings_pattern.h"
 #include "content/public/browser/ssl_host_state_delegate.h"
@@ -49,6 +51,10 @@ scoped_refptr<net::X509Certificate> GetOkCert() {
 void SetFinchConfig(base::CommandLine* command_line, const std::string& group) {
   command_line->AppendSwitchASCII("--force-fieldtrials",
                                   "RevertCertificateErrorDecisions/" + group);
+}
+
+bool CStrStringMatcher(const char* a, const std::string& b) {
+  return a == b;
 }
 
 }  // namespace
@@ -170,11 +176,22 @@ IN_PROC_BROWSER_TEST_F(ChromeSSLHostStateDelegateTest, Clear) {
   // Simulate a user decision to allow an invalid certificate exception for
   // kWWWGoogleHost and for kExampleHost.
   state->AllowCert(kWWWGoogleHost, *cert, net::CERT_STATUS_DATE_INVALID);
+  state->AllowCert(kExampleHost, *cert, net::CERT_STATUS_DATE_INVALID);
 
-  // Do a full clear, then make sure that both kWWWGoogleHost, which had a
-  // decision made, and kExampleHost, which was untouched, are now in a denied
-  // state.
-  state->Clear();
+  EXPECT_TRUE(state->HasAllowException(kWWWGoogleHost));
+  EXPECT_TRUE(state->HasAllowException(kExampleHost));
+
+  // Clear data for kWWWGoogleHost. kExampleHost will not be modified.
+  state->Clear(
+      base::Bind(&CStrStringMatcher, base::Unretained(kWWWGoogleHost)));
+
+  EXPECT_FALSE(state->HasAllowException(kWWWGoogleHost));
+  EXPECT_TRUE(state->HasAllowException(kExampleHost));
+
+  // Do a full clear, then make sure that both kWWWGoogleHost and kExampleHost,
+  // which had a decision made, and kGoogleHost, which was untouched, are now
+  // in a denied state.
+  state->Clear(base::Callback<bool(const std::string&)>());
   EXPECT_FALSE(state->HasAllowException(kWWWGoogleHost));
   EXPECT_EQ(content::SSLHostStateDelegate::DENIED,
             state->QueryPolicy(kWWWGoogleHost, *cert,
@@ -182,6 +199,10 @@ IN_PROC_BROWSER_TEST_F(ChromeSSLHostStateDelegateTest, Clear) {
   EXPECT_FALSE(state->HasAllowException(kExampleHost));
   EXPECT_EQ(content::SSLHostStateDelegate::DENIED,
             state->QueryPolicy(kExampleHost, *cert,
+                               net::CERT_STATUS_DATE_INVALID, &unused_value));
+  EXPECT_FALSE(state->HasAllowException(kGoogleHost));
+  EXPECT_EQ(content::SSLHostStateDelegate::DENIED,
+            state->QueryPolicy(kGoogleHost, *cert,
                                net::CERT_STATUS_DATE_INVALID, &unused_value));
 }
 
@@ -195,21 +216,73 @@ IN_PROC_BROWSER_TEST_F(ChromeSSLHostStateDelegateTest,
   Profile* profile = Profile::FromBrowserContext(tab->GetBrowserContext());
   content::SSLHostStateDelegate* state = profile->GetSSLHostStateDelegate();
 
-  EXPECT_FALSE(state->DidHostRunInsecureContent("www.google.com", 42));
-  EXPECT_FALSE(state->DidHostRunInsecureContent("www.google.com", 191));
-  EXPECT_FALSE(state->DidHostRunInsecureContent("example.com", 42));
+  EXPECT_FALSE(state->DidHostRunInsecureContent(
+      "www.google.com", 42, content::SSLHostStateDelegate::MIXED_CONTENT));
+  EXPECT_FALSE(state->DidHostRunInsecureContent(
+      "www.google.com", 191, content::SSLHostStateDelegate::MIXED_CONTENT));
+  EXPECT_FALSE(state->DidHostRunInsecureContent(
+      "example.com", 42, content::SSLHostStateDelegate::MIXED_CONTENT));
+  EXPECT_FALSE(state->DidHostRunInsecureContent(
+      "www.google.com", 42,
+      content::SSLHostStateDelegate::CERT_ERRORS_CONTENT));
+  EXPECT_FALSE(state->DidHostRunInsecureContent(
+      "www.google.com", 191,
+      content::SSLHostStateDelegate::CERT_ERRORS_CONTENT));
+  EXPECT_FALSE(state->DidHostRunInsecureContent(
+      "example.com", 42, content::SSLHostStateDelegate::CERT_ERRORS_CONTENT));
 
-  state->HostRanInsecureContent("www.google.com", 42);
+  // Mark a site as MIXED_CONTENT and check that only that host/child id
+  // is affected, and only for MIXED_CONTENT (not for
+  // CERT_ERRORS_CONTENT);
+  state->HostRanInsecureContent("www.google.com", 42,
+                                content::SSLHostStateDelegate::MIXED_CONTENT);
 
-  EXPECT_TRUE(state->DidHostRunInsecureContent("www.google.com", 42));
-  EXPECT_FALSE(state->DidHostRunInsecureContent("www.google.com", 191));
-  EXPECT_FALSE(state->DidHostRunInsecureContent("example.com", 42));
+  EXPECT_TRUE(state->DidHostRunInsecureContent(
+      "www.google.com", 42, content::SSLHostStateDelegate::MIXED_CONTENT));
+  EXPECT_FALSE(state->DidHostRunInsecureContent(
+      "www.google.com", 42,
+      content::SSLHostStateDelegate::CERT_ERRORS_CONTENT));
+  EXPECT_FALSE(state->DidHostRunInsecureContent(
+      "www.google.com", 191, content::SSLHostStateDelegate::MIXED_CONTENT));
+  EXPECT_FALSE(state->DidHostRunInsecureContent(
+      "example.com", 42, content::SSLHostStateDelegate::MIXED_CONTENT));
 
-  state->HostRanInsecureContent("example.com", 42);
+  // Mark another site as MIXED_CONTENT, and check that that host/child
+  // id is affected (for MIXED_CONTENT only), and that the previously
+  // host/child id is still marked as MIXED_CONTENT.
+  state->HostRanInsecureContent("example.com", 42,
+                                content::SSLHostStateDelegate::MIXED_CONTENT);
 
-  EXPECT_TRUE(state->DidHostRunInsecureContent("www.google.com", 42));
-  EXPECT_FALSE(state->DidHostRunInsecureContent("www.google.com", 191));
-  EXPECT_TRUE(state->DidHostRunInsecureContent("example.com", 42));
+  EXPECT_TRUE(state->DidHostRunInsecureContent(
+      "www.google.com", 42, content::SSLHostStateDelegate::MIXED_CONTENT));
+  EXPECT_FALSE(state->DidHostRunInsecureContent(
+      "www.google.com", 191, content::SSLHostStateDelegate::MIXED_CONTENT));
+  EXPECT_TRUE(state->DidHostRunInsecureContent(
+      "example.com", 42, content::SSLHostStateDelegate::MIXED_CONTENT));
+  EXPECT_FALSE(state->DidHostRunInsecureContent(
+      "example.com", 42, content::SSLHostStateDelegate::CERT_ERRORS_CONTENT));
+
+  // Mark a MIXED_CONTENT host/child id as CERT_ERRORS_CONTENT also.
+  state->HostRanInsecureContent(
+      "example.com", 42, content::SSLHostStateDelegate::CERT_ERRORS_CONTENT);
+
+  EXPECT_FALSE(state->DidHostRunInsecureContent(
+      "www.google.com", 191, content::SSLHostStateDelegate::MIXED_CONTENT));
+  EXPECT_TRUE(state->DidHostRunInsecureContent(
+      "example.com", 42, content::SSLHostStateDelegate::MIXED_CONTENT));
+  EXPECT_TRUE(state->DidHostRunInsecureContent(
+      "example.com", 42, content::SSLHostStateDelegate::CERT_ERRORS_CONTENT));
+
+  // Mark a non-MIXED_CONTENT host as CERT_ERRORS_CONTENT.
+  state->HostRanInsecureContent(
+      "www.google.com", 191,
+      content::SSLHostStateDelegate::CERT_ERRORS_CONTENT);
+
+  EXPECT_TRUE(state->DidHostRunInsecureContent(
+      "www.google.com", 191,
+      content::SSLHostStateDelegate::CERT_ERRORS_CONTENT));
+  EXPECT_FALSE(state->DidHostRunInsecureContent(
+      "www.google.com", 191, content::SSLHostStateDelegate::MIXED_CONTENT));
 }
 
 // Test the migration code needed as a result of changing how the content
@@ -546,9 +619,10 @@ class RemoveBrowsingHistorySSLHostStateDelegateTest
     BrowsingDataRemover* remover =
         BrowsingDataRemoverFactory::GetForBrowserContext(profile);
     BrowsingDataRemoverCompletionObserver completion_observer(remover);
-    remover->Remove(BrowsingDataRemover::Period(BrowsingDataRemover::LAST_HOUR),
-                    BrowsingDataRemover::REMOVE_HISTORY,
-                    BrowsingDataHelper::UNPROTECTED_WEB);
+    remover->RemoveAndReply(
+        BrowsingDataRemover::Period(browsing_data::LAST_HOUR),
+        BrowsingDataRemover::REMOVE_HISTORY,
+        BrowsingDataHelper::UNPROTECTED_WEB, &completion_observer);
     completion_observer.BlockUntilCompletion();
   }
 };

@@ -27,6 +27,40 @@ std::string EscapeValue(const std::string& value) {
                  net::UnescapeRule::URL_SPECIAL_CHARS_EXCEPT_PATH_SEPARATORS);
 }
 
+void AssociateParamsFromExperiment(
+    const std::string& study_name,
+    const FieldTrialTestingExperiment& experiment,
+    base::FeatureList* feature_list) {
+  if (experiment.params_size != 0) {
+    std::map<std::string, std::string> params;
+    for (size_t i = 0; i < experiment.params_size; ++i) {
+      const FieldTrialTestingExperimentParams& param = experiment.params[i];
+      params[param.key] = param.value;
+    }
+    variations::AssociateVariationParams(study_name, experiment.name, params);
+  }
+  base::FieldTrial* trial =
+      base::FieldTrialList::CreateFieldTrial(study_name, experiment.name);
+
+  if (!trial) {
+    DLOG(WARNING) << "Field trial config study skipped: " << study_name
+                  << "." << experiment.name
+                  << " (it is overridden from chrome://flags)";
+    return;
+  }
+
+  for (size_t i = 0; i < experiment.enable_features_size; ++i) {
+    feature_list->RegisterFieldTrialOverride(
+        experiment.enable_features[i],
+        base::FeatureList::OVERRIDE_ENABLE_FEATURE, trial);
+  }
+  for (size_t i = 0; i < experiment.disable_features_size; ++i) {
+    feature_list->RegisterFieldTrialOverride(
+        experiment.disable_features[i],
+        base::FeatureList::OVERRIDE_DISABLE_FEATURE, trial);
+  }
+}
+
 } // namespace
 
 bool AssociateParamsFromString(const std::string& varations_string) {
@@ -45,7 +79,7 @@ bool AssociateParamsFromString(const std::string& varations_string) {
     std::vector<std::string> group_parts = base::SplitString(
         experiment[0], ".", base::TRIM_WHITESPACE, base::SPLIT_WANT_ALL);
     if (group_parts.size() != 2) {
-      DLOG(ERROR) << "Study and group name should be separated by '.'";
+      DLOG(ERROR) << "Trial and group name should be separated by '.'";
       return false;
     }
 
@@ -60,7 +94,7 @@ bool AssociateParamsFromString(const std::string& varations_string) {
     auto trial_group = std::make_pair(trial, group);
     if (trial_groups.find(trial_group) != trial_groups.end()) {
       DLOG(ERROR) << base::StringPrintf(
-          "A (study, group) pair listed more than once. (%s, %s)",
+          "A (trial, group) pair listed more than once. (%s, %s)",
           trial.c_str(), group.c_str());
       return false;
     }
@@ -78,29 +112,13 @@ bool AssociateParamsFromString(const std::string& varations_string) {
 
 void AssociateParamsFromFieldTrialConfig(const FieldTrialTestingConfig& config,
                                          base::FeatureList* feature_list) {
-  for (size_t i = 0; i < config.groups_size; ++i) {
-    const FieldTrialTestingGroup& group = config.groups[i];
-    if (group.params_size != 0) {
-      std::map<std::string, std::string> params;
-      for (size_t j = 0; j < group.params_size; ++j) {
-        const FieldTrialGroupParams& param = group.params[j];
-        params[param.key] = param.value;
-      }
-      variations::AssociateVariationParams(group.study, group.group_name,
-                                           params);
-    }
-    base::FieldTrial* trial =
-        base::FieldTrialList::CreateFieldTrial(group.study, group.group_name);
-
-    for (size_t j = 0; j < group.enable_features_size; ++j) {
-      feature_list->RegisterFieldTrialOverride(
-          group.enable_features[j], base::FeatureList::OVERRIDE_ENABLE_FEATURE,
-          trial);
-    }
-    for (size_t j = 0; j < group.disable_features_size; ++j) {
-      feature_list->RegisterFieldTrialOverride(
-          group.disable_features[j],
-          base::FeatureList::OVERRIDE_DISABLE_FEATURE, trial);
+  for (size_t i = 0; i < config.studies_size; ++i) {
+    const FieldTrialTestingStudy& study = config.studies[i];
+    if (study.experiments_size > 0) {
+      AssociateParamsFromExperiment(
+          study.name, study.experiments[0], feature_list);
+    } else {
+      DLOG(ERROR) << "Unexpected empty study: " << study.name;
     }
   }
 }

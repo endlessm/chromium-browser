@@ -59,7 +59,7 @@ class AppMenuModelTest : public BrowserWithTestWindowTest,
  public:
   // Don't handle accelerators.
   bool GetAcceleratorForCommandId(int command_id,
-                                  ui::Accelerator* accelerator) override {
+                                  ui::Accelerator* accelerator) const override {
     return false;
   }
 
@@ -202,14 +202,4 @@ TEST_F(AppMenuModelTest, GlobalError) {
   EXPECT_EQ(0, error2->execute_count());
   model.ActivatedAt(index2);
   EXPECT_EQ(1, error1->execute_count());
-}
-
-class EncodingMenuModelTest : public BrowserWithTestWindowTest,
-                              public MenuModelTest {
-};
-
-TEST_F(EncodingMenuModelTest, IsCommandIdCheckedWithNoTabs) {
-  EncodingMenuModel model(browser());
-  ASSERT_EQ(NULL, browser()->tab_strip_model()->GetActiveWebContents());
-  EXPECT_FALSE(model.IsCommandIdChecked(IDC_ENCODING_WINDOWS1252));
 }

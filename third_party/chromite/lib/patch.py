@@ -8,6 +8,9 @@ from __future__ import print_function
 
 import calendar
 import collections
+# We import mock so that we can identify mock.MagicMock instances in tests
+# that use mock.
+import mock
 import os
 import random
 import re
@@ -22,14 +25,6 @@ from chromite.lib import gob_util
 
 
 site_config = config_lib.GetConfig()
-
-
-# We import mock so that we can identify mock.MagicMock instances in tests
-# that use mock.
-try:
-  import mock
-except ImportError:
-  mock = None
 
 
 _MAXIMUM_GERRIT_NUMBER_LENGTH = 7
@@ -185,8 +180,8 @@ class PatchException(Exception):
   inflight = False
 
   def __init__(self, patch, message=None):
-    is_mock = mock is not None and isinstance(patch, mock.MagicMock)
-    if not isinstance(patch, GitRepoPatch) and not is_mock:
+    if (not isinstance(patch, GitRepoPatch) and
+        not isinstance(patch, mock.MagicMock)):
       raise TypeError(
           'Patch must be a GitRepoPatch derivative; got type %s: %r'
           % (type(patch), patch))
@@ -707,7 +702,7 @@ class PatchQuery(object):
       return self.id == other
 
     if self.id is not None:
-      return self.id == other.id
+      return self.id == getattr(other, 'id', None)
 
     return ((self.remote, self.project, self.tracking_branch,
              self.gerrit_number, self.change_id, self.sha1) ==

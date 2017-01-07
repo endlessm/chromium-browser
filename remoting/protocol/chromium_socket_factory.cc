@@ -6,7 +6,9 @@
 
 #include <stddef.h>
 
+#include <list>
 #include <memory>
+#include <string>
 
 #include "base/bind.h"
 #include "base/logging.h"
@@ -16,10 +18,12 @@
 #include "net/base/io_buffer.h"
 #include "net/base/ip_endpoint.h"
 #include "net/base/net_errors.h"
+#include "net/log/net_log_source.h"
 #include "net/udp/udp_server_socket.h"
 #include "remoting/protocol/socket_util.h"
 #include "third_party/webrtc/base/asyncpacketsocket.h"
 #include "third_party/webrtc/base/nethelpers.h"
+#include "third_party/webrtc/base/socket.h"
 #include "third_party/webrtc/media/base/rtputils.h"
 
 namespace remoting {
@@ -66,11 +70,13 @@ class UdpPacketSocket : public rtc::AsyncPacketSocket {
   struct PendingPacket {
     PendingPacket(const void* buffer,
                   int buffer_size,
-                  const net::IPEndPoint& address);
+                  const net::IPEndPoint& address,
+                  const rtc::PacketOptions& options);
 
     scoped_refptr<net::IOBufferWithSize> data;
     net::IPEndPoint address;
     bool retried;
+    rtc::PacketOptions options;
   };
 
   void OnBindCompleted(int error);
@@ -100,13 +106,14 @@ class UdpPacketSocket : public rtc::AsyncPacketSocket {
   DISALLOW_COPY_AND_ASSIGN(UdpPacketSocket);
 };
 
-UdpPacketSocket::PendingPacket::PendingPacket(
-    const void* buffer,
-    int buffer_size,
-    const net::IPEndPoint& address)
+UdpPacketSocket::PendingPacket::PendingPacket(const void* buffer,
+                                              int buffer_size,
+                                              const net::IPEndPoint& address,
+                                              const rtc::PacketOptions& options)
     : data(new net::IOBufferWithSize(buffer_size)),
       address(address),
-      retried(false) {
+      retried(false),
+      options(options) {
   memcpy(data->data(), buffer, buffer_size);
 }
 
@@ -131,7 +138,7 @@ bool UdpPacketSocket::Init(const rtc::SocketAddress& local_address,
   }
 
   for (uint32_t port = min_port; port <= max_port; ++port) {
-    socket_.reset(new net::UDPServerSocket(nullptr, net::NetLog::Source()));
+    socket_.reset(new net::UDPServerSocket(nullptr, net::NetLogSource()));
     int result = socket_->Listen(
         net::IPEndPoint(local_endpoint.address(), static_cast<uint16_t>(port)));
     if (result == net::OK) {
@@ -197,11 +204,7 @@ int UdpPacketSocket::SendTo(const void* data, size_t data_size,
     return EWOULDBLOCK;
   }
 
-  PendingPacket packet(data, data_size, endpoint);
-  cricket::ApplyPacketOptions(
-      reinterpret_cast<uint8_t*>(packet.data->data()), data_size,
-      options.packet_time_params,
-      (base::TimeTicks::Now() - base::TimeTicks()).InMicroseconds());
+  PendingPacket packet(data, data_size, endpoint, options);
   send_queue_.push_back(packet);
   send_queue_size_ += data_size;
 
@@ -281,6 +284,10 @@ void UdpPacketSocket::DoSend() {
     return;
 
   PendingPacket& packet = send_queue_.front();
+  cricket::ApplyPacketOptions(
+      reinterpret_cast<uint8_t*>(packet.data->data()), packet.data->size(),
+      packet.options.packet_time_params,
+      (base::TimeTicks::Now() - base::TimeTicks()).InMicroseconds());
   int result = socket_->SendTo(
       packet.data.get(),
       packet.data->size(),
@@ -321,6 +328,10 @@ void UdpPacketSocket::OnSendCompleted(int result) {
   // Don't need to worry about partial sends because this is a datagram
   // socket.
   send_queue_size_ -= send_queue_.front().data->size();
+  SignalSentPacket(this, rtc::SentPacket(send_queue_.front().options.packet_id,
+                                         (base::TimeTicks::Now() -
+                                          base::TimeTicks::UnixEpoch())
+                                             .InMilliseconds()));
   send_queue_.pop_front();
   DoSend();
 }

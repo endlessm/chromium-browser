@@ -18,15 +18,7 @@ bool FakeProxy::CommitToActiveTree() const {
   return false;
 }
 
-const RendererCapabilities& FakeProxy::GetRendererCapabilities() const {
-  return capabilities_;
-}
-
-RendererCapabilities& FakeProxy::GetRendererCapabilities() {
-  return capabilities_;
-}
-
-void FakeProxy::ReleaseOutputSurface() {}
+void FakeProxy::ReleaseCompositorFrameSink() {}
 
 bool FakeProxy::BeginMainFrameRequested() const { return false; }
 

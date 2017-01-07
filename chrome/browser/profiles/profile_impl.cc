@@ -44,7 +44,6 @@
 #include "chrome/browser/download/chrome_download_manager_delegate.h"
 #include "chrome/browser/download/download_service.h"
 #include "chrome/browser/download/download_service_factory.h"
-#include "chrome/browser/net/net_pref_observer.h"
 #include "chrome/browser/net/predictor.h"
 #include "chrome/browser/net/proxy_service_factory.h"
 #include "chrome/browser/permissions/permission_manager.h"
@@ -327,7 +326,8 @@ void ProfileImpl::RegisterProfilePrefs(
   registry->RegisterBooleanPref(prefs::kSavingBrowserHistoryDisabled, false);
   registry->RegisterBooleanPref(prefs::kAllowDeletingBrowserHistory, true);
   registry->RegisterBooleanPref(prefs::kForceGoogleSafeSearch, false);
-  registry->RegisterBooleanPref(prefs::kForceYouTubeSafetyMode, false);
+  registry->RegisterIntegerPref(prefs::kForceYouTubeRestrict,
+                                safe_search_util::YOUTUBE_RESTRICT_OFF);
   registry->RegisterBooleanPref(prefs::kForceSessionSync, false);
   registry->RegisterStringPref(prefs::kAllowedDomainsForApps, std::string());
 
@@ -418,13 +418,8 @@ ProfileImpl::ProfileImpl(
   set_is_guest_profile(path == ProfileManager::GetGuestProfilePath());
   set_is_system_profile(path == ProfileManager::GetSystemProfilePath());
 
-  // Determine if prefetch is enabled for this profile.
-  // If not profile_manager is present, it means we are in a unittest.
-  const base::CommandLine* command_line =
-      base::CommandLine::ForCurrentProcess();
+  // If profile_manager is not present, it means we are in a unittest.
   predictor_ = chrome_browser_net::Predictor::CreatePredictor(
-      !command_line->HasSwitch(switches::kDisablePreconnect),
-      !command_line->HasSwitch(switches::kDnsPrefetchDisable),
       g_browser_process->profile_manager() == NULL);
 
   // If we are creating the profile synchronously, then we should load the
@@ -442,11 +437,9 @@ ProfileImpl::ProfileImpl(
 #else
   cloud_policy_manager_ =
       policy::UserCloudPolicyManagerFactory::CreateForOriginalBrowserContext(
-          this,
-          force_immediate_policy_load,
-          sequenced_task_runner,
-          BrowserThread::GetMessageLoopProxyForThread(BrowserThread::FILE),
-          BrowserThread::GetMessageLoopProxyForThread(BrowserThread::IO));
+          this, force_immediate_policy_load, sequenced_task_runner,
+          BrowserThread::GetTaskRunnerForThread(BrowserThread::FILE),
+          BrowserThread::GetTaskRunnerForThread(BrowserThread::IO));
 #endif
   profile_policy_connector_ =
       policy::ProfilePolicyConnectorFactory::CreateForBrowserContext(
@@ -564,7 +557,7 @@ void ProfileImpl::DoFinalInit() {
   ssl_config_service_manager_.reset(
       ssl_config::SSLConfigServiceManager::CreateDefaultManager(
           local_state,
-          BrowserThread::GetMessageLoopProxyForThread(BrowserThread::IO)));
+          BrowserThread::GetTaskRunnerForThread(BrowserThread::IO)));
 
 #if BUILDFLAG(ENABLE_BACKGROUND)
   // Initialize the BackgroundModeManager - this has to be done here before
@@ -628,8 +621,7 @@ void ProfileImpl::DoFinalInit() {
 
 #if defined(ENABLE_PLUGINS)
   ChromePluginServiceFilter::GetInstance()->RegisterResourceContext(
-      PluginPrefs::GetForProfile(this).get(),
-      io_data_.GetResourceContextNoInit());
+      this, io_data_.GetResourceContextNoInit());
 #endif
 
   TRACE_EVENT0("browser", "ProfileImpl::SetSaveSessionStorageOnDisk");
@@ -662,7 +654,7 @@ void ProfileImpl::DoFinalInit() {
 #if !defined(OS_CHROMEOS)
   // Listen for bookmark model load, to bootstrap the sync service.
   // On CrOS sync service will be initialized after sign in.
-  BookmarkModel* model = BookmarkModelFactory::GetForProfile(this);
+  BookmarkModel* model = BookmarkModelFactory::GetForBrowserContext(this);
   model->AddObserver(new BookmarkModelLoadedObserver(this));
 #endif
 
@@ -719,6 +711,10 @@ ProfileImpl::~ProfileImpl() {
   // This causes the Preferences file to be written to disk.
   if (prefs_loaded)
     SetExitType(EXIT_NORMAL);
+
+  // This must be called before ProfileIOData::ShutdownOnUIThread but after
+  // other profile-related destroy notifications are dispatched.
+  ShutdownStoragePartitions();
 }
 
 std::string ProfileImpl::GetProfileUserName() const {
@@ -736,9 +732,9 @@ Profile::ProfileType ProfileImpl::GetProfileType() const {
 
 std::unique_ptr<content::ZoomLevelDelegate>
 ProfileImpl::CreateZoomLevelDelegate(const base::FilePath& partition_path) {
-  return base::WrapUnique(new ChromeZoomLevelPrefs(
+  return base::MakeUnique<ChromeZoomLevelPrefs>(
       GetPrefs(), GetPath(), partition_path,
-      zoom::ZoomEventManager::GetForBrowserContext(this)->GetWeakPtr()));
+      zoom::ZoomEventManager::GetForBrowserContext(this)->GetWeakPtr());
 }
 
 base::FilePath ProfileImpl::GetPath() const {
@@ -849,12 +845,6 @@ void ProfileImpl::OnLocaleReady() {
       CreateBrowserContextServices(this);
   }
 
-  DCHECK(!net_pref_observer_);
-  {
-    TRACE_EVENT0("browser", "ProfileImpl::OnPrefsLoaded:NetPrefObserver")
-    net_pref_observer_.reset(new NetPrefObserver(prefs_.get()));
-  }
-
   ChromeVersionService::OnProfileLoaded(prefs_.get(), IsNewProfile());
   DoFinalInit();
 }
@@ -882,8 +872,8 @@ void ProfileImpl::OnPrefsLoaded(CreateMode create_mode, bool success) {
 }
 
 bool ProfileImpl::WasCreatedByVersionOrLater(const std::string& version) {
-  Version profile_version(ChromeVersionService::GetVersion(prefs_.get()));
-  Version arg_version(version);
+  base::Version profile_version(ChromeVersionService::GetVersion(prefs_.get()));
+  base::Version arg_version(version);
   return (profile_version.CompareTo(arg_version) >= 0);
 }
 
@@ -1287,5 +1277,5 @@ ProfileImpl::CreateDomainReliabilityMonitor(PrefService* local_state) {
     return std::unique_ptr<domain_reliability::DomainReliabilityMonitor>();
 
   return service->CreateMonitor(
-      BrowserThread::GetMessageLoopProxyForThread(BrowserThread::IO));
+      BrowserThread::GetTaskRunnerForThread(BrowserThread::IO));
 }

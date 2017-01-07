@@ -11,9 +11,13 @@ NSString* const kNotificationOrigin = @"notificationOrigin";
 NSString* const kNotificationId = @"notificationId";
 NSString* const kNotificationProfileId = @"notificationProfileId";
 NSString* const kNotificationIncognito = @"notificationIncognito";
+NSString* const kNotificationType = @"notificationType";
 
 // Only applicable to the NotificationResponseBuilder
 NSString* const kNotificationOperation = @"notificationOperation";
 NSString* const kNotificationButtonIndex = @"notificationButtonIndex";
+
+// Name of the XPC service
+NSString* const kAlertXPCServiceName = @"%@.AlertNotificationService";
 
 }  // notification_constants

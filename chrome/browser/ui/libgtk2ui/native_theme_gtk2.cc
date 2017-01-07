@@ -19,6 +19,8 @@
 #include "ui/gfx/path.h"
 #include "ui/gfx/skia_util.h"
 #include "ui/native_theme/common_theme.h"
+#include "ui/native_theme/native_theme_aura.h"
+#include "ui/native_theme/native_theme_dark_aura.h"
 
 namespace libgtk2ui {
 
@@ -259,12 +261,9 @@ SkColor NativeThemeGtk2::GetSystemColor(ColorId color_id) const {
 #endif
 
     case kColorId_EnabledMenuItemForegroundColor:
-    case kColorId_DisabledEmphasizedMenuItemForegroundColor:
       return GetTextColor(GetMenuItem(), NORMAL);
     case kColorId_DisabledMenuItemForegroundColor:
       return GetTextColor(GetMenuItem(), INSENSITIVE);
-    case kColorId_HoverMenuItemBackgroundColor:
-      return GetBGColor(GetMenuItem(), PRELIGHT);
     case kColorId_FocusedMenuButtonBorderColor:
       return GetBGColor(GetEntry(), NORMAL);
     case kColorId_HoverMenuButtonBorderColor:
@@ -282,8 +281,6 @@ SkColor NativeThemeGtk2::GetSystemColor(ColorId color_id) const {
       return GetTextColor(GetEntry(), NORMAL);
     case kColorId_LabelDisabledColor:
       return GetTextColor(GetLabel(), INSENSITIVE);
-    case kColorId_LabelBackgroundColor:
-      return GetBGColor(GetWindow(), NORMAL);
 
     // Link
     case kColorId_LinkDisabled:
@@ -300,8 +297,6 @@ SkColor NativeThemeGtk2::GetSystemColor(ColorId color_id) const {
       return SK_ColorRED;
 
     // Button
-    case kColorId_ButtonBackgroundColor:
-      return GetBGColor(GetButton(), NORMAL);
     case kColorId_ButtonEnabledColor:
       return GetTextColor(GetButton(), NORMAL);
     case kColorId_BlueButtonEnabledColor:
@@ -310,23 +305,20 @@ SkColor NativeThemeGtk2::GetSystemColor(ColorId color_id) const {
       return GetTextColor(GetButton(), INSENSITIVE);
     case kColorId_BlueButtonDisabledColor:
       return GetTextColor(GetBlueButton(), INSENSITIVE);
-    case kColorId_ButtonHighlightColor:
-      return GetBaseColor(GetButton(), SELECTED);
     case kColorId_ButtonHoverColor:
       return GetTextColor(GetButton(), PRELIGHT);
     case kColorId_BlueButtonHoverColor:
       return GetTextColor(GetBlueButton(), PRELIGHT);
-    case kColorId_ButtonHoverBackgroundColor:
-      return GetBGColor(GetButton(), PRELIGHT);
     case kColorId_BlueButtonPressedColor:
       return GetTextColor(GetBlueButton(), ACTIVE);
     case kColorId_BlueButtonShadowColor:
       return SK_ColorTRANSPARENT;
-      // return GetTextColor(GetButton(), NORMAL);
-    case kColorId_CallToActionColor:
+    case kColorId_ProminentButtonColor:
       return GetSystemColor(kColorId_LinkEnabled);
-    case kColorId_TextOnCallToActionColor:
+    case kColorId_TextOnProminentButtonColor:
       return GetTextColor(GetLabel(), SELECTED);
+    case kColorId_ButtonPressedShade:
+      return SK_ColorTRANSPARENT;
 
     // Textfield
     case kColorId_TextfieldDefaultColor:
@@ -453,6 +445,18 @@ SkColor NativeThemeGtk2::GetSystemColor(ColorId color_id) const {
           GetSystemColor(kColorId_TextfieldSelectionBackgroundFocused),
           GetBGColor(GetWindow(), NORMAL),
           0x80);
+
+    // Alert icons
+    // Just fall back to the same colors as Aura.
+    case kColorId_AlertSeverityLow:
+    case kColorId_AlertSeverityMedium:
+    case kColorId_AlertSeverityHigh: {
+      ui::NativeTheme* fallback_theme =
+          color_utils::IsDark(GetTextColor(GetEntry(), NORMAL))
+              ? ui::NativeThemeAura::instance()
+              : ui::NativeThemeDarkAura::instance();
+      return fallback_theme->GetSystemColor(color_id);
+    }
 
     case kColorId_NumColors:
       NOTREACHED();

@@ -30,7 +30,7 @@ def RunSwarmingCommand(cmd, swarming_server, task_name=None,
                        print_status_updates=False,
                        timeout_secs=None, io_timeout_secs=None,
                        hard_timeout_secs=None, expiration_secs=None,
-                       temp_json_path=None,
+                       temp_json_path=None, tags=None,
                        *args, **kwargs):
   """Run command via swarming proxy.
 
@@ -50,6 +50,7 @@ def RunSwarmingCommand(cmd, swarming_server, task_name=None,
     expiration_secs: Seconds to allow the task to be pending for a bot to
                      run before this task request expires.
     temp_json_path: Where swarming client should dump the result.
+    tags: Dict, representing tags to add to the swarming command.
   """
   with osutils.TempDir() as tempdir:
     if temp_json_path is None:
@@ -80,6 +81,10 @@ def RunSwarmingCommand(cmd, swarming_server, task_name=None,
     if expiration_secs is not None:
       swarming_cmd += ['--expiration', str(expiration_secs)]
 
+    if tags is not None:
+      for k, v in tags.items():
+        swarming_cmd += ['--tags=%s:%s' % (k, v)]
+
     swarming_cmd += ['--']
     swarming_cmd += cmd
 
@@ -103,9 +108,12 @@ def SwarmingRetriableErrorCheck(exception):
     True if retriable, otherwise False.
   """
   if not isinstance(exception, cros_build_lib.RunCommandError):
+    logging.warning('Exception is not retriable: %s', str(exception))
     return False
   result = exception.result
   if not isinstance(result, SwarmingCommandResult):
+    logging.warning('Exception is not retriable as the result '
+                    'is not a SwarmingCommandResult: %s', str(result))
     return False
   if result.task_summary_json:
     try:
@@ -122,6 +130,9 @@ def SwarmingRetriableErrorCheck(exception):
           "Error: %s. Swarming summary json: %s",
           str(exception), str(e),
           json.dumps(result.task_summary_json, indent=2))
+      return False
+
+  logging.warning('Exception is not retriable %s', str(exception))
   return False
 
 

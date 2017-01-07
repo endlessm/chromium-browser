@@ -24,7 +24,6 @@
 #include "base/strings/string_number_conversions.h"
 #include "base/threading/sequenced_worker_pool.h"
 #include "base/threading/worker_pool.h"
-#include "components/network_session_configurator/switches.h"
 #include "components/prefs/pref_service.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/content_browser_client.h"
@@ -60,6 +59,7 @@ namespace android_webview {
 namespace {
 
 const base::FilePath::CharType kChannelIDFilename[] = "Origin Bound Certs";
+const char kProxyServerSwitch[] = "proxy-server";
 
 void ApplyCmdlineOverridesToHostResolver(
     net::MappedHostResolver* host_resolver) {
@@ -103,13 +103,13 @@ std::unique_ptr<net::URLRequestJobFactory> CreateJobFactory(
   // AwContentBrowserClient::IsHandledURL.
   bool set_protocol = aw_job_factory->SetProtocolHandler(
       url::kFileScheme,
-      base::WrapUnique(new net::FileProtocolHandler(
+      base::MakeUnique<net::FileProtocolHandler>(
           content::BrowserThread::GetBlockingPool()
               ->GetTaskRunnerWithShutdownBehavior(
-                  base::SequencedWorkerPool::SKIP_ON_SHUTDOWN))));
+                  base::SequencedWorkerPool::SKIP_ON_SHUTDOWN)));
   DCHECK(set_protocol);
   set_protocol = aw_job_factory->SetProtocolHandler(
-      url::kDataScheme, base::WrapUnique(new net::DataProtocolHandler()));
+      url::kDataScheme, base::MakeUnique<net::DataProtocolHandler>());
   DCHECK(set_protocol);
   set_protocol = aw_job_factory->SetProtocolHandler(
       url::kBlobScheme,
@@ -178,7 +178,7 @@ AwURLRequestContextGetter::AwURLRequestContextGetter(
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
   scoped_refptr<base::SingleThreadTaskRunner> io_thread_proxy =
-      BrowserThread::GetMessageLoopProxyForThread(BrowserThread::IO);
+      BrowserThread::GetTaskRunnerForThread(BrowserThread::IO);
 
   auth_server_whitelist_.Init(
       prefs::kAuthServerWhitelist, user_pref_service,
@@ -206,7 +206,7 @@ void AwURLRequestContextGetter::InitializeURLRequestContext() {
   AwBrowserContext* browser_context = AwBrowserContext::GetDefault();
   DCHECK(browser_context);
 
-  builder.set_network_delegate(base::WrapUnique(new AwNetworkDelegate()));
+  builder.set_network_delegate(base::MakeUnique<AwNetworkDelegate>());
 #if !defined(DISABLE_FTP_SUPPORT)
   builder.set_ftp_enabled(false);  // Android WebView does not support ftp yet.
 #endif
@@ -229,12 +229,19 @@ void AwURLRequestContextGetter::InitializeURLRequestContext() {
   // Android provides a local HTTP proxy that handles all the proxying.
   // Create the proxy without a resolver since we rely on this local HTTP proxy.
   // TODO(sgurun) is this behavior guaranteed through SDK?
-  builder.set_proxy_service(net::ProxyService::CreateWithoutProxyResolver(
-      std::move(proxy_config_service_), net_log_.get()));
+
+  const base::CommandLine& command_line =
+      *base::CommandLine::ForCurrentProcess();
+  if (command_line.HasSwitch(kProxyServerSwitch)) {
+    std::string proxy = command_line.GetSwitchValueASCII(kProxyServerSwitch);
+    builder.set_proxy_service(net::ProxyService::CreateFixed(proxy));
+  } else {
+    builder.set_proxy_service(net::ProxyService::CreateWithoutProxyResolver(
+        std::move(proxy_config_service_), net_log_.get()));
+  }
   builder.set_net_log(net_log_.get());
-  builder.SetCookieAndChannelIdStores(
-      base::WrapUnique(new AwCookieStoreWrapper()),
-      std::move(channel_id_service));
+  builder.SetCookieAndChannelIdStores(base::MakeUnique<AwCookieStoreWrapper>(),
+                                      std::move(channel_id_service));
 
   net::URLRequestContextBuilder::HttpCacheParams cache_params;
   cache_params.type =
@@ -243,7 +250,7 @@ void AwURLRequestContextGetter::InitializeURLRequestContext() {
   cache_params.path = cache_path_;
   builder.EnableHttpCache(cache_params);
   builder.SetFileTaskRunner(
-      BrowserThread::GetMessageLoopProxyForThread(BrowserThread::CACHE));
+      BrowserThread::GetTaskRunnerForThread(BrowserThread::CACHE));
 
   net::URLRequestContextBuilder::HttpNetworkSessionParams
       network_session_params;
@@ -278,7 +285,7 @@ net::URLRequestContext* AwURLRequestContextGetter::GetURLRequestContext() {
 
 scoped_refptr<base::SingleThreadTaskRunner>
 AwURLRequestContextGetter::GetNetworkTaskRunner() const {
-  return BrowserThread::GetMessageLoopProxyForThread(BrowserThread::IO);
+  return BrowserThread::GetTaskRunnerForThread(BrowserThread::IO);
 }
 
 void AwURLRequestContextGetter::SetHandlersAndInterceptors(

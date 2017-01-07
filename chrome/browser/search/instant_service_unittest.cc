@@ -9,6 +9,7 @@
 #include <tuple>
 #include <vector>
 
+#include "base/memory/ptr_util.h"
 #include "base/metrics/field_trial.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
@@ -53,10 +54,6 @@ class InstantServiceTest : public InstantUnitTestBase {
 
   std::vector<InstantMostVisitedItem>& most_visited_items() {
     return instant_service_->most_visited_items_;
-  }
-
-  std::vector<InstantMostVisitedItem>& suggestions_items() {
-    return instant_service_->suggestions_items_;
   }
 
   std::unique_ptr<MockInstantServiceObserver> instant_service_observer_;
@@ -135,9 +132,8 @@ TEST_F(InstantServiceEnabledTest,
   TemplateURLData data;
   data.SetShortName(base::ASCIIToUTF16("foobar.com"));
   data.SetURL("https://foobar.com/url?bar={searchTerms}");
-  TemplateURL* template_url = new TemplateURL(data);
-  // Takes ownership of |template_url|.
-  template_url_service_->Add(template_url);
+  TemplateURL* template_url =
+      template_url_service_->Add(base::MakeUnique<TemplateURL>(data));
   template_url_service_->SetUserSelectedDefaultSearchProvider(template_url);
 
   EXPECT_EQ(static_cast<InstantSearchPrerenderer*>(NULL),
@@ -161,17 +157,6 @@ TEST_F(InstantServiceEnabledTest,
   const std::string new_base_url = "https://www.google.es/";
   NotifyGoogleBaseURLUpdate(new_base_url);
   EXPECT_NE(old_prerenderer, GetInstantSearchPrerenderer());
-}
-
-TEST_F(InstantServiceTest, GetSuggestionFromServiceSide) {
-  auto profile = suggestions::SuggestionsProfile();
-  profile.add_suggestions();
-
-  instant_service_->OnSuggestionsAvailable(profile);
-
-  auto items = instant_service_->suggestions_items_;
-  ASSERT_EQ(1, (int)items.size());
-  ASSERT_TRUE(items[0].is_server_side_suggestion);
 }
 
 TEST_F(InstantServiceTest, GetSuggestionFromClientSide) {

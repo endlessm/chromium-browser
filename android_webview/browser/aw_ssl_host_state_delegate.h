@@ -54,7 +54,8 @@ class AwSSLHostStateDelegate : public content::SSLHostStateDelegate {
                  const net::X509Certificate& cert,
                  net::CertStatus error) override;
 
-  void Clear() override;
+  void Clear(
+      const base::Callback<bool(const std::string&)>& host_filter) override;
 
   // Queries whether |cert| is allowed or denied for |host| and |error|.
   content::SSLHostStateDelegate::CertJudgment QueryPolicy(
@@ -64,11 +65,15 @@ class AwSSLHostStateDelegate : public content::SSLHostStateDelegate {
       bool* expired_previous_decision) override;
 
   // Records that a host has run insecure content.
-  void HostRanInsecureContent(const std::string& host, int pid) override;
+  void HostRanInsecureContent(const std::string& host,
+                              int child_id,
+                              InsecureContentType content_type) override;
 
   // Returns whether the specified host ran insecure content.
-  bool DidHostRunInsecureContent(const std::string& host,
-                                 int pid) const override;
+  bool DidHostRunInsecureContent(
+      const std::string& host,
+      int child_id,
+      InsecureContentType content_type) const override;
 
   // Revokes all SSL certificate error allow exceptions made by the user for
   // |host|.

@@ -12,9 +12,10 @@
 
 #include "ash/common/accessibility_types.h"
 #include "ash/common/session/session_state_observer.h"
+#include "ash/common/system/chromeos/supervised/custodian_info_tray_observer.h"
+#include "ash/common/system/tray/ime_info.h"
+#include "ash/common/system/tray/system_tray.h"
 #include "ash/common/system/tray/system_tray_delegate.h"
-#include "ash/system/chromeos/supervised/custodian_info_tray_observer.h"
-#include "ash/system/tray/system_tray.h"
 #include "base/callback_forward.h"
 #include "base/callback_list.h"
 #include "base/compiler_specific.h"
@@ -24,8 +25,6 @@
 #include "base/observer_list.h"
 #include "chrome/browser/chromeos/accessibility/accessibility_manager.h"
 #include "chrome/browser/chromeos/settings/shutdown_policy_handler.h"
-#include "chrome/browser/chromeos/system/system_clock.h"
-#include "chrome/browser/chromeos/system/system_clock_observer.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/supervised_user/supervised_user_service_observer.h"
 #include "chrome/browser/ui/browser_list_observer.h"
@@ -69,7 +68,6 @@ class SystemTrayDelegateChromeOS
       public user_manager::UserManager::UserSessionStateObserver,
       public SupervisedUserServiceObserver,
       public ShutdownPolicyHandler::Delegate,
-      public system::SystemClockObserver,
       public input_method::InputMethodManager::ImeMenuObserver {
  public:
   SystemTrayDelegateChromeOS();
@@ -81,9 +79,7 @@ class SystemTrayDelegateChromeOS
 
   // Overridden from ash::SystemTrayDelegate:
   void Initialize() override;
-  bool GetTrayVisibilityOnStartup() override;
   ash::LoginStatus GetUserLoginStatus() const override;
-  void ChangeProfilePicture() override;
   std::string GetEnterpriseDomain() const override;
   base::string16 GetEnterpriseMessage() const override;
   std::string GetSupervisedUserManager() const override;
@@ -92,26 +88,12 @@ class SystemTrayDelegateChromeOS
   bool IsUserSupervised() const override;
   bool IsUserChild() const override;
   void GetSystemUpdateInfo(ash::UpdateInfo* info) const override;
-  base::HourClockType GetHourClockType() const override;
-  void ShowSettings() override;
   bool ShouldShowSettings() override;
-  void ShowDateSettings() override;
   void ShowSetTimeDialog() override;
-  void ShowNetworkSettingsForGuid(const std::string& guid) override;
-  void ShowDisplaySettings() override;
-  void ShowPowerSettings() override;
-  void ShowChromeSlow() override;
   bool ShouldShowDisplayNotification() override;
-  void ShowIMESettings() override;
-  void ShowHelp() override;
-  void ShowAccessibilityHelp() override;
-  void ShowAccessibilitySettings() override;
-  void ShowPublicAccountInfo() override;
-  void ShowSupervisedUserInfo() override;
   void ShowEnterpriseInfo() override;
   void ShowUserLogin() override;
   void SignOut() override;
-  void RequestLockScreen() override;
   void RequestRestartForUpdate() override;
   void RequestShutdown() override;
   void GetAvailableBluetoothDevices(ash::BluetoothDeviceList* list) override;
@@ -130,7 +112,6 @@ class SystemTrayDelegateChromeOS
   bool GetBluetoothAvailable() override;
   bool GetBluetoothEnabled() override;
   bool GetBluetoothDiscovering() override;
-  void ChangeProxySettings() override;
   ash::CastConfigDelegate* GetCastConfigDelegate() override;
   ash::NetworkingConfigDelegate* GetNetworkingConfigDelegate() const override;
   ash::VolumeControlDelegate* GetVolumeControlDelegate() const override;
@@ -152,18 +133,14 @@ class SystemTrayDelegateChromeOS
   void ShouldRebootOnShutdown(
       const ash::RebootOnShutdownCallback& callback) override;
   ash::VPNDelegate* GetVPNDelegate() const override;
+  std::unique_ptr<ash::SystemTrayItem> CreateRotationLockTrayItem(
+      ash::SystemTray* tray) override;
 
   // Overridden from user_manager::UserManager::UserSessionStateObserver:
   void UserAddedToSession(const user_manager::User* active_user) override;
   void ActiveUserChanged(const user_manager::User* active_user) override;
 
   void UserChangedChildStatus(user_manager::User* user) override;
-
-  // browser tests need to call ShouldUse24HourClock().
-  bool GetShouldUse24HourClockForTesting() const;
-
-  // chromeos::system::SystemClockObserver implementation.
-  void OnSystemClockChanged(system::SystemClock*) override;
 
  private:
   ash::SystemTray* GetPrimarySystemTray();
@@ -173,8 +150,6 @@ class SystemTrayDelegateChromeOS
   void SetProfile(Profile* profile);
 
   bool UnsetProfile(Profile* profile);
-
-  bool ShouldUse24HourClock() const;
 
   void UpdateShowLogoutButtonInTray();
 
@@ -286,7 +261,6 @@ class SystemTrayDelegateChromeOS
   std::unique_ptr<PrefChangeRegistrar> local_state_registrar_;
   std::unique_ptr<PrefChangeRegistrar> user_pref_registrar_;
   Profile* user_profile_;
-  base::HourClockType clock_type_;
   int search_key_mapped_to_;
   bool screen_locked_;
   bool have_session_start_time_;

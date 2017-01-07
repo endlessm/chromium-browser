@@ -17,4 +17,8 @@ public final class SnippetsConfig {
         return ChromeFeatureList.isEnabled(ChromeFeatureList.NTP_SNIPPETS)
                 && PrefServiceBridge.getInstance().isSearchSuggestEnabled();
     }
+
+    public static boolean isSaveToOfflineEnabled() {
+        return ChromeFeatureList.isEnabled(ChromeFeatureList.NTP_SNIPPETS_SAVE_TO_OFFLINE);
+    }
 }

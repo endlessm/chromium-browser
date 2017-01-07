@@ -22,8 +22,11 @@ AppBannerInfoBarAndroid::AppBannerInfoBarAndroid(
 
 AppBannerInfoBarAndroid::AppBannerInfoBarAndroid(
     std::unique_ptr<banners::AppBannerInfoBarDelegateAndroid> delegate,
-    const GURL& app_url)
-    : ConfirmInfoBar(std::move(delegate)), app_url_(app_url) {}
+    const GURL& app_url,
+    bool is_webapk)
+    : ConfirmInfoBar(std::move(delegate)),
+    app_url_(app_url),
+    is_webapk_(is_webapk) {}
 
 AppBannerInfoBarAndroid::~AppBannerInfoBarAndroid() {
 }
@@ -45,10 +48,7 @@ AppBannerInfoBarAndroid::CreateRenderInfoBar(JNIEnv* env) {
   base::android::ScopedJavaLocalRef<jobject> infobar;
   if (!japp_data_.is_null()) {
     infobar.Reset(Java_AppBannerInfoBarAndroid_createNativeAppInfoBar(
-        env,
-        app_title.obj(),
-        java_bitmap.obj(),
-        japp_data_.obj()));
+        env, app_title, java_bitmap, japp_data_));
   } else {
     // Trim down the app URL to the domain and registry.
     std::string trimmed_url =
@@ -60,10 +60,7 @@ AppBannerInfoBarAndroid::CreateRenderInfoBar(JNIEnv* env) {
         base::android::ConvertUTF8ToJavaString(env, trimmed_url);
 
     infobar.Reset(Java_AppBannerInfoBarAndroid_createWebAppInfoBar(
-        env,
-        app_title.obj(),
-        java_bitmap.obj(),
-        app_url.obj()));
+        env, app_title, java_bitmap, app_url, is_webapk_));
   }
 
   java_infobar_.Reset(env, infobar.obj());
@@ -72,12 +69,7 @@ AppBannerInfoBarAndroid::CreateRenderInfoBar(JNIEnv* env) {
 
 void AppBannerInfoBarAndroid::OnInstallStateChanged(int new_state) {
   JNIEnv* env = base::android::AttachCurrentThread();
-  Java_AppBannerInfoBarAndroid_onInstallStateChanged(env, java_infobar_.obj(),
+  Java_AppBannerInfoBarAndroid_onInstallStateChanged(env, java_infobar_,
                                                      new_state);
 }
 
-// Native JNI methods ---------------------------------------------------------
-
-bool RegisterAppBannerInfoBarAndroid(JNIEnv* env) {
- return RegisterNativesImpl(env);
-}

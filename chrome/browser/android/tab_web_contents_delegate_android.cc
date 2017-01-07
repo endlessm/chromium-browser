@@ -10,15 +10,16 @@
 #include "base/android/jni_string.h"
 #include "base/command_line.h"
 #include "base/memory/ptr_util.h"
+#include "chrome/browser/android/banners/app_banner_manager_android.h"
 #include "chrome/browser/android/feature_utilities.h"
 #include "chrome/browser/android/hung_renderer_infobar_delegate.h"
 #include "chrome/browser/android/media/media_throttle_infobar_delegate.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/file_select_helper.h"
 #include "chrome/browser/infobars/infobar_service.h"
-#include "chrome/browser/media/media_capture_devices_dispatcher.h"
-#include "chrome/browser/media/media_stream_capture_indicator.h"
 #include "chrome/browser/media/protected_media_identifier_permission_context.h"
+#include "chrome/browser/media/webrtc/media_capture_devices_dispatcher.h"
+#include "chrome/browser/media/webrtc/media_stream_capture_indicator.h"
 #include "chrome/browser/prerender/prerender_manager.h"
 #include "chrome/browser/prerender/prerender_manager_factory.h"
 #include "chrome/browser/profiles/profile.h"
@@ -49,6 +50,7 @@
 #endif
 
 using base::android::AttachCurrentThread;
+using base::android::JavaParamRef;
 using base::android::ScopedJavaLocalRef;
 using content::BluetoothChooser;
 using content::FileChooserParams;
@@ -91,7 +93,6 @@ infobars::InfoBar* FindHungRendererInfoBar(InfoBarService* infobar_service) {
 
 }  // anonymous namespace
 
-namespace chrome {
 namespace android {
 
 TabWebContentsDelegateAndroid::TabWebContentsDelegateAndroid(JNIEnv* env,
@@ -110,7 +111,7 @@ bool RegisterTabWebContentsDelegateAndroid(JNIEnv* env) {
 
 void TabWebContentsDelegateAndroid::LoadingStateChanged(
     WebContents* source, bool to_different_document) {
-  bool has_stopped = source == NULL || !source->IsLoading();
+  bool has_stopped = source == nullptr || !source->IsLoading();
   WebContentsDelegateAndroid::LoadingStateChanged(
       source, to_different_document);
   LoadProgressChanged(source, has_stopped ? 1 : 0);
@@ -126,7 +127,7 @@ std::unique_ptr<BluetoothChooser>
 TabWebContentsDelegateAndroid::RunBluetoothChooser(
     content::RenderFrameHost* frame,
     const BluetoothChooser::EventHandler& event_handler) {
-  return base::WrapUnique(new BluetoothChooserAndroid(frame, event_handler));
+  return base::MakeUnique<BluetoothChooserAndroid>(frame, event_handler);
 }
 
 void TabWebContentsDelegateAndroid::CloseContents(
@@ -180,8 +181,7 @@ blink::WebDisplayMode TabWebContentsDelegateAndroid::GetDisplayMode(
     return blink::WebDisplayModeUndefined;
 
   return static_cast<blink::WebDisplayMode>(
-      Java_TabWebContentsDelegateAndroid_getDisplayMode(
-          env, obj.obj()));
+      Java_TabWebContentsDelegateAndroid_getDisplayMode(env, obj));
 }
 
 void TabWebContentsDelegateAndroid::FindReply(
@@ -221,16 +221,11 @@ void TabWebContentsDelegateAndroid::OnFindResultAvailable(
   // Create the details object.
   ScopedJavaLocalRef<jobject> details_object =
       Java_TabWebContentsDelegateAndroid_createFindNotificationDetails(
-          env,
-          find_result->number_of_matches(),
-          selection_rect.obj(),
-          find_result->active_match_ordinal(),
-          find_result->final_update());
+          env, find_result->number_of_matches(), selection_rect,
+          find_result->active_match_ordinal(), find_result->final_update());
 
-  Java_TabWebContentsDelegateAndroid_onFindResultAvailable(
-      env,
-      obj.obj(),
-      details_object.obj());
+  Java_TabWebContentsDelegateAndroid_onFindResultAvailable(env, obj,
+                                                           details_object);
 }
 
 void TabWebContentsDelegateAndroid::FindMatchRectsReply(
@@ -246,24 +241,16 @@ void TabWebContentsDelegateAndroid::FindMatchRectsReply(
   // Create the details object.
   ScopedJavaLocalRef<jobject> details_object =
       Java_TabWebContentsDelegateAndroid_createFindMatchRectsDetails(
-          env,
-          version,
-          rects.size(),
-          CreateJavaRectF(env, active_rect).obj());
+          env, version, rects.size(), CreateJavaRectF(env, active_rect));
 
   // Add the rects
   for (size_t i = 0; i < rects.size(); ++i) {
-      Java_TabWebContentsDelegateAndroid_setMatchRectByIndex(
-          env,
-          details_object.obj(),
-          i,
-          CreateJavaRectF(env, rects[i]).obj());
+    Java_TabWebContentsDelegateAndroid_setMatchRectByIndex(
+        env, details_object, i, CreateJavaRectF(env, rects[i]));
   }
 
-  Java_TabWebContentsDelegateAndroid_onFindMatchRectsAvailable(
-      env,
-      obj.obj(),
-      details_object.obj());
+  Java_TabWebContentsDelegateAndroid_onFindMatchRectsAvailable(env, obj,
+                                                               details_object);
 }
 
 content::JavaScriptDialogManager*
@@ -277,7 +264,7 @@ void TabWebContentsDelegateAndroid::RequestMediaAccessPermission(
     const content::MediaStreamRequest& request,
     const content::MediaResponseCallback& callback) {
   MediaCaptureDevicesDispatcher::GetInstance()->ProcessMediaAccessRequest(
-      web_contents, request, callback, NULL);
+      web_contents, request, callback, nullptr);
 }
 
 bool TabWebContentsDelegateAndroid::CheckMediaAccessPermission(
@@ -312,12 +299,12 @@ WebContents* TabWebContentsDelegateAndroid::OpenURLFromTab(
     WebContents* source,
     const content::OpenURLParams& params) {
   WindowOpenDisposition disposition = params.disposition;
-  if (!source || (disposition != CURRENT_TAB &&
-                  disposition != NEW_FOREGROUND_TAB &&
-                  disposition != NEW_BACKGROUND_TAB &&
-                  disposition != OFF_THE_RECORD &&
-                  disposition != NEW_POPUP &&
-                  disposition != NEW_WINDOW)) {
+  if (!source || (disposition != WindowOpenDisposition::CURRENT_TAB &&
+                  disposition != WindowOpenDisposition::NEW_FOREGROUND_TAB &&
+                  disposition != WindowOpenDisposition::NEW_BACKGROUND_TAB &&
+                  disposition != WindowOpenDisposition::OFF_THE_RECORD &&
+                  disposition != WindowOpenDisposition::NEW_POPUP &&
+                  disposition != WindowOpenDisposition::NEW_WINDOW)) {
     // We can't handle this here.  Give the parent a chance.
     return WebContentsDelegateAndroid::OpenURLFromTab(source, params);
   }
@@ -335,25 +322,25 @@ WebContents* TabWebContentsDelegateAndroid::OpenURLFromTab(
       PopupBlockerTabHelper::FromWebContents(source);
   DCHECK(popup_blocker_helper);
 
-  if ((params.disposition == NEW_POPUP ||
-       params.disposition == NEW_FOREGROUND_TAB ||
-       params.disposition == NEW_BACKGROUND_TAB ||
-       params.disposition == NEW_WINDOW) &&
+  if ((params.disposition == WindowOpenDisposition::NEW_POPUP ||
+       params.disposition == WindowOpenDisposition::NEW_FOREGROUND_TAB ||
+       params.disposition == WindowOpenDisposition::NEW_BACKGROUND_TAB ||
+       params.disposition == WindowOpenDisposition::NEW_WINDOW) &&
       !params.user_gesture &&
       !base::CommandLine::ForCurrentProcess()->HasSwitch(
           switches::kDisablePopupBlocking)) {
     if (popup_blocker_helper->MaybeBlockPopup(nav_params,
                                               blink::WebWindowFeatures())) {
-      return NULL;
+      return nullptr;
     }
   }
 
-  if (disposition == CURRENT_TAB) {
+  if (disposition == WindowOpenDisposition::CURRENT_TAB) {
     // Only prerender for a current-tab navigation to avoid session storage
     // namespace issues.
     nav_params.target_contents = source;
     prerender::PrerenderManager* prerender_manager =
-        prerender::PrerenderManagerFactory::GetForProfile(profile);
+        prerender::PrerenderManagerFactory::GetForBrowserContext(profile);
     if (prerender_manager &&
         prerender_manager->MaybeUsePrerenderedPage(params.url, &nav_params)) {
       return nav_params.target_contents;
@@ -370,8 +357,7 @@ bool TabWebContentsDelegateAndroid::ShouldResumeRequestsForCreatedWindow() {
     return true;
 
   return Java_TabWebContentsDelegateAndroid_shouldResumeRequestsForCreatedWindow(
-      env,
-      obj.obj());
+      env, obj);
 }
 
 void TabWebContentsDelegateAndroid::AddNewContents(
@@ -382,9 +368,9 @@ void TabWebContentsDelegateAndroid::AddNewContents(
     bool user_gesture,
     bool* was_blocked) {
   // No code for this yet.
-  DCHECK_NE(disposition, SAVE_TO_DISK);
+  DCHECK_NE(disposition, WindowOpenDisposition::SAVE_TO_DISK);
   // Can't create a new contents for the current tab - invalid case.
-  DCHECK_NE(disposition, CURRENT_TAB);
+  DCHECK_NE(disposition, WindowOpenDisposition::CURRENT_TAB);
 
   TabHelpers::AttachTabHelpers(new_contents);
 
@@ -400,13 +386,8 @@ void TabWebContentsDelegateAndroid::AddNewContents(
       jnew_contents = new_contents->GetJavaWebContents();
 
     handled = Java_TabWebContentsDelegateAndroid_addNewContents(
-        env,
-        obj.obj(),
-        jsource.obj(),
-        jnew_contents.obj(),
-        static_cast<jint>(disposition),
-        NULL,
-        user_gesture);
+        env, obj, jsource, jnew_contents, static_cast<jint>(disposition),
+        nullptr, user_gesture);
   }
 
   if (was_blocked)
@@ -417,15 +398,13 @@ void TabWebContentsDelegateAndroid::AddNewContents(
 
 void TabWebContentsDelegateAndroid::RequestAppBannerFromDevTools(
     content::WebContents* web_contents) {
-  JNIEnv* env = base::android::AttachCurrentThread();
-  ScopedJavaLocalRef<jobject> obj = GetJavaDelegate(env);
-  if (obj.is_null())
-    return;
-  Java_TabWebContentsDelegateAndroid_requestAppBanner(env, obj.obj());
+  banners::AppBannerManagerAndroid* manager =
+      banners::AppBannerManagerAndroid::FromWebContents(web_contents);
+  DCHECK(manager);
+  manager->RequestAppBanner(web_contents->GetLastCommittedURL(), true);
 }
 
 }  // namespace android
-}  // namespace chrome
 
 void OnRendererUnresponsive(JNIEnv* env,
                             const JavaParamRef<jclass>& clazz,
@@ -468,8 +447,8 @@ jboolean IsCapturingAudio(JNIEnv* env,
   content::WebContents* web_contents =
       content::WebContents::FromJavaWebContents(java_web_contents);
   scoped_refptr<MediaStreamCaptureIndicator> indicator =
-      MediaCaptureDevicesDispatcher::GetInstance()->
-          GetMediaStreamCaptureIndicator();
+      MediaCaptureDevicesDispatcher::GetInstance()
+          ->GetMediaStreamCaptureIndicator();
   return indicator->IsCapturingAudio(web_contents);
 }
 
@@ -479,7 +458,29 @@ jboolean IsCapturingVideo(JNIEnv* env,
   content::WebContents* web_contents =
       content::WebContents::FromJavaWebContents(java_web_contents);
   scoped_refptr<MediaStreamCaptureIndicator> indicator =
-      MediaCaptureDevicesDispatcher::GetInstance()->
-          GetMediaStreamCaptureIndicator();
+      MediaCaptureDevicesDispatcher::GetInstance()
+          ->GetMediaStreamCaptureIndicator();
   return indicator->IsCapturingVideo(web_contents);
+}
+
+jboolean IsCapturingScreen(JNIEnv* env,
+                           const JavaParamRef<jclass>& clazz,
+                           const JavaParamRef<jobject>& java_web_contents) {
+  content::WebContents* web_contents =
+      content::WebContents::FromJavaWebContents(java_web_contents);
+  scoped_refptr<MediaStreamCaptureIndicator> indicator =
+      MediaCaptureDevicesDispatcher::GetInstance()
+          ->GetMediaStreamCaptureIndicator();
+  return indicator->IsBeingMirrored(web_contents);
+}
+
+void NotifyStopped(JNIEnv* env,
+                   const JavaParamRef<jclass>& clazz,
+                   const JavaParamRef<jobject>& java_web_contents) {
+  content::WebContents* web_contents =
+      content::WebContents::FromJavaWebContents(java_web_contents);
+  scoped_refptr<MediaStreamCaptureIndicator> indicator =
+      MediaCaptureDevicesDispatcher::GetInstance()
+          ->GetMediaStreamCaptureIndicator();
+  indicator->NotifyStopped(web_contents);
 }
