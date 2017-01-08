@@ -40,6 +40,9 @@ gcc_toolchain("arm") {
   readelf = "${toolprefix}readelf"
   nm = "${toolprefix}nm"
 
+  extra_cppflags = "-fno-delete-null-pointer-checks"
+  extra_ldflags = "-Wl,--no-keep-memory -Wl,--stats"
+
   toolchain_args = {
     current_cpu = "arm"
     current_os = "linux"
@@ -78,6 +81,9 @@ gcc_toolchain("x86") {
   nm = "nm"
   ar = "ar"
   ld = cxx
+
+  extra_cppflags = "-fno-delete-null-pointer-checks"
+  extra_ldflags = "-Wl,--no-keep-memory -Wl,--stats"
 
   toolchain_args = {
     current_cpu = "x86"
@@ -118,6 +124,9 @@ gcc_toolchain("x64") {
   ar = "ar"
   ld = cxx
 
+  extra_cppflags = "-fno-delete-null-pointer-checks"
+  extra_ldflags = "-Wl,--no-keep-memory -Wl,--stats"
+
   toolchain_args = {
     current_cpu = "x64"
     current_os = "linux"
@@ -139,6 +148,9 @@ gcc_toolchain("mipsel") {
   ld = cxx
   readelf = "mipsel-linux-gnu-readelf"
   nm = "mipsel-linux-gnu-nm"
+
+  extra_cppflags = "-fno-delete-null-pointer-checks"
+  extra_ldflags = "-Wl,--no-keep-memory -Wl,--stats"
 
   toolchain_args = {
     cc_wrapper = ""
