@@ -192,7 +192,7 @@ std::string BuildUserAgentFromOSAndProduct(const std::string& os_info,
   std::string user_agent;
   base::StringAppendF(
       &user_agent,
-      "Mozilla/5.0 (%s) AppleWebKit/%d.%d (KHTML, like Gecko) %s Safari/%d.%d",
+      "Mozilla/5.0 (%s) AppleWebKit/%d.%d (KHTML, like Gecko) Endless %s Safari/%d.%d",
       os_info.c_str(),
       WEBKIT_VERSION_MAJOR,
       WEBKIT_VERSION_MINOR,
