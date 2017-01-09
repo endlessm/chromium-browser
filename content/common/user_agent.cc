@@ -189,13 +189,21 @@ std::string BuildUserAgentFromOSAndProduct(const std::string& os_info,
   // Derived from Safari's UA string.
   // This is done to expose our product name in a manner that is maximally
   // compatible with Safari, we hope!!
+
+  // We want to also add Chromium
+  std::string realproduct = product.c_str();
+  size_t pos;
+  if ((pos = realproduct.find("/")) != std::string::npos)
+      realproduct.replace(0, pos, "Chromium");
+
   std::string user_agent;
   base::StringAppendF(
       &user_agent,
-      "Mozilla/5.0 (%s) AppleWebKit/%d.%d (KHTML, like Gecko) Endless %s Safari/%d.%d",
+      "Mozilla/5.0 (%s) AppleWebKit/%d.%d (KHTML, like Gecko) Endless %s %s Safari/%d.%d",
       os_info.c_str(),
       WEBKIT_VERSION_MAJOR,
       WEBKIT_VERSION_MINOR,
+      realproduct.c_str(),
       product.c_str(),
       WEBKIT_VERSION_MAJOR,
       WEBKIT_VERSION_MINOR);
