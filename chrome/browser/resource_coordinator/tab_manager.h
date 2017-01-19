@@ -232,7 +232,7 @@ class TabManager : public TabStripModelObserver,
   // Duration during which a tab cannot be automatically discarded after having
   // been active.
   static constexpr base::TimeDelta kDiscardProtectionTime =
-      base::TimeDelta::FromMinutes(10);
+      base::TimeDelta::FromMinutes(5);
 
  private:
   friend class TabManagerStatsCollectorTest;
