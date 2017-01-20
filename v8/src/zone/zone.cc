@@ -87,6 +87,10 @@ void* Zone::New(size_t size) {
 
   // Check that the result has the proper alignment and return it.
   DCHECK(IsAddressAligned(result, kAlignment, 0));
+  if (kPointerSize == 4 && kAlignment == 4) {
+    DCHECK((size & 4) || IsAddressAligned(result, 8, 0));
+  }
+
   allocation_size_ += size;
   return reinterpret_cast<void*>(result);
 }
@@ -209,6 +213,10 @@ Address Zone::NewExpand(size_t size) {
 
   // Recompute 'top' and 'limit' based on the new segment.
   Address result = RoundUp(segment->start(), kAlignment);
+  if (kPointerSize == 4 && kAlignment == 4) {
+    result += ((~size) & 4) & (reinterpret_cast<intptr_t>(result) & 4);
+  }
+
   position_ = result + size;
   // Check for address overflow.
   // (Should not happen since the segment is guaranteed to accomodate
