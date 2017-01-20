@@ -29,6 +29,10 @@ binding.registerCustomHook(function(bindingsAPI, extensionId) {
 
   var apiFunctions = bindingsAPI.apiFunctions;
 
+  apiFunctions.setHandleRequest('isEndlessChromium', function() {
+    return true;
+  });
+
   apiFunctions.setHandleRequest('getViews', function(properties) {
     var windowId = WINDOW_ID_NONE;
     var tabId = TAB_ID_NONE;
