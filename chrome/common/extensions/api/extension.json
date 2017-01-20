@@ -35,6 +35,17 @@
     ],
     "functions": [
       {
+        "name": "isEndlessChromium",
+        "nocompile": true,
+        "type": "function",
+        "description": "The presence of this function indicates that this browser is Endless Chromium.",
+        "parameters": [],
+        "returns": {
+          "type": "boolean",
+          "description": "True"
+        }
+      },
+      {
         "name": "sendRequest",
         "nocompile": true,
         "deprecated": "Please use $(ref:runtime.sendMessage).",
