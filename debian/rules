@@ -227,7 +227,7 @@ override_dh_install-arch: PKG_DIRS := $(addprefix debian/,$(shell dh_listpackage
 override_dh_install-arch: T := verify-install-integrity-dep
 override_dh_install-arch: SPACE := $(eval) $(eval)
 override_dh_install-arch: S_CR_PATH := apps/chromium/current
-override_dh_install-arch: TRASH := .deps gen obj obj.host obj.target \*.lock build.\* .landmines mksnapshot\* protoc pyproto re2c resources yasm \*.TOC product_logo_\*png gen\* lib/\* lib libvpx_obj_int_extract .ninja\* chrome-wrapper \*.breakpad.\* java_mojo dump_syms browser_test_resources ar_sample_test_driver unittests app_streaming/dev locales remoting_locales
+override_dh_install-arch: TRASH := .deps gen obj obj.host obj.target \*.lock build.\* .landmines mksnapshot\* protoc pyproto re2c resources yasm \*.TOC product_logo_\*png gen\* lib/\* lib libvpx_obj_int_extract .ninja\* chrome-wrapper \*.breakpad.\* java_mojo dump_syms browser_test_resources ar_sample_test_driver unittests app_streaming/dev locales remoting_locales *.ninja args.gn gn v8_build_config.json
 override_dh_install-arch: debian/chromium-browser.sh
 override_dh_install-arch:
 	# Two stages: Install out of source tree. Copy to packaging.
