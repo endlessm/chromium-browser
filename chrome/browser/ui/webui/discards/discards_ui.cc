@@ -129,10 +129,6 @@ class DiscardsDetailsProviderImpl : public mojom::DiscardsDetailsProvider {
     memory.append(AddStringRow(base::IntToString(meminfo.total / 1024)));
     // Free ram
     memory.append(AddStringRow(base::IntToString(meminfo.free / 1024)));
-    // Swap Total
-    memory.append(AddStringRow(base::IntToString(meminfo.swap_total / 1024)));
-    // Swap Free
-    memory.append(AddStringRow(base::IntToString(meminfo.swap_free / 1024)));
     // Cached
     memory.append(AddStringRow(base::IntToString(meminfo.cached / 1024)));
     // Buffers
@@ -147,10 +143,10 @@ class DiscardsDetailsProviderImpl : public mojom::DiscardsDetailsProvider {
     memory.append(AddStringRow(base::IntToString(meminfo.dirty / 1024)));
 
     // Check base::endless::MemoryPressureMonitor::GetUsedMemoryInPercent to know where these values come from.
-    const int kSwapWeight = 4, kMinFileMemory = 50 * 1024;
-    int total_memory = meminfo.total + meminfo.swap_total / kSwapWeight;
+    const int kMinFileMemory = 50 * 1024;
+    int total_memory = meminfo.total;
     int file_memory = meminfo.active_file + meminfo.inactive_file - meminfo.dirty - kMinFileMemory;
-    int available_memory = meminfo.free + meminfo.swap_free / kSwapWeight + file_memory;
+    int available_memory = meminfo.free + file_memory;
     int percentage = ((total_memory - available_memory) * 100) / total_memory;
     // Memory in use (%)
     memory.append(AddStringRow(base::IntToString(percentage)));
