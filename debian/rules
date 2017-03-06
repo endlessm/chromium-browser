@@ -299,7 +299,6 @@ override_dh_install-arch:
 	mv -iv debian/tmp/$(LIB_DIR)/* debian/chromium-browser/$(LIB_DIR)/
 
 	install -T -m 755 debian/chromium-browser.sh debian/chromium-browser/usr/bin/chromium-browser
-	install -T -m 755 debian/chromium-browser-appmode.py debian/chromium-browser/usr/bin/chromium-browser-appmode
 
 	# Manpage is for wrong program name, and it's in a weird place.  Use and destroy.
 	mkdir -p debian/chromium-browser/usr/share/man/man1

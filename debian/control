@@ -53,6 +53,7 @@ Depends: ${shlibs:Depends}, ${misc:Depends},
 	xdg-utils,
 	chromium-codecs-ffmpeg (= ${binary:Version}),
 	chromium-browser-l10n
+Recommends: chromium-browser-appmode
 Suggests: webaccounts-chromium-extension,
 	unity-chromium-extension,
 	adobe-flashplugin
@@ -117,3 +118,17 @@ Description: WebDriver driver for the Chromium Browser
  WebDriver.
  .
  See http://code.google.com/p/selenium/wiki/ChromeDriver for details.
+
+Package: chromium-browser-appmode
+Architecture: any
+Pre-Depends: dpkg (>= 1.15.6)
+Depends: ${shlibs:Depends},
+	${misc:Depends},
+	chromium-browser,
+	python3,
+	python3-gi
+Provides: mime<x-scheme-handler/webapp>
+Description: Installs a script to handle webapp://<WM_CLASS>@<URI> URIs
+ This allows us to easily run chromium in application mode from inside
+ applications sandboxed with flatpak simply by using the OpenURI portal,
+ by specifying the desired WM_CLASS and final address to load in the URI.
