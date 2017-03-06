@@ -125,10 +125,22 @@ Pre-Depends: dpkg (>= 1.15.6)
 Depends: ${shlibs:Depends},
 	${misc:Depends},
 	chromium-browser,
+	flatpak,
+	gir1.2-flatpak-1.0,
+	gir1.2-glib-2.0,
 	python3,
 	python3-gi
+Suggests: eos-google-chrome-helper
 Provides: mime<x-scheme-handler/webapp>
 Description: Installs a script to handle webapp://<WM_CLASS>@<URI> URIs
- This allows us to easily run chromium in application mode from inside
- applications sandboxed with flatpak simply by using the OpenURI portal,
- by specifying the desired WM_CLASS and final address to load in the URI.
+ This allows us to easily run chromium in application mode by specifying
+ the desired WM_CLASS and final address to load in the URI.
+ .
+ As this handler gets installed in the OS, it can handle URLs loaded from
+ unsandboxed environments (e.g. Facebook, WhatsApp) as well as those from
+ sandboxed flatpak applications, that rely on the Flatpak's OpenURI portal.
+ .
+ If Google Chrome has been installed via the App Center (which requires
+ having the eos-google-chrome-helper package installed), this script will
+ consider using it instead of Chromium if it's set as the default browser,
+ otherwise Chromium will be used.
