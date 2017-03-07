@@ -1,0 +1,3 @@
+#!/usr/bin/dh-exec
+debian/chromium-browser-appmode.desktop usr/share/applications
+debian/chromium-browser-appmode.py => usr/bin/chromium-browser-appmode

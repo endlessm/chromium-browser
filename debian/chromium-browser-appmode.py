@@ -3,7 +3,7 @@
 # chromium-browser-appmode: takes an URI like webapp://<WM_CLASS>@<ACTUAL_URI>,
 # parses it and and launches chromium-browser with --class and --app arguments.
 #
-# Copyright (C) 2016 Endless Mobile, Inc.
+# Copyright (C) 2016, 2017 Endless Mobile, Inc.
 # Authors:
 #  Mario Sanchez Prada <mario@endlessm.com>
 #
@@ -24,6 +24,21 @@
 import os
 import subprocess
 import sys
+
+import gi
+gi.require_version('Flatpak', '1.0')
+from gi.repository import Flatpak
+from gi.repository import GLib, Gio
+
+
+CHROMIUM_COMMAND = 'chromium-browser'
+CHROMIUM_DATA_DIR = 'chromium-appmode'
+
+CHROME_COMMAND = 'eos-google-chrome'
+CHROME_DATA_DIR = 'chrome-appmode'
+
+FLATPAK_CHROME_APP_ID = 'com.google.Chrome'
+
 
 class ParsingError(Exception):
    def __init__(self, value):
@@ -58,14 +73,35 @@ if __name__ == '__main__':
    try:
       (wm_class, actual_uri) = parseURI(custom_uri)
 
-      # External web apps (i.e. URLs not managed by chromium-broser as extensions) need
+      scheme = GLib.uri_parse_scheme(actual_uri)
+      default_browser = Gio.AppInfo.get_default_for_uri_scheme(scheme)
+      print("Found default browser: {}".format(default_browser.get_display_name()))
+
+      # We only use Chrome if it's the default application AND it's installed, otherwise
+      # we use Chromium and ignore any other browser that might have been set (e.g. Firefox).
+      command = CHROMIUM_COMMAND
+      if CHROME_COMMAND in default_browser.get_executable():
+         installation = Flatpak.Installation.new_system()
+         try:
+            installation.get_current_installed_app(FLATPAK_CHROME_APP_ID, None)
+            print("Chrome set as the default application and available. Selecting...")
+            command = CHROME_COMMAND
+         except GLib.Error as e:
+            print("Chrome set as the default application but not available. Ignoring...")
+
+      # External web apps (i.e. URLs not managed by chromium-browser as extensions) need
       # to run in an isolated environment not to conflict with the main browsing session.
-      data_dir = os.path.expanduser('~/.config/chromium-appmode/{}'.format(wm_class))
-      subprocess.Popen(['chromium-browser',
+      data_dir = CHROME_DATA_DIR if command == CHROME_COMMAND else CHROMIUM_DATA_DIR
+      config_dir = os.path.expanduser('~/.config/{}/{}'.format(data_dir, wm_class))
+      print("Using {} to launch web application (config dir: {})...".format(command, config_dir))
+
+      subprocess.Popen([command,
                         '--class={}'.format(wm_class),
                         '--app={}'.format(actual_uri),
                         '--start-maximized',
-                        '--user-data-dir={}'.format(data_dir)])
+                        '--no-default-browser-check',
+                        '--no-first-run',
+                        '--user-data-dir={}'.format(config_dir)])
    except ParsingError as e:
       print('Error parsing custom URI: {}'.format(e.value))
       print('Usage: chromium-browser-appmode webapp://<WM_CLASS>@<URI>')
